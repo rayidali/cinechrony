@@ -132,8 +132,12 @@ export async function addMovie(formData: FormData) {
       status: 'To Watch',
     };
     
-    // Prevent adding duplicates
-    if (!movies.some(m => m.id === newMovie.id)) {
+    // Prevent adding duplicates: check for both movie ID and user
+    const movieExists = movies.some(
+      m => m.id === newMovie.id && m.addedBy === newMovie.addedBy
+    );
+
+    if (!movieExists) {
         movies.unshift(newMovie);
     }
 
