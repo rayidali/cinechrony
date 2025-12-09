@@ -1,3 +1,16 @@
 {
-  "placeholderImages": []
+  "placeholderImages": [
+    {
+      "id": "user-a-avatar",
+      "description": "Avatar for User A",
+      "imageUrl": "https://images.unsplash.com/photo-1529139574466-a303027c1d8b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwzfHxhYnN0cmFjdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc2NTIzODEzNXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "abstract portrait"
+    },
+    {
+      "id": "user-b-avatar",
+      "description": "Avatar for User B",
+      "imageUrl": "https://images.unsplash.com/photo-1527630941-4a229fd674ab?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3NDE5ODJ8MHwxfHNlYXJjaHwyfHxhYnN0cmFjdCUyMHBvcnRyYWl0fGVufDB8fHx8MTc2NTIzODEzNXww&ixlib=rb-4.1.0&q=80&w=1080",
+      "imageHint": "abstract portrait"
+    }
+  ]
 }
