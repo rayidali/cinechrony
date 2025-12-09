@@ -48,7 +48,7 @@ export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
         <CardTitle className="font-headline text-2xl">{movie.title}</CardTitle>
         <CardDescription className="font-bold">{movie.year}</CardDescription>
       </CardHeader>
-      <CardContent className="flex-grow flex items-center justify-center pt-0">
+      <CardContent className="flex-grow">
         <Image
           src={movie.posterUrl}
           alt={`Poster for ${movie.title}`}
@@ -58,7 +58,7 @@ export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
           data-ai-hint={movie.posterHint}
         />
       </CardContent>
-      <CardFooter className="flex justify-end gap-2 bg-secondary p-4 border-t-[3px] border-black">
+      <CardFooter className="flex justify-end gap-2 bg-secondary p-4 border-t-[3px] border-black mt-auto">
         {SocialIcon && movie.socialLink && (
             <Button asChild variant="outline" size="icon" className={retroButtonClass}>
                 <Link href={movie.socialLink} target="_blank" aria-label="Social media link">
