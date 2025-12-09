@@ -1,3 +1,4 @@
+
 "use client";
 
 import Image from "next/image";
@@ -48,7 +49,7 @@ export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
         <CardTitle className="font-headline text-2xl">{movie.title}</CardTitle>
         <CardDescription className="font-bold">{movie.year}</CardDescription>
       </CardHeader>
-      <CardContent className="flex-grow">
+      <CardContent>
         <Image
           src={movie.posterUrl}
           alt={`Poster for ${movie.title}`}
