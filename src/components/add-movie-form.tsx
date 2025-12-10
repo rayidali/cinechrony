@@ -17,22 +17,27 @@ import { useUser } from "@/firebase";
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
 async function tmdbFetch(path: string, params: Record<string, string> = {}) {
-  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!TMDB_ACCESS_TOKEN) {
+  // Use the API Key, which is the standard for client-side TMDB requests.
+  const TMDB_API_KEY = process.env.NEXT_PUBLIC_TMDB_API_KEY;
+  if (!TMDB_API_KEY) {
     // This will now properly throw on the client/server where it's called.
-    throw new Error('TMDB Access Token is not configured.');
+    throw new Error('TMDB API Key is not configured in .env.local');
   }
 
   const url = new URL(`${TMDB_API_BASE_URL}/${path}`);
+  // Add the API key to every request
+  url.searchParams.append('api_key', TMDB_API_KEY);
+
+  // Add any other params
   Object.entries(params).forEach(([key, value]) =>
     url.searchParams.append(key, value)
   );
 
+  // The API key is sent as a query param, so the Authorization header is not needed and should be removed.
   const options = {
     method: 'GET',
     headers: {
       accept: 'application/json',
-      Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
     },
   };
 
