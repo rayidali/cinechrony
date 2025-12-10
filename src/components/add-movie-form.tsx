@@ -104,24 +104,20 @@ export function AddMovieForm() {
   const { toast } = useToast();
 
   useEffect(() => {
-    // Don't search if the query is empty or a movie is already selected
     if (!query.trim() || selectedMovie) {
       setResults([]);
       return;
     }
 
-    // Set a timer to wait 300ms after the user stops typing
     const searchTimer = setTimeout(() => {
       startSearchTransition(async () => {
         const searchResults = await searchMovies(query);
-        // Only update results if the query hasn't changed (to avoid race conditions)
         setResults(searchResults);
       });
-    }, 300); // 300ms debounce delay
+    }, 300);
 
-    // Clear the timer if the user types again before the 300ms is up
     return () => clearTimeout(searchTimer);
-  }, [query, selectedMovie]); // Re-run this effect when the query or selectedMovie changes
+  }, [query, selectedMovie]); 
   
   const handleSelectMovie = (movie: SearchResult) => {
     setSelectedMovie(movie);
@@ -133,15 +129,22 @@ export function AddMovieForm() {
     if (!selectedMovie || !user) return;
     
     formData.append("movieData", JSON.stringify(selectedMovie));
-    // Pass the user's UID instead of 'User A' or 'User B'
     formData.append("addedBy", user.uid);
 
     startAddingTransition(async () => {
-      await addMovie(formData);
-      toast({
-        title: "Movie Added!",
-        description: `${selectedMovie.title} has been added to your list.`,
-      });
+      const result = await addMovie(formData);
+      if (result?.error) {
+        toast({
+          variant: 'destructive',
+          title: "Error adding movie",
+          description: result.error,
+        });
+      } else {
+        toast({
+          title: "Movie Added!",
+          description: `${selectedMovie.title} has been added to your list.`,
+        });
+      }
       setSelectedMovie(null);
     });
   };

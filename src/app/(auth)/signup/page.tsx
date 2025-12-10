@@ -3,14 +3,14 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { useAuth, initiateEmailSignUp } from '@/firebase';
+import { useAuth } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Film, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { onAuthStateChanged, User } from 'firebase/auth';
+import { createUserWithEmailAndPassword } from 'firebase/auth';
 
 
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
@@ -27,22 +27,18 @@ export default function SignUpPage() {
   const handleSignUp = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsLoading(true);
-
-    onAuthStateChanged(auth, (user: User | null) => {
-        if (user) {
-          setIsLoading(false);
-          router.push('/');
-        }
-      }, (error) => {
-          setIsLoading(false);
-          toast({
-            variant: "destructive",
-            title: "Sign Up Failed",
-            description: error.message || "Could not create account.",
-          });
+    try {
+      await createUserWithEmailAndPassword(auth, email, password);
+      router.push('/');
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Sign Up Failed",
+        description: error.message || "Could not create account.",
       });
-
-    initiateEmailSignUp(auth, email, password);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
