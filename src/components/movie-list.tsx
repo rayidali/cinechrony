@@ -4,31 +4,19 @@ import { useState } from 'react';
 import type { Movie } from '@/lib/types';
 import { MovieCard } from './movie-card';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { PlaceHolderImages } from '@/lib/placeholder-images';
 import { Film } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 
 type MovieListProps = {
   initialMovies: Movie[];
   isLoading: boolean;
+  listId?: string; // Optional listId for list-specific operations
 };
 
-export function MovieList({ initialMovies, isLoading }: MovieListProps) {
+export function MovieList({ initialMovies, isLoading, listId }: MovieListProps) {
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
 
-  // This filtering is now done on the client side based on the real-time data
-  const filteredMovies = initialMovies.filter(
-    (movie) => movie.status === filter
-  );
-  
-  // NOTE: The userAvatars object is now obsolete as we will get user data from Firestore.
-  // This is kept for now to prevent breaking the MovieCard, but will be removed in a future step.
-  const userAvatars: { [key: string]: string | undefined } = {
-    'User A': PlaceHolderImages.find((img) => img.id === 'user-a-avatar')
-      ?.imageUrl,
-    'User B': PlaceHolderImages.find((img) => img.id === 'user-b-avatar')
-      ?.imageUrl,
-  };
+  const filteredMovies = initialMovies.filter((movie) => movie.status === filter);
 
   return (
     <div className="w-full">
@@ -57,8 +45,8 @@ export function MovieList({ initialMovies, isLoading }: MovieListProps) {
 
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-           <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
-           <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
+          <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
+          <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
         </div>
       ) : filteredMovies.length > 0 ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
@@ -66,8 +54,7 @@ export function MovieList({ initialMovies, isLoading }: MovieListProps) {
             <MovieCard
               key={`${movie.id}-${movie.addedBy}`}
               movie={movie}
-              // This will be replaced with real user data soon
-              userAvatarUrl={userAvatars[movie.addedBy]}
+              listId={listId}
             />
           ))}
         </div>

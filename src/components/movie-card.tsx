@@ -29,13 +29,14 @@ import { doc } from 'firebase/firestore';
 
 type MovieCardProps = {
   movie: Movie;
-  userAvatarUrl?: string; // This will be phased out
+  listId?: string; // Optional listId for list-specific operations
+  userAvatarUrl?: string; // Legacy prop, will be phased out
 };
 
 const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
 
-export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
+export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
   const [isPending, startTransition] = useTransition();
   const { toast } = useToast();
   const { user } = useUser();
@@ -44,7 +45,10 @@ export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
   // Do not render if we don't have the necessary info
   if (!user) return null;
 
-  const movieDocRef = doc(firestore, 'users', user.uid, 'movies', movie.id);
+  // Build the correct document reference based on whether we have a listId
+  const movieDocRef = listId
+    ? doc(firestore, 'users', user.uid, 'lists', listId, 'movies', movie.id)
+    : doc(firestore, 'users', user.uid, 'movies', movie.id);
 
   const handleToggle = () => {
     startTransition(() => {
@@ -77,7 +81,6 @@ export function MovieCard({ movie, userAvatarUrl }: MovieCardProps) {
             <AvatarImage src={user?.photoURL || userAvatarUrl} alt={user?.displayName || 'user'} />
             <AvatarFallback>{user?.email?.charAt(0).toUpperCase()}</AvatarFallback>
           </Avatar>
-          {/* We use the current user's display name or email */}
           <p className="font-bold text-sm">Added by {user?.displayName || user?.email}</p>
         </div>
         <CardTitle>{movie.title}</CardTitle>

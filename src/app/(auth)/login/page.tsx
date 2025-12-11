@@ -28,7 +28,7 @@ export default function LoginPage() {
     setIsLoading(true);
     try {
       await signInWithEmailAndPassword(auth, email, password);
-      router.push('/');
+      router.push('/lists');
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -45,7 +45,7 @@ export default function LoginPage() {
       <div className="flex items-center gap-4 mb-6">
         <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
         <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
-          Film Collab
+          MovieNight
         </h1>
       </div>
       <Card className="w-full max-w-sm bg-secondary rounded-xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">

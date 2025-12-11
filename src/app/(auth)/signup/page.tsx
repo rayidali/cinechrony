@@ -11,7 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Film, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
-
+import { createUserProfile } from '@/app/actions';
 
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
@@ -19,6 +19,7 @@ const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0
 export default function SignUpPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [displayName, setDisplayName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const auth = useAuth();
   const router = useRouter();
@@ -28,8 +29,23 @@ export default function SignUpPage() {
     e.preventDefault();
     setIsLoading(true);
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      router.push('/');
+      // Create Firebase Auth user
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      const user = userCredential.user;
+
+      // Create user profile and default list in Firestore
+      const result = await createUserProfile(
+        user.uid,
+        user.email || email,
+        displayName || null
+      );
+
+      if (result.error) {
+        console.error('Failed to create profile:', result.error);
+        // User is created but profile failed - they'll get one on first visit
+      }
+
+      router.push('/lists');
     } catch (error: any) {
       toast({
         variant: "destructive",
@@ -43,19 +59,30 @@ export default function SignUpPage() {
 
   return (
     <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
-        <div className="flex items-center gap-4 mb-6">
-            <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
-            <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
-            Film Collab
-            </h1>
+      <div className="flex items-center gap-4 mb-6">
+        <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
+        <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
+          MovieNight
+        </h1>
       </div>
       <Card className="w-full max-w-sm bg-secondary rounded-xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
         <CardHeader>
           <CardTitle>Create an Account</CardTitle>
-          <CardDescription>Join Film Collab to start your watchlist.</CardDescription>
+          <CardDescription>Join MovieNight to start your watchlists.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="displayName">Display Name (optional)</Label>
+              <Input
+                id="displayName"
+                type="text"
+                placeholder="Your name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className={retroInputClass}
+              />
+            </div>
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
               <Input
@@ -77,6 +104,7 @@ export default function SignUpPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
+                minLength={6}
                 className={retroInputClass}
               />
             </div>
