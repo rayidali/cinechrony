@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Film, Plus, Loader2, List, MoreVertical, Pencil, Trash2 } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -41,6 +41,12 @@ import type { MovieList } from '@/lib/types';
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
+// Pending action type for deferred dialog opening
+type PendingAction = {
+  type: 'rename' | 'delete';
+  list: MovieList;
+} | null;
+
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
@@ -54,6 +60,10 @@ export default function ListsPage() {
   const [selectedList, setSelectedList] = useState<MovieList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+
+  // Track which dropdown is open (by list id) and pending action
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // Query for user's lists
   const listsQuery = useMemoFirebase(() => {
@@ -104,6 +114,26 @@ export default function ListsPage() {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  // Process pending action after dropdown closes
+  useEffect(() => {
+    if (pendingAction && openDropdownId === null) {
+      // Dropdown is now closed, safe to open the dialog
+      const { type, list } = pendingAction;
+
+      if (type === 'rename') {
+        setSelectedList(list);
+        setNewListName(list.name);
+        setIsRenameOpen(true);
+      } else if (type === 'delete') {
+        setSelectedList(list);
+        setIsDeleteOpen(true);
+      }
+
+      // Clear the pending action
+      setPendingAction(null);
+    }
+  }, [pendingAction, openDropdownId]);
 
   const handleCreateList = async () => {
     if (!user || !newListName.trim()) return;
@@ -163,16 +193,37 @@ export default function ListsPage() {
     }
   };
 
-  const openRenameDialog = (list: MovieList) => {
-    setSelectedList(list);
-    setNewListName(list.name);
-    setIsRenameOpen(true);
-  };
+  // Schedule rename action - will execute after dropdown closes
+  const scheduleRename = useCallback((list: MovieList) => {
+    setPendingAction({ type: 'rename', list });
+    setOpenDropdownId(null); // Close dropdown
+  }, []);
 
-  const openDeleteDialog = (list: MovieList) => {
-    setSelectedList(list);
-    setIsDeleteOpen(true);
-  };
+  // Schedule delete action - will execute after dropdown closes
+  const scheduleDelete = useCallback((list: MovieList) => {
+    setPendingAction({ type: 'delete', list });
+    setOpenDropdownId(null); // Close dropdown
+  }, []);
+
+  // Handle dropdown open state change
+  const handleDropdownOpenChange = useCallback((listId: string, open: boolean) => {
+    if (open) {
+      setOpenDropdownId(listId);
+    } else {
+      setOpenDropdownId(null);
+    }
+  }, []);
+
+  // Handle card click - only navigate if dropdown is closed
+  const handleCardClick = useCallback((listId: string, e: React.MouseEvent) => {
+    // Don't navigate if clicking on the dropdown trigger or if a dropdown is open
+    if (openDropdownId !== null) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    router.push(`/lists/${listId}`);
+  }, [openDropdownId, router]);
 
   if (isUserLoading || !user || isInitializing) {
     return (
@@ -251,7 +302,7 @@ export default function ListsPage() {
                 <Card
                   key={list.id}
                   className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] hover:shadow-[2px_2px_0px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200 cursor-pointer group"
-                  onClick={() => router.push(`/lists/${list.id}`)}
+                  onClick={(e) => handleCardClick(list.id, e)}
                 >
                   <CardHeader className="pb-2">
                     <div className="flex justify-between items-start">
@@ -264,7 +315,10 @@ export default function ListsPage() {
                           </span>
                         )}
                       </div>
-                      <DropdownMenu>
+                      <DropdownMenu
+                        open={openDropdownId === list.id}
+                        onOpenChange={(open) => handleDropdownOpenChange(list.id, open)}
+                      >
                         <DropdownMenuTrigger asChild>
                           <Button
                             variant="ghost"
@@ -276,13 +330,13 @@ export default function ListsPage() {
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="border-[2px] border-black">
-                          <DropdownMenuItem onSelect={() => openRenameDialog(list)}>
+                          <DropdownMenuItem onSelect={() => scheduleRename(list)}>
                             <Pencil className="h-4 w-4 mr-2" />
                             Rename
                           </DropdownMenuItem>
                           {!list.isDefault && (
                             <DropdownMenuItem
-                              onSelect={() => openDeleteDialog(list)}
+                              onSelect={() => scheduleDelete(list)}
                               className="text-destructive"
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
