@@ -276,13 +276,13 @@ export default function ListsPage() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="border-[2px] border-black">
-                            <DropdownMenuItem onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRenameDialog(list); }}>
+                            <DropdownMenuItem onSelect={() => openRenameDialog(list)}>
                               <Pencil className="h-4 w-4 mr-2" />
                               Rename
                             </DropdownMenuItem>
                             {!list.isDefault && (
                               <DropdownMenuItem
-                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); openDeleteDialog(list); }}
+                                onSelect={() => openDeleteDialog(list)}
                                 className="text-destructive"
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
