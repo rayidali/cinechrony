@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ExternalLink, Loader2, Play } from 'lucide-react';
 import Link from 'next/link';
 import { parseVideoUrl, getProviderDisplayName, type ParsedVideo } from '@/lib/video-utils';
@@ -14,6 +14,7 @@ const retroButtonClass =
 type VideoEmbedProps = {
   url: string | undefined;
   autoLoad?: boolean;
+  autoPlay?: boolean; // If true, uses autoplay embed URL
 };
 
 function ProviderIcon({ provider }: { provider: ParsedVideo['provider'] }) {
@@ -29,10 +30,18 @@ function ProviderIcon({ provider }: { provider: ParsedVideo['provider'] }) {
   }
 }
 
-export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
-  const [isLoaded, setIsLoaded] = useState(autoLoad);
+export function VideoEmbed({ url, autoLoad = false, autoPlay = true }: VideoEmbedProps) {
+  const [isLoaded, setIsLoaded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const parsedVideo = parseVideoUrl(url);
+
+  // Auto-load the embed if autoLoad is true
+  useEffect(() => {
+    if (autoLoad) {
+      setIsLoading(true);
+      setIsLoaded(true);
+    }
+  }, [autoLoad]);
 
   if (!parsedVideo || !parsedVideo.provider) {
     // Fallback for unsupported URLs - just show a link
@@ -59,6 +68,9 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
   const handleIframeLoad = () => {
     setIsLoading(false);
   };
+
+  // Get the correct embed URL (with or without autoplay)
+  const embedSrc = autoPlay ? parsedVideo.embedUrlAutoplay : parsedVideo.embedUrl;
 
   // Show "Click to load" button before loading the iframe
   if (!isLoaded) {
@@ -93,9 +105,9 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
         </div>
       )}
 
-      {parsedVideo.provider === 'youtube' && parsedVideo.embedUrl && (
+      {parsedVideo.provider === 'youtube' && embedSrc && (
         <iframe
-          src={parsedVideo.embedUrl}
+          src={embedSrc}
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
@@ -104,9 +116,9 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
         />
       )}
 
-      {parsedVideo.provider === 'tiktok' && parsedVideo.embedUrl && (
+      {parsedVideo.provider === 'tiktok' && embedSrc && (
         <iframe
-          src={parsedVideo.embedUrl}
+          src={embedSrc}
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen
@@ -115,9 +127,9 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
         />
       )}
 
-      {parsedVideo.provider === 'instagram' && parsedVideo.embedUrl && (
+      {parsedVideo.provider === 'instagram' && embedSrc && (
         <iframe
-          src={parsedVideo.embedUrl}
+          src={embedSrc}
           className="w-full h-full"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           allowFullScreen

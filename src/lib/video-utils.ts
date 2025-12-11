@@ -6,6 +6,7 @@ export type ParsedVideo = {
   provider: VideoProvider;
   url: string;
   embedUrl: string | null;
+  embedUrlAutoplay: string | null; // Embed URL with autoplay enabled
   videoId: string | null;
 };
 
@@ -27,10 +28,12 @@ export function parseVideoUrl(url: string | undefined): ParsedVideo | null {
   );
   if (tiktokMatch) {
     const videoId = tiktokMatch[1] || tiktokMatch[2];
+    const baseEmbed = `https://www.tiktok.com/embed/v2/${videoId}`;
     return {
       provider: 'tiktok',
       url: normalizedUrl,
-      embedUrl: `https://www.tiktok.com/embed/v2/${videoId}`,
+      embedUrl: baseEmbed,
+      embedUrlAutoplay: `${baseEmbed}?autoplay=1`,
       videoId,
     };
   }
@@ -44,10 +47,12 @@ export function parseVideoUrl(url: string | undefined): ParsedVideo | null {
   );
   if (instagramMatch) {
     const videoId = instagramMatch[1];
+    const baseEmbed = `https://www.instagram.com/p/${videoId}/embed`;
     return {
       provider: 'instagram',
       url: normalizedUrl,
-      embedUrl: `https://www.instagram.com/p/${videoId}/embed`,
+      embedUrl: baseEmbed,
+      embedUrlAutoplay: `${baseEmbed}?autoplay=1`,
       videoId,
     };
   }
@@ -62,10 +67,13 @@ export function parseVideoUrl(url: string | undefined): ParsedVideo | null {
   );
   if (youtubeMatch) {
     const videoId = youtubeMatch[1];
+    const baseEmbed = `https://www.youtube.com/embed/${videoId}`;
     return {
       provider: 'youtube',
       url: normalizedUrl,
-      embedUrl: `https://www.youtube.com/embed/${videoId}`,
+      embedUrl: baseEmbed,
+      // YouTube autoplay with loop and mute (mute required for autoplay)
+      embedUrlAutoplay: `${baseEmbed}?autoplay=1&mute=1&loop=1&playlist=${videoId}`,
       videoId,
     };
   }
@@ -75,6 +83,7 @@ export function parseVideoUrl(url: string | undefined): ParsedVideo | null {
     provider: null,
     url: normalizedUrl,
     embedUrl: null,
+    embedUrlAutoplay: null,
     videoId: null,
   };
 }

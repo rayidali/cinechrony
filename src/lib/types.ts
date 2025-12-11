@@ -30,6 +30,11 @@ export type Movie = {
   socialLink?: string;
   status: 'To Watch' | 'Watched';
   createdAt?: Date;
+  // Optional TMDB details (stored when adding movie)
+  tmdbId?: number;
+  overview?: string;
+  rating?: number; // TMDB vote_average
+  backdropUrl?: string;
 };
 
 // Search result from TMDB (used when adding movies)
@@ -39,6 +44,36 @@ export type SearchResult = {
   year: string;
   posterUrl: string;
   posterHint: string;
+  // Additional details for expanded view
+  tmdbId?: number;
+  overview?: string;
+  rating?: number;
+  backdropUrl?: string;
+};
+
+// TMDB movie credits (cast)
+export type TMDBCast = {
+  id: number;
+  name: string;
+  character: string;
+  profile_path: string | null;
+};
+
+// TMDB movie details response
+export type TMDBMovieDetails = {
+  id: number;
+  title: string;
+  overview: string;
+  release_date: string;
+  vote_average: number;
+  vote_count: number;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  runtime: number | null;
+  genres: Array<{ id: number; name: string }>;
+  credits?: {
+    cast: TMDBCast[];
+  };
 };
 
 // Raw TMDB API search result
