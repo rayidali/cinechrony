@@ -1006,18 +1006,31 @@ export async function getUserPublicLists(userId: string) {
   const db = getDb();
 
   try {
+    // Query without orderBy to avoid needing a composite index
     const listsSnapshot = await db
       .collection('users')
       .doc(userId)
       .collection('lists')
       .where('isPublic', '==', true)
-      .orderBy('updatedAt', 'desc')
       .get();
 
     const lists = listsSnapshot.docs.map((doc) => ({
       id: doc.id,
       ...doc.data(),
-    }));
+    })) as Array<{ id: string; updatedAt?: { toDate?: () => Date } | Date; [key: string]: unknown }>;
+
+    // Sort client-side by updatedAt descending
+    lists.sort((a, b) => {
+      const aUpdated = a.updatedAt;
+      const bUpdated = b.updatedAt;
+      const aDate = (aUpdated && typeof aUpdated === 'object' && 'toDate' in aUpdated && typeof aUpdated.toDate === 'function')
+        ? aUpdated.toDate()
+        : (aUpdated instanceof Date ? aUpdated : new Date(0));
+      const bDate = (bUpdated && typeof bUpdated === 'object' && 'toDate' in bUpdated && typeof bUpdated.toDate === 'function')
+        ? bUpdated.toDate()
+        : (bUpdated instanceof Date ? bUpdated : new Date(0));
+      return bDate.getTime() - aDate.getTime();
+    });
 
     return { lists };
   } catch (error) {
@@ -1274,12 +1287,7 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
   const db = getDb();
 
   try {
-    // Only owner can invite
-    if (inviterId !== listOwnerId) {
-      return { error: 'Only the list owner can invite collaborators.' };
-    }
-
-    // Get list info
+    // Get list info first to check permissions
     const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
     if (!listDoc.exists) {
       return { error: 'List not found.' };
@@ -1287,6 +1295,13 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
 
     const listData = listDoc.data();
     const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Allow owner or collaborators to invite
+    const isOwner = inviterId === listOwnerId;
+    const isCollaborator = collaboratorIds.includes(inviterId);
+    if (!isOwner && !isCollaborator) {
+      return { error: 'Only list members can invite collaborators.' };
+    }
 
     // Check max members
     if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
@@ -1352,12 +1367,7 @@ export async function createInviteLink(inviterId: string, listOwnerId: string, l
   const db = getDb();
 
   try {
-    // Only owner can create invite links
-    if (inviterId !== listOwnerId) {
-      return { error: 'Only the list owner can create invite links.' };
-    }
-
-    // Get list info
+    // Get list info first to check permissions
     const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
     if (!listDoc.exists) {
       return { error: 'List not found.' };
@@ -1365,6 +1375,13 @@ export async function createInviteLink(inviterId: string, listOwnerId: string, l
 
     const listData = listDoc.data();
     const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Allow owner or collaborators to create invite links
+    const isOwner = inviterId === listOwnerId;
+    const isCollaborator = collaboratorIds.includes(inviterId);
+    if (!isOwner && !isCollaborator) {
+      return { error: 'Only list members can create invite links.' };
+    }
 
     // Check max members
     if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
@@ -1484,15 +1501,25 @@ export async function getMyPendingInvites(userId: string) {
 }
 
 /**
- * Get pending invites for a list (for owner to see).
+ * Get pending invites for a list (for owner or collaborators to see).
  */
 export async function getListPendingInvites(userId: string, listOwnerId: string, listId: string) {
   const db = getDb();
 
   try {
-    // Only owner can see pending invites
-    if (userId !== listOwnerId) {
-      return { error: 'Only the list owner can view pending invites.', invites: [] };
+    // Check if user is owner or collaborator
+    const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+    if (!listDoc.exists) {
+      return { error: 'List not found.', invites: [] };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+    const isOwner = userId === listOwnerId;
+    const isCollaborator = collaboratorIds.includes(userId);
+
+    if (!isOwner && !isCollaborator) {
+      return { error: 'Only list members can view pending invites.', invites: [] };
     }
 
     const invitesSnapshot = await db.collection('invites')

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Film, Plus, Loader2, List, MoreVertical, Pencil, Trash2, Eye, EyeOff } from 'lucide-react';
+import { Film, Plus, Loader2, List, MoreVertical, Pencil, Trash2, Eye, EyeOff, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { collection, orderBy, query } from 'firebase/firestore';
@@ -36,8 +36,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility } from '@/app/actions';
+import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
+
+// Extended type for collaborative lists with owner info
+type CollaborativeList = MovieList & {
+  ownerUsername?: string;
+  ownerDisplayName?: string;
+};
 
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
@@ -61,6 +67,8 @@ export default function ListsPage() {
   const [selectedList, setSelectedList] = useState<MovieList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
+  const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
+  const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
 
   // Track which dropdown is open (by list id) and pending action
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -115,6 +123,27 @@ export default function ListsPage() {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  // Fetch collaborative lists
+  useEffect(() => {
+    async function fetchCollaborativeLists() {
+      if (!user || isUserLoading) return;
+
+      setIsLoadingCollaborative(true);
+      try {
+        const result = await getCollaborativeLists(user.uid);
+        if (result.lists) {
+          setCollaborativeLists(result.lists as CollaborativeList[]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch collaborative lists:', error);
+      } finally {
+        setIsLoadingCollaborative(false);
+      }
+    }
+
+    fetchCollaborativeLists();
+  }, [user, isUserLoading]);
 
   // Process pending action after dropdown closes
   useEffect(() => {
@@ -417,6 +446,47 @@ export default function ListsPage() {
                 </Button>
               </CardContent>
             </Card>
+          )}
+
+          {/* Collaborative Lists Section */}
+          {(isLoadingCollaborative || collaborativeLists.length > 0) && (
+            <div className="mt-12">
+              <div className="flex items-center gap-2 mb-6">
+                <Users className="h-5 w-5 text-primary" />
+                <h2 className="text-2xl font-headline font-bold">Shared Lists</h2>
+              </div>
+              {isLoadingCollaborative ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {[1, 2].map((i) => (
+                    <div key={i} className="h-32 bg-secondary rounded-lg border-[3px] border-black animate-pulse" />
+                  ))}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {collaborativeLists.map((list) => (
+                    <Card
+                      key={`collab-${list.id}`}
+                      className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer group active:shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 touch-manipulation"
+                      onClick={() => router.push(`/lists/${list.id}?owner=${list.ownerId}`)}
+                    >
+                      <CardHeader className="pb-2">
+                        <div className="flex justify-between items-start">
+                          <div className="flex items-center gap-2">
+                            <Users className="h-5 w-5 text-primary" />
+                            <CardTitle className="text-lg">{list.name}</CardTitle>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <CardDescription>
+                          Owned by {list.ownerDisplayName || list.ownerUsername || 'Unknown'}
+                        </CardDescription>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
           )}
         </div>
 

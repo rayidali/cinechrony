@@ -109,7 +109,7 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
 
   const isOwner = user?.uid === listOwnerId;
   const isCollaborator = members.some(m => m.uid === user?.uid && m.role === 'collaborator');
-  const canInvite = isOwner && members.length < 3;
+  const canInvite = (isOwner || isCollaborator) && members.length < 3;
 
   useEffect(() => {
     async function loadData() {
@@ -117,12 +117,20 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
 
       setIsLoading(true);
       try {
-        const [membersResult, invitesResult] = await Promise.all([
-          getListMembers(listOwnerId, listId),
-          isOwner ? getListPendingInvites(user.uid, listOwnerId, listId) : Promise.resolve({ invites: [] }),
-        ]);
+        // First get members to check if user is collaborator
+        const membersResult = await getListMembers(listOwnerId, listId);
+        const membersList = membersResult.members || [];
+        setMembers(membersList);
 
-        setMembers(membersResult.members || []);
+        // Check if user is owner or collaborator to load pending invites
+        const userIsOwner = user.uid === listOwnerId;
+        const userIsCollaborator = membersList.some(m => m.uid === user.uid && m.role === 'collaborator');
+        const canSeeInvites = userIsOwner || userIsCollaborator;
+
+        const invitesResult = canSeeInvites
+          ? await getListPendingInvites(user.uid, listOwnerId, listId)
+          : { invites: [] };
+
         setPendingInvites(invitesResult.invites || []);
       } catch (error) {
         console.error('Failed to load collaborators:', error);
@@ -496,8 +504,8 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
           ))}
         </div>
 
-        {/* Pending invites (owner only) */}
-        {isOwner && pendingInvites.length > 0 && (
+        {/* Pending invites (owner and collaborators) */}
+        {(isOwner || isCollaborator) && pendingInvites.length > 0 && (
           <div className="pt-4 border-t">
             <h4 className="text-sm font-medium mb-2">Pending Invites</h4>
             <div className="space-y-2">
