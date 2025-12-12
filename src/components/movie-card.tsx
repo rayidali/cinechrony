@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -19,7 +19,7 @@ import {
   Users
 } from 'lucide-react';
 
-import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBCast, UserProfile } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -27,6 +27,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
+import { getUserProfile } from '@/app/actions';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -217,9 +218,23 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
   const [newSocialLink, setNewSocialLink] = useState(movie.socialLink || '');
   const [movieDetails, setMovieDetails] = useState<ExtendedMovieDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
+
+  // Fetch the user who added this movie
+  useEffect(() => {
+    async function fetchAddedByUser() {
+      if (movie.addedBy) {
+        const result = await getUserProfile(movie.addedBy);
+        if (result.user) {
+          setAddedByUser(result.user);
+        }
+      }
+    }
+    fetchAddedByUser();
+  }, [movie.addedBy]);
 
   // Parse video URL to check if we have an embeddable video
   const parsedVideo = parseVideoUrl(movie.socialLink);
@@ -303,10 +318,10 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
               <Avatar className="h-10 w-10 border-[3px] border-black">
-                <AvatarImage src={user?.photoURL || userAvatarUrl} alt={user?.displayName || 'user'} />
-                <AvatarFallback>{user?.email?.charAt(0).toUpperCase()}</AvatarFallback>
+                <AvatarImage src={addedByUser?.photoURL || userAvatarUrl} alt={addedByUser?.displayName || 'user'} />
+                <AvatarFallback>{(addedByUser?.displayName || addedByUser?.username || addedByUser?.email || '?').charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
-              <p className="font-bold text-sm">Added by {user?.displayName || user?.email?.split('@')[0]}</p>
+              <p className="font-bold text-sm">Added by {addedByUser?.displayName || addedByUser?.username || addedByUser?.email?.split('@')[0] || 'Unknown'}</p>
             </div>
             {/* Expand to modal button */}
             <Button
@@ -477,19 +492,19 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
                 disabled={isPending}
                 size="icon"
                 className={`${retroButtonClass} w-auto px-4`}
-                variant={movie.status === 'Watched' ? 'default' : 'secondary'}
+                variant={movie.status === 'Watched' ? 'secondary' : 'default'}
               >
                 {isPending ? (
                   <Loader2 className="h-5 w-5 animate-spin" />
                 ) : (
                   <>
                     {movie.status === 'To Watch' ? (
-                      <Eye className="h-5 w-5" />
-                    ) : (
                       <EyeOff className="h-5 w-5" />
+                    ) : (
+                      <Eye className="h-5 w-5" />
                     )}
                     <span className="ml-2 font-bold">
-                      {movie.status === 'Watched' ? 'Watched' : 'To Watch'}
+                      {movie.status === 'To Watch' ? 'Mark Watched' : 'Mark To Watch'}
                     </span>
                   </>
                 )}
