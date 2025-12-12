@@ -523,20 +523,74 @@ export async function getUserProfile(userId: string) {
  */
 export async function getUserByUsername(username: string) {
   const db = getDb();
+  const normalizedUsername = username.toLowerCase().trim();
+
+  console.log(`[getUserByUsername] Looking for username: "${normalizedUsername}"`);
 
   try {
-    const usersSnapshot = await db.collection('users')
-      .where('username', '==', username.toLowerCase())
+    // First try to find by usernameLower (preferred, normalized field)
+    let usersSnapshot = await db.collection('users')
+      .where('usernameLower', '==', normalizedUsername)
       .limit(1)
       .get();
 
+    // Fallback: try the username field directly (for users created before migration)
     if (usersSnapshot.empty) {
+      console.log(`[getUserByUsername] Not found by usernameLower, trying username field`);
+      usersSnapshot = await db.collection('users')
+        .where('username', '==', normalizedUsername)
+        .limit(1)
+        .get();
+    }
+
+    // Last resort: scan all users (handles case mismatches for old users)
+    if (usersSnapshot.empty) {
+      console.log(`[getUserByUsername] Not found by direct query, scanning all users`);
+      const allUsersSnapshot = await db.collection('users').get();
+      const matchingDoc = allUsersSnapshot.docs.find((doc) => {
+        const data = doc.data();
+        const storedUsername = (data.username || '').toLowerCase();
+        const storedUsernameLower = data.usernameLower || '';
+        return storedUsername === normalizedUsername || storedUsernameLower === normalizedUsername;
+      });
+
+      if (matchingDoc) {
+        console.log(`[getUserByUsername] Found user via scan: ${matchingDoc.id}`);
+        const data = matchingDoc.data();
+        return {
+          user: {
+            uid: data.uid || matchingDoc.id,
+            email: data.email || '',
+            displayName: data.displayName || null,
+            photoURL: data.photoURL || null,
+            username: data.username || null,
+            createdAt: data.createdAt?.toDate?.() || new Date(),
+            followersCount: data.followersCount || 0,
+            followingCount: data.followingCount || 0,
+          } as UserProfile
+        };
+      }
+
+      console.log(`[getUserByUsername] User not found: "${normalizedUsername}"`);
       return { error: 'User not found.' };
     }
 
-    return { user: usersSnapshot.docs[0].data() as UserProfile };
+    console.log(`[getUserByUsername] Found user: ${usersSnapshot.docs[0].id}`);
+    const data = usersSnapshot.docs[0].data();
+    return {
+      user: {
+        uid: data.uid || usersSnapshot.docs[0].id,
+        email: data.email || '',
+        displayName: data.displayName || null,
+        photoURL: data.photoURL || null,
+        username: data.username || null,
+        createdAt: data.createdAt?.toDate?.() || new Date(),
+        followersCount: data.followersCount || 0,
+        followingCount: data.followingCount || 0,
+      } as UserProfile
+    };
   } catch (error) {
-    console.error('Failed to get user by username:', error);
+    console.error('[getUserByUsername] Failed:', error);
     return { error: 'Failed to get user by username.' };
   }
 }
