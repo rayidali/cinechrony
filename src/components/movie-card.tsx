@@ -53,7 +53,9 @@ import { doc } from 'firebase/firestore';
 type MovieCardProps = {
   movie: Movie;
   listId?: string;
+  listOwnerId?: string; // For collaborative lists
   userAvatarUrl?: string;
+  canEdit?: boolean; // Whether user can edit this movie
 };
 
 // OMDB API response type
@@ -207,7 +209,7 @@ async function searchMovieByTitle(title: string, year: string): Promise<number |
   }
 }
 
-export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
+export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit = true }: MovieCardProps) {
   const [isPending, startTransition] = useTransition();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -227,9 +229,12 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
   // Do not render if we don't have the necessary info
   if (!user) return null;
 
+  // Use listOwnerId for collaborative lists, otherwise use current user
+  const effectiveOwnerId = listOwnerId || user.uid;
+
   // Build the correct document reference based on whether we have a listId
   const movieDocRef = listId
-    ? doc(firestore, 'users', user.uid, 'lists', listId, 'movies', movie.id)
+    ? doc(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies', movie.id)
     : doc(firestore, 'users', user.uid, 'movies', movie.id);
 
   const handleToggle = () => {

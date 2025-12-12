@@ -141,7 +141,8 @@ export default function MyProfilePage() {
 
   const handleToggleVisibility = async (listId: string, currentlyPublic: boolean) => {
     if (!user) return;
-    const result = await toggleListVisibility(user.uid, listId);
+    // For user's own lists, userId and listOwnerId are the same
+    const result = await toggleListVisibility(user.uid, user.uid, listId);
     if (result.error) {
       toast({ variant: 'destructive', title: 'Error', description: result.error });
     } else {

@@ -30,6 +30,38 @@ export type MovieList = {
   isDefault: boolean; // The first list created for a user
   isPublic: boolean; // Whether the list is visible to followers
   ownerId: string; // User who owns the list
+  collaboratorIds?: string[]; // Users who can edit this list (max 3 total including owner)
+};
+
+// List member role
+export type ListRole = 'owner' | 'collaborator';
+
+// List member info (for display)
+export type ListMember = {
+  uid: string;
+  username: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  role: ListRole;
+};
+
+// List invitation status
+export type InviteStatus = 'pending' | 'accepted' | 'declined' | 'revoked';
+
+// List invitation
+export type ListInvite = {
+  id: string;
+  listId: string;
+  listName: string;
+  listOwnerId: string; // Owner who created the list
+  inviterId: string; // User who sent the invite (always owner for now)
+  inviterUsername: string | null;
+  inviteeId?: string; // Target user ID (for in-app invites)
+  inviteeUsername?: string | null;
+  inviteCode?: string; // For link-based invites
+  status: InviteStatus;
+  createdAt: Date;
+  expiresAt?: Date; // Optional expiration for link invites
 };
 
 // A movie in a list

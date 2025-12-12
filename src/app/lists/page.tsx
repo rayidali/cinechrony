@@ -162,7 +162,8 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      const result = await renameList(user.uid, selectedList.id, newListName);
+      // For user's own lists, userId and listOwnerId are the same
+      const result = await renameList(user.uid, user.uid, selectedList.id, newListName);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
@@ -181,7 +182,8 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      const result = await deleteList(user.uid, selectedList.id);
+      // For user's own lists, userId and listOwnerId are the same
+      const result = await deleteList(user.uid, user.uid, selectedList.id);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
@@ -212,7 +214,8 @@ export default function ListsPage() {
     setOpenDropdownId(null); // Close dropdown first
 
     try {
-      const result = await toggleListVisibility(user.uid, list.id);
+      // For user's own lists, userId and listOwnerId are the same
+      const result = await toggleListVisibility(user.uid, user.uid, list.id);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
