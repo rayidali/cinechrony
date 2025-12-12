@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -12,7 +12,6 @@ import {
   Loader2,
   Trash2,
   Youtube,
-  Star,
   Pencil,
   X,
   ExternalLink,
@@ -57,6 +56,24 @@ type MovieCardProps = {
   userAvatarUrl?: string;
 };
 
+// OMDB API response type
+type OMDBResponse = {
+  Title: string;
+  Year: string;
+  imdbRating: string;
+  imdbVotes: string;
+  imdbID: string;
+  Response: string;
+  Error?: string;
+};
+
+// Extended movie details with IMDB data
+type ExtendedMovieDetails = TMDBMovieDetails & {
+  imdbId?: string;
+  imdbRating?: string;
+  imdbVotes?: string;
+};
+
 const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
 
@@ -64,6 +81,7 @@ const retroInputClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
+const OMDB_API_KEY = 'fc5ca6d0';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -81,14 +99,39 @@ function getProviderIcon(url: string | undefined) {
   }
 }
 
-// Fetch movie details from TMDB
-async function fetchMovieDetails(tmdbId: number): Promise<TMDBMovieDetails | null> {
+// IMDB Logo component
+function IMDbLogo({ className = "h-4" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 64 32"
+      className={className}
+      fill="currentColor"
+    >
+      <rect width="64" height="32" rx="4" fill="#F5C518"/>
+      <text
+        x="32"
+        y="23"
+        textAnchor="middle"
+        fill="black"
+        fontSize="18"
+        fontWeight="bold"
+        fontFamily="Arial, sans-serif"
+      >
+        IMDb
+      </text>
+    </svg>
+  );
+}
+
+// Fetch movie details from TMDB (including external IDs for IMDB ID)
+async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails | null> {
   const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
   if (!accessToken) return null;
 
   try {
+    // Fetch movie details with credits and external IDs
     const response = await fetch(
-      `${TMDB_API_BASE_URL}/movie/${tmdbId}?append_to_response=credits`,
+      `${TMDB_API_BASE_URL}/movie/${tmdbId}?append_to_response=credits,external_ids`,
       {
         headers: {
           accept: 'application/json',
@@ -97,7 +140,42 @@ async function fetchMovieDetails(tmdbId: number): Promise<TMDBMovieDetails | nul
       }
     );
     if (!response.ok) return null;
-    return response.json();
+    const data = await response.json();
+
+    // Extract IMDB ID from external_ids
+    const imdbId = data.external_ids?.imdb_id;
+
+    // If we have an IMDB ID, fetch the rating from OMDB
+    if (imdbId) {
+      const omdbData = await fetchOMDBRating(imdbId);
+      if (omdbData) {
+        return {
+          ...data,
+          imdbId,
+          imdbRating: omdbData.imdbRating,
+          imdbVotes: omdbData.imdbVotes,
+        };
+      }
+    }
+
+    return { ...data, imdbId };
+  } catch {
+    return null;
+  }
+}
+
+// Fetch IMDB rating from OMDB API
+async function fetchOMDBRating(imdbId: string): Promise<OMDBResponse | null> {
+  try {
+    const response = await fetch(
+      `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}`
+    );
+    if (!response.ok) return null;
+    const data: OMDBResponse = await response.json();
+    if (data.Response === 'True') {
+      return data;
+    }
+    return null;
   } catch {
     return null;
   }
@@ -135,7 +213,7 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditingSocialLink, setIsEditingSocialLink] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState(movie.socialLink || '');
-  const [movieDetails, setMovieDetails] = useState<TMDBMovieDetails | null>(null);
+  const [movieDetails, setMovieDetails] = useState<ExtendedMovieDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
@@ -241,12 +319,6 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
           </CardTitle>
           <CardDescription className="flex items-center gap-2">
             <span>{movie.year}</span>
-            {movie.rating && (
-              <span className="flex items-center gap-1 text-yellow-600">
-                <Star className="h-3 w-3 fill-current" />
-                {movie.rating.toFixed(1)}
-              </span>
-            )}
           </CardDescription>
         </CardHeader>
 
@@ -459,21 +531,31 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
 
             {/* Right: Details */}
             <div className="space-y-4">
-              {/* Rating */}
-              {(movieDetails?.vote_average || movie.rating) && (
-                <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1 bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full font-bold">
-                    <Star className="h-4 w-4 fill-current" />
-                    <span>{(movieDetails?.vote_average || movie.rating)?.toFixed(1)}</span>
-                    <span className="text-xs font-normal">/10</span>
+              {/* IMDB Rating */}
+              {isLoadingDetails ? (
+                <div className="flex items-center gap-2 text-muted-foreground">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Loading rating...
+                </div>
+              ) : movieDetails?.imdbRating && movieDetails.imdbRating !== 'N/A' ? (
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
+                    <IMDbLogo className="h-5 w-auto" />
+                    <span className="text-lg">{movieDetails.imdbRating}</span>
+                    <span className="text-sm font-normal">/10</span>
                   </div>
-                  {movieDetails?.vote_count && (
+                  {movieDetails.imdbVotes && (
                     <span className="text-sm text-muted-foreground">
-                      ({movieDetails.vote_count.toLocaleString()} votes)
+                      ({movieDetails.imdbVotes} votes)
                     </span>
                   )}
                 </div>
-              )}
+              ) : movieDetails ? (
+                <div className="flex items-center gap-2 text-muted-foreground text-sm">
+                  <IMDbLogo className="h-4 w-auto opacity-50" />
+                  <span>Rating not available</span>
+                </div>
+              ) : null}
 
               {/* Runtime & Genres */}
               {movieDetails && (
@@ -539,6 +621,20 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
                     ))}
                   </div>
                 </div>
+              )}
+
+              {/* IMDB Link */}
+              {movieDetails?.imdbId && (
+                <Button asChild variant="outline" className="w-full">
+                  <Link
+                    href={`https://www.imdb.com/title/${movieDetails.imdbId}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <IMDbLogo className="h-4 w-auto mr-2" />
+                    View on IMDb
+                  </Link>
+                </Button>
               )}
 
               {/* Watch Status */}
