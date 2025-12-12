@@ -462,12 +462,10 @@ export default function PublicListPage() {
       <div className="container mx-auto p-4 md:p-8">
         <header className="mb-8">
           <div className="w-full flex justify-between items-center mb-6">
-            <Link href={`/profile/${username}`}>
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Profile
-              </Button>
-            </Link>
+            <Button variant="ghost" className="gap-2" onClick={() => router.replace(`/profile/${username}`)}>
+              <ArrowLeft className="h-4 w-4" />
+              Back to Profile
+            </Button>
           </div>
 
           {/* List Header */}

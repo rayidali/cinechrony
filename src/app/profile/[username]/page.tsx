@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft, Loader2, List, Lock, X } from 'lucide-react';
+import { Film, ArrowLeft, Loader2, List, Lock, X, Users } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -12,10 +12,18 @@ import { useToast } from '@/hooks/use-toast';
 import {
   getUserByUsername,
   getUserPublicLists,
+  getCollaborativeLists,
   getFollowers,
   getFollowing,
 } from '@/app/actions';
 import type { UserProfile, MovieList } from '@/lib/types';
+
+// Type for collaborative list with owner info
+interface CollaborativeList extends MovieList {
+  ownerId: string;
+  ownerName?: string;
+  ownerUsername?: string;
+}
 
 // Get initials from name
 function getInitials(displayName: string | null | undefined, username: string | null | undefined, email: string | null | undefined): string {
@@ -44,6 +52,7 @@ export default function UserProfilePage() {
 
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [lists, setLists] = useState<MovieList[]>([]);
+  const [sharedLists, setSharedLists] = useState<CollaborativeList[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [followers, setFollowers] = useState<UserProfile[]>([]);
@@ -73,10 +82,25 @@ export default function UserProfilePage() {
           return;
         }
 
-        // Get public lists
+        // Get public lists owned by this user
         const listsResult = await getUserPublicLists(profileResult.user.uid);
         if (listsResult.lists) {
           setLists(listsResult.lists as MovieList[]);
+        }
+
+        // Get collaborative lists this user is part of (filter for public ones)
+        try {
+          const collabResult = await getCollaborativeLists(profileResult.user.uid);
+          if (collabResult.lists) {
+            // Filter to only show public collaborative lists
+            const publicSharedLists = (collabResult.lists as CollaborativeList[]).filter(
+              list => list.isPublic
+            );
+            setSharedLists(publicSharedLists);
+          }
+        } catch (collabErr) {
+          console.error('Failed to load collaborative lists:', collabErr);
+          // Don't fail the whole page if collaborative lists fail to load
         }
       } catch (err) {
         console.error('Failed to load profile:', err);
@@ -262,6 +286,38 @@ export default function UserProfilePage() {
             </Card>
           )}
         </section>
+
+        {/* Shared/Collaborative Lists */}
+        {sharedLists.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-xl font-headline font-bold mb-4 flex items-center gap-2">
+              <Users className="h-5 w-5" />
+              Shared Lists
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {sharedLists.map((list) => (
+                <Link
+                  key={list.id}
+                  href={`/profile/${list.ownerUsername}/lists/${list.id}`}
+                >
+                  <Card className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
+                    <CardHeader className="pb-2">
+                      <div className="flex items-center gap-2">
+                        <Users className="h-5 w-5 text-primary" />
+                        <CardTitle className="text-lg">{list.name}</CardTitle>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <CardDescription>
+                        Shared by {list.ownerName || list.ownerUsername}
+                      </CardDescription>
+                    </CardContent>
+                  </Card>
+                </Link>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* Followers Modal */}
         {showFollowers && (
