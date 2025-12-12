@@ -11,9 +11,11 @@ type MovieListProps = {
   initialMovies: Movie[];
   isLoading: boolean;
   listId?: string; // Optional listId for list-specific operations
+  listOwnerId?: string; // For collaborative lists
+  canEdit?: boolean; // Whether user can edit movies in this list
 };
 
-export function MovieList({ initialMovies, isLoading, listId }: MovieListProps) {
+export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEdit = true }: MovieListProps) {
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
 
   const filteredMovies = initialMovies.filter((movie) => movie.status === filter);
@@ -55,6 +57,8 @@ export function MovieList({ initialMovies, isLoading, listId }: MovieListProps) 
               key={`${movie.id}-${movie.addedBy}`}
               movie={movie}
               listId={listId}
+              listOwnerId={listOwnerId}
+              canEdit={canEdit}
             />
           ))}
         </div>

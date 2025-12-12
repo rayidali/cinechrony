@@ -1,18 +1,18 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft } from 'lucide-react';
+import { Film, ArrowLeft, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { AddMovieFormForList } from '@/components/add-movie-form-list';
+import { ListCollaborators } from '@/components/list-collaborators';
+import { getCollaborativeLists } from '@/app/actions';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
-
-const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
 export default function ListDetailPage() {
   const { user, isUserLoading } = useUser();
@@ -21,21 +21,62 @@ export default function ListDetailPage() {
   const listId = params.listId as string;
   const firestore = useFirestore();
 
-  // Get list details
-  const listDocRef = useMemoFirebase(() => {
+  // State for collaborative list lookup
+  const [collaborativeListOwner, setCollaborativeListOwner] = useState<string | null>(null);
+  const [isCheckingCollab, setIsCheckingCollab] = useState(false);
+
+  // Determine the effective owner ID (user's own or collaborative)
+  const effectiveOwnerId = collaborativeListOwner || user?.uid;
+
+  // Get list details from user's own collection first
+  const ownListDocRef = useMemoFirebase(() => {
     if (!user || !listId) return null;
     return doc(firestore, 'users', user.uid, 'lists', listId);
   }, [firestore, user, listId]);
 
-  const { data: listData, isLoading: isLoadingList } = useDoc<MovieListType>(listDocRef);
+  const { data: ownListData, isLoading: isLoadingOwnList } = useDoc<MovieListType>(ownListDocRef);
+
+  // Get list details from collaborative list owner's collection
+  const collabListDocRef = useMemoFirebase(() => {
+    if (!collaborativeListOwner || !listId) return null;
+    return doc(firestore, 'users', collaborativeListOwner, 'lists', listId);
+  }, [firestore, collaborativeListOwner, listId]);
+
+  const { data: collabListData, isLoading: isLoadingCollabList } = useDoc<MovieListType>(collabListDocRef);
+
+  // Use whichever list data we have
+  const listData = ownListData || collabListData;
+  const isLoadingList = isLoadingOwnList || (collaborativeListOwner && isLoadingCollabList);
 
   // Get movies in this list
   const moviesQuery = useMemoFirebase(() => {
-    if (!user || !listId) return null;
-    return collection(firestore, 'users', user.uid, 'lists', listId, 'movies');
-  }, [firestore, user, listId]);
+    if (!effectiveOwnerId || !listId) return null;
+    return collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies');
+  }, [firestore, effectiveOwnerId, listId]);
 
   const { data: movies, isLoading: isLoadingMovies } = useCollection<Movie>(moviesQuery);
+
+  // Check for collaborative lists if own list not found
+  useEffect(() => {
+    async function checkCollaborativeLists() {
+      if (!user || isLoadingOwnList || ownListData || isCheckingCollab) return;
+
+      setIsCheckingCollab(true);
+      try {
+        const result = await getCollaborativeLists(user.uid);
+        const collabList = result.lists?.find(l => l.id === listId);
+        if (collabList) {
+          setCollaborativeListOwner(collabList.ownerId);
+        }
+      } catch (error) {
+        console.error('Failed to check collaborative lists:', error);
+      } finally {
+        setIsCheckingCollab(false);
+      }
+    }
+
+    checkCollaborativeLists();
+  }, [user, listId, isLoadingOwnList, ownListData, isCheckingCollab]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -44,11 +85,47 @@ export default function ListDetailPage() {
     }
   }, [user, isUserLoading, router]);
 
+  // Determine if user can edit this list
+  const isOwner = effectiveOwnerId === user?.uid && !collaborativeListOwner;
+  const isCollaborator = !!collaborativeListOwner;
+  const canEdit = isOwner || isCollaborator;
+
+  // Check if this is a collaborative list (has collaborators)
+  const hasCollaborators = (listData?.collaboratorIds?.length ?? 0) > 0;
+  const showCollaborators = isOwner || isCollaborator || hasCollaborators;
+
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Film className="h-12 w-12 text-primary animate-spin" />
       </div>
+    );
+  }
+
+  // Show loading while checking for collaborative lists
+  if (isCheckingCollab || (isLoadingOwnList && !ownListData)) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <Film className="h-12 w-12 text-primary animate-spin" />
+      </div>
+    );
+  }
+
+  // List not found
+  if (!listData && !isLoadingList) {
+    return (
+      <main className="min-h-screen bg-background font-body text-foreground">
+        <div className="container mx-auto p-4 md:p-8">
+          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <Film className="h-16 w-16 text-muted-foreground mb-4" />
+            <h1 className="text-2xl font-headline font-bold mb-2">List Not Found</h1>
+            <p className="text-muted-foreground mb-4">This list doesn&apos;t exist or you don&apos;t have access.</p>
+            <Link href="/lists">
+              <Button>Go to My Lists</Button>
+            </Link>
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -66,26 +143,56 @@ export default function ListDetailPage() {
             <UserAvatar />
           </div>
           <div className="flex flex-col items-center">
-            <div className="flex items-center gap-4 mb-6">
+            <div className="flex items-center gap-4 mb-2">
               <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
               <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
                 {isLoadingList ? '...' : listData?.name || 'List'}
               </h1>
             </div>
+
+            {/* Collaborative badge */}
+            {isCollaborator && (
+              <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
+                <Users className="h-4 w-4" />
+                <span>Collaborative list</span>
+              </div>
+            )}
+
             <p className="max-w-2xl text-center text-muted-foreground mb-8">
               Add movies, track what to watch, and what you&apos;ve watched.
             </p>
-            <div className="w-full max-w-2xl">
-              <AddMovieFormForList listId={listId} />
-            </div>
+
+            {canEdit && (
+              <div className="w-full max-w-2xl">
+                <AddMovieFormForList listId={listId} listOwnerId={effectiveOwnerId} />
+              </div>
+            )}
           </div>
         </header>
 
-        <MovieList
-          initialMovies={movies || []}
-          isLoading={isLoadingMovies}
-          listId={listId}
-        />
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+          {/* Movie list */}
+          <div className="lg:col-span-3">
+            <MovieList
+              initialMovies={movies || []}
+              isLoading={isLoadingMovies}
+              listId={listId}
+              listOwnerId={effectiveOwnerId}
+              canEdit={canEdit}
+            />
+          </div>
+
+          {/* Collaborators sidebar */}
+          {showCollaborators && effectiveOwnerId && listData && (
+            <div className="lg:col-span-1">
+              <ListCollaborators
+                listId={listId}
+                listOwnerId={effectiveOwnerId}
+                listName={listData.name}
+              />
+            </div>
+          )}
+        </div>
       </div>
     </main>
   );

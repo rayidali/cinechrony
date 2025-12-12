@@ -1,32 +1,23 @@
 /**
- * Core Philosophy: This ruleset enforces a strict user-ownership model. All user-generated
- * content, such as their movie lists and associated social links, is stored in a private
- * data tree accessible only to the user who created it. The default security posture is to
- * deny all access, granting permissions explicitly based on authenticated user ownership.
+ * Core Philosophy: This ruleset enforces a user-ownership model with support for
+ * collaborative lists. User-generated content is stored in a private data tree
+ * accessible to the owner and optionally to collaborators. The default security
+ * posture is to deny all access, granting permissions explicitly.
  *
- * Data Structure: The data is organized hierarchically to reflect ownership. All data for a
- * specific user is nested under the `/users/{userId}` document. This includes their profile,
- * their list of movies in a subcollection (`/movies`), and any social links associated with
- * those movies (`/movies/{movieId}/socialLinks`).
+ * Data Structure:
+ * - /users/{userId} - User profiles (public read)
+ * - /users/{userId}/lists/{listId} - Movie lists (owner + collaborators can edit)
+ * - /users/{userId}/lists/{listId}/movies/{movieId} - Movies in a list
+ * - /users/{userId}/followers/{followerId} - Who follows this user
+ * - /users/{userId}/following/{followingId} - Who this user follows
+ * - /invites/{inviteId} - List collaboration invites
+ * - /usernames/{username} - Username reservations
  *
  * Key Security Decisions:
- * - User Enumeration is Disallowed: Listing documents from the top-level `/users`
- *   collection is explicitly forbidden to protect user privacy.
- * - Path-Based Security: Authorization is primarily determined by the `{userId}` wildcard
- *   in the document path, ensuring that a user can only access data within their own tree.
- * - Relational Integrity: On creation, rules ensure that internal ID fields (e.g.,
- *   `addedByUserId`) correctly match the document's path, creating a consistent and
- *   secure data graph. These key relational fields are enforced as immutable on update.
- *
- * Denormalization for Authorization: This ruleset's structure is a prime example of using
- * the database path for authorization. By nesting user-specific collections like `movies`
- * under `/users/{userId}`, we avoid slow and costly `get()` calls to other documents to
- * verify ownership. The path itself contains all the necessary authorization context.
- *
- * Structural Segregation: User data is completely segregated into private subcollections.
- * This is a highly secure and performant pattern that prevents accidental data leaks and
- * ensures that `list` operations are inherently secure, as a user can only query within
- * their own isolated data space.
+ * - User profiles are publicly readable for search/discovery
+ * - Lists can be public (read by anyone) or private (owner + collaborators only)
+ * - Collaborators are stored in list.collaboratorIds array
+ * - Invites use either direct user ID or shareable invite codes
  */
 rules_version = '2';
 service cloud.firestore {
@@ -45,128 +36,209 @@ service cloud.firestore {
 
     /**
      * Checks if the currently authenticated user's UID matches the provided userId.
-     * This is the primary function for establishing document ownership.
      */
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
     /**
-     * A robust check for update and delete operations. It verifies that the user is the
-     * owner AND that the document they are trying to modify already exists.
+     * Checks if the authenticated user is a collaborator on the list.
      */
-    function isExistingOwner(userId) {
-      return isOwner(userId) && resource != null;
-    }
-    
-    /**
-     * Validates a new user document on creation.
-     * Ensures the document's internal `id` field matches its path ID for consistency.
-     */
-    function isNewUserValid(userId) {
-      return request.resource.data.id == userId;
+    function isCollaborator(listData) {
+      return isSignedIn() &&
+             listData.collaboratorIds != null &&
+             request.auth.uid in listData.collaboratorIds;
     }
 
     /**
-     * Validates an existing user document on update.
-     * Enforces that the internal `id` field is immutable.
+     * Checks if user can view a list (public, owner, or collaborator).
      */
-    function isExistingUserValid() {
-      return request.resource.data.id == resource.data.id;
+    function canViewList(listData, ownerId) {
+      return listData.isPublic == true ||
+             isOwner(ownerId) ||
+             isCollaborator(listData);
     }
 
     /**
-     * Validates a new movie document on creation.
-     * Ensures the `addedByUserId` foreign key points to the correct owner from the path.
+     * Checks if user can edit a list (owner or collaborator).
      */
-    function isNewMovieValid(userId) {
-      return request.resource.data.addedByUserId == userId;
-    }
-
-    /**
-     * Validates an existing movie document on update.
-     * Enforces that the `addedByUserId` field is immutable.
-     */
-    function isExistingMovieValid() {
-      return request.resource.data.addedByUserId == resource.data.addedByUserId;
-    }
-
-    /**
-     * Validates a new social link on creation.
-     * Ensures the `movieId` foreign key points to the correct parent movie from the path.
-     */
-    function isNewSocialLinkValid(movieId) {
-      return request.resource.data.movieId == movieId;
-    }
-
-    /**
-     * Validates an existing social link on update.
-     * Enforces that the `movieId` field is immutable.
-     */
-    function isExistingSocialLinkValid() {
-      return request.resource.data.movieId == resource.data.movieId;
+    function canEditList(listData, ownerId) {
+      return isOwner(ownerId) || isCollaborator(listData);
     }
 
     // ------------------------------------------------------------------------
-    // Collection Rules
+    // Users Collection
     // ------------------------------------------------------------------------
 
     /**
-     * @description Manages user profile documents. A user can create their own profile,
-     *   and read, update, or delete it thereafter. Listing all users is forbidden.
      * @path /users/{userId}
-     * @allow (create) An authenticated user creating their own user document:
-     *   `auth.uid == 'user123'`, `create /users/user123`
-     * @deny (list) Any user trying to list all user documents:
-     *   `auth.uid == 'user123'`, `list /users`
-     * @deny (update) A user trying to update another user's profile:
-     *   `auth.uid == 'user123'`, `update /users/user456`
-     * @principle Restricts access to a user's own data tree and prevents user enumeration.
+     * User profile documents are publicly readable for search and profile views.
+     * Only the user can write to their own profile.
      */
     match /users/{userId} {
-      allow get: if isOwner(userId);
-      allow list: if false;
-      allow create: if isOwner(userId) && isNewUserValid(userId);
-      allow update: if isExistingOwner(userId) && isExistingUserValid();
-      allow delete: if isExistingOwner(userId);
+      // Allow public read for search, profiles, followers/following display
+      allow read: if true;
+
+      // Only owner can create/update/delete their profile
+      allow create: if isOwner(userId);
+      allow update: if isOwner(userId);
+      allow delete: if isOwner(userId);
+
+      // ------------------------------------------------------------------------
+      // Lists Subcollection
+      // ------------------------------------------------------------------------
 
       /**
-       * @description Manages the movies a user has added to their list. Access is
-       *   restricted to the owner of the parent user document.
-       * @path /users/{userId}/movies/{movieId}
-       * @allow (create) An authenticated user adding a movie to their own list:
-       *   `auth.uid == 'user123'`, `create /users/user123/movies/movieABC`
-       * @allow (list) An authenticated user listing their own movies:
-       *   `auth.uid == 'user123'`, `list /users/user123/movies`
-       * @deny (get) A user trying to read a movie from another user's list:
-       *   `auth.uid == 'user123'`, `get /users/user456/movies/movieABC`
-       * @principle Enforces document ownership for all operations within a user-specific subcollection.
+       * @path /users/{userId}/lists/{listId}
+       * Movie lists. Owner has full control. Public lists can be read by anyone.
+       * Collaborators can read the list.
        */
-      match /movies/{movieId} {
-        allow get: if isOwner(userId);
-        allow list: if isOwner(userId);
-        allow create: if isOwner(userId) && isNewMovieValid(userId);
-        allow update: if isExistingOwner(userId) && isExistingMovieValid();
-        allow delete: if isExistingOwner(userId);
+      match /lists/{listId} {
+        // Owner can do anything
+        allow read, write: if isOwner(userId);
+
+        // Public lists can be read by anyone
+        allow read: if resource.data.isPublic == true;
+
+        // Collaborators can read the list
+        allow read: if isCollaborator(resource.data);
+
+        // Collaborators cannot modify list metadata (name, visibility, etc.)
+        // They can only add/remove movies (see movies subcollection below)
+
+        // ------------------------------------------------------------------------
+        // Movies in Lists
+        // ------------------------------------------------------------------------
 
         /**
-         * @description Manages social media links associated with a specific movie in a
-         *   user's list. Access is inherited from the top-level user owner.
-         * @path /users/{userId}/movies/{movieId}/socialLinks/{socialLinkId}
-         * @allow (create) An authenticated user adding a social link to their own movie:
-         *   `auth.uid == 'user123'`, `create /users/user123/movies/movieABC/socialLinks/linkXYZ`
-         * @deny (delete) A user trying to delete a social link from another user's movie:
-         *   `auth.uid == 'user123'`, `delete /users/user456/movies/movieABC/socialLinks/linkXYZ`
-         * @principle Secures nested subcollections by continuing the path-based ownership model.
+         * @path /users/{userId}/lists/{listId}/movies/{movieId}
+         * Movies within a list. Owner and collaborators can edit.
+         * Public lists allow public read.
          */
-        match /socialLinks/{socialLinkId} {
-          allow get: if isOwner(userId);
-          allow list: if isOwner(userId);
-          allow create: if isOwner(userId) && isNewSocialLinkValid(movieId);
-          allow update: if isExistingOwner(userId) && isExistingSocialLinkValid();
-          allow delete: if isExistingOwner(userId);
+        match /movies/{movieId} {
+          // Get the parent list data for permission checks
+          function getList() {
+            return get(/databases/$(database)/documents/users/$(userId)/lists/$(listId)).data;
+          }
+
+          // Owner can do anything
+          allow read, write: if isOwner(userId);
+
+          // Collaborators can read and write movies
+          allow read, write: if isCollaborator(getList());
+
+          // Public lists allow public read
+          allow read: if getList().isPublic == true;
         }
       }
+
+      // ------------------------------------------------------------------------
+      // Legacy Movies Collection (for backwards compatibility)
+      // ------------------------------------------------------------------------
+
+      /**
+       * @path /users/{userId}/movies/{movieId}
+       * Legacy: Direct movie collection (before lists feature).
+       */
+      match /movies/{movieId} {
+        allow read, write: if isOwner(userId);
+
+        match /socialLinks/{socialLinkId} {
+          allow read, write: if isOwner(userId);
+        }
+      }
+
+      // ------------------------------------------------------------------------
+      // Followers/Following
+      // ------------------------------------------------------------------------
+
+      /**
+       * @path /users/{userId}/followers/{followerId}
+       * Who follows this user. The follower creates/deletes their own entry.
+       */
+      match /followers/{followerId} {
+        // Anyone can read followers (for counts, lists)
+        allow read: if true;
+
+        // Only the follower can create/delete their follow
+        allow create, delete: if isOwner(followerId);
+
+        // No updates - follow is binary
+        allow update: if false;
+      }
+
+      /**
+       * @path /users/{userId}/following/{followingId}
+       * Who this user follows. The user manages their own following list.
+       */
+      match /following/{followingId} {
+        // Owner can do anything
+        allow read, write: if isOwner(userId);
+
+        // Others can read to check if they're followed
+        allow read: if isSignedIn();
+      }
+    }
+
+    // ------------------------------------------------------------------------
+    // Invites Collection
+    // ------------------------------------------------------------------------
+
+    /**
+     * @path /invites/{inviteId}
+     * List collaboration invites. Can be direct (to a user) or link-based (with code).
+     */
+    match /invites/{inviteId} {
+      // Anyone can read an invite (needed for link-based invites)
+      allow read: if true;
+
+      // List owner can create invites
+      allow create: if isSignedIn() &&
+                      request.resource.data.inviterId == request.auth.uid;
+
+      // List owner can update/revoke their invites
+      allow update: if isSignedIn() &&
+                      resource.data.listOwnerId == request.auth.uid;
+
+      // Invitee can accept/decline their direct invite
+      allow update: if isSignedIn() &&
+                      resource.data.inviteeId == request.auth.uid &&
+                      request.resource.data.status in ['accepted', 'declined'];
+
+      // For link-based invites, any authenticated user can accept
+      // (they become the invitee by accepting)
+      allow update: if isSignedIn() &&
+                      resource.data.inviteCode != null &&
+                      resource.data.status == 'pending' &&
+                      request.resource.data.status == 'accepted';
+
+      // List owner can delete invites
+      allow delete: if isSignedIn() &&
+                      resource.data.listOwnerId == request.auth.uid;
+    }
+
+    // ------------------------------------------------------------------------
+    // Usernames Collection
+    // ------------------------------------------------------------------------
+
+    /**
+     * @path /usernames/{username}
+     * Username reservations to ensure uniqueness.
+     */
+    match /usernames/{username} {
+      // Anyone can read to check availability
+      allow read: if true;
+
+      // Only create if uid matches auth
+      allow create: if isSignedIn() &&
+                      request.resource.data.uid == request.auth.uid;
+
+      // Only owner can delete (to free up username)
+      allow delete: if isSignedIn() &&
+                      resource.data.uid == request.auth.uid;
+
+      // No updates - to change username, delete and recreate
+      allow update: if false;
     }
   }
 }

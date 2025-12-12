@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { SearchResult, UserProfile } from '@/lib/types';
+import type { SearchResult, UserProfile, ListInvite, ListMember } from '@/lib/types';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getFirebaseAdminApp } from '@/firebase/admin';
 
@@ -199,12 +199,18 @@ export async function createList(userId: string, name: string, isPublic: boolean
 
 /**
  * Renames a list.
+ * Only the list owner can rename.
  */
-export async function renameList(userId: string, listId: string, newName: string) {
+export async function renameList(userId: string, listOwnerId: string, listId: string, newName: string) {
   const db = getDb();
 
   try {
-    const listRef = db.collection('users').doc(userId).collection('lists').doc(listId);
+    // Only owner can rename
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can rename the list.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
     await listRef.update({
       name: newName.trim(),
       updatedAt: FieldValue.serverTimestamp(),
@@ -222,12 +228,18 @@ export async function renameList(userId: string, listId: string, newName: string
 /**
  * Deletes a list and all its movies.
  * Cannot delete the default list.
+ * Only the list owner can delete.
  */
-export async function deleteList(userId: string, listId: string) {
+export async function deleteList(userId: string, listOwnerId: string, listId: string) {
   const db = getDb();
 
   try {
-    const listRef = db.collection('users').doc(userId).collection('lists').doc(listId);
+    // Only owner can delete
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can delete the list.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
     const listDoc = await listRef.get();
 
     if (!listDoc.exists) {
@@ -249,6 +261,21 @@ export async function deleteList(userId: string, listId: string) {
     batch.delete(listRef);
     await batch.commit();
 
+    // Also mark any pending invites as revoked
+    const pendingInvites = await db.collection('invites')
+      .where('listId', '==', listId)
+      .where('listOwnerId', '==', listOwnerId)
+      .where('status', '==', 'pending')
+      .get();
+
+    if (!pendingInvites.empty) {
+      const inviteBatch = db.batch();
+      pendingInvites.docs.forEach((doc) => {
+        inviteBatch.update(doc.ref, { status: 'revoked' });
+      });
+      await inviteBatch.commit();
+    }
+
     revalidatePath('/lists');
     return { success: true };
   } catch (error) {
@@ -261,6 +288,7 @@ export async function deleteList(userId: string, listId: string) {
 
 /**
  * Adds a movie to a specific list.
+ * Supports collaborative lists - user can be owner or collaborator.
  */
 export async function addMovieToList(formData: FormData) {
   const db = getDb();
@@ -270,14 +298,22 @@ export async function addMovieToList(formData: FormData) {
     const userId = formData.get('userId') as string;
     const listId = formData.get('listId') as string;
     const socialLink = formData.get('socialLink') as string;
+    // listOwnerId is required for collaborative lists, defaults to userId for backwards compatibility
+    const listOwnerId = (formData.get('listOwnerId') as string) || userId;
 
     if (!movieData || !userId || !listId) {
       throw new Error('Missing movie data, user ID, or list ID.');
     }
 
+    // Check if user can edit this list (owner or collaborator)
+    const canEdit = await canEditList(userId, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to add movies to this list.' };
+    }
+
     const movieRef = db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
@@ -290,7 +326,7 @@ export async function addMovieToList(formData: FormData) {
         year: movieData.year,
         posterUrl: movieData.posterUrl,
         posterHint: movieData.posterHint,
-        addedBy: userId,
+        addedBy: userId, // Track who added the movie
         socialLink: socialLink || '',
         status: 'To Watch',
         createdAt: FieldValue.serverTimestamp(),
@@ -301,7 +337,7 @@ export async function addMovieToList(formData: FormData) {
     // Update list's updatedAt
     await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .update({
@@ -313,6 +349,103 @@ export async function addMovieToList(formData: FormData) {
   } catch (error) {
     console.error('Failed to add movie:', error);
     return { error: 'Failed to add movie.' };
+  }
+}
+
+/**
+ * Removes a movie from a list.
+ * Supports collaborative lists - user can be owner or collaborator.
+ */
+export async function removeMovieFromList(
+  userId: string,
+  listOwnerId: string,
+  listId: string,
+  movieId: string
+) {
+  const db = getDb();
+
+  try {
+    // Check if user can edit this list (owner or collaborator)
+    const canEdit = await canEditList(userId, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to remove movies from this list.' };
+    }
+
+    const movieRef = db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .doc(movieId);
+
+    await movieRef.delete();
+
+    // Update list's updatedAt
+    await db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to remove movie:', error);
+    return { error: 'Failed to remove movie.' };
+  }
+}
+
+/**
+ * Update a movie's status in a list.
+ * Supports collaborative lists - user can be owner or collaborator.
+ */
+export async function updateMovieStatus(
+  userId: string,
+  listOwnerId: string,
+  listId: string,
+  movieId: string,
+  status: 'To Watch' | 'Watched'
+) {
+  const db = getDb();
+
+  try {
+    // Check if user can edit this list (owner or collaborator)
+    const canEdit = await canEditList(userId, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to update movies in this list.' };
+    }
+
+    const movieRef = db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .doc(movieId);
+
+    await movieRef.update({
+      status,
+    });
+
+    // Update list's updatedAt
+    await db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update movie status:', error);
+    return { error: 'Failed to update movie status.' };
   }
 }
 
@@ -894,13 +1027,14 @@ export async function getUserPublicLists(userId: string) {
 }
 
 /**
- * Get movies from a public list (for viewing by others).
+ * Get movies from a list.
+ * Allows access if: list is public, viewer is owner, or viewer is collaborator.
  */
 export async function getPublicListMovies(ownerId: string, listId: string, viewerId: string) {
   const db = getDb();
 
   try {
-    // Check if list is public or viewer is the owner
+    // Check if list exists
     const listDoc = await db
       .collection('users')
       .doc(ownerId)
@@ -913,8 +1047,14 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
     }
 
     const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
 
-    if (!listData?.isPublic && ownerId !== viewerId) {
+    // Allow access if: public, owner, or collaborator
+    const isOwner = ownerId === viewerId;
+    const isCollaborator = collaboratorIds.includes(viewerId);
+    const isPublic = listData?.isPublic;
+
+    if (!isPublic && !isOwner && !isCollaborator) {
       return { error: 'This list is private.' };
     }
 
@@ -935,6 +1075,7 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
     return {
       list: { id: listDoc.id, ...listData },
       movies,
+      isCollaborator: isCollaborator && !isOwner, // For UI to know user's role
     };
   } catch (error) {
     console.error('Failed to get public list movies:', error);
@@ -944,12 +1085,18 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
 
 /**
  * Toggle a list's public/private status.
+ * Only the list owner can change visibility.
  */
-export async function toggleListVisibility(userId: string, listId: string) {
+export async function toggleListVisibility(userId: string, listOwnerId: string, listId: string) {
   const db = getDb();
 
   try {
-    const listRef = db.collection('users').doc(userId).collection('lists').doc(listId);
+    // Only owner can change visibility
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can change visibility.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
     const listDoc = await listRef.get();
 
     if (!listDoc.exists) {
@@ -1034,5 +1181,693 @@ export async function backfillUserSearchFields() {
   } catch (error) {
     console.error('[backfill] Failed:', error);
     return { error: 'Failed to backfill user search fields.' };
+  }
+}
+
+// --- COLLABORATIVE LISTS ---
+
+const MAX_LIST_MEMBERS = 3; // Owner + 2 collaborators
+
+/**
+ * Generate a random invite code for link-based invites.
+ */
+function generateInviteCode(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
+  let code = '';
+  for (let i = 0; i < 12; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+/**
+ * Check if a user can edit a list (is owner or collaborator).
+ */
+export async function canEditList(userId: string, listOwnerId: string, listId: string): Promise<boolean> {
+  if (userId === listOwnerId) return true;
+
+  const db = getDb();
+  const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+
+  if (!listDoc.exists) return false;
+
+  const collaboratorIds = listDoc.data()?.collaboratorIds || [];
+  return collaboratorIds.includes(userId);
+}
+
+/**
+ * Get list members (owner + collaborators) with profile info.
+ */
+export async function getListMembers(listOwnerId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+
+    if (!listDoc.exists) {
+      return { error: 'List not found.', members: [] };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+    const members: ListMember[] = [];
+
+    // Get owner profile
+    const ownerDoc = await db.collection('users').doc(listOwnerId).get();
+    if (ownerDoc.exists) {
+      const ownerData = ownerDoc.data();
+      members.push({
+        uid: listOwnerId,
+        username: ownerData?.username || null,
+        displayName: ownerData?.displayName || null,
+        photoURL: ownerData?.photoURL || null,
+        role: 'owner',
+      });
+    }
+
+    // Get collaborator profiles
+    for (const collabId of collaboratorIds) {
+      const collabDoc = await db.collection('users').doc(collabId).get();
+      if (collabDoc.exists) {
+        const collabData = collabDoc.data();
+        members.push({
+          uid: collabId,
+          username: collabData?.username || null,
+          displayName: collabData?.displayName || null,
+          photoURL: collabData?.photoURL || null,
+          role: 'collaborator',
+        });
+      }
+    }
+
+    return { members };
+  } catch (error) {
+    console.error('[getListMembers] Failed:', error);
+    return { error: 'Failed to get list members.', members: [] };
+  }
+}
+
+/**
+ * Invite a user to collaborate on a list (in-app invite).
+ */
+export async function inviteToList(inviterId: string, listOwnerId: string, listId: string, inviteeId: string) {
+  const db = getDb();
+
+  try {
+    // Only owner can invite
+    if (inviterId !== listOwnerId) {
+      return { error: 'Only the list owner can invite collaborators.' };
+    }
+
+    // Get list info
+    const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+    if (!listDoc.exists) {
+      return { error: 'List not found.' };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Check max members
+    if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
+      return { error: `Lists can have a maximum of ${MAX_LIST_MEMBERS} members.` };
+    }
+
+    // Check if already a collaborator
+    if (collaboratorIds.includes(inviteeId)) {
+      return { error: 'User is already a collaborator on this list.' };
+    }
+
+    // Check if invitee exists
+    const inviteeDoc = await db.collection('users').doc(inviteeId).get();
+    if (!inviteeDoc.exists) {
+      return { error: 'User not found.' };
+    }
+
+    // Get inviter info
+    const inviterDoc = await db.collection('users').doc(inviterId).get();
+    const inviterData = inviterDoc.data();
+
+    // Check for existing pending invite
+    const existingInvite = await db.collection('invites')
+      .where('listId', '==', listId)
+      .where('listOwnerId', '==', listOwnerId)
+      .where('inviteeId', '==', inviteeId)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    if (!existingInvite.empty) {
+      return { error: 'An invite is already pending for this user.' };
+    }
+
+    // Create invite
+    const inviteRef = db.collection('invites').doc();
+    const inviteeData = inviteeDoc.data();
+
+    await inviteRef.set({
+      id: inviteRef.id,
+      listId,
+      listName: listData?.name || 'Untitled List',
+      listOwnerId,
+      inviterId,
+      inviterUsername: inviterData?.username || null,
+      inviteeId,
+      inviteeUsername: inviteeData?.username || null,
+      status: 'pending',
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, inviteId: inviteRef.id };
+  } catch (error) {
+    console.error('[inviteToList] Failed:', error);
+    return { error: 'Failed to send invite.' };
+  }
+}
+
+/**
+ * Create an invite link for a list.
+ */
+export async function createInviteLink(inviterId: string, listOwnerId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    // Only owner can create invite links
+    if (inviterId !== listOwnerId) {
+      return { error: 'Only the list owner can create invite links.' };
+    }
+
+    // Get list info
+    const listDoc = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+    if (!listDoc.exists) {
+      return { error: 'List not found.' };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Check max members
+    if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
+      return { error: `Lists can have a maximum of ${MAX_LIST_MEMBERS} members.` };
+    }
+
+    // Get inviter info
+    const inviterDoc = await db.collection('users').doc(inviterId).get();
+    const inviterData = inviterDoc.data();
+
+    // Create invite with code
+    const inviteRef = db.collection('invites').doc();
+    const inviteCode = generateInviteCode();
+
+    // Set expiration to 7 days from now
+    const expiresAt = new Date();
+    expiresAt.setDate(expiresAt.getDate() + 7);
+
+    await inviteRef.set({
+      id: inviteRef.id,
+      listId,
+      listName: listData?.name || 'Untitled List',
+      listOwnerId,
+      inviterId,
+      inviterUsername: inviterData?.username || null,
+      inviteCode,
+      status: 'pending',
+      createdAt: FieldValue.serverTimestamp(),
+      expiresAt,
+    });
+
+    return { success: true, inviteId: inviteRef.id, inviteCode };
+  } catch (error) {
+    console.error('[createInviteLink] Failed:', error);
+    return { error: 'Failed to create invite link.' };
+  }
+}
+
+/**
+ * Get invite by code (for link-based invites).
+ */
+export async function getInviteByCode(inviteCode: string) {
+  const db = getDb();
+
+  try {
+    const inviteSnapshot = await db.collection('invites')
+      .where('inviteCode', '==', inviteCode)
+      .where('status', '==', 'pending')
+      .limit(1)
+      .get();
+
+    if (inviteSnapshot.empty) {
+      return { error: 'Invite not found or has expired.' };
+    }
+
+    const inviteDoc = inviteSnapshot.docs[0];
+    const inviteData = inviteDoc.data();
+
+    // Check expiration
+    if (inviteData.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
+      return { error: 'This invite link has expired.' };
+    }
+
+    return {
+      invite: {
+        id: inviteDoc.id,
+        listId: inviteData.listId,
+        listName: inviteData.listName,
+        listOwnerId: inviteData.listOwnerId,
+        inviterId: inviteData.inviterId,
+        inviterUsername: inviteData.inviterUsername,
+        inviteCode: inviteData.inviteCode,
+        status: inviteData.status,
+        createdAt: inviteData.createdAt?.toDate() || new Date(),
+        expiresAt: inviteData.expiresAt?.toDate(),
+      } as ListInvite
+    };
+  } catch (error) {
+    console.error('[getInviteByCode] Failed:', error);
+    return { error: 'Failed to get invite.' };
+  }
+}
+
+/**
+ * Get pending invites for a user.
+ */
+export async function getMyPendingInvites(userId: string) {
+  const db = getDb();
+
+  try {
+    const invitesSnapshot = await db.collection('invites')
+      .where('inviteeId', '==', userId)
+      .where('status', '==', 'pending')
+      .get();
+
+    const invites: ListInvite[] = invitesSnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        listId: data.listId,
+        listName: data.listName,
+        listOwnerId: data.listOwnerId,
+        inviterId: data.inviterId,
+        inviterUsername: data.inviterUsername,
+        inviteeId: data.inviteeId,
+        inviteeUsername: data.inviteeUsername,
+        status: data.status,
+        createdAt: data.createdAt?.toDate() || new Date(),
+      };
+    });
+
+    return { invites };
+  } catch (error) {
+    console.error('[getMyPendingInvites] Failed:', error);
+    return { error: 'Failed to get invites.', invites: [] };
+  }
+}
+
+/**
+ * Get pending invites for a list (for owner to see).
+ */
+export async function getListPendingInvites(userId: string, listOwnerId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    // Only owner can see pending invites
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can view pending invites.', invites: [] };
+    }
+
+    const invitesSnapshot = await db.collection('invites')
+      .where('listId', '==', listId)
+      .where('listOwnerId', '==', listOwnerId)
+      .where('status', '==', 'pending')
+      .get();
+
+    const invites: ListInvite[] = invitesSnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        listId: data.listId,
+        listName: data.listName,
+        listOwnerId: data.listOwnerId,
+        inviterId: data.inviterId,
+        inviterUsername: data.inviterUsername,
+        inviteeId: data.inviteeId,
+        inviteeUsername: data.inviteeUsername,
+        inviteCode: data.inviteCode,
+        status: data.status,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        expiresAt: data.expiresAt?.toDate(),
+      };
+    });
+
+    return { invites };
+  } catch (error) {
+    console.error('[getListPendingInvites] Failed:', error);
+    return { error: 'Failed to get invites.', invites: [] };
+  }
+}
+
+/**
+ * Accept an invite (either by inviteId or inviteCode).
+ */
+export async function acceptInvite(userId: string, inviteId?: string, inviteCode?: string) {
+  const db = getDb();
+
+  try {
+    let inviteDoc;
+    let inviteRef;
+
+    if (inviteId) {
+      inviteRef = db.collection('invites').doc(inviteId);
+      inviteDoc = await inviteRef.get();
+    } else if (inviteCode) {
+      const inviteSnapshot = await db.collection('invites')
+        .where('inviteCode', '==', inviteCode)
+        .where('status', '==', 'pending')
+        .limit(1)
+        .get();
+
+      if (inviteSnapshot.empty) {
+        return { error: 'Invite not found or has expired.' };
+      }
+
+      inviteDoc = inviteSnapshot.docs[0];
+      inviteRef = inviteDoc.ref;
+    } else {
+      return { error: 'No invite specified.' };
+    }
+
+    if (!inviteDoc.exists) {
+      return { error: 'Invite not found.' };
+    }
+
+    const inviteData = inviteDoc.data();
+
+    // Check if invite is for this user (for in-app invites)
+    if (inviteData?.inviteeId && inviteData.inviteeId !== userId) {
+      return { error: 'This invite is for another user.' };
+    }
+
+    // Check if invite is pending
+    if (inviteData?.status !== 'pending') {
+      return { error: 'This invite is no longer valid.' };
+    }
+
+    // Check expiration for link invites
+    if (inviteData?.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
+      return { error: 'This invite has expired.' };
+    }
+
+    // Get list and check max members
+    const listRef = db.collection('users').doc(inviteData.listOwnerId).collection('lists').doc(inviteData.listId);
+    const listDoc = await listRef.get();
+
+    if (!listDoc.exists) {
+      return { error: 'List no longer exists.' };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Check if already a collaborator
+    if (collaboratorIds.includes(userId) || userId === inviteData.listOwnerId) {
+      await inviteRef.update({ status: 'accepted' });
+      return { error: 'You are already a member of this list.' };
+    }
+
+    // Check max members
+    if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
+      return { error: 'This list has reached the maximum number of members.' };
+    }
+
+    // Add user as collaborator
+    await listRef.update({
+      collaboratorIds: FieldValue.arrayUnion(userId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Update invite status
+    await inviteRef.update({
+      status: 'accepted',
+      inviteeId: userId, // Set for link invites
+    });
+
+    revalidatePath('/lists');
+    return { success: true, listId: inviteData.listId, listOwnerId: inviteData.listOwnerId };
+  } catch (error) {
+    console.error('[acceptInvite] Failed:', error);
+    return { error: 'Failed to accept invite.' };
+  }
+}
+
+/**
+ * Decline an invite.
+ */
+export async function declineInvite(userId: string, inviteId: string) {
+  const db = getDb();
+
+  try {
+    const inviteRef = db.collection('invites').doc(inviteId);
+    const inviteDoc = await inviteRef.get();
+
+    if (!inviteDoc.exists) {
+      return { error: 'Invite not found.' };
+    }
+
+    const inviteData = inviteDoc.data();
+
+    // Check if invite is for this user
+    if (inviteData?.inviteeId !== userId) {
+      return { error: 'This invite is for another user.' };
+    }
+
+    await inviteRef.update({ status: 'declined' });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[declineInvite] Failed:', error);
+    return { error: 'Failed to decline invite.' };
+  }
+}
+
+/**
+ * Revoke an invite (owner only).
+ */
+export async function revokeInvite(userId: string, inviteId: string) {
+  const db = getDb();
+
+  try {
+    const inviteRef = db.collection('invites').doc(inviteId);
+    const inviteDoc = await inviteRef.get();
+
+    if (!inviteDoc.exists) {
+      return { error: 'Invite not found.' };
+    }
+
+    const inviteData = inviteDoc.data();
+
+    // Only inviter (owner) can revoke
+    if (inviteData?.inviterId !== userId) {
+      return { error: 'Only the list owner can revoke invites.' };
+    }
+
+    await inviteRef.update({ status: 'revoked' });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[revokeInvite] Failed:', error);
+    return { error: 'Failed to revoke invite.' };
+  }
+}
+
+/**
+ * Remove a collaborator from a list (owner only).
+ */
+export async function removeCollaborator(ownerId: string, listId: string, collaboratorId: string) {
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(ownerId).collection('lists').doc(listId);
+    const listDoc = await listRef.get();
+
+    if (!listDoc.exists) {
+      return { error: 'List not found.' };
+    }
+
+    const listData = listDoc.data();
+
+    // Check if user is owner
+    if (listData?.ownerId !== ownerId) {
+      return { error: 'Only the list owner can remove collaborators.' };
+    }
+
+    // Remove collaborator
+    await listRef.update({
+      collaboratorIds: FieldValue.arrayRemove(collaboratorId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/lists');
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('[removeCollaborator] Failed:', error);
+    return { error: 'Failed to remove collaborator.' };
+  }
+}
+
+/**
+ * Leave a list (collaborator only - owner must transfer ownership first).
+ */
+export async function leaveList(userId: string, listOwnerId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    // Owner cannot leave without transferring ownership
+    if (userId === listOwnerId) {
+      return { error: 'As the owner, you must transfer ownership before leaving or delete the list.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+    const listDoc = await listRef.get();
+
+    if (!listDoc.exists) {
+      return { error: 'List not found.' };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Check if user is a collaborator
+    if (!collaboratorIds.includes(userId)) {
+      return { error: 'You are not a collaborator on this list.' };
+    }
+
+    // Remove user from collaborators
+    await listRef.update({
+      collaboratorIds: FieldValue.arrayRemove(userId),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/lists');
+    return { success: true };
+  } catch (error) {
+    console.error('[leaveList] Failed:', error);
+    return { error: 'Failed to leave list.' };
+  }
+}
+
+/**
+ * Transfer list ownership to a collaborator.
+ */
+export async function transferOwnership(currentOwnerId: string, listId: string, newOwnerId: string) {
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(currentOwnerId).collection('lists').doc(listId);
+    const listDoc = await listRef.get();
+
+    if (!listDoc.exists) {
+      return { error: 'List not found.' };
+    }
+
+    const listData = listDoc.data();
+    const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Check if new owner is a collaborator
+    if (!collaboratorIds.includes(newOwnerId)) {
+      return { error: 'New owner must be an existing collaborator.' };
+    }
+
+    // Get all movies in the list
+    const moviesSnapshot = await listRef.collection('movies').get();
+
+    // Create new list under new owner
+    const newListRef = db.collection('users').doc(newOwnerId).collection('lists').doc(listId);
+
+    // Update collaborators: remove new owner, add old owner
+    const newCollaborators = collaboratorIds.filter(id => id !== newOwnerId);
+    newCollaborators.push(currentOwnerId);
+
+    await newListRef.set({
+      ...listData,
+      ownerId: newOwnerId,
+      collaboratorIds: newCollaborators,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Copy all movies to new location
+    const batch = db.batch();
+    for (const movieDoc of moviesSnapshot.docs) {
+      const newMovieRef = newListRef.collection('movies').doc(movieDoc.id);
+      batch.set(newMovieRef, movieDoc.data());
+    }
+    await batch.commit();
+
+    // Delete old list and movies
+    const deleteBatch = db.batch();
+    for (const movieDoc of moviesSnapshot.docs) {
+      deleteBatch.delete(movieDoc.ref);
+    }
+    deleteBatch.delete(listRef);
+    await deleteBatch.commit();
+
+    revalidatePath('/lists');
+    revalidatePath(`/lists/${listId}`);
+    return { success: true, newOwnerId };
+  } catch (error) {
+    console.error('[transferOwnership] Failed:', error);
+    return { error: 'Failed to transfer ownership.' };
+  }
+}
+
+/**
+ * Get lists where user is a collaborator (not owner).
+ */
+export async function getCollaborativeLists(userId: string) {
+  const db = getDb();
+
+  try {
+    // Query all lists where user is in collaboratorIds
+    // Note: This requires checking across all users' lists, which isn't efficient
+    // For now, we'll store a reference in the user's document or use a separate collection
+
+    // Alternative approach: Query the invites collection for accepted invites
+    const acceptedInvites = await db.collection('invites')
+      .where('inviteeId', '==', userId)
+      .where('status', '==', 'accepted')
+      .get();
+
+    const lists = [];
+
+    for (const inviteDoc of acceptedInvites.docs) {
+      const inviteData = inviteDoc.data();
+      const listDoc = await db
+        .collection('users')
+        .doc(inviteData.listOwnerId)
+        .collection('lists')
+        .doc(inviteData.listId)
+        .get();
+
+      if (listDoc.exists) {
+        const listData = listDoc.data();
+        // Verify user is still a collaborator
+        if (listData?.collaboratorIds?.includes(userId)) {
+          lists.push({
+            id: listDoc.id,
+            name: listData.name,
+            ownerId: inviteData.listOwnerId,
+            ownerUsername: inviteData.inviterUsername,
+            isPublic: listData.isPublic,
+            createdAt: listData.createdAt?.toDate() || new Date(),
+            updatedAt: listData.updatedAt?.toDate() || new Date(),
+          });
+        }
+      }
+    }
+
+    return { lists };
+  } catch (error) {
+    console.error('[getCollaborativeLists] Failed:', error);
+    return { error: 'Failed to get collaborative lists.', lists: [] };
   }
 }

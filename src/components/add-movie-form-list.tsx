@@ -87,10 +87,13 @@ const retroButtonClass =
 
 interface AddMovieFormForListProps {
   listId: string;
+  listOwnerId?: string; // Required for collaborative lists
 }
 
-export function AddMovieFormForList({ listId }: AddMovieFormForListProps) {
+export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForListProps) {
   const { user } = useUser();
+  // Use provided listOwnerId or default to current user (for user's own lists)
+  const effectiveOwnerId = listOwnerId || user?.uid;
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<SearchResult | null>(null);
@@ -127,11 +130,12 @@ export function AddMovieFormForList({ listId }: AddMovieFormForListProps) {
   };
 
   const handleAddMovie = async (formData: FormData) => {
-    if (!selectedMovie || !user) return;
+    if (!selectedMovie || !user || !effectiveOwnerId) return;
 
     formData.append('movieData', JSON.stringify(selectedMovie));
     formData.append('userId', user.uid);
     formData.append('listId', listId);
+    formData.append('listOwnerId', effectiveOwnerId); // For collaborative lists
     if (socialLink) {
       formData.set('socialLink', socialLink);
     }
@@ -147,7 +151,7 @@ export function AddMovieFormForList({ listId }: AddMovieFormForListProps) {
       } else {
         toast({
           title: 'Movie Added!',
-          description: `${selectedMovie.title} has been added to your list.`,
+          description: `${selectedMovie.title} has been added to the list.`,
         });
       }
       setSelectedMovie(null);
