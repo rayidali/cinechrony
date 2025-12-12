@@ -417,7 +417,7 @@ export async function migrateMoviesToList(userId: string, listId: string) {
 
 /**
  * Search for users by username, email, or display name.
- * Uses a simple but reliable approach - fetches users and filters.
+ * Also migrates users missing normalized fields on-the-fly.
  */
 export async function searchUsers(query: string, currentUserId: string) {
   const db = getDb();
@@ -429,12 +429,13 @@ export async function searchUsers(query: string, currentUserId: string) {
 
     const queryLower = query.toLowerCase().trim();
     const usersMap = new Map<string, UserProfile>();
+    const usersToMigrate: Array<{ ref: FirebaseFirestore.DocumentReference; data: FirebaseFirestore.DocumentData }> = [];
 
     // Fetch all users and filter client-side
     // For apps with <1000 users, this is pragmatic and reliable
     const allUsersSnapshot = await db.collection('users').get();
 
-    console.log(`[searchUsers] Query: "${queryLower}", Total users in DB: ${allUsersSnapshot.size}, CurrentUserId: ${currentUserId}`);
+    console.log(`[searchUsers] Query: "${queryLower}", Total users in DB: ${allUsersSnapshot.size}`);
 
     allUsersSnapshot.docs.forEach((doc) => {
       const data = doc.data();
@@ -442,6 +443,11 @@ export async function searchUsers(query: string, currentUserId: string) {
       // Skip current user
       const docUid = data.uid || doc.id;
       if (docUid === currentUserId) return;
+
+      // Track users needing migration
+      if (!data.usernameLower && data.username) {
+        usersToMigrate.push({ ref: doc.ref, data });
+      }
 
       // Use pre-normalized fields if available, otherwise normalize on the fly
       const username = data.usernameLower || (data.username || '').toLowerCase();
@@ -452,9 +458,6 @@ export async function searchUsers(query: string, currentUserId: string) {
       const matchesUsername = username && (username.includes(queryLower) || username.startsWith(queryLower));
       const matchesEmail = email && (email.includes(queryLower) || email.split('@')[0].includes(queryLower));
       const matchesDisplayName = displayName && displayName.includes(queryLower);
-
-      // Debug logging for each user
-      console.log(`[searchUsers] Checking user ${docUid}: username="${data.username}", email="${data.email?.split('@')[0]}...", matches: u=${matchesUsername}, e=${matchesEmail}, d=${matchesDisplayName}`);
 
       if (matchesUsername || matchesEmail || matchesDisplayName) {
         const userProfile: UserProfile = {
@@ -470,6 +473,20 @@ export async function searchUsers(query: string, currentUserId: string) {
         usersMap.set(docUid, userProfile);
       }
     });
+
+    // Migrate users missing normalized fields (fire and forget)
+    if (usersToMigrate.length > 0) {
+      console.log(`[searchUsers] Migrating ${usersToMigrate.length} users with missing normalized fields`);
+      Promise.all(
+        usersToMigrate.map(({ ref, data }) =>
+          ref.update({
+            usernameLower: data.username.toLowerCase(),
+            emailLower: (data.email || '').toLowerCase(),
+            displayNameLower: data.displayName?.toLowerCase() || null,
+          }).catch((err) => console.error(`[searchUsers] Migration failed for ${ref.id}:`, err))
+        )
+      ).catch(() => { /* ignore batch errors */ });
+    }
 
     console.log(`[searchUsers] Found ${usersMap.size} matching users`);
 
@@ -520,6 +537,7 @@ export async function getUserProfile(userId: string) {
 
 /**
  * Get a user's profile by username.
+ * Uses indexed queries only - requires usernameLower field to be populated.
  */
 export async function getUserByUsername(username: string) {
   const db = getDb();
@@ -528,13 +546,13 @@ export async function getUserByUsername(username: string) {
   console.log(`[getUserByUsername] Looking for username: "${normalizedUsername}"`);
 
   try {
-    // First try to find by usernameLower (preferred, normalized field)
+    // Try to find by usernameLower (preferred, normalized field)
     let usersSnapshot = await db.collection('users')
       .where('usernameLower', '==', normalizedUsername)
       .limit(1)
       .get();
 
-    // Fallback: try the username field directly (for users created before migration)
+    // Fallback: try the username field directly (for backwards compatibility)
     if (usersSnapshot.empty) {
       console.log(`[getUserByUsername] Not found by usernameLower, trying username field`);
       usersSnapshot = await db.collection('users')
@@ -543,43 +561,28 @@ export async function getUserByUsername(username: string) {
         .get();
     }
 
-    // Last resort: scan all users (handles case mismatches for old users)
     if (usersSnapshot.empty) {
-      console.log(`[getUserByUsername] Not found by direct query, scanning all users`);
-      const allUsersSnapshot = await db.collection('users').get();
-      const matchingDoc = allUsersSnapshot.docs.find((doc) => {
-        const data = doc.data();
-        const storedUsername = (data.username || '').toLowerCase();
-        const storedUsernameLower = data.usernameLower || '';
-        return storedUsername === normalizedUsername || storedUsernameLower === normalizedUsername;
-      });
-
-      if (matchingDoc) {
-        console.log(`[getUserByUsername] Found user via scan: ${matchingDoc.id}`);
-        const data = matchingDoc.data();
-        return {
-          user: {
-            uid: data.uid || matchingDoc.id,
-            email: data.email || '',
-            displayName: data.displayName || null,
-            photoURL: data.photoURL || null,
-            username: data.username || null,
-            createdAt: data.createdAt?.toDate?.() || new Date(),
-            followersCount: data.followersCount || 0,
-            followingCount: data.followingCount || 0,
-          } as UserProfile
-        };
-      }
-
       console.log(`[getUserByUsername] User not found: "${normalizedUsername}"`);
       return { error: 'User not found.' };
     }
 
-    console.log(`[getUserByUsername] Found user: ${usersSnapshot.docs[0].id}`);
-    const data = usersSnapshot.docs[0].data();
+    const doc = usersSnapshot.docs[0];
+    const data = doc.data();
+    console.log(`[getUserByUsername] Found user: ${doc.id}`);
+
+    // If this user is missing usernameLower, migrate them on read
+    if (!data.usernameLower && data.username) {
+      console.log(`[getUserByUsername] Migrating user ${doc.id} to add usernameLower`);
+      await db.collection('users').doc(doc.id).update({
+        usernameLower: data.username.toLowerCase(),
+        emailLower: (data.email || '').toLowerCase(),
+        displayNameLower: (data.displayName || '').toLowerCase() || null,
+      });
+    }
+
     return {
       user: {
-        uid: data.uid || usersSnapshot.docs[0].id,
+        uid: data.uid || doc.id,
         email: data.email || '',
         displayName: data.displayName || null,
         photoURL: data.photoURL || null,
@@ -929,5 +932,69 @@ export async function toggleListVisibility(userId: string, listId: string) {
   } catch (error) {
     console.error('Failed to toggle list visibility:', error);
     return { error: 'Failed to toggle list visibility.' };
+  }
+}
+
+/**
+ * Backfill all users with normalized search fields (usernameLower, emailLower, displayNameLower).
+ * This should be run once to migrate existing users. Can be called from an admin page or script.
+ */
+export async function backfillUserSearchFields() {
+  const db = getDb();
+
+  try {
+    const usersSnapshot = await db.collection('users').get();
+    let migratedCount = 0;
+    let skippedCount = 0;
+
+    const batch = db.batch();
+    let batchCount = 0;
+    const MAX_BATCH_SIZE = 500; // Firestore batch limit
+
+    for (const doc of usersSnapshot.docs) {
+      const data = doc.data();
+
+      // Skip if already has usernameLower
+      if (data.usernameLower) {
+        skippedCount++;
+        continue;
+      }
+
+      // Skip if no username to normalize
+      if (!data.username) {
+        console.log(`[backfill] User ${doc.id} has no username, skipping`);
+        skippedCount++;
+        continue;
+      }
+
+      const updates: Record<string, string | null> = {
+        usernameLower: data.username.toLowerCase(),
+        emailLower: (data.email || '').toLowerCase(),
+        displayNameLower: data.displayName?.toLowerCase() || null,
+      };
+
+      batch.update(doc.ref, updates);
+      batchCount++;
+      migratedCount++;
+
+      // Commit batch if at limit
+      if (batchCount >= MAX_BATCH_SIZE) {
+        await batch.commit();
+        console.log(`[backfill] Committed batch of ${batchCount} users`);
+        batchCount = 0;
+      }
+    }
+
+    // Commit remaining
+    if (batchCount > 0) {
+      await batch.commit();
+      console.log(`[backfill] Committed final batch of ${batchCount} users`);
+    }
+
+    console.log(`[backfill] Complete. Migrated: ${migratedCount}, Skipped: ${skippedCount}`);
+    return { success: true, migratedCount, skippedCount };
+  } catch (error) {
+    console.error('[backfill] Failed:', error);
+    return { error: 'Failed to backfill user search fields.' };
   }
 }
