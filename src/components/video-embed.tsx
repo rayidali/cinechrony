@@ -252,6 +252,7 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
   }
 
   // Render the appropriate native embed based on provider
+  // Note: Each embed already has its own clickable links, no need for duplicate "Open in" button
   return (
     <div className="relative w-full bg-secondary rounded-lg border-[3px] border-black overflow-hidden p-4">
       {parsedVideo.provider === 'youtube' && parsedVideo.videoId && (
@@ -265,16 +266,6 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
       {parsedVideo.provider === 'instagram' && parsedVideo.videoId && (
         <InstagramEmbed videoId={parsedVideo.videoId} url={parsedVideo.url} />
       )}
-
-      {/* Fallback link */}
-      <div className="flex justify-center mt-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link href={parsedVideo.url} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="h-3 w-3 mr-1" />
-            Open in {getProviderDisplayName(parsedVideo.provider)}
-          </Link>
-        </Button>
-      </div>
     </div>
   );
 }

@@ -236,13 +236,19 @@ export function AddMovieFormForList({ listId }: AddMovieFormForListProps) {
                 <h3 className="text-xl font-bold font-headline">{selectedMovie.title}</h3>
                 <p className="text-muted-foreground">{selectedMovie.year}</p>
                 <div className="mt-4 space-y-2">
+                  <label className="text-sm font-medium text-foreground">
+                    What made you want to watch this?
+                  </label>
+                  <p className="text-xs text-muted-foreground -mt-1">
+                    Saw a cool edit or trailer? Paste the link so others can see what got you hyped!
+                  </p>
                   <div className="relative">
                     <Input
                       type="url"
                       name="socialLink"
                       value={socialLink}
                       onChange={(e) => setSocialLink(e.target.value)}
-                      placeholder="TikTok, Instagram, or YouTube link (optional)"
+                      placeholder="Paste TikTok, Reel, or YouTube Short link..."
                       className={`${retroInputClass} ${parsedVideo?.provider ? 'pr-10' : ''}`}
                     />
                     {parsedVideo?.provider && (
@@ -252,17 +258,19 @@ export function AddMovieFormForList({ listId }: AddMovieFormForListProps) {
                     )}
                   </div>
                   {parsedVideo?.provider && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1">
+                    <p className="text-xs text-green-600 flex items-center gap-1">
                       {getProviderIcon()}
-                      <span>{getProviderDisplayName(parsedVideo.provider)} video detected - will embed in card</span>
+                      <span>{getProviderDisplayName(parsedVideo.provider)} video will be embedded in the movie card!</span>
                     </p>
                   )}
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <TiktokIcon className="h-3 w-3" />
-                    <Instagram className="h-3 w-3" />
-                    <Youtube className="h-3 w-3" />
-                    <span>Supported platforms</span>
-                  </div>
+                  {!parsedVideo?.provider && (
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <TiktokIcon className="h-3 w-3" />
+                      <Instagram className="h-3 w-3" />
+                      <Youtube className="h-3 w-3" />
+                      <span>Works with TikTok, Instagram Reels, YouTube Shorts</span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
