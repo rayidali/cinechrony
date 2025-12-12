@@ -474,11 +474,13 @@ export async function searchUsers(query: string, currentUserId: string) {
       }
     });
 
-    // Migrate users missing normalized fields (fire and forget)
+    // Migrate users missing normalized fields (fire and forget, capped at 10)
+    const MAX_MIGRATIONS_PER_SEARCH = 10;
     if (usersToMigrate.length > 0) {
-      console.log(`[searchUsers] Migrating ${usersToMigrate.length} users with missing normalized fields`);
+      const toMigrate = usersToMigrate.slice(0, MAX_MIGRATIONS_PER_SEARCH);
+      console.log(`[searchUsers] Migrating ${toMigrate.length} of ${usersToMigrate.length} users with missing normalized fields`);
       Promise.all(
-        usersToMigrate.map(({ ref, data }) =>
+        toMigrate.map(({ ref, data }) =>
           ref.update({
             usernameLower: data.username.toLowerCase(),
             emailLower: (data.email || '').toLowerCase(),
@@ -938,6 +940,7 @@ export async function toggleListVisibility(userId: string, listId: string) {
 /**
  * Backfill all users with normalized search fields (usernameLower, emailLower, displayNameLower).
  * This should be run once to migrate existing users. Can be called from an admin page or script.
+ * Processes in batches of 400 to stay within Firestore limits.
  */
 export async function backfillUserSearchFields() {
   const db = getDb();
@@ -947,9 +950,9 @@ export async function backfillUserSearchFields() {
     let migratedCount = 0;
     let skippedCount = 0;
 
-    const batch = db.batch();
+    let batch = db.batch();
     let batchCount = 0;
-    const MAX_BATCH_SIZE = 500; // Firestore batch limit
+    const MAX_BATCH_SIZE = 400; // Stay under Firestore's 500 limit
 
     for (const doc of usersSnapshot.docs) {
       const data = doc.data();
@@ -977,10 +980,11 @@ export async function backfillUserSearchFields() {
       batchCount++;
       migratedCount++;
 
-      // Commit batch if at limit
+      // Commit batch if at limit, then create new batch
       if (batchCount >= MAX_BATCH_SIZE) {
         await batch.commit();
         console.log(`[backfill] Committed batch of ${batchCount} users`);
+        batch = db.batch(); // Create new batch - can't reuse after commit
         batchCount = 0;
       }
     }
