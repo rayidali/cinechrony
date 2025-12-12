@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical } from 'lucide-react';
+import { Film, ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -19,8 +19,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility } from '@/app/actions';
-import type { UserProfile, MovieList } from '@/lib/types';
+import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists } from '@/app/actions';
+import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
@@ -56,6 +56,10 @@ export default function MyProfilePage() {
   const [following, setFollowing] = useState<UserProfile[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [pendingInvites, setPendingInvites] = useState<ListInvite[]>([]);
+  const [isLoadingInvites, setIsLoadingInvites] = useState(false);
+  const [collaborativeLists, setCollaborativeLists] = useState<Array<{ id: string; name: string; ownerId: string; ownerUsername: string | null }>>([]);
+  const [isLoadingCollab, setIsLoadingCollab] = useState(false);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -87,6 +91,33 @@ export default function MyProfilePage() {
       setNewUsername(userProfile.username);
     }
   }, [userProfile?.username]);
+
+  // Load pending invites and collaborative lists
+  useEffect(() => {
+    async function loadInvitesAndCollabs() {
+      if (!user) return;
+
+      setIsLoadingInvites(true);
+      setIsLoadingCollab(true);
+
+      try {
+        const [invitesResult, collabResult] = await Promise.all([
+          getMyPendingInvites(user.uid),
+          getCollaborativeLists(user.uid),
+        ]);
+
+        setPendingInvites(invitesResult.invites || []);
+        setCollaborativeLists(collabResult.lists || []);
+      } catch (error) {
+        console.error('Failed to load invites/collabs:', error);
+      } finally {
+        setIsLoadingInvites(false);
+        setIsLoadingCollab(false);
+      }
+    }
+
+    loadInvitesAndCollabs();
+  }, [user]);
 
   const handleSaveUsername = async () => {
     if (!user || !newUsername.trim()) return;
@@ -152,6 +183,41 @@ export default function MyProfilePage() {
           ? 'Your followers can now see this list.'
           : 'Only you can see this list.',
       });
+    }
+  };
+
+  const handleAcceptInvite = async (invite: ListInvite) => {
+    if (!user) return;
+    try {
+      const result = await acceptInvite(user.uid, invite.id);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({ title: 'Invite Accepted', description: `You are now a collaborator on "${invite.listName}"` });
+        setPendingInvites(prev => prev.filter(i => i.id !== invite.id));
+        // Reload collaborative lists
+        const collabResult = await getCollaborativeLists(user.uid);
+        setCollaborativeLists(collabResult.lists || []);
+      }
+    } catch (error) {
+      console.error('Failed to accept invite:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to accept invite' });
+    }
+  };
+
+  const handleDeclineInvite = async (invite: ListInvite) => {
+    if (!user) return;
+    try {
+      const result = await declineInvite(user.uid, invite.id);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({ title: 'Invite Declined', description: 'The invite has been declined.' });
+        setPendingInvites(prev => prev.filter(i => i.id !== invite.id));
+      }
+    } catch (error) {
+      console.error('Failed to decline invite:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to decline invite' });
     }
   };
 
@@ -263,6 +329,91 @@ export default function MyProfilePage() {
           <h2 className="text-xl font-headline font-bold mb-4">Find Friends</h2>
           <UserSearch />
         </section>
+
+        {/* Pending Invites */}
+        {pendingInvites.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-xl font-headline font-bold mb-4 flex items-center gap-2">
+              <Mail className="h-5 w-5 text-primary" />
+              Pending Invites
+              <span className="bg-primary text-primary-foreground text-sm px-2 py-0.5 rounded-full">
+                {pendingInvites.length}
+              </span>
+            </h2>
+            <div className="space-y-3">
+              {pendingInvites.map((invite) => (
+                <Card
+                  key={invite.id}
+                  className="border-[3px] border-black shadow-[4px_4px_0px_0px_#000]"
+                >
+                  <CardContent className="flex items-center justify-between p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
+                        <Users className="h-5 w-5 text-primary-foreground" />
+                      </div>
+                      <div>
+                        <p className="font-medium">{invite.listName}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Invited by @{invite.inviterUsername}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="border-[2px] border-black"
+                        onClick={() => handleDeclineInvite(invite)}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        className={retroButtonClass}
+                        onClick={() => handleAcceptInvite(invite)}
+                      >
+                        <Check className="h-4 w-4 mr-1" />
+                        Accept
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Collaborative Lists */}
+        {collaborativeLists.length > 0 && (
+          <section className="mb-8">
+            <h2 className="text-xl font-headline font-bold mb-4 flex items-center gap-2">
+              <Users className="h-5 w-5 text-primary" />
+              Shared With Me
+            </h2>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {collaborativeLists.map((collab) => (
+                <Card
+                  key={collab.id}
+                  className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer"
+                  onClick={() => router.push(`/lists/${collab.id}`)}
+                >
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center gap-2">
+                      <List className="h-5 w-5 text-primary" />
+                      <CardTitle className="text-lg">{collab.name}</CardTitle>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    <CardDescription className="flex items-center gap-2">
+                      <Users className="h-3 w-3" />
+                      <span>By @{collab.ownerUsername}</span>
+                    </CardDescription>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </section>
+        )}
 
         {/* My Lists */}
         <section>
