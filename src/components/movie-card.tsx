@@ -347,6 +347,14 @@ export function MovieCard({ movie, listId, userAvatarUrl }: MovieCardProps) {
               </div>
             </div>
 
+            {/* Mobile tap hint - always visible on mobile, hidden on desktop */}
+            <div className="absolute bottom-2 left-1/2 -translate-x-1/2 md:hidden pointer-events-none">
+              <span className="text-xs font-bold text-white bg-black/70 px-3 py-1 rounded-full flex items-center gap-1">
+                <Maximize2 className="h-3 w-3" />
+                Tap to expand
+              </span>
+            </div>
+
             {/* Video badge */}
             {hasEmbeddableVideo && (
               <div className="absolute top-2 right-2">
