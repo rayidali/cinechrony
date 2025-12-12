@@ -65,9 +65,12 @@ export async function createUserProfile(userId: string, email: string, displayNa
     await userRef.set({
       uid: userId,
       email: email,
+      emailLower: email.toLowerCase(),
       displayName: displayName,
+      displayNameLower: displayName?.toLowerCase() || null,
       photoURL: null,
       username: username,
+      usernameLower: username.toLowerCase(),
       followersCount: 0,
       followingCount: 0,
       createdAt: FieldValue.serverTimestamp(),
@@ -110,13 +113,23 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
 
     // Check if user needs social fields migration
     const userData = userDoc.data();
-    if (userData && (userData.username === undefined || userData.followersCount === undefined)) {
-      const username = userData.username || await generateUniqueUsername(db, email, displayName);
+    const needsMigration = userData && (
+      userData.username === undefined ||
+      userData.usernameLower === undefined ||
+      userData.followersCount === undefined
+    );
+
+    if (needsMigration) {
+      const username = userData?.username || await generateUniqueUsername(db, email, displayName);
       await userRef.update({
         username: username,
-        followersCount: userData.followersCount ?? 0,
-        followingCount: userData.followingCount ?? 0,
+        usernameLower: username.toLowerCase(),
+        emailLower: (userData?.email || email).toLowerCase(),
+        displayNameLower: (userData?.displayName || displayName)?.toLowerCase() || null,
+        followersCount: userData?.followersCount ?? 0,
+        followingCount: userData?.followingCount ?? 0,
       });
+      console.log(`[ensureUserProfile] Migrated user ${userId} with username: ${username}`);
     }
 
     // Check if user has any lists
@@ -417,10 +430,11 @@ export async function searchUsers(query: string, currentUserId: string) {
     const queryLower = query.toLowerCase().trim();
     const usersMap = new Map<string, UserProfile>();
 
-    // Simple approach: Get all users and filter client-side
-    // This is reliable and works without needing Firestore indexes
-    // For apps with <1000 users, this is perfectly fine
+    // Fetch all users and filter client-side
+    // For apps with <1000 users, this is pragmatic and reliable
     const allUsersSnapshot = await db.collection('users').get();
+
+    console.log(`[searchUsers] Query: "${queryLower}", Total users in DB: ${allUsersSnapshot.size}, CurrentUserId: ${currentUserId}`);
 
     allUsersSnapshot.docs.forEach((doc) => {
       const data = doc.data();
@@ -429,18 +443,20 @@ export async function searchUsers(query: string, currentUserId: string) {
       const docUid = data.uid || doc.id;
       if (docUid === currentUserId) return;
 
-      // Get searchable fields, handling missing/null values
-      const username = (data.username || '').toLowerCase();
-      const email = (data.email || '').toLowerCase();
-      const displayName = (data.displayName || '').toLowerCase();
+      // Use pre-normalized fields if available, otherwise normalize on the fly
+      const username = data.usernameLower || (data.username || '').toLowerCase();
+      const email = data.emailLower || (data.email || '').toLowerCase();
+      const displayName = data.displayNameLower || (data.displayName || '').toLowerCase();
 
       // Check if any field contains or starts with the query
       const matchesUsername = username && (username.includes(queryLower) || username.startsWith(queryLower));
       const matchesEmail = email && (email.includes(queryLower) || email.split('@')[0].includes(queryLower));
       const matchesDisplayName = displayName && displayName.includes(queryLower);
 
+      // Debug logging for each user
+      console.log(`[searchUsers] Checking user ${docUid}: username="${data.username}", email="${data.email?.split('@')[0]}...", matches: u=${matchesUsername}, e=${matchesEmail}, d=${matchesDisplayName}`);
+
       if (matchesUsername || matchesEmail || matchesDisplayName) {
-        // Construct the user profile with fallbacks
         const userProfile: UserProfile = {
           uid: docUid,
           email: data.email || '',
@@ -454,6 +470,8 @@ export async function searchUsers(query: string, currentUserId: string) {
         usersMap.set(docUid, userProfile);
       }
     });
+
+    console.log(`[searchUsers] Found ${usersMap.size} matching users`);
 
     // Sort by relevance: exact username match first, then prefix match, then contains
     const users = Array.from(usersMap.values())
@@ -475,7 +493,7 @@ export async function searchUsers(query: string, currentUserId: string) {
 
     return { users };
   } catch (error) {
-    console.error('Failed to search users:', error);
+    console.error('[searchUsers] Failed:', error);
     return { error: 'Failed to search users.', users: [] };
   }
 }
