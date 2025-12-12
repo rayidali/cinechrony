@@ -226,11 +226,19 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
   // Fetch the user who added this movie
   useEffect(() => {
     async function fetchAddedByUser() {
-      if (movie.addedBy) {
+      if (!movie.addedBy) {
+        // No addedBy field - movie was added before this feature
+        return;
+      }
+      try {
         const result = await getUserProfile(movie.addedBy);
         if (result.user) {
           setAddedByUser(result.user);
+        } else {
+          console.log('User profile not found for addedBy:', movie.addedBy);
         }
+      } catch (error) {
+        console.error('Failed to fetch addedBy user:', error);
       }
     }
     fetchAddedByUser();
@@ -317,11 +325,28 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
         <CardHeader>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10 border-[3px] border-black">
-                <AvatarImage src={addedByUser?.photoURL || userAvatarUrl} alt={addedByUser?.displayName || 'user'} />
-                <AvatarFallback>{(addedByUser?.displayName || addedByUser?.username || addedByUser?.email || '?').charAt(0).toUpperCase()}</AvatarFallback>
-              </Avatar>
-              <p className="font-bold text-sm">Added by {addedByUser?.displayName || addedByUser?.username || addedByUser?.email?.split('@')[0] || 'Unknown'}</p>
+              {(() => {
+                // Determine display info: use fetched profile, or fallback to current user if they added it
+                const isAddedByCurrentUser = movie.addedBy === user?.uid;
+                const displayUser = addedByUser || (isAddedByCurrentUser ? {
+                  photoURL: user?.photoURL,
+                  displayName: user?.displayName,
+                  email: user?.email,
+                  username: null,
+                } : null);
+                const displayName = displayUser?.displayName || displayUser?.username || displayUser?.email?.split('@')[0] || 'Someone';
+                const avatarFallback = displayName.charAt(0).toUpperCase();
+
+                return (
+                  <>
+                    <Avatar className="h-10 w-10 border-[3px] border-black">
+                      <AvatarImage src={displayUser?.photoURL || userAvatarUrl} alt={displayName} />
+                      <AvatarFallback>{avatarFallback}</AvatarFallback>
+                    </Avatar>
+                    <p className="font-bold text-sm">Added by {displayName}</p>
+                  </>
+                );
+              })()}
             </div>
             {/* Expand to modal button */}
             <Button

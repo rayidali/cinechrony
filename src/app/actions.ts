@@ -654,18 +654,37 @@ export async function searchUsers(query: string, currentUserId: string) {
  * Get a user's profile by ID.
  */
 export async function getUserProfile(userId: string) {
+  if (!userId) {
+    console.error('[getUserProfile] No userId provided');
+    return { error: 'No user ID provided.' };
+  }
+
   const db = getDb();
 
   try {
     const userDoc = await db.collection('users').doc(userId).get();
 
     if (!userDoc.exists) {
+      console.log(`[getUserProfile] User not found: ${userId}`);
       return { error: 'User not found.' };
     }
 
-    return { user: userDoc.data() as UserProfile };
+    const userData = userDoc.data();
+    // Convert Firestore Timestamp to ISO string for serialization
+    return {
+      user: {
+        uid: userData?.uid || userId,
+        email: userData?.email || '',
+        displayName: userData?.displayName || null,
+        photoURL: userData?.photoURL || null,
+        username: userData?.username || null,
+        createdAt: userData?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        followersCount: userData?.followersCount || 0,
+        followingCount: userData?.followingCount || 0,
+      } as UserProfile
+    };
   } catch (error) {
-    console.error('Failed to get user profile:', error);
+    console.error('[getUserProfile] Failed:', error);
     return { error: 'Failed to get user profile.' };
   }
 }
@@ -715,6 +734,7 @@ export async function getUserByUsername(username: string) {
       });
     }
 
+    // Convert Firestore Timestamp to ISO string for serialization
     return {
       user: {
         uid: data.uid || doc.id,
@@ -722,7 +742,7 @@ export async function getUserByUsername(username: string) {
         displayName: data.displayName || null,
         photoURL: data.photoURL || null,
         username: data.username || null,
-        createdAt: data.createdAt?.toDate?.() || new Date(),
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         followersCount: data.followersCount || 0,
         followingCount: data.followingCount || 0,
       } as UserProfile
@@ -928,13 +948,14 @@ export async function getFollowers(userId: string, limit: number = 50) {
       const userDoc = await db.collection('users').doc(id).get();
       if (userDoc.exists) {
         const data = userDoc.data();
+        // Convert Firestore Timestamp to ISO string for serialization
         users.push({
           uid: data?.uid || id,
           email: data?.email || '',
           displayName: data?.displayName || null,
           photoURL: data?.photoURL || null,
           username: data?.username || null,
-          createdAt: data?.createdAt?.toDate?.() || new Date(),
+          createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           followersCount: data?.followersCount || 0,
           followingCount: data?.followingCount || 0,
         });
@@ -978,13 +999,14 @@ export async function getFollowing(userId: string, limit: number = 50) {
       const userDoc = await db.collection('users').doc(id).get();
       if (userDoc.exists) {
         const data = userDoc.data();
+        // Convert Firestore Timestamp to ISO string for serialization
         users.push({
           uid: data?.uid || id,
           email: data?.email || '',
           displayName: data?.displayName || null,
           photoURL: data?.photoURL || null,
           username: data?.username || null,
-          createdAt: data?.createdAt?.toDate?.() || new Date(),
+          createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           followersCount: data?.followersCount || 0,
           followingCount: data?.followingCount || 0,
         });
@@ -1014,25 +1036,29 @@ export async function getUserPublicLists(userId: string) {
       .where('isPublic', '==', true)
       .get();
 
-    const lists = listsSnapshot.docs.map((doc) => ({
-      id: doc.id,
-      ...doc.data(),
-    })) as Array<{ id: string; updatedAt?: { toDate?: () => Date } | Date; [key: string]: unknown }>;
-
-    // Sort client-side by updatedAt descending
-    lists.sort((a, b) => {
-      const aUpdated = a.updatedAt;
-      const bUpdated = b.updatedAt;
-      const aDate = (aUpdated && typeof aUpdated === 'object' && 'toDate' in aUpdated && typeof aUpdated.toDate === 'function')
-        ? aUpdated.toDate()
-        : (aUpdated instanceof Date ? aUpdated : new Date(0));
-      const bDate = (bUpdated && typeof bUpdated === 'object' && 'toDate' in bUpdated && typeof bUpdated.toDate === 'function')
-        ? bUpdated.toDate()
-        : (bUpdated instanceof Date ? bUpdated : new Date(0));
-      return bDate.getTime() - aDate.getTime();
+    const lists = listsSnapshot.docs.map((doc) => {
+      const data = doc.data();
+      // Convert Firestore Timestamps to ISO strings for serialization
+      return {
+        id: doc.id,
+        name: data.name,
+        isDefault: data.isDefault || false,
+        isPublic: data.isPublic || false,
+        ownerId: data.ownerId,
+        collaboratorIds: data.collaboratorIds || [],
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,
+      };
     });
 
-    return { lists };
+    // Sort client-side by updatedAt descending
+    lists.sort((a, b) => b._sortTime - a._sortTime);
+
+    // Remove the temporary sort field before returning
+    const cleanedLists = lists.map(({ _sortTime, ...rest }) => rest);
+
+    return { lists: cleanedLists };
   } catch (error) {
     console.error('Failed to get public lists:', error);
     return { error: 'Failed to get public lists.' };
@@ -1445,6 +1471,7 @@ export async function getInviteByCode(inviteCode: string) {
       return { error: 'This invite link has expired.' };
     }
 
+    // Convert Firestore Timestamps to ISO strings for serialization
     return {
       invite: {
         id: inviteDoc.id,
@@ -1455,8 +1482,8 @@ export async function getInviteByCode(inviteCode: string) {
         inviterUsername: inviteData.inviterUsername,
         inviteCode: inviteData.inviteCode,
         status: inviteData.status,
-        createdAt: inviteData.createdAt?.toDate() || new Date(),
-        expiresAt: inviteData.expiresAt?.toDate(),
+        createdAt: inviteData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        expiresAt: inviteData.expiresAt?.toDate?.()?.toISOString?.() || undefined,
       } as ListInvite
     };
   } catch (error) {
@@ -1489,7 +1516,7 @@ export async function getMyPendingInvites(userId: string) {
         inviteeId: data.inviteeId,
         inviteeUsername: data.inviteeUsername,
         status: data.status,
-        createdAt: data.createdAt?.toDate() || new Date(),
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
       };
     });
 
@@ -1528,6 +1555,7 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
       .where('status', '==', 'pending')
       .get();
 
+    // Convert Firestore Timestamps to ISO strings for serialization
     const invites: ListInvite[] = invitesSnapshot.docs.map((doc) => {
       const data = doc.data();
       return {
@@ -1541,8 +1569,8 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
         inviteeUsername: data.inviteeUsername,
         inviteCode: data.inviteCode,
         status: data.status,
-        createdAt: data.createdAt?.toDate() || new Date(),
-        expiresAt: data.expiresAt?.toDate(),
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        expiresAt: data.expiresAt?.toDate?.()?.toISOString?.() || undefined,
       };
     });
 
@@ -1879,14 +1907,18 @@ export async function getCollaborativeLists(userId: string) {
         const listData = listDoc.data();
         // Verify user is still a collaborator
         if (listData?.collaboratorIds?.includes(userId)) {
+          // Convert Firestore Timestamps to ISO strings for serialization
           lists.push({
             id: listDoc.id,
             name: listData.name,
             ownerId: inviteData.listOwnerId,
             ownerUsername: inviteData.inviterUsername,
+            ownerDisplayName: inviteData.inviterDisplayName || inviteData.inviterUsername,
             isPublic: listData.isPublic,
-            createdAt: listData.createdAt?.toDate() || new Date(),
-            updatedAt: listData.updatedAt?.toDate() || new Date(),
+            isDefault: listData.isDefault || false,
+            collaboratorIds: listData.collaboratorIds || [],
+            createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+            updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           });
         }
       }
