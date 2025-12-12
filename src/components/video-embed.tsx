@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ExternalLink, Play } from 'lucide-react';
 import Link from 'next/link';
 import Script from 'next/script';
@@ -22,6 +22,25 @@ type VideoEmbedProps = {
 let tiktokScriptLoaded = false;
 let instagramScriptLoaded = false;
 
+// Detect iOS Safari - where TikTok blockquote embeds are fragile
+function useIsIOSSafari() {
+  const [isIOSSafari, setIsIOSSafari] = useState(false);
+
+  useEffect(() => {
+    const ua = navigator.userAgent;
+    const isIOS = /iPad|iPhone|iPod/.test(ua);
+    const isSafari = /Safari/.test(ua) && !/Chrome|CriOS|FxiOS/.test(ua);
+    setIsIOSSafari(isIOS && isSafari);
+  }, []);
+
+  return isIOSSafari;
+}
+
+// Check if video ID is a valid numeric TikTok ID (not a short code)
+function isValidTikTokVideoId(videoId: string): boolean {
+  return /^\d{15,}$/.test(videoId); // TikTok video IDs are long numeric strings
+}
+
 function ProviderIcon({ provider }: { provider: ParsedVideo['provider'] }) {
   switch (provider) {
     case 'tiktok':
@@ -35,8 +54,8 @@ function ProviderIcon({ provider }: { provider: ParsedVideo['provider'] }) {
   }
 }
 
-// Mobile-friendly fallback card for when embeds don't work
-function MobileFallback({ url, provider }: { url: string; provider: string }) {
+// Fallback card with link to open in native app
+function OpenInAppFallback({ url, provider }: { url: string; provider: string }) {
   const ProviderIconComponent = () => {
     switch (provider) {
       case 'tiktok':
@@ -52,71 +71,95 @@ function MobileFallback({ url, provider }: { url: string; provider: string }) {
     <div className="flex flex-col items-center justify-center p-6 bg-gradient-to-b from-secondary to-secondary/50 rounded-lg min-h-[300px] gap-4">
       <ProviderIconComponent />
       <p className="text-sm text-muted-foreground text-center">
-        Tap below to watch the video
+        Tap to watch on {getProviderDisplayName(provider as any)}
       </p>
       <Button asChild className={retroButtonClass}>
         <Link href={url} target="_blank" rel="noopener noreferrer">
           <ExternalLink className="h-4 w-4 mr-2" />
-          Watch on {getProviderDisplayName(provider as any)}
+          Open Video
         </Link>
       </Button>
     </div>
   );
 }
 
-// TikTok Embed Component - matching View For You NYC pattern
+// TikTok Embed Component
+// Uses iframe player on iOS Safari or for short links (more reliable)
+// Uses blockquote + embed.js on desktop (matches View For You NYC)
 function TikTokEmbed({ videoId, url }: { videoId: string; url: string }) {
+  const isIOSSafari = useIsIOSSafari();
   const containerRef = useRef<HTMLDivElement>(null);
-  const [needsScript, setNeedsScript] = useState(!tiktokScriptLoaded);
+  const [isReady, setIsReady] = useState(false);
 
   // Extract username from URL if possible
   const usernameMatch = url.match(/@([\w.-]+)/);
   const username = usernameMatch ? usernameMatch[1] : 'user';
 
-  // Process the embed after mount
+  // Check if we have a valid numeric video ID
+  const hasValidId = isValidTikTokVideoId(videoId);
+
+  // For iOS Safari or invalid IDs, use iframe player or fallback
+  const useIframePlayer = isIOSSafari && hasValidId;
+  const useFallback = !hasValidId;
+
+  // Process the embed after mount (for blockquote approach)
   useEffect(() => {
-    const processEmbed = () => {
-      const win = window as any;
-      if (win.tiktokEmbed?.lib?.render) {
-        win.tiktokEmbed.lib.render();
-        return true;
-      }
-      return false;
+    if (useIframePlayer || useFallback) return;
+
+    // Wait for element to be visible, then process
+    const processWithDelay = () => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const win = window as any;
+          if (win.tiktokEmbed?.lib?.render) {
+            win.tiktokEmbed.lib.render();
+            setIsReady(true);
+          }
+        }, 100);
+      });
     };
 
-    // If script already loaded, process immediately
     if (tiktokScriptLoaded) {
-      // Small delay to ensure DOM is ready
-      setTimeout(processEmbed, 100);
-      return;
+      processWithDelay();
     }
-
-    // Wait for script to load
-    const checkInterval = setInterval(() => {
-      if (processEmbed()) {
-        clearInterval(checkInterval);
-      }
-    }, 200);
-
-    // Cleanup after 10 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(checkInterval);
-    }, 10000);
-
-    return () => {
-      clearInterval(checkInterval);
-      clearTimeout(timeout);
-    };
-  }, [videoId]);
+  }, [videoId, useIframePlayer, useFallback]);
 
   const handleScriptLoad = () => {
     tiktokScriptLoaded = true;
-    const win = window as any;
-    if (win.tiktokEmbed?.lib?.render) {
-      win.tiktokEmbed.lib.render();
-    }
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const win = window as any;
+        if (win.tiktokEmbed?.lib?.render) {
+          win.tiktokEmbed.lib.render();
+          setIsReady(true);
+        }
+      }, 100);
+    });
   };
 
+  // Fallback for short links (vm.tiktok.com, etc.)
+  if (useFallback) {
+    return <OpenInAppFallback url={url} provider="tiktok" />;
+  }
+
+  // iOS Safari: use iframe player (more reliable than blockquote hydration)
+  if (useIframePlayer) {
+    return (
+      <div className="flex justify-center w-full">
+        <div style={{ width: '100%', maxWidth: '325px', aspectRatio: '9/16' }}>
+          <iframe
+            src={`https://www.tiktok.com/player/v1/${videoId}?music_info=1&description=1`}
+            style={{ width: '100%', height: '100%', border: 'none', borderRadius: '8px' }}
+            allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+            allowFullScreen
+            title="TikTok video"
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Desktop: use blockquote + embed.js (matches View For You NYC)
   return (
     <div ref={containerRef} className="flex justify-center w-full">
       <blockquote
@@ -131,7 +174,7 @@ function TikTokEmbed({ videoId, url }: { videoId: string; url: string }) {
           </a>
         </section>
       </blockquote>
-      {needsScript && (
+      {!tiktokScriptLoaded && (
         <Script
           src="https://www.tiktok.com/embed.js"
           strategy="afterInteractive"
@@ -142,60 +185,45 @@ function TikTokEmbed({ videoId, url }: { videoId: string; url: string }) {
   );
 }
 
-// Instagram Embed Component - fixed to handle multiple embeds
+// Instagram Embed Component
+// Key prop on wrapper forces remount for each unique video
 function InstagramEmbed({ videoId, url }: { videoId: string; url: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [needsScript, setNeedsScript] = useState(!instagramScriptLoaded);
-  const embedId = useRef(`ig-${videoId}-${Date.now()}`); // Unique ID for this embed
   const embedUrl = `https://www.instagram.com/reel/${videoId}/`;
 
-  // Process this specific embed after mount
+  // Process this embed after mount
   useEffect(() => {
-    const processEmbed = () => {
-      const win = window as any;
-      if (win.instgrm?.Embeds?.process) {
-        // Process all embeds on the page
-        win.instgrm.Embeds.process();
-        return true;
-      }
-      return false;
+    const processWithDelay = () => {
+      requestAnimationFrame(() => {
+        setTimeout(() => {
+          const win = window as any;
+          if (win.instgrm?.Embeds?.process) {
+            win.instgrm.Embeds.process();
+          }
+        }, 100);
+      });
     };
 
-    // If script already loaded, process immediately
     if (instagramScriptLoaded) {
-      // Small delay to ensure DOM is ready
-      setTimeout(processEmbed, 100);
-      return;
+      processWithDelay();
     }
-
-    // Wait for script to load
-    const checkInterval = setInterval(() => {
-      if (processEmbed()) {
-        clearInterval(checkInterval);
-      }
-    }, 200);
-
-    // Cleanup after 10 seconds
-    const timeout = setTimeout(() => {
-      clearInterval(checkInterval);
-    }, 10000);
-
-    return () => {
-      clearInterval(checkInterval);
-      clearTimeout(timeout);
-    };
   }, [videoId]);
 
   const handleScriptLoad = () => {
     instagramScriptLoaded = true;
-    const win = window as any;
-    if (win.instgrm?.Embeds?.process) {
-      win.instgrm.Embeds.process();
-    }
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const win = window as any;
+        if (win.instgrm?.Embeds?.process) {
+          win.instgrm.Embeds.process();
+        }
+      }, 100);
+    });
   };
 
   return (
-    <div ref={containerRef} className="flex justify-center w-full" data-embed-id={embedId.current}>
+    // Key forces React to remount this component for each unique video
+    <div ref={containerRef} key={videoId} className="flex justify-center w-full">
       <blockquote
         className="instagram-media"
         data-instgrm-permalink={embedUrl}
@@ -289,7 +317,7 @@ function InstagramEmbed({ videoId, url }: { videoId: string; url: string }) {
           </p>
         </div>
       </blockquote>
-      {needsScript && (
+      {!instagramScriptLoaded && (
         <Script
           src="https://www.instagram.com/embed.js"
           strategy="afterInteractive"
@@ -350,7 +378,7 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
     setIsLoaded(true);
   };
 
-  // Show "Click to load" button before loading the iframe
+  // Show "Click to load" button before loading the embed
   if (!isLoaded) {
     return (
       <div className="relative w-full aspect-[9/16] max-h-[500px] bg-secondary rounded-lg border-[3px] border-black overflow-hidden touch-manipulation">
@@ -374,9 +402,10 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
     );
   }
 
-  // Render the appropriate native embed based on provider
+  // Render the appropriate embed based on provider
+  // Key prop ensures React creates fresh DOM for each unique video
   return (
-    <div className="relative w-full bg-secondary rounded-lg border-[3px] border-black overflow-hidden p-4">
+    <div key={parsedVideo.videoId} className="relative w-full bg-secondary rounded-lg border-[3px] border-black overflow-hidden p-4">
       {parsedVideo.provider === 'youtube' && parsedVideo.videoId && (
         <YouTubeEmbed videoId={parsedVideo.videoId} />
       )}
