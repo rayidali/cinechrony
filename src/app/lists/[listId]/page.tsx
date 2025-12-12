@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft, Users } from 'lucide-react';
+import { Film, ArrowLeft, Users, AlertTriangle } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { collection, doc } from 'firebase/firestore';
@@ -34,7 +34,7 @@ export default function ListDetailPage() {
     return doc(firestore, 'users', user.uid, 'lists', listId);
   }, [firestore, user, listId]);
 
-  const { data: ownListData, isLoading: isLoadingOwnList } = useDoc<MovieListType>(ownListDocRef);
+  const { data: ownListData, isLoading: isLoadingOwnList, error: ownListError } = useDoc<MovieListType>(ownListDocRef);
 
   // Get list details from collaborative list owner's collection
   const collabListDocRef = useMemoFirebase(() => {
@@ -42,7 +42,7 @@ export default function ListDetailPage() {
     return doc(firestore, 'users', collaborativeListOwner, 'lists', listId);
   }, [firestore, collaborativeListOwner, listId]);
 
-  const { data: collabListData, isLoading: isLoadingCollabList } = useDoc<MovieListType>(collabListDocRef);
+  const { data: collabListData, isLoading: isLoadingCollabList, error: collabListError } = useDoc<MovieListType>(collabListDocRef);
 
   // Use whichever list data we have
   const listData = ownListData || collabListData;
@@ -54,7 +54,21 @@ export default function ListDetailPage() {
     return collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies');
   }, [firestore, effectiveOwnerId, listId]);
 
-  const { data: movies, isLoading: isLoadingMovies } = useCollection<Movie>(moviesQuery);
+  const { data: movies, isLoading: isLoadingMovies, error: moviesError } = useCollection<Movie>(moviesQuery);
+
+  // Check for permission errors - handle both Error and FirestoreError types
+  const isPermissionError = (error: Error | null | undefined): boolean => {
+    if (!error) return false;
+    // FirestoreError has a 'code' property
+    if ('code' in error && error.code === 'permission-denied') return true;
+    // Also check error message for permission-related content
+    if (error.message?.includes('permission') || error.message?.includes('Missing or insufficient permissions')) return true;
+    return false;
+  };
+
+  const hasPermissionError = isPermissionError(ownListError) ||
+    isPermissionError(collabListError) ||
+    isPermissionError(moviesError);
 
   // Check for collaborative lists if own list not found
   useEffect(() => {
@@ -108,6 +122,28 @@ export default function ListDetailPage() {
       <div className="flex items-center justify-center min-h-screen bg-background">
         <Film className="h-12 w-12 text-primary animate-spin" />
       </div>
+    );
+  }
+
+  // Permission error - user doesn't have access
+  if (hasPermissionError) {
+    return (
+      <main className="min-h-screen bg-background font-body text-foreground">
+        <div className="container mx-auto p-4 md:p-8">
+          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-black">
+              <AlertTriangle className="h-8 w-8 text-destructive" />
+            </div>
+            <h1 className="text-2xl font-headline font-bold mb-2">Access Denied</h1>
+            <p className="text-muted-foreground mb-4 text-center max-w-md">
+              You don&apos;t have permission to view this list. Ask the list owner to invite you as a collaborator.
+            </p>
+            <Link href="/lists">
+              <Button>Go to My Lists</Button>
+            </Link>
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -170,9 +206,22 @@ export default function ListDetailPage() {
           </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
+        <div className="flex flex-col lg:flex-row gap-8">
+          {/* Collaborators sidebar - shows first on mobile, right side on desktop */}
+          {showCollaborators && effectiveOwnerId && listData && (
+            <div className="order-first lg:order-last lg:w-80 lg:flex-shrink-0">
+              <div className="lg:sticky lg:top-8">
+                <ListCollaborators
+                  listId={listId}
+                  listOwnerId={effectiveOwnerId}
+                  listName={listData.name}
+                />
+              </div>
+            </div>
+          )}
+
           {/* Movie list */}
-          <div className="lg:col-span-3">
+          <div className="flex-1 min-w-0">
             <MovieList
               initialMovies={movies || []}
               isLoading={isLoadingMovies}
@@ -181,17 +230,6 @@ export default function ListDetailPage() {
               canEdit={canEdit}
             />
           </div>
-
-          {/* Collaborators sidebar */}
-          {showCollaborators && effectiveOwnerId && listData && (
-            <div className="lg:col-span-1">
-              <ListCollaborators
-                listId={listId}
-                listOwnerId={effectiveOwnerId}
-                listName={listData.name}
-              />
-            </div>
-          )}
         </div>
       </div>
     </main>

@@ -43,9 +43,21 @@ service cloud.firestore {
 
     /**
      * Checks if the authenticated user is a collaborator on the list.
+     * Handles the case where collaboratorIds might not exist.
      */
     function isCollaborator(listData) {
       return isSignedIn() &&
+             'collaboratorIds' in listData &&
+             request.auth.uid in listData.collaboratorIds;
+    }
+
+    /**
+     * Safely checks if user is a collaborator, returning false if field doesn't exist.
+     */
+    function isCollaboratorSafe(listData) {
+      return isSignedIn() &&
+             listData != null &&
+             'collaboratorIds' in listData &&
              listData.collaboratorIds != null &&
              request.auth.uid in listData.collaboratorIds;
     }
@@ -94,6 +106,13 @@ service cloud.firestore {
        * Collaborators can read the list.
        */
       match /lists/{listId} {
+        // Helper to check if user is a collaborator using hasAny (more reliable than 'in')
+        function isListCollaborator() {
+          return isSignedIn() &&
+                 resource.data.collaboratorIds is list &&
+                 resource.data.collaboratorIds.hasAny([request.auth.uid]);
+        }
+
         // Owner can do anything
         allow read, write: if isOwner(userId);
 
@@ -101,7 +120,7 @@ service cloud.firestore {
         allow read: if resource.data.isPublic == true;
 
         // Collaborators can read the list
-        allow read: if isCollaborator(resource.data);
+        allow read: if isListCollaborator();
 
         // Collaborators cannot modify list metadata (name, visibility, etc.)
         // They can only add/remove movies (see movies subcollection below)
@@ -116,19 +135,38 @@ service cloud.firestore {
          * Public lists allow public read.
          */
         match /movies/{movieId} {
-          // Get the parent list data for permission checks
-          function getList() {
-            return get(/databases/$(database)/documents/users/$(userId)/lists/$(listId)).data;
+          // Get the parent list document
+          function getParentList() {
+            return get(/databases/$(database)/documents/users/$(userId)/lists/$(listId));
+          }
+
+          // Check if user can read the list (public, owner, or collaborator)
+          function canReadList() {
+            let listDoc = getParentList();
+            return listDoc.data != null && (
+              listDoc.data.isPublic == true ||
+              request.auth.uid == userId ||
+              (listDoc.data.collaboratorIds is list &&
+               listDoc.data.collaboratorIds.hasAny([request.auth.uid]))
+            );
+          }
+
+          // Check if user can write to the list (owner or collaborator)
+          function canWriteList() {
+            let listDoc = getParentList();
+            return listDoc.data != null && (
+              request.auth.uid == userId ||
+              (listDoc.data.collaboratorIds is list &&
+               listDoc.data.collaboratorIds.hasAny([request.auth.uid]))
+            );
           }
 
           // Owner can do anything
           allow read, write: if isOwner(userId);
 
           // Collaborators can read and write movies
-          allow read, write: if isCollaborator(getList());
-
-          // Public lists allow public read
-          allow read: if getList().isPublic == true;
+          allow read: if isSignedIn() && canReadList();
+          allow write: if isSignedIn() && canWriteList();
         }
       }
 

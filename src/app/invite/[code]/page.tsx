@@ -64,8 +64,8 @@ export default function InvitePage() {
           title: 'Invite Accepted!',
           description: `You are now a collaborator on "${invite.listName}"`,
         });
-        // Redirect to the list
-        router.push(`/profile/${invite.inviterUsername}/lists/${invite.listId}`);
+        // Redirect to the list - use /lists/[listId] which handles collaborative lists
+        router.push(`/lists/${invite.listId}`);
       }
     } catch (err) {
       console.error('Failed to accept invite:', err);
