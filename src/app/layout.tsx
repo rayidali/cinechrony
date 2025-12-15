@@ -3,6 +3,7 @@ import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { Space_Grotesk, Space_Mono } from 'next/font/google';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
+import { ThemeProvider } from '@/components/theme-provider';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -27,12 +28,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body className={`${spaceGrotesk.variable} ${spaceMono.variable} font-body antialiased`}>
-        <FirebaseClientProvider>
-          {children}
-        </FirebaseClientProvider>
-        <Toaster />
+        <ThemeProvider>
+          <FirebaseClientProvider>
+            {children}
+          </FirebaseClientProvider>
+          <Toaster />
+        </ThemeProvider>
       </body>
     </html>
   );
