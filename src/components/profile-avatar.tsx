@@ -39,21 +39,21 @@ const sizeClasses = {
   sm: 'h-8 w-8 text-sm',
   md: 'h-10 w-10 text-lg',
   lg: 'h-16 w-16 text-2xl',
-  xl: 'h-24 w-24 text-4xl',
+  xl: 'h-32 w-32 text-5xl',  // 128px - bigger profile picture
 };
 
 const borderClasses = {
   sm: 'border-[2px]',
   md: 'border-[2px]',
   lg: 'border-[3px]',
-  xl: 'border-[3px]',
+  xl: 'border-[4px]',
 };
 
 const shadowClasses = {
   sm: 'shadow-[2px_2px_0px_0px_#000]',
   md: 'shadow-[3px_3px_0px_0px_#000]',
   lg: 'shadow-[4px_4px_0px_0px_#000]',
-  xl: 'shadow-[4px_4px_0px_0px_#000]',
+  xl: 'shadow-[6px_6px_0px_0px_#000]',
 };
 
 export function ProfileAvatar({
@@ -88,7 +88,7 @@ export function ProfileAvatar({
           alt={displayName || username || 'Profile picture'}
           fill
           className="object-cover"
-          sizes={size === 'xl' ? '96px' : size === 'lg' ? '64px' : size === 'md' ? '40px' : '32px'}
+          sizes={size === 'xl' ? '128px' : size === 'lg' ? '64px' : size === 'md' ? '40px' : '32px'}
         />
       ) : (
         <span className="font-bold text-primary-foreground">{initials}</span>
