@@ -1,20 +1,14 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useTransition, useEffect } from 'react';
-import { Eye, EyeOff, Loader2, Star, Maximize2, Instagram, Youtube } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
-import {
-  updateDocumentNonBlocking,
-  useFirestore,
-  useUser,
-} from '@/firebase';
+import { useUser } from '@/firebase';
 import { getUserProfile } from '@/app/actions';
-import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
-import { doc } from 'firebase/firestore';
 
 type MovieCardGridProps = {
   movie: Movie;
@@ -43,13 +37,10 @@ export function MovieCardGrid({
   movie,
   listId,
   listOwnerId,
-  canEdit = true,
   onOpenDetails,
 }: MovieCardGridProps) {
-  const [isPending, startTransition] = useTransition();
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const { user } = useUser();
-  const firestore = useFirestore();
 
   // Fetch the user who added this movie
   useEffect(() => {
@@ -70,19 +61,6 @@ export function MovieCardGrid({
   }, [movie.addedBy, user?.uid]);
 
   if (!user) return null;
-
-  const effectiveOwnerId = listOwnerId || user.uid;
-  const movieDocRef = listId
-    ? doc(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies', movie.id)
-    : doc(firestore, 'users', user.uid, 'movies', movie.id);
-
-  const handleToggle = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    startTransition(() => {
-      const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
-      updateDocumentNonBlocking(movieDocRef, { status: newStatus });
-    });
-  };
 
   const handleClick = () => {
     if (onOpenDetails) {
@@ -164,34 +142,13 @@ export function MovieCardGrid({
           </div>
         </div>
 
-        {/* Hover overlay with quick actions - desktop only */}
-        <div className="absolute inset-0 bg-black/60 opacity-0 md:group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
-          {/* Expand hint */}
-          <div className="flex items-center gap-1 text-white text-xs">
+        {/* Hover overlay - desktop only, just shows "View Details" */}
+        <div className="absolute inset-0 bg-black/50 opacity-0 md:group-hover:opacity-100 transition-opacity flex items-center justify-center">
+          <div className="flex items-center gap-1.5 text-white text-sm bg-black/60 px-3 py-1.5 rounded-full">
             <Maximize2 className="h-4 w-4" />
             <span className="font-medium">View Details</span>
           </div>
-
-          {/* Quick action button */}
-          {canEdit && (
-            <Button
-              size="sm"
-              variant={movie.status === 'Watched' ? 'secondary' : 'default'}
-              onClick={handleToggle}
-              disabled={isPending}
-              className="text-xs px-2 py-1 h-auto"
-            >
-              {isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin" />
-              ) : movie.status === 'To Watch' ? (
-                'Mark Watched'
-              ) : (
-                'Mark To Watch'
-              )}
-            </Button>
-          )}
         </div>
-
       </div>
 
       {/* Title and year below poster */}
