@@ -1,150 +1,52 @@
 # MovieNight 🎬
 
+**Because Letterboxd forgot collaborative lists exist.**
+
 A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
 
-## Vision
+## Live Demo
 
-Ever seen a movie recommendation on TikTok and forgot to save it? MovieNight lets you:
-- Create multiple watchlists with custom names
-- Save the social media link (TikTok, Instagram Reel, YouTube Short) that inspired you
-- Collaborate with up to 3 friends on shared lists
-- Track what's "To Watch" vs "Watched"
-- Follow friends and discover what they're watching
+🚀 [movienight-mzng.onrender.com](https://movienight-mzng.onrender.com)
 
-## Current Features
+## Features
 
-- **User Authentication**: Sign up/login with Firebase Auth
-- **Movie Search**: Find any movie using TMDB API
-- **Personal Watchlist**: Add movies with To Watch / Watched status
-- **Social Links**: Attach TikTok/Instagram links to movies
+### ✅ Currently Implemented
+
+- **Landing Page**: Neo-brutalist welcome screen with edgy copy and vibrant orange/blue color scheme
+- **User Authentication**: Email/password signup and login with Firebase Auth
+- **Profile Pictures**: Upload custom avatars stored on Cloudflare R2
+- **Multiple Watchlists**: Create unlimited lists with custom names
+- **Movie & TV Show Search**: Search millions of titles via TMDB API with ratings, cast info, and posters
+- **Social Links**: Attach TikTok/Instagram/YouTube links to movies
+- **Watch Status**: Toggle between "To Watch" and "Watched" states
+- **Movie Details Modal**: Expandable cards showing full details, cast, and embedded social videos
+- **Dark Mode**: System-aware theme toggle with light mode as default
+- **Dot Pattern Background**: Subtle depth effect that adapts to light/dark modes
+- **Responsive Design**: Mobile-first neo-brutalist UI with chunky borders and hard shadows
+
+### 🚧 Coming Soon
+
+- **Collaborative Lists**: Invite friends to add/manage movies together (up to 3 members per list)
+- **Social Features**: Follow users, view their public lists, activity feed
+- **Enhanced Video Embeds**: Auto-play TikTok/Reels in expanded view
 
 ## Tech Stack
 
 - **Framework**: Next.js 15 (App Router)
 - **Database**: Firebase Firestore
 - **Auth**: Firebase Authentication
+- **File Storage**: Cloudflare R2 (for profile pictures)
 - **Styling**: Tailwind CSS & shadcn/ui
 - **Movie Data**: TMDB API
-
----
-
-## Development Roadmap
-
-### Phase 1: Multiple Lists & User Profiles
-**Goal**: Let users create multiple named watchlists
-
-- [ ] Create user profile document on signup
-- [ ] "My Lists" page showing all user's lists
-- [ ] Create new list with custom name
-- [ ] Each list has its own To Watch / Watched tabs
-- [ ] Delete/rename lists
-- [ ] Migrate existing movies to a "Default" list
-
-**Database Changes**:
-```
-users/{userId}
-  - displayName, email, photoURL, createdAt
-
-users/{userId}/lists/{listId}
-  - name: "Weekend Binges"
-  - createdAt: timestamp
-  - isCollaborative: false
-
-users/{userId}/lists/{listId}/movies/{movieId}
-  - title, year, posterUrl, status, socialLink, addedAt
-```
-
----
-
-### Phase 2: Enhanced Movie Cards & Video Embeds
-**Goal**: Expandable cards that play the linked TikTok/Reel/Short
-
-- [ ] Click movie card to expand (modal or drawer)
-- [ ] Expanded view shows: large poster, title, year, description
-- [ ] Embedded video player for TikTok/Instagram/YouTube
-- [ ] Video auto-plays in loop when expanded
-- [ ] Video pauses when card is closed
-- [ ] Improve social link input (detect platform, validate URL)
-
-**UI/UX**:
-```
-┌─────────────────────────────────────┐
-│  [Poster]    Title (Year)           │
-│              ─────────────          │
-│              Added by @user         │
-│              Status: To Watch       │
-│                                     │
-│  ┌─────────────────────────────┐    │
-│  │                             │    │
-│  │    [TikTok/Reel playing]    │    │
-│  │                             │    │
-│  └─────────────────────────────┘    │
-│                                     │
-│  [Mark Watched]  [Remove]  [Close]  │
-└─────────────────────────────────────┘
-```
-
----
-
-### Phase 3: Social Features - Following
-**Goal**: Discover what friends are watching
-
-- [ ] User search (by username/email)
-- [ ] Follow/unfollow users
-- [ ] Profile page showing followers/following counts
-- [ ] View other users' public lists (read-only)
-- [ ] Activity feed: "Alex added Oppenheimer to Weekend Binges"
-
-**Database Changes**:
-```
-users/{userId}/following/{targetUserId}
-  - followedAt: timestamp
-
-users/{userId}/followers/{followerUserId}
-  - followedAt: timestamp
-
-users/{userId}
-  - followersCount: number
-  - followingCount: number
-```
-
----
-
-### Phase 4: Collaborative Lists
-**Goal**: Share lists with up to 3 friends who can all add/remove movies
-
-- [ ] Invite friends to a list (by email or from following)
-- [ ] Accept/decline list invitations
-- [ ] Max 3 members per collaborative list
-- [ ] All members can add/remove movies
-- [ ] Show who added each movie
-- [ ] List owner can remove members
-- [ ] Leave a collaborative list
-
-**Database Changes**:
-```
-lists/{listId}
-  - name: "Movie Club Picks"
-  - ownerId: userId
-  - members: [userId1, userId2, userId3]
-  - createdAt: timestamp
-
-lists/{listId}/movies/{movieId}
-  - (same as before, but shared)
-
-listInvites/{inviteId}
-  - listId, listName
-  - fromUserId, toUserId
-  - status: "pending" | "accepted" | "declined"
-```
-
----
+- **Theme**: next-themes
 
 ## Getting Started
 
 ### Prerequisites
+
 - Node.js 18+
 - Firebase project with Firestore & Authentication enabled
+- Cloudflare R2 bucket (for avatar uploads)
 - TMDB API key
 
 ### Environment Variables
@@ -167,6 +69,13 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY----
 
 # TMDB API
 NEXT_PUBLIC_TMDB_ACCESS_TOKEN=your_tmdb_token
+
+# Cloudflare R2 (for avatar uploads)
+R2_ACCOUNT_ID=your_account_id
+R2_ACCESS_KEY_ID=your_access_key
+R2_SECRET_ACCESS_KEY=your_secret_key
+R2_BUCKET_NAME=your_bucket_name
+R2_PUBLIC_URL=https://your-bucket.r2.dev
 ```
 
 ### Run Locally
@@ -178,31 +87,62 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000)
 
----
-
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── (auth)/          # Login/signup pages
-│   ├── actions.ts       # Server actions (Firestore writes)
-│   ├── layout.tsx
-│   └── page.tsx         # Main watchlist page
+│   ├── (auth)/              # Login/signup pages
+│   ├── lists/               # User's lists page
+│   ├── lists/[listId]/      # Individual list page
+│   ├── profile/             # User profile page
+│   ├── [username]/          # Public profile page
+│   ├── actions.ts           # Server actions (Firestore writes)
+│   ├── globals.css          # Global styles + dot pattern
+│   ├── layout.tsx           # Root layout with ThemeProvider
+│   └── page.tsx             # Landing page
 ├── components/
-│   ├── ui/              # shadcn components
-│   ├── add-movie-form.tsx
-│   ├── movie-card.tsx
-│   └── movie-list.tsx
+│   ├── ui/                  # shadcn components
+│   ├── add-movie-form-list.tsx
+│   ├── movie-card-grid.tsx
+│   ├── movie-card-list.tsx
+│   ├── movie-details-modal.tsx
+│   ├── theme-provider.tsx
+│   └── theme-toggle.tsx
 ├── firebase/
-│   ├── index.ts         # Client SDK init & hooks
-│   ├── admin.ts         # Admin SDK init
-│   └── provider.tsx     # Auth context
+│   ├── index.ts             # Client SDK init & hooks
+│   ├── admin.ts             # Admin SDK init
+│   └── provider.tsx         # Auth context
 └── lib/
-    └── types.ts         # TypeScript types
+    └── types.ts             # TypeScript types
 ```
 
----
+## Design System
+
+MovieNight uses a **neo-brutalist** design language:
+
+- **Colors**: Blue primary (#2962FF), Orange accent for CTAs, Yellow highlights
+- **Typography**: Space Grotesk (headlines) + Space Mono (body)
+- **Borders**: 3px solid black on all interactive elements
+- **Shadows**: Hard drop shadows (no blur) - `4px 4px 0px 0px #000`
+- **Buttons**: Translate down on click to mimic physical press
+- **Background**: Subtle dot pattern for depth
+
+## Database Schema
+
+```
+users/{userId}
+  - displayName, email, photoURL, createdAt, username
+
+users/{userId}/lists/{listId}
+  - name: "Weekend Binges"
+  - createdAt: timestamp
+
+users/{userId}/lists/{listId}/movies/{movieId}
+  - id: "movie_123" or "tv_456" (prefixed by media type)
+  - title, year, posterUrl, status, socialLink, addedAt
+  - mediaType: "movie" | "tv"
+```
 
 ## Contributing
 

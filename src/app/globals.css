@@ -18,6 +18,8 @@
     --muted-foreground: 24 9.8% 10%;
     --accent: 55 100% 50%;
     --accent-foreground: 60 9.1% 9.8%;
+    --warning: 25 95% 53%;
+    --warning-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 20 14.3% 4.1%;
@@ -37,6 +39,8 @@
     --sidebar-accent-foreground: 240 5.9% 10%;
     --sidebar-border: 220 13% 91%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --dot-color: 0 0% 0%;
+    --dot-opacity: 0.15;
   }
   .dark {
     --background: 20 14.3% 4.1%;
@@ -53,6 +57,8 @@
     --muted-foreground: 0 0% 63%;
     --accent: 55 100% 50%;
     --accent-foreground: 60 9.1% 9.8%;
+    --warning: 25 95% 58%;
+    --warning-foreground: 0 0% 100%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
     --border: 0 0% 35%;
@@ -71,6 +77,8 @@
     --sidebar-accent-foreground: 240 4.8% 95.9%;
     --sidebar-border: 240 3.7% 15.9%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+    --dot-color: 0 0% 100%;
+    --dot-opacity: 0.08;
   }
 }
 
@@ -103,4 +111,24 @@
   .overflow-y-auto, .overflow-x-auto {
     -webkit-overflow-scrolling: touch;
   }
+}
+
+/* Dot pattern background for depth */
+@layer utilities {
+  .bg-dot-pattern {
+    background-image: radial-gradient(
+      hsl(var(--dot-color) / var(--dot-opacity)) 1px,
+      transparent 1px
+    );
+    background-size: 16px 16px;
+  }
+}
+
+/* Apply dot pattern to body by default */
+body {
+  background-image: radial-gradient(
+    hsl(var(--dot-color) / var(--dot-opacity)) 1px,
+    transparent 1px
+  );
+  background-size: 16px 16px;
 }
