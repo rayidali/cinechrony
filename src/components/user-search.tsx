@@ -4,30 +4,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import { ProfileAvatar } from '@/components/profile-avatar';
 import { searchUsers } from '@/app/actions';
 import { useUser } from '@/firebase';
 import type { UserProfile } from '@/lib/types';
 import Link from 'next/link';
 
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
-
-// Get initials from name
-function getInitials(displayName: string | null | undefined, username: string | null | undefined, email: string | null | undefined): string {
-  if (displayName) {
-    const parts = displayName.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return displayName[0].toUpperCase();
-  }
-  if (username) {
-    return username[0].toUpperCase();
-  }
-  if (email) {
-    return email[0].toUpperCase();
-  }
-  return '?';
-}
 
 export function UserSearch() {
   const { user } = useUser();
@@ -108,33 +91,33 @@ export function UserSearch() {
             </div>
           ) : results.length > 0 ? (
             <ul className="divide-y divide-border">
-              {results.map((profile) => {
-                const initials = getInitials(profile.displayName, profile.username, profile.email);
-                return (
-                  <li key={profile.uid}>
-                    <Link
-                      href={`/profile/${profile.username}`}
-                      onClick={() => setShowResults(false)}
-                      className="flex items-center gap-3 p-3 hover:bg-secondary transition-colors"
-                    >
-                      <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
-                        <span className="text-lg font-bold text-primary-foreground">{initials}</span>
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate">
-                          {profile.displayName || profile.username}
-                        </p>
-                        <p className="text-sm text-muted-foreground truncate">
-                          @{profile.username}
-                        </p>
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {profile.followersCount || 0} followers
-                      </div>
-                    </Link>
-                  </li>
-                );
-              })}
+              {results.map((profile) => (
+                <li key={profile.uid}>
+                  <Link
+                    href={`/profile/${profile.username}`}
+                    onClick={() => setShowResults(false)}
+                    className="flex items-center gap-3 p-3 hover:bg-secondary transition-colors"
+                  >
+                    <ProfileAvatar
+                      photoURL={profile.photoURL}
+                      displayName={profile.displayName}
+                      username={profile.username}
+                      size="md"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">
+                        {profile.displayName || profile.username}
+                      </p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        @{profile.username}
+                      </p>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {profile.followersCount || 0} followers
+                    </div>
+                  </Link>
+                </li>
+              ))}
             </ul>
           ) : query.length >= 2 ? (
             <div className="p-4 text-center text-muted-foreground">

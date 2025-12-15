@@ -46,6 +46,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
+import { ProfileAvatar } from '@/components/profile-avatar';
 import {
   getListMembers,
   getListPendingInvites,
@@ -66,21 +67,6 @@ interface ListCollaboratorsProps {
   listId: string;
   listOwnerId: string;
   listName: string;
-}
-
-// Get initials from name
-function getInitials(displayName: string | null | undefined, username: string | null | undefined): string {
-  if (displayName) {
-    const parts = displayName.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return displayName[0].toUpperCase();
-  }
-  if (username) {
-    return username[0].toUpperCase();
-  }
-  return '?';
 }
 
 export function ListCollaborators({ listId, listOwnerId, listName }: ListCollaboratorsProps) {
@@ -356,11 +342,12 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
                           className="flex items-center justify-between p-2 rounded-lg border-[2px] border-black bg-secondary"
                         >
                           <div className="flex items-center gap-2">
-                            <div className="h-8 w-8 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
-                              <span className="text-sm font-bold text-primary-foreground">
-                                {getInitials(profile.displayName, profile.username)}
-                              </span>
-                            </div>
+                            <ProfileAvatar
+                              photoURL={profile.photoURL}
+                              displayName={profile.displayName}
+                              username={profile.username}
+                              size="sm"
+                            />
                             <div>
                               <p className="font-medium text-sm">{profile.displayName || profile.username}</p>
                               <p className="text-xs text-muted-foreground">@{profile.username}</p>
@@ -444,11 +431,12 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
               className="flex items-center justify-between p-2 rounded-lg bg-secondary"
             >
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
-                  <span className="text-lg font-bold text-primary-foreground">
-                    {getInitials(member.displayName, member.username)}
-                  </span>
-                </div>
+                <ProfileAvatar
+                  photoURL={member.photoURL}
+                  displayName={member.displayName}
+                  username={member.username}
+                  size="md"
+                />
                 <div>
                   <div className="flex items-center gap-2">
                     <Link

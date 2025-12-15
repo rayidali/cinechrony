@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users } from 'lucide-react';
+import { Film, ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -19,29 +19,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists } from '@/app/actions';
+import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto } from '@/app/actions';
+import { ProfileAvatar } from '@/components/profile-avatar';
+import { AvatarPicker } from '@/components/avatar-picker';
 import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
-
-// Get initials from name
-function getInitials(displayName: string | null | undefined, username: string | null | undefined, email: string | null | undefined): string {
-  if (displayName) {
-    const parts = displayName.trim().split(' ');
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
-    return displayName[0].toUpperCase();
-  }
-  if (username) {
-    return username[0].toUpperCase();
-  }
-  if (email) {
-    return email[0].toUpperCase();
-  }
-  return '?';
-}
 
 export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -60,6 +44,7 @@ export default function MyProfilePage() {
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
   const [collaborativeLists, setCollaborativeLists] = useState<Array<{ id: string; name: string; ownerId: string; ownerUsername: string | null }>>([]);
   const [isLoadingCollab, setIsLoadingCollab] = useState(false);
+  const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -221,6 +206,14 @@ export default function MyProfilePage() {
     }
   };
 
+  const handleAvatarChange = async (newPhotoURL: string) => {
+    if (!user) return;
+    const result = await updateProfilePhoto(user.uid, newPhotoURL);
+    if (result.error) {
+      throw new Error(result.error);
+    }
+  };
+
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
@@ -228,8 +221,6 @@ export default function MyProfilePage() {
       </div>
     );
   }
-
-  const initials = getInitials(userProfile?.displayName, userProfile?.username, user.email);
 
   return (
     <main className="min-h-screen bg-background font-body text-foreground">
@@ -246,9 +237,24 @@ export default function MyProfilePage() {
 
           {/* Profile Header */}
           <div className="flex flex-col items-center">
-            {/* Profile Picture with Initial */}
-            <div className="h-24 w-24 rounded-full bg-primary border-[3px] border-black flex items-center justify-center mb-4 shadow-[4px_4px_0px_0px_#000]">
-              <span className="text-4xl font-bold text-primary-foreground">{initials}</span>
+            {/* Profile Picture - Clickable to change */}
+            <div className="relative mb-4 group">
+              <ProfileAvatar
+                photoURL={userProfile?.photoURL}
+                displayName={userProfile?.displayName}
+                username={userProfile?.username}
+                email={user.email}
+                size="xl"
+                onClick={() => setIsAvatarPickerOpen(true)}
+                className="cursor-pointer"
+              />
+              {/* Edit overlay */}
+              <div
+                className="absolute inset-0 rounded-full bg-black/50 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                onClick={() => setIsAvatarPickerOpen(true)}
+              >
+                <Camera className="h-6 w-6 text-white" />
+              </div>
             </div>
 
             <h1 className="text-2xl md:text-3xl font-headline font-bold text-center">
@@ -530,26 +536,26 @@ export default function MyProfilePage() {
               <CardContent className="max-h-96 overflow-y-auto">
                 {followers.length > 0 ? (
                   <ul className="divide-y divide-border">
-                    {followers.map((profile) => {
-                      const followerInitial = getInitials(profile.displayName, profile.username, profile.email);
-                      return (
-                        <li key={profile.uid}>
-                          <Link
-                            href={`/profile/${profile.username}`}
-                            onClick={() => setShowFollowers(false)}
-                            className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                          >
-                            <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
-                              <span className="text-lg font-bold text-primary-foreground">{followerInitial}</span>
-                            </div>
-                            <div>
-                              <p className="font-medium">{profile.displayName || profile.username}</p>
-                              <p className="text-sm text-muted-foreground">@{profile.username}</p>
-                            </div>
-                          </Link>
-                        </li>
-                      );
-                    })}
+                    {followers.map((profile) => (
+                      <li key={profile.uid}>
+                        <Link
+                          href={`/profile/${profile.username}`}
+                          onClick={() => setShowFollowers(false)}
+                          className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
+                        >
+                          <ProfileAvatar
+                            photoURL={profile.photoURL}
+                            displayName={profile.displayName}
+                            username={profile.username}
+                            size="md"
+                          />
+                          <div>
+                            <p className="font-medium">{profile.displayName || profile.username}</p>
+                            <p className="text-sm text-muted-foreground">@{profile.username}</p>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 ) : (
                   <p className="text-center text-muted-foreground py-4">No followers yet</p>
@@ -572,26 +578,26 @@ export default function MyProfilePage() {
               <CardContent className="max-h-96 overflow-y-auto">
                 {following.length > 0 ? (
                   <ul className="divide-y divide-border">
-                    {following.map((profile) => {
-                      const followingInitial = getInitials(profile.displayName, profile.username, profile.email);
-                      return (
-                        <li key={profile.uid}>
-                          <Link
-                            href={`/profile/${profile.username}`}
-                            onClick={() => setShowFollowing(false)}
-                            className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                          >
-                            <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[2px] border-black">
-                              <span className="text-lg font-bold text-primary-foreground">{followingInitial}</span>
-                            </div>
-                            <div>
-                              <p className="font-medium">{profile.displayName || profile.username}</p>
-                              <p className="text-sm text-muted-foreground">@{profile.username}</p>
-                            </div>
-                          </Link>
-                        </li>
-                      );
-                    })}
+                    {following.map((profile) => (
+                      <li key={profile.uid}>
+                        <Link
+                          href={`/profile/${profile.username}`}
+                          onClick={() => setShowFollowing(false)}
+                          className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
+                        >
+                          <ProfileAvatar
+                            photoURL={profile.photoURL}
+                            displayName={profile.displayName}
+                            username={profile.username}
+                            size="md"
+                          />
+                          <div>
+                            <p className="font-medium">{profile.displayName || profile.username}</p>
+                            <p className="text-sm text-muted-foreground">@{profile.username}</p>
+                          </div>
+                        </Link>
+                      </li>
+                    ))}
                   </ul>
                 ) : (
                   <p className="text-center text-muted-foreground py-4">Not following anyone yet</p>
@@ -600,6 +606,14 @@ export default function MyProfilePage() {
             </Card>
           </div>
         )}
+
+        {/* Avatar Picker Modal */}
+        <AvatarPicker
+          isOpen={isAvatarPickerOpen}
+          onClose={() => setIsAvatarPickerOpen(false)}
+          currentAvatarUrl={userProfile?.photoURL || null}
+          onAvatarChange={handleAvatarChange}
+        />
       </div>
     </main>
   );

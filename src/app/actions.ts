@@ -1958,3 +1958,28 @@ export async function getCollaborativeLists(userId: string) {
     return { error: 'Failed to get collaborative lists.', lists: [] };
   }
 }
+
+/**
+ * Update user's profile photo URL.
+ */
+export async function updateProfilePhoto(userId: string, photoURL: string) {
+  const db = getDb();
+
+  try {
+    // Validate URL format
+    if (!photoURL.startsWith('http://') && !photoURL.startsWith('https://')) {
+      return { error: 'Invalid photo URL.' };
+    }
+
+    await db.collection('users').doc(userId).update({
+      photoURL: photoURL,
+    });
+
+    revalidatePath('/profile');
+    revalidatePath(`/profile/[username]`);
+    return { success: true, photoURL };
+  } catch (error) {
+    console.error('[updateProfilePhoto] Failed:', error);
+    return { error: 'Failed to update profile photo.' };
+  }
+}
