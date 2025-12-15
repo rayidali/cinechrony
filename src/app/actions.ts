@@ -1960,8 +1960,16 @@ export async function getCollaborativeLists(userId: string) {
 }
 
 /**
- * Upload an avatar image to Firebase Storage.
+ * Upload an avatar image to Cloudflare R2.
  * Receives base64 image data and returns the download URL.
+ * Uses a consistent filename per user to overwrite previous uploads.
+ *
+ * Required environment variables:
+ * - R2_ACCESS_KEY_ID: R2 access key
+ * - R2_SECRET_ACCESS_KEY: R2 secret key
+ * - R2_ENDPOINT: R2 endpoint (e.g., https://<account_id>.r2.cloudflarestorage.com)
+ * - R2_BUCKET_NAME: R2 bucket name
+ * - R2_PUBLIC_BASE_URL: Public URL for the bucket (e.g., https://pub-xxx.r2.dev)
  */
 export async function uploadAvatar(
   userId: string,
@@ -1971,13 +1979,14 @@ export async function uploadAvatar(
 ): Promise<{ url?: string; error?: string }> {
   try {
     // Validate inputs
-    if (!userId || !base64Data || !fileName) {
+    if (!userId || !base64Data) {
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type
-    if (!mimeType.startsWith('image/')) {
-      return { error: 'Invalid file type. Please upload an image.' };
+    // Validate mime type - only allow specific image types
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedTypes.includes(mimeType)) {
+      return { error: 'Invalid file type. Please upload a JPG, PNG, WebP, or GIF image.' };
     }
 
     // Convert base64 to buffer
@@ -1988,31 +1997,58 @@ export async function uploadAvatar(
       return { error: 'File too large. Maximum size is 2MB.' };
     }
 
-    // Get Firebase Admin Storage
-    const { getStorage } = await import('firebase-admin/storage');
-    const adminApp = getFirebaseAdminApp();
-    const bucket = getStorage(adminApp).bucket();
+    // Check R2 configuration
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const endpoint = process.env.R2_ENDPOINT;
+    const bucketName = process.env.R2_BUCKET_NAME;
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
 
-    // Create a unique file path
-    const sanitizedFileName = fileName.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const filePath = `avatars/${userId}/${Date.now()}_${sanitizedFileName}`;
+    if (!accessKeyId || !secretAccessKey || !endpoint || !bucketName || !publicBaseUrl) {
+      console.error('[uploadAvatar] R2 not configured');
+      return { error: 'Image upload is not configured. Please contact support.' };
+    }
 
-    // Upload the file
-    const file = bucket.file(filePath);
-    await file.save(buffer, {
-      metadata: {
-        contentType: mimeType,
-        cacheControl: 'public, max-age=31536000',
+    // Import S3 client
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+
+    // Create S3 client for R2
+    const s3Client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
       },
     });
 
-    // Make the file publicly accessible
-    await file.makePublic();
+    // Get file extension from mime type
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+    };
+    const ext = extMap[mimeType] || 'jpg';
 
-    // Get the public URL
-    const publicUrl = `https://storage.googleapis.com/${bucket.name}/${filePath}`;
+    // Use consistent filename per user (overwrites previous avatar)
+    const fileKey = `avatars/${userId}/avatar.${ext}`;
 
-    return { url: publicUrl };
+    // Upload to R2
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucketName,
+        Key: fileKey,
+        Body: buffer,
+        ContentType: mimeType,
+        CacheControl: 'public, max-age=31536000',
+      })
+    );
+
+    // Return the public URL with cache-busting timestamp
+    const imageUrl = `${publicBaseUrl}/${fileKey}?v=${Date.now()}`;
+
+    return { url: imageUrl };
   } catch (error) {
     console.error('[uploadAvatar] Failed:', error);
     return { error: 'Failed to upload image. Please try again.' };
