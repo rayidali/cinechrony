@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useTransition, useEffect } from 'react';
-import { Eye, EyeOff, Loader2, Star, Trash2 } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import {
@@ -72,8 +72,9 @@ export function MovieCardList({
     e.stopPropagation();
     startTransition(() => {
       deleteDocumentNonBlocking(movieDocRef);
+      const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
       toast({
-        title: 'Movie Removed',
+        title: `${itemType} Removed`,
         description: `${movie.title} has been removed from your list.`,
       });
     });
@@ -109,9 +110,16 @@ export function MovieCardList({
       {/* Content */}
       <div className="flex-1 min-w-0 flex flex-col justify-between">
         <div>
-          <h3 className="font-bold text-sm truncate" title={movie.title}>
-            {movie.title}
-          </h3>
+          <div className="flex items-center gap-1.5">
+            {movie.mediaType === 'tv' ? (
+              <Tv className="h-3.5 w-3.5 text-primary flex-shrink-0" title="TV Show" />
+            ) : (
+              <Film className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" title="Movie" />
+            )}
+            <h3 className="font-bold text-sm truncate" title={movie.title}>
+              {movie.title}
+            </h3>
+          </div>
           <p className="text-xs text-muted-foreground">{movie.year}</p>
 
           {/* Rating */}

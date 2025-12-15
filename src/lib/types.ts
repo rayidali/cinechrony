@@ -75,6 +75,8 @@ export type Movie = {
   socialLink?: string;
   status: 'To Watch' | 'Watched';
   createdAt?: Date;
+  // Media type (movie or tv)
+  mediaType?: 'movie' | 'tv';
   // Optional TMDB details (stored when adding movie)
   tmdbId?: number;
   overview?: string;
@@ -82,13 +84,15 @@ export type Movie = {
   backdropUrl?: string;
 };
 
-// Search result from TMDB (used when adding movies)
+// Search result from TMDB (used when adding movies/tv shows)
 export type SearchResult = {
   id: string;
   title: string;
   year: string;
   posterUrl: string;
   posterHint: string;
+  // Media type (movie or tv)
+  mediaType: 'movie' | 'tv';
   // Additional details for expanded view
   tmdbId?: number;
   overview?: string;
@@ -121,7 +125,7 @@ export type TMDBMovieDetails = {
   };
 };
 
-// Raw TMDB API search result
+// Raw TMDB API movie search result
 export type TMDBSearchResult = {
   adult: boolean;
   backdrop_path: string | null;
@@ -137,4 +141,43 @@ export type TMDBSearchResult = {
   video: boolean;
   vote_average: number;
   vote_count: number;
+};
+
+// Raw TMDB API TV search result
+export type TMDBTVSearchResult = {
+  adult: boolean;
+  backdrop_path: string | null;
+  genre_ids: number[];
+  id: number;
+  original_language: string;
+  original_name: string;
+  overview: string;
+  popularity: number;
+  poster_path: string | null;
+  first_air_date: string;
+  name: string;
+  vote_average: number;
+  vote_count: number;
+  origin_country: string[];
+};
+
+// TMDB TV show details response
+export type TMDBTVDetails = {
+  id: number;
+  name: string;
+  overview: string;
+  first_air_date: string;
+  vote_average: number;
+  vote_count: number;
+  poster_path: string | null;
+  backdrop_path: string | null;
+  number_of_seasons: number;
+  number_of_episodes: number;
+  episode_run_time: number[];
+  genres: Array<{ id: number; name: string }>;
+  status: string;
+  networks: Array<{ id: number; name: string; logo_path: string | null }>;
+  credits?: {
+    cast: TMDBCast[];
+  };
 };

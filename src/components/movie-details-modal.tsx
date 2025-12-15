@@ -14,9 +14,11 @@ import {
   Youtube,
   Pencil,
   X,
+  Film,
+  Tv,
 } from 'lucide-react';
 
-import type { Movie, TMDBMovieDetails, TMDBCast, UserProfile } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -46,6 +48,14 @@ type ExtendedMovieDetails = TMDBMovieDetails & {
   imdbRating?: string;
   imdbVotes?: string;
 };
+
+type ExtendedTVDetails = TMDBTVDetails & {
+  imdbId?: string;
+  imdbRating?: string;
+  imdbVotes?: string;
+};
+
+type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
 
 const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
@@ -119,6 +129,38 @@ async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails |
   }
 }
 
+async function fetchTVDetails(tmdbId: number): Promise<ExtendedTVDetails | null> {
+  const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+  if (!accessToken) return null;
+
+  try {
+    const response = await fetch(
+      `${TMDB_API_BASE_URL}/tv/${tmdbId}?append_to_response=credits,external_ids`,
+      {
+        headers: {
+          accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      }
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    const imdbId = data.external_ids?.imdb_id;
+
+    if (imdbId) {
+      const omdbResponse = await fetch(`https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}`);
+      const omdbData = await omdbResponse.json();
+      if (omdbData.Response === 'True') {
+        return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
+      }
+    }
+
+    return { ...data, imdbId };
+  } catch {
+    return null;
+  }
+}
+
 type MovieDetailsModalProps = {
   movie: Movie | null;
   isOpen: boolean;
@@ -137,7 +179,7 @@ export function MovieDetailsModal({
   canEdit = true,
 }: MovieDetailsModalProps) {
   const [isPending, startTransition] = useTransition();
-  const [movieDetails, setMovieDetails] = useState<ExtendedMovieDetails | null>(null);
+  const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
@@ -149,21 +191,32 @@ export function MovieDetailsModal({
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
-      setMovieDetails(null);
+      setMediaDetails(null);
       setAddedByUser(null);
     }
   }, [movie?.id]);
 
-  // Fetch movie details when modal opens
+  // Fetch movie/TV details when modal opens
   useEffect(() => {
     async function loadDetails() {
-      if (!movie || !isOpen || movieDetails || isLoadingDetails) return;
+      if (!movie || !isOpen || mediaDetails || isLoadingDetails) return;
 
       setIsLoadingDetails(true);
-      let tmdbId = movie.tmdbId || parseInt(movie.id, 10);
+      // Extract TMDB ID - handle prefixed IDs like "movie_12345" or "tv_67890"
+      let tmdbId: number;
+      if (movie.tmdbId) {
+        tmdbId = movie.tmdbId;
+      } else {
+        // Try to extract from prefixed ID
+        const idMatch = movie.id.match(/^(?:movie|tv)_(\d+)$/);
+        tmdbId = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
+      }
+
       if (!isNaN(tmdbId)) {
-        const details = await fetchMovieDetails(tmdbId);
-        setMovieDetails(details);
+        const details = movie.mediaType === 'tv'
+          ? await fetchTVDetails(tmdbId)
+          : await fetchMovieDetails(tmdbId);
+        setMediaDetails(details);
       }
       setIsLoadingDetails(false);
     }
@@ -205,8 +258,9 @@ export function MovieDetailsModal({
   const handleRemove = () => {
     startTransition(() => {
       deleteDocumentNonBlocking(movieDocRef);
+      const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
       toast({
-        title: 'Movie Removed',
+        title: `${itemType} Removed`,
         description: `${movie.title} has been removed from your list.`,
       });
       onClose();
@@ -238,6 +292,11 @@ export function MovieDetailsModal({
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
         <DialogHeader>
           <DialogTitle className="text-2xl font-headline flex items-center gap-2">
+            {movie.mediaType === 'tv' ? (
+              <Tv className="h-6 w-6 text-primary flex-shrink-0" />
+            ) : (
+              <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
+            )}
             {movie.title}
             <span className="text-muted-foreground font-normal text-lg">({movie.year})</span>
           </DialogTitle>
@@ -287,30 +346,42 @@ export function MovieDetailsModal({
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Loading rating...
               </div>
-            ) : movieDetails?.imdbRating && movieDetails.imdbRating !== 'N/A' ? (
+            ) : mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' ? (
               <div className="flex items-center gap-3">
                 <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
                   <IMDbLogo className="h-5 w-auto" />
-                  <span className="text-lg">{movieDetails.imdbRating}</span>
+                  <span className="text-lg">{mediaDetails.imdbRating}</span>
                   <span className="text-sm font-normal">/10</span>
                 </div>
-                {movieDetails.imdbVotes && (
+                {mediaDetails.imdbVotes && (
                   <span className="text-sm text-muted-foreground">
-                    ({movieDetails.imdbVotes} votes)
+                    ({mediaDetails.imdbVotes} votes)
                   </span>
                 )}
               </div>
             ) : null}
 
-            {/* Runtime & Genres */}
-            {movieDetails && (
+            {/* Runtime/Seasons & Genres */}
+            {mediaDetails && (
               <div className="flex flex-wrap gap-2">
-                {movieDetails.runtime && (
+                {/* Movie runtime */}
+                {'runtime' in mediaDetails && mediaDetails.runtime && (
                   <span className="bg-secondary px-2 py-1 rounded text-sm">
-                    {Math.floor(movieDetails.runtime / 60)}h {movieDetails.runtime % 60}m
+                    {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
                   </span>
                 )}
-                {movieDetails.genres?.map((genre) => (
+                {/* TV show seasons/episodes */}
+                {'number_of_seasons' in mediaDetails && (
+                  <>
+                    <span className="bg-secondary px-2 py-1 rounded text-sm">
+                      {mediaDetails.number_of_seasons} Season{mediaDetails.number_of_seasons !== 1 ? 's' : ''}
+                    </span>
+                    <span className="bg-secondary px-2 py-1 rounded text-sm">
+                      {mediaDetails.number_of_episodes} Episodes
+                    </span>
+                  </>
+                )}
+                {mediaDetails.genres?.map((genre) => (
                   <span key={genre.id} className="bg-secondary px-2 py-1 rounded text-sm">
                     {genre.name}
                   </span>
@@ -326,9 +397,9 @@ export function MovieDetailsModal({
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Loading details...
                 </div>
-              ) : movieDetails?.overview || movie.overview ? (
+              ) : mediaDetails?.overview || movie.overview ? (
                 <p className="text-muted-foreground leading-relaxed">
-                  {movieDetails?.overview || movie.overview}
+                  {mediaDetails?.overview || movie.overview}
                 </p>
               ) : (
                 <p className="text-muted-foreground italic">No overview available</p>
@@ -336,14 +407,14 @@ export function MovieDetailsModal({
             </div>
 
             {/* Cast */}
-            {movieDetails?.credits?.cast && movieDetails.credits.cast.length > 0 && (
+            {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
               <div>
                 <h3 className="font-bold mb-2 flex items-center gap-2">
                   <Users className="h-4 w-4" />
                   Cast
                 </h3>
                 <div className="grid grid-cols-2 gap-2">
-                  {movieDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
+                  {mediaDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
                     <div key={actor.id} className="flex items-center gap-2 bg-secondary rounded-lg p-2">
                       {actor.profile_path ? (
                         <Image
@@ -369,10 +440,10 @@ export function MovieDetailsModal({
             )}
 
             {/* IMDB Link */}
-            {movieDetails?.imdbId && (
+            {mediaDetails?.imdbId && (
               <Button asChild variant="outline" className="w-full">
                 <Link
-                  href={`https://www.imdb.com/title/${movieDetails.imdbId}`}
+                  href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
                   target="_blank"
                   rel="noopener noreferrer"
                 >

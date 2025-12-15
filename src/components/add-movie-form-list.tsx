@@ -1,17 +1,18 @@
 'use client';
 
 import { useState, useTransition, useEffect } from 'react';
-import { Search, Loader2, Plus, Instagram, Youtube } from 'lucide-react';
+import { Search, Loader2, Plus, Instagram, Youtube, Film, Tv } from 'lucide-react';
 import Image from 'next/image';
 import { TiktokIcon } from './icons';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 
-import type { SearchResult, TMDBSearchResult } from '@/lib/types';
+import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult } from '@/lib/types';
 import { addMovieToList } from '@/app/actions';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 
@@ -50,7 +51,7 @@ async function tmdbFetch(path: string, params: Record<string, string> = {}) {
   }
 }
 
-function formatTMDBSearchResult(result: TMDBSearchResult): SearchResult {
+function formatMovieSearchResult(result: TMDBSearchResult): SearchResult {
   const year = result.release_date ? result.release_date.split('-')[0] : 'N/A';
   return {
     id: result.id.toString(),
@@ -60,6 +61,21 @@ function formatTMDBSearchResult(result: TMDBSearchResult): SearchResult {
       ? `https://image.tmdb.org/t/p/w500${result.poster_path}`
       : 'https://picsum.photos/seed/placeholder/500/750',
     posterHint: 'movie poster',
+    mediaType: 'movie',
+  };
+}
+
+function formatTVSearchResult(result: TMDBTVSearchResult): SearchResult {
+  const year = result.first_air_date ? result.first_air_date.split('-')[0] : 'N/A';
+  return {
+    id: result.id.toString(),
+    title: result.name,
+    year: year,
+    posterUrl: result.poster_path
+      ? `https://image.tmdb.org/t/p/w500${result.poster_path}`
+      : 'https://picsum.photos/seed/placeholder/500/750',
+    posterHint: 'tv show poster',
+    mediaType: 'tv',
   };
 }
 
@@ -74,7 +90,24 @@ async function searchMovies(query: string): Promise<SearchResult[]> {
   });
 
   if (data && data.results) {
-    return data.results.slice(0, 10).map(formatTMDBSearchResult);
+    return data.results.slice(0, 10).map(formatMovieSearchResult);
+  }
+
+  return [];
+}
+
+async function searchTVShows(query: string): Promise<SearchResult[]> {
+  if (!query) return [];
+
+  const data = await tmdbFetch('search/tv', {
+    query: query,
+    include_adult: 'false',
+    language: 'en-US',
+    page: '1',
+  });
+
+  if (data && data.results) {
+    return data.results.slice(0, 10).map(formatTVSearchResult);
   }
 
   return [];
@@ -98,6 +131,7 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<SearchResult | null>(null);
   const [socialLink, setSocialLink] = useState('');
+  const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
 
   const [isSearching, startSearchTransition] = useTransition();
   const [isAdding, startAddingTransition] = useTransition();
@@ -115,13 +149,15 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
 
     const searchTimer = setTimeout(() => {
       startSearchTransition(async () => {
-        const searchResults = await searchMovies(query);
+        const searchResults = mediaType === 'movie'
+          ? await searchMovies(query)
+          : await searchTVShows(query);
         setResults(searchResults);
       });
     }, 300);
 
     return () => clearTimeout(searchTimer);
-  }, [query, selectedMovie]);
+  }, [query, selectedMovie, mediaType]);
 
   const handleSelectMovie = (movie: SearchResult) => {
     setSelectedMovie(movie);
@@ -142,15 +178,16 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
 
     startAddingTransition(async () => {
       const result = await addMovieToList(formData);
+      const itemType = selectedMovie.mediaType === 'tv' ? 'TV Show' : 'Movie';
       if (result?.error) {
         toast({
           variant: 'destructive',
-          title: 'Error adding movie',
+          title: `Error adding ${itemType.toLowerCase()}`,
           description: result.error,
         });
       } else {
         toast({
-          title: 'Movie Added!',
+          title: `${itemType} Added!`,
           description: `${selectedMovie.title} has been added to the list.`,
         });
       }
@@ -173,19 +210,37 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
     }
   };
 
+  const handleMediaTypeChange = (value: string) => {
+    setMediaType(value as 'movie' | 'tv');
+    setResults([]);
+    setQuery('');
+  };
+
   return (
     <Card className="w-full max-w-2xl bg-secondary rounded-xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
       <CardHeader>
-        <CardTitle className="font-headline text-2xl">Add a New Film</CardTitle>
+        <CardTitle className="font-headline text-2xl">Add to Watchlist</CardTitle>
       </CardHeader>
       <CardContent>
         {!selectedMovie ? (
           <div className="space-y-4">
+            <Tabs value={mediaType} onValueChange={handleMediaTypeChange} className="w-full">
+              <TabsList className="grid w-full grid-cols-2 border-[2px] border-black">
+                <TabsTrigger value="movie" className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Film className="h-4 w-4" />
+                  Movies
+                </TabsTrigger>
+                <TabsTrigger value="tv" className="flex items-center gap-2 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                  <Tv className="h-4 w-4" />
+                  TV Shows
+                </TabsTrigger>
+              </TabsList>
+            </Tabs>
             <form onSubmit={(e) => e.preventDefault()} className="flex gap-2">
               <div className="relative w-full">
                 <Input
                   type="text"
-                  placeholder="Search for a movie (e.g., Star Wars)..."
+                  placeholder={mediaType === 'movie' ? "Search for a movie..." : "Search for a TV show..."}
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   className={`${retroInputClass} pr-10`}

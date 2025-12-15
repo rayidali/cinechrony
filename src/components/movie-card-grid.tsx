@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube } from 'lucide-react';
+import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
@@ -94,17 +94,24 @@ export function MovieCardGrid({
           sizes="(max-width: 640px) 33vw, (max-width: 1024px) 25vw, 20vw"
         />
 
-        {/* Top row: Rating + Social Icon */}
+        {/* Top row: Rating + TV badge + Social Icon */}
         <div className="absolute top-1 left-1 right-1 flex justify-between items-start">
-          {/* Rating badge */}
-          {movie.rating ? (
-            <div className="bg-black/80 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-              {movie.rating.toFixed(1)}
-            </div>
-          ) : (
-            <div />
-          )}
+          {/* Left side: Rating + TV badge */}
+          <div className="flex items-center gap-1">
+            {/* Rating badge */}
+            {movie.rating ? (
+              <div className="bg-black/80 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5">
+                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                {movie.rating.toFixed(1)}
+              </div>
+            ) : null}
+            {/* TV badge */}
+            {movie.mediaType === 'tv' && (
+              <div className="bg-primary text-primary-foreground px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5" title="TV Show">
+                <Tv className="h-3 w-3" />
+              </div>
+            )}
+          </div>
 
           {/* Social link badge */}
           {hasSocialLink && (

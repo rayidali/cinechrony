@@ -311,21 +311,26 @@ export async function addMovieToList(formData: FormData) {
       return { error: 'You do not have permission to add movies to this list.' };
     }
 
+    // Use prefixed ID to distinguish movies and TV shows with same TMDB ID
+    const mediaType = movieData.mediaType || 'movie';
+    const docId = `${mediaType}_${movieData.id}`;
+
     const movieRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
-      .doc(movieData.id);
+      .doc(docId);
 
     await movieRef.set(
       {
-        id: movieData.id,
+        id: docId,
         title: movieData.title,
         year: movieData.year,
         posterUrl: movieData.posterUrl,
         posterHint: movieData.posterHint,
+        mediaType: mediaType,
         addedBy: userId, // Track who added the movie
         socialLink: socialLink || '',
         status: 'To Watch',
