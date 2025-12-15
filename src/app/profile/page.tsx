@@ -22,6 +22,7 @@ import { useToast } from '@/hooks/use-toast';
 import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto } from '@/app/actions';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
+import { ThemeToggle } from '@/components/theme-toggle';
 import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
@@ -233,6 +234,7 @@ export default function MyProfilePage() {
                 My Lists
               </Button>
             </Link>
+            <ThemeToggle />
           </div>
 
           {/* Profile Header */}

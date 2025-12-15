@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { Film, ArrowLeft, Users, AlertTriangle } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
@@ -258,7 +259,10 @@ export default function ListDetailPage() {
                 All Lists
               </Button>
             </Link>
-            <UserAvatar />
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <UserAvatar />
+            </div>
           </div>
           <div className="flex flex-col items-center">
             <div className="flex items-center gap-4 mb-2">

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FollowButton } from '@/components/follow-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import {
   getUserByUsername,
@@ -178,6 +179,7 @@ export default function UserProfilePage() {
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>
+            <ThemeToggle />
           </div>
 
           {/* Profile Header */}

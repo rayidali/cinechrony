@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Film, Loader2 } from 'lucide-react';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 
@@ -41,7 +42,10 @@ export default function LoginPage() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-background p-4 relative">
+      <div className="absolute top-4 right-4">
+        <ThemeToggle />
+      </div>
       <div className="flex items-center gap-4 mb-6">
         <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
         <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">

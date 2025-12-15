@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Film, Plus, Loader2, List, MoreVertical, Pencil, Trash2, Eye, EyeOff, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -293,7 +294,8 @@ export default function ListsPage() {
     <main className="min-h-screen bg-background font-body text-foreground">
       <div className="container mx-auto p-4 md:p-8">
         <header className="mb-12">
-          <div className="w-full flex justify-end mb-4">
+          <div className="w-full flex justify-end items-center gap-3 mb-4">
+            <ThemeToggle />
             <UserAvatar />
           </div>
           <div className="flex flex-col items-center">
