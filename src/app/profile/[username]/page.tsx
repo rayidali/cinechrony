@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { FollowButton } from '@/components/follow-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { BottomNav } from '@/components/bottom-nav';
 import { useToast } from '@/hooks/use-toast';
 import {
   getUserByUsername,
@@ -156,7 +157,7 @@ export default function UserProfilePage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4 border-[3px] border-black">
+            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4 border-[3px] border-border">
               <span className="text-2xl font-bold text-muted-foreground">?</span>
             </div>
             <h1 className="text-2xl font-headline font-bold mb-2">User Not Found</h1>
@@ -171,7 +172,7 @@ export default function UserProfilePage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground">
+    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
       <div className="container mx-auto p-4 md:p-8">
         <header className="mb-8">
           <div className="w-full flex justify-between items-center mb-6">
@@ -248,7 +249,7 @@ export default function UserProfilePage() {
                   key={list.id}
                   href={`/profile/${username}/lists/${list.id}`}
                 >
-                  <Card className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
+                  <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-2">
                         <List className="h-5 w-5 text-primary" />
@@ -263,7 +264,7 @@ export default function UserProfilePage() {
               ))}
             </div>
           ) : (
-            <Card className="border-[3px] border-dashed border-black rounded-lg bg-secondary">
+            <Card className="border-[3px] border-dashed border-border rounded-2xl bg-secondary">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Lock className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="font-headline text-xl font-bold mb-2">No public lists</h3>
@@ -288,7 +289,7 @@ export default function UserProfilePage() {
                   key={list.id}
                   href={`/profile/${list.ownerUsername}/lists/${list.id}`}
                 >
-                  <Card className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
+                  <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
                     <CardHeader className="pb-2">
                       <div className="flex items-center gap-2">
                         <Users className="h-5 w-5 text-primary" />
@@ -310,7 +311,7 @@ export default function UserProfilePage() {
         {/* Followers Modal */}
         {showFollowers && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Followers</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
@@ -352,7 +353,7 @@ export default function UserProfilePage() {
         {/* Following Modal */}
         {showFollowing && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Following</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>
@@ -391,6 +392,8 @@ export default function UserProfilePage() {
           </div>
         )}
       </div>
+
+      <BottomNav />
     </main>
   );
 }

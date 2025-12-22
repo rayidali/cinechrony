@@ -20,6 +20,7 @@ import { PublicMovieGrid } from '@/components/public-movie-grid';
 import { PublicMovieListItem } from '@/components/public-movie-list-item';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
 import { GridViewHint } from '@/components/grid-view-hint';
+import { BottomNav } from '@/components/bottom-nav';
 import {
   getUserByUsername,
   getPublicListMovies,
@@ -148,7 +149,7 @@ export default function PublicListPage() {
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <div key={i} className="aspect-[2/3]">
-          <Skeleton className="w-full h-full rounded-md border-[2px] border-black" />
+          <Skeleton className="w-full h-full rounded-md border-[2px] border-border" />
         </div>
       ))}
     </div>
@@ -158,13 +159,13 @@ export default function PublicListPage() {
   const renderListSkeleton = () => (
     <div className="space-y-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[100px] rounded-lg border-[2px] border-black" />
+        <Skeleton key={i} className="h-[100px] rounded-lg border-[2px] border-border" />
       ))}
     </div>
   );
 
   return (
-    <main className="min-h-screen font-body text-foreground">
+    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
       <div className="container mx-auto p-4 md:p-8">
         <header className="mb-8">
           <div className="w-full flex justify-between items-center mb-6">
@@ -186,7 +187,7 @@ export default function PublicListPage() {
             {/* Owner Info */}
             {owner && (
               <div className="flex items-center gap-3 mb-4">
-                <div className="h-10 w-10 rounded-full bg-primary/10 border-[2px] border-black flex items-center justify-center">
+                <div className="h-10 w-10 rounded-full bg-primary/10 border-[2px] border-border flex items-center justify-center">
                   <User className="h-5 w-5 text-primary" />
                 </div>
                 <div>
@@ -219,16 +220,16 @@ export default function PublicListPage() {
             onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
             className="w-full sm:w-auto"
           >
-            <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] p-0 h-auto">
+            <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] p-0 h-auto">
               <TabsTrigger
                 value="To Watch"
-                className="rounded-l-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-black px-4"
+                className="rounded-l-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-border px-4"
               >
                 To Watch
               </TabsTrigger>
               <TabsTrigger
                 value="Watched"
-                className="rounded-r-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none px-4"
+                className="rounded-r-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none px-4"
               >
                 Watched
               </TabsTrigger>
@@ -236,7 +237,7 @@ export default function PublicListPage() {
           </Tabs>
 
           {/* View mode toggle */}
-          <div className="flex items-center gap-1 border-[2px] border-black rounded-lg p-1 bg-background">
+          <div className="flex items-center gap-1 border-[2px] border-border rounded-full p-1 bg-background">
             <Button
               variant={viewMode === 'grid' ? 'default' : 'ghost'}
               size="sm"
@@ -287,7 +288,7 @@ export default function PublicListPage() {
             </div>
           )
         ) : (
-          <div className="text-center py-16 border-[3px] border-dashed border-black rounded-lg bg-secondary">
+          <div className="text-center py-16 border-[3px] border-dashed border-border rounded-2xl bg-secondary">
             <Film className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
             <h3 className="font-headline text-2xl font-bold">No movies here</h3>
             <p className="text-muted-foreground mt-2">
@@ -306,6 +307,8 @@ export default function PublicListPage() {
         {/* One-time hint for grid view on mobile */}
         {viewMode === 'grid' && <GridViewHint />}
       </div>
+
+      <BottomNav />
     </main>
   );
 }

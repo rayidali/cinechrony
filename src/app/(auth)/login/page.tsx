@@ -13,8 +13,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 
-const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
-const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200 bg-card";
+const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -48,7 +48,7 @@ export default function LoginPage() {
       </div>
 
       <div className="flex items-center gap-3 mb-6">
-        <div className="bg-primary p-2 rounded-xl border-[2px] border-black shadow-[4px_4px_0px_0px_#000]">
+        <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))]">
           <Film className="h-8 w-8 text-primary-foreground" />
         </div>
         <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
@@ -56,7 +56,7 @@ export default function LoginPage() {
         </h1>
       </div>
 
-      <Card className="w-full max-w-sm bg-card rounded-xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+      <Card className="w-full max-w-sm bg-card rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
         <CardHeader>
           <CardTitle className="font-headline">Welcome Back!</CardTitle>
           <CardDescription>Sign in to access your movie lists.</CardDescription>
@@ -86,7 +86,7 @@ export default function LoginPage() {
                 className={retroInputClass}
               />
             </div>
-            <Button type="submit" className={`w-full ${retroButtonClass} bg-warning text-warning-foreground hover:bg-warning/90`} disabled={isLoading}>
+            <Button type="submit" className={`w-full ${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`} disabled={isLoading}>
               {isLoading ? <Loader2 className="animate-spin" /> : 'Sign In'}
             </Button>
           </form>

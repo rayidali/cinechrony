@@ -6,10 +6,12 @@ import { Film, Plus, Loader2, List, MoreVertical, Pencil, Trash2, Eye, EyeOff, U
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { BottomNav } from '@/components/bottom-nav';
+import { FolderCard, FolderCardContent } from '@/components/folder-card';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -46,8 +48,8 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
-const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
-const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200 bg-card";
+const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
 // Pending action type for deferred dialog opening
 type PendingAction = {
@@ -149,7 +151,6 @@ export default function ListsPage() {
   // Process pending action after dropdown closes
   useEffect(() => {
     if (pendingAction && openDropdownId === null) {
-      // Dropdown is now closed, safe to open the dialog
       const { type, list } = pendingAction;
 
       if (type === 'rename') {
@@ -161,7 +162,6 @@ export default function ListsPage() {
         setIsDeleteOpen(true);
       }
 
-      // Clear the pending action
       setPendingAction(null);
     }
   }, [pendingAction, openDropdownId]);
@@ -192,7 +192,6 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      // For user's own lists, userId and listOwnerId are the same
       const result = await renameList(user.uid, user.uid, selectedList.id, newListName);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
@@ -212,7 +211,6 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      // For user's own lists, userId and listOwnerId are the same
       const result = await deleteList(user.uid, user.uid, selectedList.id);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
@@ -226,25 +224,21 @@ export default function ListsPage() {
     }
   };
 
-  // Schedule rename action - will execute after dropdown closes
   const scheduleRename = useCallback((list: MovieList) => {
     setPendingAction({ type: 'rename', list });
-    setOpenDropdownId(null); // Close dropdown
+    setOpenDropdownId(null);
   }, []);
 
-  // Schedule delete action - will execute after dropdown closes
   const scheduleDelete = useCallback((list: MovieList) => {
     setPendingAction({ type: 'delete', list });
-    setOpenDropdownId(null); // Close dropdown
+    setOpenDropdownId(null);
   }, []);
 
-  // Handle visibility toggle
   const handleToggleVisibility = useCallback(async (list: MovieList) => {
     if (!user) return;
-    setOpenDropdownId(null); // Close dropdown first
+    setOpenDropdownId(null);
 
     try {
-      // For user's own lists, userId and listOwnerId are the same
       const result = await toggleListVisibility(user.uid, user.uid, list.id);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
@@ -262,7 +256,6 @@ export default function ListsPage() {
     }
   }, [user, toast]);
 
-  // Handle dropdown open state change
   const handleDropdownOpenChange = useCallback((listId: string, open: boolean) => {
     if (open) {
       setOpenDropdownId(listId);
@@ -271,9 +264,7 @@ export default function ListsPage() {
     }
   }, []);
 
-  // Handle card click - only navigate if dropdown is closed
   const handleCardClick = useCallback((listId: string, e: React.MouseEvent) => {
-    // Don't navigate if clicking on the dropdown trigger or if a dropdown is open
     if (openDropdownId !== null) {
       e.preventDefault();
       e.stopPropagation();
@@ -291,39 +282,41 @@ export default function ListsPage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground">
+    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
       <div className="container mx-auto p-4 md:p-8">
-        <header className="mb-12">
-          <div className="w-full flex justify-end items-center gap-3 mb-4">
-            <ThemeToggle />
-            <UserAvatar />
-          </div>
-          <div className="flex flex-col items-center">
-            <div className="flex items-center gap-4 mb-6">
-              <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
-              <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
-                MovieNight
-              </h1>
+        {/* Header */}
+        <header className="mb-8">
+          <div className="flex justify-between items-center mb-6">
+            <div className="flex items-center gap-3">
+              <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]">
+                <Film className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <h1 className="text-2xl md:text-3xl font-headline font-bold">MovieNight</h1>
             </div>
-            <p className="max-w-2xl text-center text-muted-foreground mb-8">
-              Your movie watchlists. Create lists for different moods, genres, or watch parties.
-            </p>
+            <div className="flex items-center gap-3">
+              <ThemeToggle />
+              <UserAvatar />
+            </div>
           </div>
+          <p className="text-muted-foreground">
+            Your movie watchlists
+          </p>
         </header>
 
         <div className="max-w-4xl mx-auto">
+          {/* My Lists Section */}
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-headline font-bold">My Lists</h2>
+            <h2 className="text-xl font-headline font-bold">My Lists</h2>
             <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
               <DialogTrigger asChild>
-                <Button className={`${retroButtonClass} bg-warning text-warning-foreground hover:bg-warning/90`}>
+                <Button className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
                   <Plus className="h-5 w-5 mr-2" />
                   New List
                 </Button>
               </DialogTrigger>
-              <DialogContent className="border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+              <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
                 <DialogHeader>
-                  <DialogTitle>Create New List</DialogTitle>
+                  <DialogTitle className="font-headline">Create New List</DialogTitle>
                   <DialogDescription>
                     Give your list a name. You can always rename it later.
                   </DialogDescription>
@@ -339,7 +332,7 @@ export default function ListsPage() {
                   <Button
                     onClick={handleCreateList}
                     disabled={!newListName.trim() || isSubmitting}
-                    className={`${retroButtonClass} bg-warning text-warning-foreground hover:bg-warning/90`}
+                    className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
                   >
                     {isSubmitting ? <Loader2 className="animate-spin" /> : 'Create List'}
                   </Button>
@@ -349,100 +342,91 @@ export default function ListsPage() {
           </div>
 
           {isLoadingLists ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {[1, 2].map((i) => (
-                <div key={i} className="h-32 bg-secondary rounded-lg border-[3px] border-black animate-pulse" />
+                <div key={i} className="h-24 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
               ))}
             </div>
           ) : lists && lists.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {lists.map((list) => (
-                <Card
+                <FolderCard
                   key={list.id}
-                  className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer group active:shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 touch-manipulation"
                   onClick={(e) => handleCardClick(list.id, e)}
                 >
-                  <CardHeader className="pb-2">
-                    <div className="flex justify-between items-start">
-                      <div className="flex items-center gap-2">
-                        <List className="h-5 w-5 text-primary" />
-                        <CardTitle className="text-lg">{list.name}</CardTitle>
-                        {list.isDefault && (
-                          <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                            Default
-                          </span>
-                        )}
-                        {list.isPublic && (
-                          <span className="text-xs bg-green-500 text-white px-2 py-0.5 rounded-full flex items-center gap-1">
-                            <Eye className="h-3 w-3" />
-                            Public
-                          </span>
-                        )}
-                      </div>
-                      <DropdownMenu
-                        open={openDropdownId === list.id}
-                        onOpenChange={(open) => handleDropdownOpenChange(list.id, open)}
-                      >
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity touch-manipulation"
-                            onClick={(e) => e.stopPropagation()}
-                            onTouchEnd={(e) => e.stopPropagation()}
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="border-[2px] border-black">
-                          <DropdownMenuItem onSelect={() => scheduleRename(list)}>
-                            <Pencil className="h-4 w-4 mr-2" />
-                            Rename
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onSelect={() => handleToggleVisibility(list)}>
-                            {list.isPublic ? (
-                              <>
-                                <EyeOff className="h-4 w-4 mr-2" />
-                                Make Private
-                              </>
-                            ) : (
-                              <>
-                                <Eye className="h-4 w-4 mr-2" />
-                                Make Public
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          {!list.isDefault && (
+                  <FolderCardContent className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 min-w-0 flex-1">
+                      <List className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                      <span className="font-bold truncate">{list.name}</span>
+                      {list.isDefault && (
+                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full flex-shrink-0">
+                          Default
+                        </span>
+                      )}
+                      {list.isPublic && (
+                        <span className="text-xs bg-success text-success-foreground px-2 py-0.5 rounded-full flex-shrink-0">
+                          Public
+                        </span>
+                      )}
+                    </div>
+                    <DropdownMenu
+                      open={openDropdownId === list.id}
+                      onOpenChange={(open) => handleDropdownOpenChange(list.id, open)}
+                    >
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 flex-shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                          onTouchEnd={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+                        <DropdownMenuItem onSelect={() => scheduleRename(list)}>
+                          <Pencil className="h-4 w-4 mr-2" />
+                          Rename
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => handleToggleVisibility(list)}>
+                          {list.isPublic ? (
                             <>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onSelect={() => scheduleDelete(list)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Delete
-                              </DropdownMenuItem>
+                              <EyeOff className="h-4 w-4 mr-2" />
+                              Make Private
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Make Public
                             </>
                           )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription>
-                      Click to view and manage movies
-                    </CardDescription>
-                  </CardContent>
-                </Card>
+                        </DropdownMenuItem>
+                        {!list.isDefault && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onSelect={() => scheduleDelete(list)}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </FolderCardContent>
+                </FolderCard>
               ))}
             </div>
           ) : (
-            <Card className="border-[3px] border-dashed border-black rounded-lg bg-secondary">
+            <Card className="border-[3px] border-dashed border-border rounded-2xl bg-card">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <List className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="font-headline text-xl font-bold mb-2">No lists yet</h3>
                 <p className="text-muted-foreground mb-4">Create your first watchlist to get started.</p>
-                <Button onClick={() => setIsCreateOpen(true)} className={`${retroButtonClass} bg-warning text-warning-foreground hover:bg-warning/90`}>
+                <Button onClick={() => setIsCreateOpen(true)} className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
                   <Plus className="h-5 w-5 mr-2" />
                   Create List
                 </Button>
@@ -455,36 +439,33 @@ export default function ListsPage() {
             <div className="mt-12">
               <div className="flex items-center gap-2 mb-6">
                 <Users className="h-5 w-5 text-primary" />
-                <h2 className="text-2xl font-headline font-bold">Shared Lists</h2>
+                <h2 className="text-xl font-headline font-bold">Shared Lists</h2>
               </div>
               {isLoadingCollaborative ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {[1, 2].map((i) => (
-                    <div key={i} className="h-32 bg-secondary rounded-lg border-[3px] border-black animate-pulse" />
+                    <div key={i} className="h-24 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
                   ))}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {collaborativeLists.map((list) => (
-                    <Card
+                    <FolderCard
                       key={`collab-${list.id}`}
-                      className="border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] md:hover:shadow-[2px_2px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer group active:shadow-[2px_2px_0px_0px_#000] active:translate-x-0.5 active:translate-y-0.5 touch-manipulation"
                       onClick={() => router.push(`/lists/${list.id}?owner=${list.ownerId}`)}
                     >
-                      <CardHeader className="pb-2">
-                        <div className="flex justify-between items-start">
-                          <div className="flex items-center gap-2">
-                            <Users className="h-5 w-5 text-primary" />
-                            <CardTitle className="text-lg">{list.name}</CardTitle>
+                      <FolderCardContent className="flex items-center justify-between">
+                        <div className="flex items-center gap-3 min-w-0 flex-1">
+                          <Users className="h-5 w-5 text-muted-foreground flex-shrink-0" />
+                          <div className="min-w-0">
+                            <span className="font-bold truncate block">{list.name}</span>
+                            <span className="text-xs text-muted-foreground">
+                              by {list.ownerDisplayName || list.ownerUsername || 'Unknown'}
+                            </span>
                           </div>
                         </div>
-                      </CardHeader>
-                      <CardContent>
-                        <CardDescription>
-                          Owned by {list.ownerDisplayName || list.ownerUsername || 'Unknown'}
-                        </CardDescription>
-                      </CardContent>
-                    </Card>
+                      </FolderCardContent>
+                    </FolderCard>
                   ))}
                 </div>
               )}
@@ -500,9 +481,9 @@ export default function ListsPage() {
             setNewListName('');
           }
         }}>
-          <DialogContent className="border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+          <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
             <DialogHeader>
-              <DialogTitle>Rename List</DialogTitle>
+              <DialogTitle className="font-headline">Rename List</DialogTitle>
               <DialogDescription>Enter a new name for this list.</DialogDescription>
             </DialogHeader>
             <Input
@@ -513,11 +494,11 @@ export default function ListsPage() {
               onKeyDown={(e) => e.key === 'Enter' && handleRenameList()}
             />
             <DialogFooter>
-              <Button variant="outline" onClick={() => setIsRenameOpen(false)}>Cancel</Button>
+              <Button variant="outline" onClick={() => setIsRenameOpen(false)} className="rounded-full">Cancel</Button>
               <Button
                 onClick={handleRenameList}
                 disabled={!newListName.trim() || isSubmitting}
-                className={retroButtonClass}
+                className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
               >
                 {isSubmitting ? <Loader2 className="animate-spin" /> : 'Rename'}
               </Button>
@@ -532,18 +513,18 @@ export default function ListsPage() {
             setSelectedList(null);
           }
         }}>
-          <AlertDialogContent className="border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+          <AlertDialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
             <AlertDialogHeader>
-              <AlertDialogTitle>Delete List</AlertDialogTitle>
+              <AlertDialogTitle className="font-headline">Delete List</AlertDialogTitle>
               <AlertDialogDescription>
                 Are you sure you want to delete &quot;{selectedList?.name}&quot;? This will remove all movies in the list. This action cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogCancel className="rounded-full">Cancel</AlertDialogCancel>
               <AlertDialogAction
                 onClick={handleDeleteList}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full"
                 disabled={isSubmitting}
               >
                 {isSubmitting ? <Loader2 className="animate-spin" /> : 'Delete'}
@@ -552,6 +533,8 @@ export default function ListsPage() {
           </AlertDialogContent>
         </AlertDialog>
       </div>
+
+      <BottomNav />
     </main>
   );
 }

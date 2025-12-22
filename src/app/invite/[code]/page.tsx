@@ -11,7 +11,7 @@ import { useToast } from '@/hooks/use-toast';
 import { getInviteByCode, acceptInvite } from '@/app/actions';
 import type { ListInvite } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
 export default function InvitePage() {
   const { user, isUserLoading } = useUser();
@@ -90,7 +90,7 @@ export default function InvitePage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-black">
+            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-border">
               <X className="h-8 w-8 text-destructive" />
             </div>
             <h1 className="text-2xl font-headline font-bold mb-2">Invalid Invite</h1>
@@ -98,7 +98,7 @@ export default function InvitePage() {
               {error || 'This invite link is invalid or has expired.'}
             </p>
             <Link href="/lists">
-              <Button className={retroButtonClass}>Go to My Lists</Button>
+              <Button className={`${retroButtonClass} bg-primary text-primary-foreground font-bold`}>Go to My Lists</Button>
             </Link>
           </div>
         </div>
@@ -111,9 +111,9 @@ export default function InvitePage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <Card className="w-full max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
               <CardHeader className="text-center">
-                <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border-[3px] border-black">
+                <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border-[3px] border-border">
                   <Users className="h-8 w-8 text-primary-foreground" />
                 </div>
                 <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
@@ -122,7 +122,7 @@ export default function InvitePage() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-secondary rounded-lg border-[2px] border-black">
+                <div className="flex items-center gap-3 p-4 bg-secondary rounded-2xl border-[2px] border-border">
                   <List className="h-6 w-6 text-primary" />
                   <span className="font-bold text-lg">{invite.listName}</span>
                 </div>
@@ -130,7 +130,7 @@ export default function InvitePage() {
                   Sign in to accept this invitation and start collaborating.
                 </p>
                 <Link href={`/login?redirect=/invite/${inviteCode}`} className="block">
-                  <Button className={`${retroButtonClass} w-full`}>
+                  <Button className={`${retroButtonClass} w-full bg-primary text-primary-foreground font-bold`}>
                     Sign In to Accept
                   </Button>
                 </Link>
@@ -146,9 +146,9 @@ export default function InvitePage() {
     <main className="min-h-screen font-body text-foreground">
       <div className="container mx-auto p-4 md:p-8">
         <div className="flex flex-col items-center justify-center min-h-[50vh]">
-          <Card className="w-full max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+          <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
             <CardHeader className="text-center">
-              <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border-[3px] border-black">
+              <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border-[3px] border-border">
                 <Users className="h-8 w-8 text-primary-foreground" />
               </div>
               <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
@@ -157,7 +157,7 @@ export default function InvitePage() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-3 p-4 bg-secondary rounded-lg border-[2px] border-black">
+              <div className="flex items-center gap-3 p-4 bg-secondary rounded-2xl border-[2px] border-border">
                 <List className="h-6 w-6 text-primary" />
                 <span className="font-bold text-lg">{invite.listName}</span>
               </div>
@@ -166,14 +166,14 @@ export default function InvitePage() {
               </p>
               <div className="flex gap-3">
                 <Link href="/lists" className="flex-1">
-                  <Button variant="outline" className="w-full border-[3px] border-black">
+                  <Button variant="outline" className="w-full border-[3px] border-border rounded-full">
                     Decline
                   </Button>
                 </Link>
                 <Button
                   onClick={handleAccept}
                   disabled={isAccepting}
-                  className={`${retroButtonClass} flex-1`}
+                  className={`${retroButtonClass} flex-1 bg-primary text-primary-foreground font-bold`}
                 >
                   {isAccepting ? (
                     <Loader2 className="h-4 w-4 animate-spin" />

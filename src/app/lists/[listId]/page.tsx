@@ -7,6 +7,7 @@ import { Film, ArrowLeft, Users, AlertTriangle } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { BottomNav } from '@/components/bottom-nav';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
@@ -208,7 +209,7 @@ export default function ListDetailPage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-black">
+            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-border">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
             <h1 className="text-2xl font-headline font-bold mb-2">Access Denied</h1>
@@ -249,7 +250,7 @@ export default function ListDetailPage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground">
+    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
       <div className="container mx-auto p-4 md:p-8">
         <header className="mb-12">
           <div className="w-full flex justify-between items-center mb-4">
@@ -318,6 +319,8 @@ export default function ListDetailPage() {
           </div>
         </div>
       </div>
+
+      <BottomNav />
     </main>
   );
 }
