@@ -3,7 +3,7 @@
 import { useState, useTransition, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Search, Loader2, Plus, Instagram, Youtube, Film, Tv, Check, List } from 'lucide-react';
+import { Search, Loader2, Plus, Instagram, Youtube, Film, Tv, Check, List, Users } from 'lucide-react';
 import { TiktokIcon } from '@/components/icons';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -22,9 +22,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { addMovieToList } from '@/app/actions';
+import { addMovieToList, getCollaborativeLists } from '@/app/actions';
 import { collection, orderBy, query as firestoreQuery } from 'firebase/firestore';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
+
+// Extended type for lists that includes owner info for collaborative lists
+interface ListOption {
+  id: string;
+  name: string;
+  isDefault?: boolean;
+  ownerId: string;
+  isCollaborative?: boolean;
+  ownerUsername?: string;
+}
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -136,8 +146,11 @@ export default function AddPage() {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<SearchResult | null>(null);
   const [selectedListId, setSelectedListId] = useState<string>('');
+  const [selectedListOwnerId, setSelectedListOwnerId] = useState<string>('');
   const [socialLink, setSocialLink] = useState('');
   const [mediaType, setMediaType] = useState<'movie' | 'tv'>('movie');
+  const [collaborativeLists, setCollaborativeLists] = useState<ListOption[]>([]);
+  const [isLoadingCollab, setIsLoadingCollab] = useState(false);
 
   const [isSearching, startSearchTransition] = useTransition();
   const [isAdding, startAddingTransition] = useTransition();
@@ -153,13 +166,60 @@ export default function AddPage() {
 
   const { data: lists, isLoading: isLoadingLists } = useCollection<MovieList>(listsQuery);
 
+  // Fetch collaborative lists
+  useEffect(() => {
+    async function fetchCollaborativeLists() {
+      if (!user) return;
+      setIsLoadingCollab(true);
+      try {
+        const result = await getCollaborativeLists(user.uid);
+        if (result.lists) {
+          setCollaborativeLists(result.lists.map(l => ({
+            id: l.id,
+            name: l.name,
+            ownerId: l.ownerId,
+            isCollaborative: true,
+            ownerUsername: l.ownerUsername || undefined,
+          })));
+        }
+      } catch (error) {
+        console.error('Failed to fetch collaborative lists:', error);
+      } finally {
+        setIsLoadingCollab(false);
+      }
+    }
+    fetchCollaborativeLists();
+  }, [user]);
+
+  // Combine own lists and collaborative lists
+  const allLists: ListOption[] = [
+    ...(lists || []).map(l => ({
+      id: l.id,
+      name: l.name,
+      isDefault: l.isDefault,
+      ownerId: user?.uid || '',
+      isCollaborative: false,
+    })),
+    ...collaborativeLists,
+  ];
+
   // Set default list when lists load
   useEffect(() => {
-    if (lists && lists.length > 0 && !selectedListId) {
-      const defaultList = lists.find(l => l.isDefault) || lists[0];
+    if (allLists.length > 0 && !selectedListId) {
+      const defaultList = allLists.find(l => l.isDefault) || allLists[0];
       setSelectedListId(defaultList.id);
+      setSelectedListOwnerId(defaultList.ownerId);
     }
-  }, [lists, selectedListId]);
+  }, [lists, collaborativeLists, selectedListId]);
+
+  // Handle list selection change
+  const handleListChange = (listId: string) => {
+    const selectedList = allLists.find(l => l.id === listId);
+    if (selectedList) {
+      setSelectedListId(listId);
+      setSelectedListOwnerId(selectedList.ownerId);
+    }
+  };
 
   // Parse the social link to show provider icon
   const parsedVideo = parseVideoUrl(socialLink);
@@ -195,12 +255,12 @@ export default function AddPage() {
   };
 
   const handleAddMovie = async (formData: FormData) => {
-    if (!selectedMovie || !user || !selectedListId) return;
+    if (!selectedMovie || !user || !selectedListId || !selectedListOwnerId) return;
 
     formData.append('movieData', JSON.stringify(selectedMovie));
     formData.append('userId', user.uid);
     formData.append('listId', selectedListId);
-    formData.append('listOwnerId', user.uid);
+    formData.append('listOwnerId', selectedListOwnerId);
     if (socialLink) {
       formData.set('socialLink', socialLink);
     }
@@ -280,27 +340,54 @@ export default function AddPage() {
           {!selectedMovie && (
             <div className="mb-6">
               <label className="text-sm font-medium mb-2 block">Add to list:</label>
-              <Select value={selectedListId} onValueChange={setSelectedListId}>
+              <Select value={selectedListId} onValueChange={handleListChange}>
                 <SelectTrigger className={`${retroInputClass} w-full`}>
                   <SelectValue placeholder="Select a list" />
                 </SelectTrigger>
                 <SelectContent className="border-[3px] border-border rounded-xl">
-                  {isLoadingLists ? (
+                  {(isLoadingLists || isLoadingCollab) ? (
                     <SelectItem value="loading" disabled>Loading lists...</SelectItem>
-                  ) : lists && lists.length > 0 ? (
-                    lists.map((list) => (
-                      <SelectItem key={list.id} value={list.id}>
-                        <div className="flex items-center gap-2">
-                          <List className="h-4 w-4" />
-                          {list.name}
-                          {list.isDefault && (
-                            <span className="text-xs bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full ml-1">
-                              Default
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))
+                  ) : allLists.length > 0 ? (
+                    <>
+                      {/* Own lists */}
+                      {lists && lists.length > 0 && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">My Lists</div>
+                          {lists.map((list) => (
+                            <SelectItem key={list.id} value={list.id}>
+                              <div className="flex items-center gap-2">
+                                <List className="h-4 w-4" />
+                                {list.name}
+                                {list.isDefault && (
+                                  <span className="text-xs bg-primary text-primary-foreground px-1.5 py-0.5 rounded-full ml-1">
+                                    Default
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                      {/* Collaborative lists */}
+                      {collaborativeLists.length > 0 && (
+                        <>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground mt-2">Shared Lists</div>
+                          {collaborativeLists.map((list) => (
+                            <SelectItem key={`collab-${list.id}`} value={list.id}>
+                              <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4" />
+                                {list.name}
+                                {list.ownerUsername && (
+                                  <span className="text-xs text-muted-foreground ml-1">
+                                    by @{list.ownerUsername}
+                                  </span>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </>
+                      )}
+                    </>
                   ) : (
                     <SelectItem value="none" disabled>No lists found</SelectItem>
                   )}
@@ -409,8 +496,12 @@ export default function AddPage() {
                       <div className="mt-4 p-3 bg-secondary rounded-xl border-[2px] border-border">
                         <p className="text-sm text-muted-foreground">Adding to:</p>
                         <p className="font-bold flex items-center gap-2">
-                          <List className="h-4 w-4" />
-                          {lists?.find(l => l.id === selectedListId)?.name || 'Unknown list'}
+                          {allLists.find(l => l.id === selectedListId)?.isCollaborative ? (
+                            <Users className="h-4 w-4" />
+                          ) : (
+                            <List className="h-4 w-4" />
+                          )}
+                          {allLists.find(l => l.id === selectedListId)?.name || 'Unknown list'}
                         </p>
                       </div>
                     </div>

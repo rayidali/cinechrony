@@ -56,7 +56,7 @@ export function BottomNav() {
 
       {/* Bottom navigation - mobile only */}
       <nav className="fixed bottom-4 left-4 right-4 z-50 md:hidden">
-        <div className="bg-card border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] px-2 py-2">
+        <div className="bg-card border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] px-2 py-2">
           <ul className="flex items-center justify-around">
             {navItems.map((item) => {
               const active = isActive(item);
@@ -65,7 +65,7 @@ export function BottomNav() {
                   <Link
                     href={item.href}
                     className={cn(
-                      'flex flex-col items-center justify-center w-14 h-14 rounded-full transition-all duration-200',
+                      'flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200',
                       active
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground'
@@ -83,7 +83,7 @@ export function BottomNav() {
 
       {/* Desktop sidebar/top nav could go here */}
       <nav className="hidden md:flex fixed top-4 left-1/2 -translate-x-1/2 z-50">
-        <div className="bg-card border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] px-4 py-2">
+        <div className="bg-card border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] px-4 py-2">
           <ul className="flex items-center gap-2">
             {navItems.map((item) => {
               const active = isActive(item);
@@ -92,7 +92,7 @@ export function BottomNav() {
                   <Link
                     href={item.href}
                     className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-full transition-all duration-200 font-medium',
+                      'flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 font-medium',
                       active
                         ? 'bg-primary text-primary-foreground'
                         : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
