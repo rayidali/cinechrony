@@ -154,8 +154,8 @@ async function searchAll(query: string): Promise<SearchResult[]> {
   return combined.slice(0, 12);
 }
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-[0_2px_15px_-3px_hsl(var(--primary)/0.15)] dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-[0_4px_20px_-4px_hsl(var(--primary)/0.25)] focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-[0_2px_15px_-3px_hsl(var(--primary)/0.2)] dark:border-[2px] active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
+const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 
 export default function AddPage() {
   const { user, isUserLoading } = useUser();
@@ -332,7 +332,7 @@ export default function AddPage() {
         <header className="mb-8 text-center">
           <div className="flex justify-center items-center mb-4">
             <div className="flex items-center gap-3">
-              <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-[3px_3px_0px_0px_hsl(var(--primary)/0.3)]">
+              <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
                 <Plus className="h-6 w-6 text-primary-foreground" />
               </div>
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Add to List</h1>
@@ -411,7 +411,7 @@ export default function AddPage() {
 
           {/* Search Section */}
           {!selectedMovie ? (
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-[0_4px_25px_-5px_hsl(var(--primary)/0.15)] bg-card">
+            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
               <CardContent className="p-6 space-y-4">
                 {/* Search Input */}
                 <div className="relative">
@@ -481,7 +481,7 @@ export default function AddPage() {
             </Card>
           ) : (
             /* Selected Movie Form */
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-[0_4px_25px_-5px_hsl(var(--primary)/0.15)] bg-card">
+            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
               <CardContent className="p-6">
                 <form action={handleAddMovie} className="space-y-6">
                   <div className="flex gap-6 items-start">

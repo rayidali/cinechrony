@@ -135,9 +135,9 @@ async function searchAll(query: string): Promise<SearchResult[]> {
 }
 
 const retroInputClass =
-  "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200";
+  "border-[3px] dark:border-2 border-border rounded-lg shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200";
 const retroButtonClass =
-  "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+  "border-[3px] dark:border-2 border-border rounded-lg shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 
 interface AddMovieFormForListProps {
   listId: string;
@@ -229,7 +229,7 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
   };
 
   return (
-    <Card className="w-full max-w-2xl bg-secondary rounded-xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+    <Card className="w-full max-w-2xl bg-secondary rounded-xl border-[3px] dark:border-2 border-border shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none">
       <CardHeader>
         <CardTitle className="font-headline text-2xl">Add to Watchlist</CardTitle>
       </CardHeader>
@@ -301,7 +301,7 @@ export function AddMovieFormForList({ listId, listOwnerId }: AddMovieFormForList
                 alt={selectedMovie.title}
                 width={80}
                 height={120}
-                className="rounded-md border-[3px] border-black shadow-[4px_4px_0px_0px_#000]"
+                className="rounded-md border-[3px] dark:border-2 border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none"
                 data-ai-hint={selectedMovie.posterHint}
               />
               <div className="flex-grow">

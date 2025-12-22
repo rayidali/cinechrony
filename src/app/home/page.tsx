@@ -11,7 +11,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
@@ -38,7 +38,7 @@ export default function HomePage() {
         <header className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
-              <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]">
+              <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
                 <Film className="h-6 w-6 text-primary-foreground" />
               </div>
               <h1 className="text-2xl md:text-3xl font-headline font-bold">MovieNight</h1>
@@ -56,7 +56,7 @@ export default function HomePage() {
         {/* Quick Actions */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
           <Link href="/add">
-            <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200 cursor-pointer h-full">
+            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
               <CardContent className="flex items-center gap-4 p-6">
                 <div className="h-12 w-12 bg-primary rounded-full flex items-center justify-center border-[3px] border-border">
                   <Plus className="h-6 w-6 text-primary-foreground" />
@@ -70,7 +70,7 @@ export default function HomePage() {
           </Link>
 
           <Link href="/lists">
-            <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200 cursor-pointer h-full">
+            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
               <CardContent className="flex items-center gap-4 p-6">
                 <div className="h-12 w-12 bg-success rounded-full flex items-center justify-center border-[3px] border-border">
                   <List className="h-6 w-6 text-success-foreground" />
@@ -84,7 +84,7 @@ export default function HomePage() {
           </Link>
 
           <Link href="/profile">
-            <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 transition-all duration-200 cursor-pointer h-full">
+            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
               <CardContent className="flex items-center gap-4 p-6">
                 <div className="h-12 w-12 bg-secondary rounded-full flex items-center justify-center border-[3px] border-border">
                   <Users className="h-6 w-6 text-foreground" />

@@ -33,9 +33,9 @@ export function FolderCard({ children, className, onClick, tabLabel }: FolderCar
         className={cn(
           'relative bg-card border-[3px] dark:border-2 border-border rounded-2xl',
           'shadow-[4px_4px_0px_0px_hsl(var(--border))]',
-          'dark:shadow-[0_4px_20px_-4px_hsl(0_0%_0%/0.3)]',
+          'dark:shadow-none',
           'group-hover:shadow-[2px_2px_0px_0px_hsl(var(--border))]',
-          'dark:group-hover:shadow-[0_6px_25px_-5px_hsl(var(--primary)/0.15)]',
+          'dark:group-hover:shadow-none',
           'group-hover:translate-x-0.5 group-hover:translate-y-0.5',
           'dark:group-hover:translate-x-0 dark:group-hover:translate-y-0',
           'group-active:shadow-none',

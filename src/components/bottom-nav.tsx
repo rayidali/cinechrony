@@ -56,7 +56,7 @@ export function BottomNav() {
 
       {/* Bottom navigation - mobile only */}
       <nav className="fixed bottom-4 left-4 right-4 z-50 md:hidden">
-        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-[0_4px_20px_-4px_hsl(0_0%_0%/0.4)] px-2 py-2">
+        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none px-2 py-2">
           <ul className="flex items-center justify-around">
             {navItems.map((item) => {
               const active = isActive(item);
@@ -83,7 +83,7 @@ export function BottomNav() {
 
       {/* Desktop sidebar/top nav could go here */}
       <nav className="hidden md:flex fixed top-4 left-1/2 -translate-x-1/2 z-50">
-        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-[0_4px_20px_-4px_hsl(0_0%_0%/0.4)] px-4 py-2">
+        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none px-4 py-2">
           <ul className="flex items-center gap-2">
             {navItems.map((item) => {
               const active = isActive(item);

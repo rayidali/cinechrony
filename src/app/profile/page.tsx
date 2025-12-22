@@ -26,8 +26,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200 bg-card";
+const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+const retroInputClass = "border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
 
 export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -353,7 +353,7 @@ export default function MyProfilePage() {
               {pendingInvites.map((invite) => (
                 <Card
                   key={invite.id}
-                  className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))]"
+                  className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none"
                 >
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
@@ -403,7 +403,7 @@ export default function MyProfilePage() {
               {collaborativeLists.map((collab) => (
                 <Card
                   key={collab.id}
-                  className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer"
+                  className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:md:hover:shadow-none md:hover:translate-x-0.5 md:hover:translate-y-0.5 dark:md:hover:translate-x-0 dark:md:hover:translate-y-0 transition-all duration-200 cursor-pointer"
                   onClick={() => router.push(`/lists/${collab.id}`)}
                 >
                   <CardHeader className="pb-2">
@@ -438,7 +438,7 @@ export default function MyProfilePage() {
                 return (
                   <Card
                     key={list.id}
-                    className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer group"
+                    className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:md:hover:shadow-none md:hover:translate-x-0.5 md:hover:translate-y-0.5 dark:md:hover:translate-x-0 dark:md:hover:translate-y-0 transition-all duration-200 cursor-pointer group"
                     onClick={() => router.push(`/lists/${list.id}`)}
                   >
                     <CardHeader className="pb-2">
@@ -529,7 +529,7 @@ export default function MyProfilePage() {
         {/* Followers Modal */}
         {showFollowers && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+            <Card className="w-full max-w-md border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Followers</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
@@ -571,7 +571,7 @@ export default function MyProfilePage() {
         {/* Following Modal */}
         {showFollowing && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+            <Card className="w-full max-w-md border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Following</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>
