@@ -9,7 +9,7 @@ import { MovieDetailsModal } from './movie-details-modal';
 import { GridViewHint } from './grid-view-hint';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Film, Grid3X3, List, LayoutGrid } from 'lucide-react';
+import { Grid3X3, List, LayoutGrid } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 
 type ViewMode = 'grid' | 'list' | 'cards';
@@ -87,7 +87,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   // Render empty state
   const renderEmptyState = () => (
     <div className="text-center py-16 border-[3px] border-dashed border-black rounded-lg bg-secondary">
-      <Film className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+      <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
       <h3 className="font-headline text-2xl font-bold">All clear!</h3>
       <p className="text-muted-foreground mt-2">
         There are no movies in the &apos;{filter}&apos; list.

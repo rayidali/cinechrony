@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Film, List, Users, Plus, ArrowRight } from 'lucide-react';
+import { List, Users, Plus, ArrowRight } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
@@ -26,7 +26,7 @@ export default function HomePage() {
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Film className="h-12 w-12 text-primary animate-spin" />
+        <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -39,7 +39,7 @@ export default function HomePage() {
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
               <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
-                <Film className="h-6 w-6 text-primary-foreground" />
+                <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Cinechrony" className="h-6 w-6" />
               </div>
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>
@@ -106,7 +106,7 @@ export default function HomePage() {
 
           <Card className="border-[3px] border-dashed border-border rounded-2xl bg-card">
             <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <Film className="h-16 w-16 text-muted-foreground mb-4" />
+              <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Coming Soon" className="h-16 w-16 opacity-50 mb-4" />
               <h3 className="font-headline text-xl font-bold mb-2">Coming Soon!</h3>
               <p className="text-muted-foreground max-w-md mb-6">
                 Activity feed will show what you and your friends are watching.

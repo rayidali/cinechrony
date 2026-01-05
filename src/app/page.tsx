@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowRight, Popcorn } from 'lucide-react';
+import { ArrowRight, Popcorn } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -21,7 +21,7 @@ export default function LandingPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Film className="h-12 w-12 text-primary animate-spin" />
+        <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -38,7 +38,7 @@ export default function LandingPage() {
         {/* Logo and title */}
         <div className="flex flex-col items-center mb-8">
           <div className="bg-primary p-5 rounded-3xl border-[3px] border-border shadow-[6px_6px_0px_0px_hsl(var(--border))] mb-6">
-            <Film className="h-16 w-16 text-primary-foreground" />
+            <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Cinechrony" className="h-16 w-16" />
           </div>
           <h1 className="text-5xl md:text-7xl font-headline font-bold tracking-tighter text-center">
             Cinechrony
