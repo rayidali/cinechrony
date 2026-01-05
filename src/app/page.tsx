@@ -37,9 +37,7 @@ export default function LandingPage() {
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         {/* Logo and title */}
         <div className="flex flex-col items-center mb-8">
-          <div className="bg-primary p-5 rounded-3xl border-[3px] border-border shadow-[6px_6px_0px_0px_hsl(var(--border))] mb-6">
-            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-16 w-16" />
-          </div>
+          <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-24 w-24 mb-6" />
           <h1 className="text-5xl md:text-7xl font-headline font-bold tracking-tighter text-center">
             Cinechrony
           </h1>

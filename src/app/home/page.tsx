@@ -38,9 +38,7 @@ export default function HomePage() {
         <header className="mb-8">
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
-              <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
-                <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-6 w-6" />
-              </div>
+              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10" />
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>
             <div className="flex items-center gap-3">
