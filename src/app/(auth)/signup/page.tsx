@@ -66,7 +66,7 @@ export default function SignUpPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))]">
-          <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Cinechrony" className="h-8 w-8" />
+          <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-8 w-8" />
         </div>
         <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
           Cinechrony

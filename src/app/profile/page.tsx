@@ -219,7 +219,7 @@ export default function MyProfilePage() {
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }

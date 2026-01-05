@@ -8,16 +8,28 @@
   "theme_color": "#facc15",
   "icons": [
     {
-      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
+      "src": "https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png",
       "sizes": "192x192",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
     },
     {
-      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
+      "src": "https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png",
       "sizes": "512x512",
       "type": "image/png",
-      "purpose": "any maskable"
+      "purpose": "any"
+    },
+    {
+      "src": "https://i.postimg.cc/3r1wqyyx/cinechrony-ioslogo-1024-withbg.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "https://i.postimg.cc/3r1wqyyx/cinechrony-ioslogo-1024-withbg.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

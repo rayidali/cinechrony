@@ -276,7 +276,7 @@ export default function ListsPage() {
   if (isUserLoading || !user || isInitializing) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -289,7 +289,7 @@ export default function ListsPage() {
           <div className="flex justify-between items-center mb-6">
             <div className="flex items-center gap-3">
               <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]">
-                <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Cinechrony" className="h-6 w-6" />
+                <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-6 w-6" />
               </div>
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>

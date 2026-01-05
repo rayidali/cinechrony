@@ -21,7 +21,7 @@ export default function LandingPage() {
   if (isUserLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -38,7 +38,7 @@ export default function LandingPage() {
         {/* Logo and title */}
         <div className="flex flex-col items-center mb-8">
           <div className="bg-primary p-5 rounded-3xl border-[3px] border-border shadow-[6px_6px_0px_0px_hsl(var(--border))] mb-6">
-            <img src="https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png" alt="Cinechrony" className="h-16 w-16" />
+            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-16 w-16" />
           </div>
           <h1 className="text-5xl md:text-7xl font-headline font-bold tracking-tighter text-center">
             Cinechrony
