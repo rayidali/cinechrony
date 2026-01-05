@@ -4,7 +4,6 @@ import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Film,
   User,
   ArrowLeft,
   Lock,
@@ -122,7 +121,7 @@ export default function PublicListPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Film className="h-12 w-12 text-primary animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -178,7 +177,7 @@ export default function PublicListPage() {
           {/* List Header */}
           <div className="flex flex-col items-center">
             <div className="flex items-center gap-4 mb-4">
-              <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
+              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10 md:h-12 md:w-12" />
               <h1 className="text-3xl md:text-5xl font-headline font-bold text-center tracking-tighter">
                 {list?.name || 'List'}
               </h1>
@@ -289,7 +288,7 @@ export default function PublicListPage() {
           )
         ) : (
           <div className="text-center py-16 border-[3px] border-dashed border-border rounded-2xl bg-secondary">
-            <Film className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
             <h3 className="font-headline text-2xl font-bold">No movies here</h3>
             <p className="text-muted-foreground mt-2">
               There are no movies in the &apos;{filter}&apos; list.

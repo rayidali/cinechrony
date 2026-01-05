@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { Film, ArrowLeft, Users, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Users, AlertTriangle } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -180,7 +180,7 @@ export default function ListDetailPage() {
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Film className="h-12 w-12 text-primary animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -198,7 +198,7 @@ export default function ListDetailPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <Film className="h-12 w-12 text-primary animate-spin" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -231,7 +231,7 @@ export default function ListDetailPage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <Film className="h-16 w-16 text-muted-foreground mb-4" />
+            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Not Found" className="h-16 w-16 opacity-50 mb-4" />
             <h1 className="text-2xl font-headline font-bold mb-2">
               {loadingTimedOut ? 'Could Not Load List' : 'List Not Found'}
             </h1>
@@ -267,7 +267,7 @@ export default function ListDetailPage() {
           </div>
           <div className="flex flex-col items-center">
             <div className="flex items-center gap-4 mb-2">
-              <Film className="h-10 w-10 md:h-12 md:w-12 text-primary" />
+              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10 md:h-12 md:w-12" />
               <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
                 {isLoadingList ? '...' : listData?.name || 'List'}
               </h1>

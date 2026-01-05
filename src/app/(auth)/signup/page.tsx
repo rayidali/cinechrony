@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Film, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
@@ -66,7 +66,7 @@ export default function SignUpPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <div className="bg-primary p-2 rounded-xl border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))]">
-          <Film className="h-8 w-8 text-primary-foreground" />
+          <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-8 w-8" />
         </div>
         <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
           Cinechrony
