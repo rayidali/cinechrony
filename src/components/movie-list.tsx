@@ -22,7 +22,7 @@ type MovieListProps = {
   canEdit?: boolean;
 };
 
-const VIEW_MODE_KEY = 'movienight-view-mode';
+const VIEW_MODE_KEY = 'cinechrony-view-mode';
 
 export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEdit = true }: MovieListProps) {
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');

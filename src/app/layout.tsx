@@ -18,8 +18,12 @@ const spaceMono = Space_Mono({
 
 
 export const metadata: Metadata = {
-  title: 'Film Collab',
-  description: 'A shared movie watchlist for you and your friends.',
+  title: 'Cinechrony',
+  description: 'A social movie watchlist app for you and your friends.',
+  icons: {
+    icon: '/logo.png',
+    apple: '/logo.png',
+  },
 };
 
 export default function RootLayout({

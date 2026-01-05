@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Maximize2, X } from 'lucide-react';
 
-const HINT_SHOWN_KEY = 'movienight-grid-hint-shown';
+const HINT_SHOWN_KEY = 'cinechrony-grid-hint-shown';
 
 export function GridViewHint() {
   const [showHint, setShowHint] = useState(false);

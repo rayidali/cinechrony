@@ -69,14 +69,14 @@ export default function SignUpPage() {
           <Film className="h-8 w-8 text-primary-foreground" />
         </div>
         <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          MovieNight
+          Cinechrony
         </h1>
       </div>
 
       <Card className="w-full max-w-sm bg-card rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
         <CardHeader>
           <CardTitle className="font-headline">Create an Account</CardTitle>
-          <CardDescription>Join MovieNight to start your watchlists.</CardDescription>
+          <CardDescription>Join Cinechrony to start your watchlists.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSignUp} className="space-y-4">
