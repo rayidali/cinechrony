@@ -52,7 +52,7 @@ export default function LoginPage() {
           <Film className="h-8 w-8 text-primary-foreground" />
         </div>
         <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          MovieNight
+          Cinechrony
         </h1>
       </div>
 

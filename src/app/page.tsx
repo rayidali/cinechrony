@@ -41,7 +41,7 @@ export default function LandingPage() {
             <Film className="h-16 w-16 text-primary-foreground" />
           </div>
           <h1 className="text-5xl md:text-7xl font-headline font-bold tracking-tighter text-center">
-            MovieNight
+            Cinechrony
           </h1>
         </div>
 

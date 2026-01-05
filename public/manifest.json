@@ -1,0 +1,23 @@
+{
+  "name": "Cinechrony",
+  "short_name": "Cinechrony",
+  "description": "A social movie watchlist app for you and your friends.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f3e9",
+  "theme_color": "#facc15",
+  "icons": [
+    {
+      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -28,7 +28,7 @@ import {
 import type { UserProfile, Movie, MovieList } from '@/lib/types';
 
 type ViewMode = 'grid' | 'list';
-const VIEW_MODE_KEY = 'movienight-view-mode';
+const VIEW_MODE_KEY = 'cinechrony-view-mode';
 
 export default function PublicListPage() {
   const { user, isUserLoading } = useUser();

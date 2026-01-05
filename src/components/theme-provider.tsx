@@ -18,7 +18,7 @@ export function ThemeProvider({
   defaultTheme = 'light',
   enableSystem = true,
   disableTransitionOnChange = false,
-  storageKey = 'movienight-theme',
+  storageKey = 'cinechrony-theme',
   ...props
 }: ThemeProviderProps) {
   return (

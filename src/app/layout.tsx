@@ -18,8 +18,27 @@ const spaceMono = Space_Mono({
 
 
 export const metadata: Metadata = {
-  title: 'Film Collab',
-  description: 'A shared movie watchlist for you and your friends.',
+  title: 'Cinechrony',
+  description: 'A social movie watchlist app for you and your friends.',
+  manifest: '/manifest.json',
+  icons: {
+    icon: [
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '32x32', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '192x192', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '512x512', type: 'image/png' },
+    ],
+    apple: [
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '180x180', type: 'image/png' },
+    ],
+  },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Cinechrony',
+  },
+  formatDetection: {
+    telephone: false,
+  },
 };
 
 export default function RootLayout({

@@ -41,7 +41,7 @@ export default function HomePage() {
               <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
                 <Film className="h-6 w-6 text-primary-foreground" />
               </div>
-              <h1 className="text-2xl md:text-3xl font-headline font-bold">MovieNight</h1>
+              <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>
             <div className="flex items-center gap-3">
               <ThemeToggle />
