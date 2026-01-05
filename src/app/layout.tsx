@@ -23,12 +23,12 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   icons: {
     icon: [
-      { url: '/logo.png', sizes: '32x32', type: 'image/png' },
-      { url: '/logo.png', sizes: '192x192', type: 'image/png' },
-      { url: '/logo.png', sizes: '512x512', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '32x32', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '192x192', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
-      { url: '/logo.png', sizes: '180x180', type: 'image/png' },
+      { url: 'https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png', sizes: '180x180', type: 'image/png' },
     ],
   },
   appleWebApp: {

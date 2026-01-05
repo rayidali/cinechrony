@@ -8,13 +8,13 @@
   "theme_color": "#facc15",
   "icons": [
     {
-      "src": "/logo.png",
+      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/logo.png",
+      "src": "https://i.postimg.cc/Bvb6sm2f/cinechrony-1024-nobg.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
