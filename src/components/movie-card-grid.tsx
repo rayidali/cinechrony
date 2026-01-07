@@ -7,7 +7,7 @@ import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-rea
 import type { Movie, UserProfile } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
 import { useUser } from '@/firebase';
-import { getUserProfile } from '@/app/actions';
+import { getUserProfile, getUserRating } from '@/app/actions';
 import { TiktokIcon } from './icons';
 
 type MovieCardGridProps = {
@@ -40,7 +40,11 @@ export function MovieCardGrid({
   onOpenDetails,
 }: MovieCardGridProps) {
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
+  const [userRating, setUserRating] = useState<number | null>(null);
   const { user } = useUser();
+
+  // Get TMDB ID
+  const tmdbId = movie.tmdbId || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
   // Fetch the user who added this movie
   useEffect(() => {
@@ -59,6 +63,22 @@ export function MovieCardGrid({
     }
     fetchAddedByUser();
   }, [movie.addedBy, user?.uid]);
+
+  // Fetch user's personal rating for this movie
+  useEffect(() => {
+    async function fetchUserRating() {
+      if (!user?.uid || !tmdbId) return;
+      try {
+        const result = await getUserRating(user.uid, tmdbId);
+        if (result.rating) {
+          setUserRating(result.rating.rating);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user rating:', error);
+      }
+    }
+    fetchUserRating();
+  }, [user?.uid, tmdbId]);
 
   if (!user) return null;
 
@@ -96,13 +116,16 @@ export function MovieCardGrid({
 
         {/* Top row: Rating + TV badge + Social Icon */}
         <div className="absolute top-1 left-1 right-1 flex justify-between items-start">
-          {/* Left side: Rating + TV badge */}
+          {/* Left side: User Rating + TV badge */}
           <div className="flex items-center gap-1">
-            {/* Rating badge */}
-            {movie.rating ? (
-              <div className="bg-black/80 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5">
-                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                {movie.rating.toFixed(1)}
+            {/* User's personal rating badge - distinct green style */}
+            {userRating !== null ? (
+              <div
+                className="bg-green-600 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                title={`Your rating: ${userRating.toFixed(1)}/10`}
+              >
+                <Star className="h-3 w-3 fill-white text-white" />
+                {userRating.toFixed(1)}
               </div>
             ) : null}
             {/* TV badge */}

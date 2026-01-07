@@ -28,7 +28,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating } from '@/app/actions';
 import {
   Dialog,
   DialogContent,
@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
+import { RatingSlider } from './rating-slider';
 import { useToast } from '@/hooks/use-toast';
 import { doc } from 'firebase/firestore';
 
@@ -190,6 +191,8 @@ export function MovieDetailsModal({
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
+  const [userRating, setUserRating] = useState<number | null>(null);
+  const [isSavingRating, setIsSavingRating] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -205,8 +208,26 @@ export function MovieDetailsModal({
       setAddedByUser(null);
       setLocalStatus(movie.status);
       setActiveTab('info');
+      setUserRating(null);
     }
   }, [movie?.id, movie?.status]);
+
+  // Fetch user's rating for this movie
+  useEffect(() => {
+    async function fetchUserRating() {
+      if (!movie || !isOpen || !user?.uid || !tmdbId) return;
+
+      try {
+        const result = await getUserRating(user.uid, tmdbId);
+        if (result.rating) {
+          setUserRating(result.rating.rating);
+        }
+      } catch (error) {
+        console.error('Failed to fetch user rating:', error);
+      }
+    }
+    fetchUserRating();
+  }, [movie?.id, isOpen, user?.uid, tmdbId]);
 
   // Fetch movie/TV details when modal opens
   useEffect(() => {
@@ -288,6 +309,44 @@ export function MovieDetailsModal({
         description: newSocialLink ? 'Social link has been updated.' : 'Social link has been removed.',
       });
     });
+  };
+
+  const handleRatingChange = async (rating: number | null) => {
+    if (!user?.uid || !tmdbId) return;
+
+    setIsSavingRating(true);
+    try {
+      if (rating === null) {
+        // Delete rating
+        const result = await deleteRating(user.uid, tmdbId);
+        if (result.success) {
+          setUserRating(null);
+          toast({ title: 'Rating removed' });
+        } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        }
+      } else {
+        // Create or update rating
+        const result = await createOrUpdateRating(
+          user.uid,
+          tmdbId,
+          movie.mediaType || 'movie',
+          movie.title,
+          movie.posterUrl,
+          rating
+        );
+        if (result.success) {
+          setUserRating(rating);
+          toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
+        } else {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        }
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save rating.' });
+    } finally {
+      setIsSavingRating(false);
+    }
   };
 
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
@@ -378,6 +437,17 @@ export function MovieDetailsModal({
                       )}
                     </div>
                   ) : null}
+
+                  {/* Your Rating */}
+                  <div className="pt-2 pb-2 border-y border-border">
+                    <RatingSlider
+                      value={userRating}
+                      onChange={handleRatingChange}
+                      isSaving={isSavingRating}
+                      size="md"
+                      label="Your Rating"
+                    />
+                  </div>
 
                   {/* Runtime/Seasons & Genres */}
                   {mediaDetails && (

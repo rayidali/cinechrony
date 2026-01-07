@@ -211,3 +211,16 @@ export type Review = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+// User rating for a movie (global, one per user per movie)
+export type UserRating = {
+  id: string; // Format: `${userId}_${tmdbId}`
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl?: string;
+  rating: number; // 1.0 - 10.0 with one decimal
+  createdAt: Date;
+  updatedAt: Date;
+};
