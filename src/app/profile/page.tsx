@@ -275,13 +275,12 @@ export default function MyProfilePage() {
             <div className="flex items-center gap-2">
               <ThemeToggle />
               <Button
-                variant="ghost"
-                size="icon"
+                variant="outline"
+                size="sm"
                 onClick={() => auth.signOut()}
-                className="text-muted-foreground hover:text-destructive"
-                title="Log out"
+                className={`${retroButtonClass} text-destructive border-destructive`}
               >
-                <LogOut className="h-5 w-5" />
+                <LogOut className="h-4 w-4" />
               </Button>
             </div>
           </div>
