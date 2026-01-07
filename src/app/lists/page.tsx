@@ -281,14 +281,47 @@ export default function ListsPage() {
     }
   };
 
-  const handleCreateCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Compress image for create list cover
+  const compressImage = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => {
+        const maxWidth = 1200;
+        const maxHeight = 1500;
+        let { width, height } = img;
+
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleCreateCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setNewListCoverPreview(e.target?.result as string);
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressedDataUrl = await compressImage(file);
+        setNewListCoverPreview(compressedDataUrl);
+      } catch (error) {
+        console.error('Failed to compress image:', error);
+        toast({ variant: 'destructive', title: 'Error', description: 'Failed to process image.' });
+      }
     }
   };
 

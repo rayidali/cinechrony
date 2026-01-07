@@ -1950,6 +1950,7 @@ export async function getCollaborativeLists(userId: string) {
             isPublic: listData.isPublic,
             isDefault: listData.isDefault || false,
             collaboratorIds: listData.collaboratorIds || [],
+            coverImageUrl: listData.coverImageUrl || null,
             createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
             updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           });

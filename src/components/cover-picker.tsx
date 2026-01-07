@@ -42,6 +42,46 @@ export function CoverPicker({
   const { user } = useUser();
   const { toast } = useToast();
 
+  // Compress and convert image to JPEG using canvas
+  const compressImage = (file: File): Promise<{ base64: string; type: string }> => {
+    return new Promise((resolve, reject) => {
+      const img = new window.Image();
+      img.onload = () => {
+        // Max dimensions for cover images
+        const maxWidth = 1200;
+        const maxHeight = 1500;
+
+        let { width, height } = img;
+
+        // Scale down if needed
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        // Create canvas and draw image
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+        ctx.drawImage(img, 0, 0, width, height);
+
+        // Convert to JPEG with 85% quality
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+        const base64 = dataUrl.split(',')[1];
+
+        resolve({ base64, type: 'image/jpeg' });
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !user) return;
@@ -56,33 +96,33 @@ export function CoverPicker({
       return;
     }
 
-    // Validate file size (max 5MB)
-    if (file.size > 5 * 1024 * 1024) {
+    // Validate file size (max 15MB before compression)
+    if (file.size > 15 * 1024 * 1024) {
       toast({
         variant: 'destructive',
         title: 'File too large',
-        description: 'Please select an image under 5MB.',
+        description: 'Please select an image under 15MB.',
       });
       return;
     }
 
-    // Create preview
-    const previewDataUrl = URL.createObjectURL(file);
-    setPreviewUrl(previewDataUrl);
+    try {
+      // Create preview
+      const previewDataUrl = URL.createObjectURL(file);
+      setPreviewUrl(previewDataUrl);
 
-    // Convert to base64 for upload
-    const base64 = await new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64Data = result.split(',')[1];
-        resolve(base64Data);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
+      // Compress and convert to JPEG
+      const { base64, type } = await compressImage(file);
 
-    setSelectedFile({ base64, name: file.name, type: file.type });
+      setSelectedFile({ base64, name: file.name.replace(/\.[^.]+$/, '.jpg'), type });
+    } catch (error) {
+      console.error('Failed to process image:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to process image',
+        description: 'Please try a different image.',
+      });
+    }
   };
 
   const handleSave = async () => {
