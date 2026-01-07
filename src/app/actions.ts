@@ -1988,18 +1988,20 @@ export async function uploadAvatar(
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type - only allow specific image types
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    // Validate mime type - allow common image types including iPhone's HEIC
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
     if (!allowedTypes.includes(mimeType)) {
-      return { error: 'Invalid file type. Please upload a JPG, PNG, WebP, or GIF image.' };
+      return { error: `Invalid file type: ${mimeType}. Please upload a JPG, PNG, WebP, GIF, or HEIC image.` };
     }
 
     // Convert base64 to buffer
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Validate file size (max 2MB)
-    if (buffer.length > 2 * 1024 * 1024) {
-      return { error: 'File too large. Maximum size is 2MB.' };
+    // Validate file size (max 5MB for avatars - phone photos can be large)
+    const maxSize = 5 * 1024 * 1024;
+    if (buffer.length > maxSize) {
+      const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+      return { error: `File too large (${sizeMB}MB). Maximum size is 5MB.` };
     }
 
     // Check R2 configuration
@@ -2033,6 +2035,8 @@ export async function uploadAvatar(
       'image/png': 'png',
       'image/webp': 'webp',
       'image/gif': 'gif',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
     };
     const ext = extMap[mimeType] || 'jpg';
 
@@ -2222,18 +2226,20 @@ export async function uploadListCover(
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type - only allow specific image types
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    // Validate mime type - allow common image types including iPhone's HEIC
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
     if (!allowedTypes.includes(mimeType)) {
-      return { error: 'Invalid file type. Please upload a JPG, PNG, WebP, or GIF image.' };
+      return { error: `Invalid file type: ${mimeType}. Please upload a JPG, PNG, WebP, GIF, or HEIC image.` };
     }
 
     // Convert base64 to buffer
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Validate file size (max 5MB for covers)
-    if (buffer.length > 5 * 1024 * 1024) {
-      return { error: 'File too large. Maximum size is 5MB.' };
+    // Validate file size (max 10MB for covers - phone photos can be large)
+    const maxSize = 10 * 1024 * 1024;
+    if (buffer.length > maxSize) {
+      const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+      return { error: `File too large (${sizeMB}MB). Maximum size is 10MB.` };
     }
 
     // Check R2 configuration
@@ -2275,6 +2281,8 @@ export async function uploadListCover(
       'image/png': 'png',
       'image/webp': 'webp',
       'image/gif': 'gif',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
     };
     const ext = extMap[mimeType] || 'jpg';
 
