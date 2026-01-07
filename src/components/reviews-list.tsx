@@ -61,7 +61,7 @@ export function ReviewsList({
   };
 
   return (
-    <div className="flex flex-col h-full min-h-[400px]">
+    <div className="flex flex-col flex-1 h-full">
       {/* Sort options - at top */}
       {reviews.length > 1 && (
         <div className="px-4 py-2 flex gap-2 border-b border-border flex-shrink-0">

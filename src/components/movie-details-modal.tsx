@@ -317,9 +317,9 @@ export function MovieDetailsModal({
         </DialogHeader>
 
         {/* Scrollable content area */}
-        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
+        <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'info' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
           {activeTab === 'info' ? (
-            <div className="p-6 flex-1">
+            <div className="p-6">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left: Poster + Video */}
                 <div className="space-y-4">
