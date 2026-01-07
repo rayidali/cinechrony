@@ -227,16 +227,20 @@ export default function ListsPage() {
   }, [pendingAction, openDropdownId]);
 
   const handleCreateList = async () => {
-    if (!user || !newListName.trim()) return;
+    // Prevent double submission
+    if (!user || !newListName.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
     try {
       const result = await createList(user.uid, newListName);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        // If a cover image was selected, upload it
-        if (newListCoverPreview && result.listId) {
+        return;
+      }
+
+      // If a cover image was selected, upload it
+      if (newListCoverPreview && result.listId) {
+        try {
           const base64Data = newListCoverPreview.split(',')[1];
           const mimeMatch = newListCoverPreview.match(/data:([^;]+);/);
           const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
@@ -250,19 +254,28 @@ export default function ListsPage() {
             mimeType
           );
 
-          if (uploadResult.url) {
+          if (uploadResult.error) {
+            console.error('Cover upload failed:', uploadResult.error);
+            toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
+          } else if (uploadResult.url) {
             await updateListCover(user.uid, result.listId, uploadResult.url);
           }
-        }
-
-        toast({ title: 'List Created', description: `"${newListName}" has been created.` });
-        setNewListName('');
-        setNewListCoverPreview(null);
-        setIsCreateOpen(false);
-        if (result.listId) {
-          router.push(`/lists/${result.listId}`);
+        } catch (coverError) {
+          console.error('Cover upload error:', coverError);
+          toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
         }
       }
+
+      toast({ title: 'List Created', description: `"${newListName}" has been created.` });
+      setNewListName('');
+      setNewListCoverPreview(null);
+      setIsCreateOpen(false);
+      if (result.listId) {
+        router.push(`/lists/${result.listId}`);
+      }
+    } catch (error) {
+      console.error('Create list error:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to create list. Please try again.' });
     } finally {
       setIsSubmitting(false);
     }
@@ -622,8 +635,9 @@ export default function ListsPage() {
             listId={selectedList.id}
             listName={selectedList.name}
             currentCoverUrl={selectedList.coverImageUrl || null}
+            listOwnerId={selectedList.ownerId}
             onCoverChange={() => {
-              // Refresh list previews
+              // Refresh list previews for own lists
               if (user && lists) {
                 const listIds = lists.map((list) => list.id);
                 getListsPreviews(user.uid, listIds).then((result) => {
@@ -631,6 +645,23 @@ export default function ListsPage() {
                     setListPreviews(result.previews);
                   }
                 });
+              }
+              // Also refresh collaborative list previews
+              if (collaborativeLists.length > 0) {
+                const fetchCollabPreviews = async () => {
+                  const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+                  await Promise.all(
+                    collaborativeLists.map(async (list) => {
+                      const result = await getListPreview(list.ownerId, list.id);
+                      previews[list.id] = {
+                        previewPosters: result.previewPosters || [],
+                        movieCount: result.movieCount || 0,
+                      };
+                    })
+                  );
+                  setCollabListPreviews(previews);
+                };
+                fetchCollabPreviews();
               }
             }}
           />

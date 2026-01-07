@@ -14,16 +14,18 @@ interface ListCardProps {
   ownerName?: string;
 }
 
-// Gradient color combinations for empty lists
+// Gradient color combinations for empty lists - crazy/vibrant mixes
 const GRADIENT_PALETTES = [
-  { from: 'from-rose-400', via: 'via-orange-300', to: 'to-amber-200' },
-  { from: 'from-cyan-400', via: 'via-sky-300', to: 'to-blue-200' },
-  { from: 'from-violet-400', via: 'via-purple-300', to: 'to-fuchsia-200' },
-  { from: 'from-emerald-400', via: 'via-teal-300', to: 'to-cyan-200' },
-  { from: 'from-pink-400', via: 'via-rose-300', to: 'to-red-200' },
-  { from: 'from-amber-400', via: 'via-yellow-300', to: 'to-lime-200' },
-  { from: 'from-indigo-400', via: 'via-blue-300', to: 'to-sky-200' },
-  { from: 'from-fuchsia-400', via: 'via-pink-300', to: 'to-rose-200' },
+  { from: 'from-yellow-400', via: 'via-pink-500', to: 'to-purple-600' },
+  { from: 'from-cyan-400', via: 'via-fuchsia-500', to: 'to-orange-500' },
+  { from: 'from-lime-400', via: 'via-emerald-500', to: 'to-blue-600' },
+  { from: 'from-rose-500', via: 'via-amber-400', to: 'to-cyan-500' },
+  { from: 'from-violet-500', via: 'via-pink-400', to: 'to-yellow-400' },
+  { from: 'from-orange-500', via: 'via-red-500', to: 'to-purple-600' },
+  { from: 'from-teal-400', via: 'via-violet-500', to: 'to-rose-500' },
+  { from: 'from-indigo-500', via: 'via-cyan-400', to: 'to-lime-400' },
+  { from: 'from-fuchsia-500', via: 'via-yellow-400', to: 'to-teal-500' },
+  { from: 'from-amber-400', via: 'via-rose-500', to: 'to-indigo-600' },
 ];
 
 // Get consistent gradient based on list ID
@@ -111,11 +113,8 @@ export function ListCard({
           </div>
         )}
 
-        {/* Blurred/dimmed footer area for text readability */}
-        <div className="absolute bottom-0 left-0 right-0 h-[45%] overflow-hidden rounded-b-2xl">
-          {/* Blur layer - uses backdrop-blur for glassmorphism effect */}
-          <div className="absolute inset-0 backdrop-blur-md bg-black/50" />
-        </div>
+        {/* Gradual fade overlay for text readability */}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 via-[35%] to-transparent pointer-events-none" />
 
         {/* Content at bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-3 z-[1]">
@@ -152,7 +151,7 @@ function StackedPosters({ posters }: { posters: string[] }) {
   const count = displayPosters.length;
 
   return (
-    <div className="absolute inset-0 bg-white flex items-center justify-center p-4">
+    <div className="absolute inset-0 bg-white flex items-start justify-center pt-4 pb-20">
       <div className="relative w-full h-full flex items-center justify-center">
         {displayPosters.map((poster, index) => {
           // Calculate position based on how many posters and index
@@ -163,23 +162,23 @@ function StackedPosters({ posters }: { posters: string[] }) {
           let shadow = 'shadow-lg';
 
           if (count === 1) {
-            // Single poster - centered
-            transform = 'rotate(0deg)';
+            // Single poster - centered, moved up
+            transform = 'rotate(0deg) translateY(-10%)';
           } else if (count === 2) {
-            // Two posters - slight offset
+            // Two posters - slight offset, moved up
             if (index === 0) {
-              transform = 'rotate(-6deg) translate(-8%, 0)';
+              transform = 'rotate(-6deg) translate(-10%, -10%)';
             } else {
-              transform = 'rotate(4deg) translate(8%, 0)';
+              transform = 'rotate(4deg) translate(10%, -10%)';
             }
           } else {
-            // Three posters - fan layout
+            // Three posters - fan layout, moved up
             if (index === 0) {
-              transform = 'rotate(-8deg) translate(-20%, 5%)';
+              transform = 'rotate(-8deg) translate(-22%, -5%)';
             } else if (index === 1) {
-              transform = 'rotate(6deg) translate(20%, 5%)';
+              transform = 'rotate(6deg) translate(22%, -5%)';
             } else {
-              transform = 'rotate(-2deg) translate(0, -5%)';
+              transform = 'rotate(-2deg) translate(0, -15%)';
             }
           }
 
@@ -189,7 +188,7 @@ function StackedPosters({ posters }: { posters: string[] }) {
               src={poster}
               alt=""
               className={cn(
-                'absolute h-[75%] aspect-[2/3] object-cover rounded-lg border-2 border-gray-200',
+                'absolute h-[60%] aspect-[2/3] object-cover rounded-lg border-2 border-gray-200',
                 shadow
               )}
               style={{

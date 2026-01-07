@@ -23,6 +23,7 @@ type CoverPickerProps = {
   listName: string;
   currentCoverUrl: string | null;
   onCoverChange?: () => void;
+  listOwnerId?: string; // For collaborative lists, use the owner's ID
 };
 
 export function CoverPicker({
@@ -32,6 +33,7 @@ export function CoverPicker({
   listName,
   currentCoverUrl,
   onCoverChange,
+  listOwnerId,
 }: CoverPickerProps) {
   const [previewUrl, setPreviewUrl] = useState<string | null>(currentCoverUrl);
   const [isUploading, setIsUploading] = useState(false);
@@ -87,10 +89,12 @@ export function CoverPicker({
     if (!user || !selectedFile) return;
 
     setIsUploading(true);
+    // Use listOwnerId if provided (for collaborative lists), otherwise use current user
+    const ownerId = listOwnerId || user.uid;
 
     try {
       const result = await uploadListCover(
-        user.uid,
+        ownerId,
         listId,
         selectedFile.base64,
         selectedFile.name,
@@ -129,9 +133,11 @@ export function CoverPicker({
     if (!user) return;
 
     setIsUploading(true);
+    // Use listOwnerId if provided (for collaborative lists), otherwise use current user
+    const ownerId = listOwnerId || user.uid;
 
     try {
-      const result = await updateListCover(user.uid, listId, null);
+      const result = await updateListCover(ownerId, listId, null);
 
       if (result.error) {
         toast({
