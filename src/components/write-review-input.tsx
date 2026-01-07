@@ -99,7 +99,7 @@ export function WriteReviewInput({
           placeholder="Add a comment..."
           rows={1}
           maxLength={500}
-          className="w-full resize-none rounded-2xl border-2 border-border bg-secondary/50 px-4 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background min-h-[42px] max-h-[120px]"
+          className="w-full resize-none rounded-2xl border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background min-h-[42px] max-h-[120px]"
           style={{
             height: 'auto',
             overflow: 'hidden',
