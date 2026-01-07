@@ -419,42 +419,53 @@ export default function MyProfilePage() {
             </div>
 
             {/* Favorite Movies */}
-            <div className="mt-6 w-full max-w-md">
-              <div className="flex items-center justify-center gap-2 mb-3">
-                <Star className="h-4 w-4 text-yellow-500" />
-                <span className="text-sm font-medium">Favorite Movies</span>
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => setIsFavoritePickerOpen(true)}
-                  className="h-6 w-6 p-0"
-                >
-                  <Pencil className="h-3 w-3" />
-                </Button>
+            <div className="mt-8 w-full max-w-lg">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                <h3 className="text-lg font-headline font-bold">Top 5 Films</h3>
               </div>
-              {favoriteMovies.length > 0 ? (
-                <div className="flex justify-center gap-2">
-                  {favoriteMovies.map((movie) => (
-                    <div key={movie.tmdbId} className="relative group">
-                      <Image
-                        src={movie.posterUrl}
-                        alt={movie.title}
-                        width={50}
-                        height={75}
-                        className="rounded border-2 border-border shadow-[2px_2px_0px_0px_hsl(var(--border))]"
-                        title={movie.title}
-                      />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p
-                  className="text-center text-sm text-muted-foreground italic cursor-pointer hover:text-foreground transition-colors"
-                  onClick={() => setIsFavoritePickerOpen(true)}
-                >
-                  Add your top 5 movies...
-                </p>
-              )}
+              <div className="flex justify-center gap-3">
+                {[0, 1, 2, 3, 4].map((index) => {
+                  const movie = favoriteMovies[index];
+                  if (movie) {
+                    return (
+                      <div
+                        key={movie.tmdbId}
+                        className="relative group cursor-pointer"
+                        onClick={() => setIsFavoritePickerOpen(true)}
+                      >
+                        <Image
+                          src={movie.posterUrl}
+                          alt={movie.title}
+                          width={70}
+                          height={105}
+                          className="rounded-lg border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] transition-all duration-200 group-hover:shadow-[1px_1px_0px_0px_hsl(var(--border))] group-hover:translate-x-0.5 group-hover:translate-y-0.5"
+                          title={movie.title}
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <Pencil className="h-4 w-4 text-white" />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setIsFavoritePickerOpen(true)}
+                      className="w-[70px] h-[105px] rounded-lg border-[3px] border-dashed border-border/50 bg-secondary/30 flex items-center justify-center hover:border-primary hover:bg-primary/10 transition-all duration-200 group"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-8 h-8 rounded-full bg-border/30 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                          <span className="text-xl text-muted-foreground group-hover:text-primary">+</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-center text-xs text-muted-foreground mt-3">
+                Click to add your favorite films
+              </p>
             </div>
           </div>
         </header>

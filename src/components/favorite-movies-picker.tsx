@@ -162,31 +162,39 @@ export function FavoriteMoviesPicker({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Selected Movies */}
-          <div className="flex gap-2 flex-wrap min-h-[100px] p-3 bg-secondary/30 rounded-lg border-2 border-dashed border-border">
-            {selectedMovies.length === 0 ? (
-              <p className="text-muted-foreground text-sm w-full text-center py-6">
-                Search and add up to 5 favorite movies
-              </p>
-            ) : (
-              selectedMovies.map((movie) => (
-                <div key={movie.tmdbId} className="relative group">
-                  <Image
-                    src={movie.posterUrl}
-                    alt={movie.title}
-                    width={60}
-                    height={90}
-                    className="rounded border-2 border-border"
-                  />
-                  <button
-                    onClick={() => handleRemoveMovie(movie.tmdbId)}
-                    className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
-                  >
-                    <X className="h-3 w-3" />
-                  </button>
+          {/* Selected Movies - 5 slots */}
+          <div className="flex justify-center gap-2 py-2">
+            {[0, 1, 2, 3, 4].map((index) => {
+              const movie = selectedMovies[index];
+              if (movie) {
+                return (
+                  <div key={movie.tmdbId} className="relative group">
+                    <Image
+                      src={movie.posterUrl}
+                      alt={movie.title}
+                      width={70}
+                      height={105}
+                      className="rounded-lg border-[3px] border-border shadow-[2px_2px_0px_0px_hsl(var(--border))]"
+                    />
+                    <button
+                      onClick={() => handleRemoveMovie(movie.tmdbId)}
+                      className="absolute -top-2 -right-2 bg-destructive text-destructive-foreground rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity shadow-md"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                    <p className="text-[10px] text-center mt-1 truncate w-[70px]">{movie.title}</p>
+                  </div>
+                );
+              }
+              return (
+                <div
+                  key={index}
+                  className="w-[70px] h-[105px] rounded-lg border-[3px] border-dashed border-border/40 bg-secondary/20 flex items-center justify-center"
+                >
+                  <span className="text-2xl text-muted-foreground/40">{index + 1}</span>
                 </div>
-              ))
-            )}
+              );
+            })}
           </div>
 
           {/* Search Input */}
