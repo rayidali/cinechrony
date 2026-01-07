@@ -277,6 +277,41 @@ export function MovieDetailsModal({
     if (isOpen && movie) fetchUser();
   }, [movie?.addedBy, isOpen]);
 
+  // Swipe-to-close gesture handlers (must be before early return)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Only enable swipe when at the top of scroll
+    const scrollableElement = contentRef.current?.querySelector('.overflow-y-auto');
+    if (scrollableElement && scrollableElement.scrollTop > 0) {
+      return;
+    }
+    touchStartY.current = e.touches[0].clientY;
+    touchStartX.current = e.touches[0].clientX;
+    setIsDragging(true);
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging) return;
+
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+
+    // Only allow downward swipe when it's more vertical than horizontal
+    if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      setSwipeY(deltaY);
+    }
+  }, [isDragging]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    // If swiped more than 100px, close the modal
+    if (swipeY > 100) {
+      onClose();
+    }
+    setSwipeY(0);
+  }, [isDragging, swipeY, onClose]);
+
   if (!movie || !user) return null;
 
   const effectiveOwnerId = listOwnerId || user.uid;
@@ -416,41 +451,6 @@ export function MovieDetailsModal({
       setIsSavingRating(false);
     }
   };
-
-  // Swipe-to-close gesture handlers
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    // Only enable swipe when at the top of scroll
-    const scrollableElement = contentRef.current?.querySelector('.overflow-y-auto');
-    if (scrollableElement && scrollableElement.scrollTop > 0) {
-      return;
-    }
-    touchStartY.current = e.touches[0].clientY;
-    touchStartX.current = e.touches[0].clientX;
-    setIsDragging(true);
-  }, []);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging) return;
-
-    const deltaY = e.touches[0].clientY - touchStartY.current;
-    const deltaX = e.touches[0].clientX - touchStartX.current;
-
-    // Only allow downward swipe when it's more vertical than horizontal
-    if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
-      setSwipeY(deltaY);
-    }
-  }, [isDragging]);
-
-  const handleTouchEnd = useCallback(() => {
-    if (!isDragging) return;
-    setIsDragging(false);
-
-    // If swiped more than 100px, close the modal
-    if (swipeY > 100) {
-      onClose();
-    }
-    setSwipeY(0);
-  }, [isDragging, swipeY, onClose]);
 
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
   const displayUser = addedByUser || (isAddedByCurrentUser ? {
