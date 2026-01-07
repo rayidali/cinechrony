@@ -41,7 +41,6 @@ import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
-import { RateOnWatchModal } from './rate-on-watch-modal';
 import { useToast } from '@/hooks/use-toast';
 import { doc } from 'firebase/firestore';
 
@@ -195,6 +194,8 @@ export function MovieDetailsModal({
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
+  const [rateModalRating, setRateModalRating] = useState(7);
+  const [rateModalComment, setRateModalComment] = useState('');
   const [swipeY, setSwipeY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
   const touchStartY = useRef(0);
@@ -470,20 +471,20 @@ export function MovieDetailsModal({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className="fixed left-0 right-0 bottom-0 top-auto translate-x-0 translate-y-0 sm:left-[50%] sm:top-[50%] sm:bottom-auto sm:translate-x-[-50%] sm:translate-y-[-50%] max-w-4xl w-full h-[92vh] sm:h-[85vh] max-h-[92vh] sm:max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 rounded-t-2xl sm:rounded-lg animate-slide-up sm:animate-none sm:data-[state=open]:animate-in sm:data-[state=open]:fade-in-0 sm:data-[state=open]:zoom-in-95 sm:data-[state=closed]:animate-out sm:data-[state=closed]:fade-out-0 sm:data-[state=closed]:zoom-out-95"
+        className="fixed left-0 right-0 bottom-0 top-auto translate-x-0 translate-y-0 max-w-4xl w-full mx-auto h-[92vh] max-h-[92vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 rounded-t-2xl animate-slide-up"
         style={{
           transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
           transition: isDragging ? 'none' : 'transform 0.2s ease-out',
           opacity: swipeY > 0 ? Math.max(0.5, 1 - swipeY / 300) : 1,
         }}
       >
-        {/* Drag handle indicator (mobile only) */}
-        <div className="flex justify-center pt-2 pb-0 sm:hidden">
+        {/* Drag handle indicator */}
+        <div className="flex justify-center pt-2 pb-0">
           <div className="w-12 h-1 rounded-full bg-muted-foreground/30" />
         </div>
 
         {/* Header */}
-        <DialogHeader className="px-6 pt-4 sm:pt-6 pb-4 border-b border-border flex-shrink-0">
+        <DialogHeader className="px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
           <DialogTitle className="text-2xl font-headline flex items-center gap-2">
             {movie.mediaType === 'tv' ? (
               <Tv className="h-6 w-6 text-primary flex-shrink-0" />
@@ -773,14 +774,88 @@ export function MovieDetailsModal({
       </DialogContent>
     </Dialog>
 
-    {/* Rate on Watch Modal - shown when marking as Watched without rating */}
-    <RateOnWatchModal
-      isOpen={showRateOnWatchModal}
-      onClose={() => setShowRateOnWatchModal(false)}
-      movieTitle={movie.title}
-      onSave={handleRateOnWatchSave}
-      onSkip={handleRateOnWatchSkip}
-    />
+    {/* Rate on Watch Modal - inline for reliability */}
+    {showRateOnWatchModal && (
+      <div className="fixed inset-0 z-[9999]">
+        <div
+          className="absolute inset-0 bg-black/80"
+          onClick={() => {
+            handleRateOnWatchSkip();
+            setShowRateOnWatchModal(false);
+          }}
+        />
+        <div className="absolute inset-0 flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div
+            className="relative bg-background w-full sm:max-w-md sm:rounded-lg rounded-t-2xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-6 animate-slide-up"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-center mb-4 sm:hidden">
+              <div className="w-12 h-1 rounded-full bg-muted-foreground/30" />
+            </div>
+            <button
+              onClick={() => {
+                handleRateOnWatchSkip();
+                setShowRateOnWatchModal(false);
+              }}
+              className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="mb-4">
+              <h2 className="text-xl font-semibold">How was it?</h2>
+              <p className="text-muted-foreground">
+                Rate <span className="font-semibold text-foreground">{movie.title}</span>
+              </p>
+            </div>
+            <div className="space-y-4">
+              <RatingSlider
+                value={rateModalRating}
+                onChangeComplete={setRateModalRating}
+                showClearButton={false}
+                size="md"
+                label=""
+              />
+              <div>
+                <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                  Add a comment (optional)
+                </label>
+                <textarea
+                  value={rateModalComment}
+                  onChange={(e) => setRateModalComment(e.target.value)}
+                  placeholder="Share your thoughts..."
+                  rows={3}
+                  maxLength={500}
+                  className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  className="flex-1"
+                  onClick={() => {
+                    handleRateOnWatchSkip();
+                    setShowRateOnWatchModal(false);
+                  }}
+                >
+                  Skip
+                </Button>
+                <Button
+                  className="flex-1"
+                  onClick={async () => {
+                    await handleRateOnWatchSave(rateModalRating, rateModalComment);
+                    setShowRateOnWatchModal(false);
+                    setRateModalRating(7);
+                    setRateModalComment('');
+                  }}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
