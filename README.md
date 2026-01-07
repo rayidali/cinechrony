@@ -14,7 +14,7 @@
 
 <p align="center">
   <a href="#features">Features</a> •
-  <a href="#screenshots">Screenshots</a> •
+  <a href="#screenshot">Screenshot</a> •
   <a href="#tech-stack">Tech Stack</a> •
   <a href="#getting-started">Getting Started</a> •
   <a href="#contributing">Contributing</a>
@@ -22,11 +22,11 @@
 
 ---
 
-## Screenshots
+## Screenshot
 
-|                     Landing Page                      |                     Watchlist View                      |
-| :---------------------------------------------------: | :-----------------------------------------------------: |
-| ![Landing page](docs/images/screenshot-landing.png)   | ![Watchlist view](docs/images/screenshot-watchlist.png) |
+<p align="center">
+  <img src="https://i.postimg.cc/jSc0fH07/cinechrony_poster2_withbg.png" alt="Cinechrony app screenshot" width="600">
+</p>
 
 ## Features
 
@@ -92,7 +92,7 @@ R2_PUBLIC_URL=https://your-bucket.r2.dev
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/cinechrony.git
+git clone https://github.com/rayidali/cinechrony.git
 
 # Navigate to the project
 cd cinechrony
