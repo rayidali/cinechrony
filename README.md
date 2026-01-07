@@ -19,14 +19,6 @@
   A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> •
-  <a href="#screenshot">Screenshot</a> •
-  <a href="#tech-stack">Tech Stack</a> •
-  <a href="#getting-started">Getting Started</a> •
-  <a href="#contributing">Contributing</a>
-</p>
-
 ---
 
 ## Screenshot
@@ -34,6 +26,8 @@
 <p align="center">
   <img src="https://i.postimg.cc/jSc0fH07/cinechrony_poster2_withbg.png" alt="Cinechrony app screenshot" width="600">
 </p>
+
+---
 
 ## Features
 
