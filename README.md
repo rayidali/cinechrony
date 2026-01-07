@@ -7,42 +7,39 @@
 
 # MovieNight 🎬
 
-**Because Letterboxd forgot collaborative lists exist.**
+<h1 align="center"><a href="https://cinechrony.com">Cinechrony</a></h1>
 
-A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
+<p align="center">
+  <strong>Because Letterboxd forgot collaborative lists exist.</strong>
+</p>
 
-## Live Demo
+<p align="center">
+  A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
+</p>
 
 🚀 [movienight-kappa.vercel.app]([https://movienight-mzng.onrender.com](https://movienight-kappa.vercel.app))
 
 ## Features
 
-### ✅ Currently Implemented
-
-- **Landing Page**: Neo-brutalist welcome screen with vibrant orange/blue color scheme
-- **User Authentication**: Email/password signup and login with Firebase Auth
-- **Profile Pictures**: Upload custom avatars stored on Cloudflare R2
-- **Multiple Watchlists**: Create unlimited lists with custom names
-- **Collaborative Lists**: Invite friends to add/manage movies together (up to 3 members per list)
-- **Social Features**: Follow users, view their public lists, activity feed
-- **Movie & TV Show Search**: Search millions of titles via TMDB API with ratings, cast info, and posters
-- **Social Links**: Attach TikTok/Instagram/YouTube links to movies
-- **Enhanced Video Embeds**: Auto-play TikTok/Reels in expanded view
-- **Watch Status**: Toggle between "To Watch" and "Watched" states
-- **Movie Details Modal**: Expandable cards showing full details, cast, and embedded social videos
-- **Dark Mode**: System-aware theme toggle with light mode as default
-- **Dot Pattern Background**: Subtle depth effect that adapts to light/dark modes
-- **Responsive Design**: Mobile-first neo-brutalist UI with chunky borders and hard shadows
+- **Collaborative Watchlists** — Invite friends to curate lists together (up to 3 members per list)
+- **Social Links** — Attach TikTok, Instagram Reels, or YouTube links to any movie
+- **Video Embeds** — Auto-play attached social videos directly in the app
+- **Movie & TV Search** — Search millions of titles via TMDB with ratings, cast, and posters
+- **Watch Status** — Toggle between "To Watch" and "Watched" states
+- **Follow System** — Follow users and view their public lists
+- **Dark Mode** — System-aware theme toggle
+- **Neo-Brutalist UI** — Bold, chunky design with hard shadows and vibrant colors
 
 ## Tech Stack
 
-- **Framework**: Next.js 15 (App Router)
-- **Database**: Firebase Firestore
-- **Auth**: Firebase Authentication
-- **File Storage**: Cloudflare R2 (for profile pictures)
-- **Styling**: Tailwind CSS & shadcn/ui
-- **Movie Data**: TMDB API
-- **Theme**: next-themes
+| Category | Technology |
+|----------|------------|
+| Framework | Next.js 15 (App Router) |
+| Database | Firebase Firestore |
+| Authentication | Firebase Auth |
+| File Storage | Cloudflare R2 |
+| Styling | Tailwind CSS, shadcn/ui |
+| Movie Data | TMDB API |
 
 ## Getting Started
 
@@ -55,10 +52,10 @@ A social movie watchlist app for friends to curate and share movies together. Cr
 
 ### Environment Variables
 
-Create a `.env.local` file:
+Create a `.env.local` file in the root directory:
 
 ```env
-# Firebase Client SDK (public)
+# Firebase Client SDK
 NEXT_PUBLIC_FIREBASE_API_KEY=your_api_key
 NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=your_project.firebaseapp.com
 NEXT_PUBLIC_FIREBASE_PROJECT_ID=your_project_id
@@ -66,7 +63,7 @@ NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=your_project.firebasestorage.app
 NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=your_sender_id
 NEXT_PUBLIC_FIREBASE_APP_ID=your_app_id
 
-# Firebase Admin SDK (server-side, keep secret)
+# Firebase Admin SDK (server-side)
 FIREBASE_PROJECT_ID=your_project_id
 FIREBASE_CLIENT_EMAIL=firebase-adminsdk-xxx@your_project.iam.gserviceaccount.com
 FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
@@ -74,7 +71,7 @@ FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY----
 # TMDB API
 NEXT_PUBLIC_TMDB_ACCESS_TOKEN=your_tmdb_token
 
-# Cloudflare R2 (for avatar uploads)
+# Cloudflare R2
 R2_ACCOUNT_ID=your_account_id
 R2_ACCESS_KEY_ID=your_access_key
 R2_SECRET_ACCESS_KEY=your_secret_key
@@ -82,72 +79,68 @@ R2_BUCKET_NAME=your_bucket_name
 R2_PUBLIC_URL=https://your-bucket.r2.dev
 ```
 
-### Run Locally
+### Installation
 
 ```bash
+# Clone the repository
+git clone https://github.com/rayidali/cinechrony.git
+
+# Navigate to the project
+cd cinechrony
+
+# Install dependencies
 npm install
+
+# Start the development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000)
+Open [http://localhost:3000](http://localhost:3000) to view the app.
 
 ## Project Structure
 
 ```
 src/
 ├── app/
-│   ├── (auth)/              # Login/signup pages
-│   ├── lists/               # User's lists page
-│   ├── lists/[listId]/      # Individual list page
-│   ├── profile/             # User profile page
-│   ├── [username]/          # Public profile page
-│   ├── actions.ts           # Server actions (Firestore writes)
-│   ├── globals.css          # Global styles + dot pattern
-│   ├── layout.tsx           # Root layout with ThemeProvider
-│   └── page.tsx             # Landing page
+│   ├── (auth)/           # Login & signup pages
+│   ├── home/             # Main dashboard
+│   ├── lists/            # Watchlist pages
+│   ├── profile/          # User profile
+│   └── [username]/       # Public profile pages
 ├── components/
-│   ├── ui/                  # shadcn components
-│   ├── add-movie-form-list.tsx
-│   ├── movie-card-grid.tsx
-│   ├── movie-card-list.tsx
-│   ├── movie-details-modal.tsx
-│   ├── theme-provider.tsx
-│   └── theme-toggle.tsx
+│   ├── ui/               # shadcn components
+│   └── ...               # Feature components
 ├── firebase/
-│   ├── index.ts             # Client SDK init & hooks
-│   ├── admin.ts             # Admin SDK init
-│   └── provider.tsx         # Auth context
+│   ├── index.ts          # Client SDK
+│   ├── admin.ts          # Admin SDK
+│   └── provider.tsx      # Auth context
 └── lib/
-    └── types.ts             # TypeScript types
+    └── types.ts          # TypeScript definitions
 ```
 
 ## Design System
 
-MovieNight uses a **neo-brutalist** design language:
+Cinechrony uses a **neo-brutalist** design language:
 
-- **Colors**: Blue primary (#2962FF), Orange accent for CTAs, Yellow highlights
-- **Typography**: Space Grotesk (headlines) + Space Mono (body)
-- **Borders**: 3px solid black on all interactive elements
-- **Shadows**: Hard drop shadows (no blur) - `4px 4px 0px 0px #000`
-- **Buttons**: Translate down on click to mimic physical press
-- **Background**: Subtle dot pattern for depth
-
-## Database Schema
-
-```
-users/{userId}
-  - displayName, email, photoURL, createdAt, username
-
-users/{userId}/lists/{listId}
-  - name: "Weekend Binges"
-  - createdAt: timestamp
-
-users/{userId}/lists/{listId}/movies/{movieId}
-  - id: "movie_123" or "tv_456" (prefixed by media type)
-  - title, year, posterUrl, status, socialLink, addedAt
-  - mediaType: "movie" | "tv"
-```
+| Element | Style |
+|---------|-------|
+| Primary Color | Blue (#2962FF) |
+| Accent Color | Orange (CTAs) |
+| Typography | Space Grotesk (headlines), Space Mono (body) |
+| Borders | 3px solid black |
+| Shadows | Hard drop shadows — `4px 4px 0px 0px #000` |
+| Interactions | Physical press effect on buttons |
 
 ## Contributing
 
-This is a personal project, but feel free to fork and adapt for your own movie nights!
+Contributions are welcome. Please open an issue first to discuss what you would like to change.
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+
+---
+
+<p align="center">
+  Made with coffee and questionable movie taste.
+</p>
