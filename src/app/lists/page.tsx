@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, List, MoreVertical, Pencil, Trash2, Eye, EyeOff, Users } from 'lucide-react';
+import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
-import { FolderCard, FolderCardContent } from '@/components/folder-card';
+import { ListCard } from '@/components/list-card';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,8 +39,14 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists } from '@/app/actions';
+import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists, getListsPreviews } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
+
+// Preview data for list cards
+type ListPreview = {
+  previewPosters: string[];
+  movieCount: number;
+};
 
 // Extended type for collaborative lists with owner info
 type CollaborativeList = MovieList & {
@@ -72,6 +78,7 @@ export default function ListsPage() {
   const [isInitializing, setIsInitializing] = useState(true);
   const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
   const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
+  const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
 
   // Track which dropdown is open (by list id) and pending action
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -147,6 +154,25 @@ export default function ListsPage() {
 
     fetchCollaborativeLists();
   }, [user, isUserLoading]);
+
+  // Fetch list previews (posters and counts) when lists change
+  useEffect(() => {
+    async function fetchPreviews() {
+      if (!user || !lists || lists.length === 0) return;
+
+      try {
+        const listIds = lists.map((list) => list.id);
+        const result = await getListsPreviews(user.uid, listIds);
+        if (result.previews) {
+          setListPreviews(result.previews);
+        }
+      } catch (error) {
+        console.error('Failed to fetch list previews:', error);
+      }
+    }
+
+    fetchPreviews();
+  }, [user, lists]);
 
   // Process pending action after dropdown closes
   useEffect(() => {
@@ -340,33 +366,22 @@ export default function ListsPage() {
           </div>
 
           {isLoadingLists ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {[1, 2].map((i) => (
-                <div key={i} className="h-24 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="h-48 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
               ))}
             </div>
           ) : lists && lists.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {lists.map((list) => (
-                <FolderCard
-                  key={list.id}
-                  onClick={(e) => handleCardClick(list.id, e)}
-                >
-                  <FolderCardContent className="flex items-center justify-between">
-                    <div className="flex items-center gap-3 min-w-0 flex-1">
-                      <List className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                      <span className="font-bold truncate">{list.name}</span>
-                      {list.isDefault && (
-                        <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full flex-shrink-0">
-                          Default
-                        </span>
-                      )}
-                      {list.isPublic && (
-                        <span className="text-xs bg-success text-success-foreground px-2 py-0.5 rounded-full flex-shrink-0">
-                          Public
-                        </span>
-                      )}
-                    </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {lists.map((list) => {
+                const preview = listPreviews[list.id];
+                return (
+                  <ListCard
+                    key={list.id}
+                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    previewPosters={preview?.previewPosters ?? []}
+                    onClick={(e) => handleCardClick(list.id, e)}
+                  >
                     <DropdownMenu
                       open={openDropdownId === list.id}
                       onOpenChange={(open) => handleDropdownOpenChange(list.id, open)}
@@ -414,14 +429,14 @@ export default function ListsPage() {
                         )}
                       </DropdownMenuContent>
                     </DropdownMenu>
-                  </FolderCardContent>
-                </FolderCard>
-              ))}
+                  </ListCard>
+                );
+              })}
             </div>
           ) : (
             <Card className="border-[3px] border-dashed border-border rounded-2xl bg-card">
               <CardContent className="flex flex-col items-center justify-center py-12">
-                <List className="h-12 w-12 text-muted-foreground mb-4" />
+                <Film className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="font-headline text-xl font-bold mb-2">No lists yet</h3>
                 <p className="text-muted-foreground mb-4">Create your first watchlist to get started.</p>
                 <Button onClick={() => setIsCreateOpen(true)} className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
@@ -440,30 +455,22 @@ export default function ListsPage() {
                 <h2 className="text-xl font-headline font-bold">Shared Lists</h2>
               </div>
               {isLoadingCollaborative ? (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[1, 2].map((i) => (
-                    <div key={i} className="h-24 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+                    <div key={i} className="h-48 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
                   ))}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {collaborativeLists.map((list) => (
-                    <FolderCard
+                    <ListCard
                       key={`collab-${list.id}`}
+                      list={list}
+                      previewPosters={[]}
                       onClick={() => router.push(`/lists/${list.id}?owner=${list.ownerId}`)}
-                    >
-                      <FolderCardContent className="flex items-center justify-between">
-                        <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <Users className="h-5 w-5 text-muted-foreground flex-shrink-0" />
-                          <div className="min-w-0">
-                            <span className="font-bold truncate block">{list.name}</span>
-                            <span className="text-xs text-muted-foreground">
-                              by {list.ownerDisplayName || list.ownerUsername || 'Unknown'}
-                            </span>
-                          </div>
-                        </div>
-                      </FolderCardContent>
-                    </FolderCard>
+                      isCollaborative={true}
+                      ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
+                    />
                   ))}
                 </div>
               )}

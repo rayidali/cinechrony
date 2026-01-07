@@ -2133,3 +2133,100 @@ export async function updateFavoriteMovies(
     return { error: 'Failed to update favorite movies.' };
   }
 }
+
+/**
+ * Get preview posters and movie count for a list.
+ */
+export async function getListPreview(userId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    // Get the first 4 movies from the list for preview posters
+    const moviesSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .orderBy('createdAt', 'desc')
+      .limit(4)
+      .get();
+
+    const previewPosters: string[] = [];
+    moviesSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.posterUrl) {
+        previewPosters.push(data.posterUrl);
+      }
+    });
+
+    // Get total movie count
+    const allMoviesSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .count()
+      .get();
+
+    const movieCount = allMoviesSnapshot.data().count;
+
+    return { previewPosters, movieCount };
+  } catch (error) {
+    console.error('[getListPreview] Failed:', error);
+    return { previewPosters: [], movieCount: 0 };
+  }
+}
+
+/**
+ * Get preview posters for multiple lists at once (batch operation).
+ */
+export async function getListsPreviews(userId: string, listIds: string[]) {
+  const db = getDb();
+  const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+
+  try {
+    // Fetch previews for all lists in parallel
+    const results = await Promise.all(
+      listIds.map(async (listId) => {
+        const result = await getListPreview(userId, listId);
+        return { listId, ...result };
+      })
+    );
+
+    results.forEach(({ listId, previewPosters, movieCount }) => {
+      previews[listId] = { previewPosters, movieCount };
+    });
+
+    return { previews };
+  } catch (error) {
+    console.error('[getListsPreviews] Failed:', error);
+    return { previews: {} };
+  }
+}
+
+/**
+ * Update list cover image.
+ */
+export async function updateListCover(userId: string, listId: string, coverImageUrl: string | null) {
+  const db = getDb();
+
+  try {
+    await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        coverImageUrl: coverImageUrl,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath('/lists');
+    return { success: true };
+  } catch (error) {
+    console.error('[updateListCover] Failed:', error);
+    return { error: 'Failed to update list cover.' };
+  }
+}
