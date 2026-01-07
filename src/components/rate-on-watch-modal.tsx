@@ -1,14 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Loader2 } from 'lucide-react';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
+import { Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { RatingSlider } from './rating-slider';
 
@@ -52,68 +45,91 @@ export function RateOnWatchModal({
     setRating(value);
   };
 
+  if (!isOpen) return null;
+
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && handleSkip()}>
-      <DialogContent className="max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000] z-[60]">
-        <DialogHeader>
-          <DialogTitle className="text-xl">How was it?</DialogTitle>
-          <DialogDescription className="text-base">
-            Rate <span className="font-semibold text-foreground">{movieTitle}</span>
-          </DialogDescription>
-        </DialogHeader>
+    <div className="fixed inset-0 z-[100]">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+        onClick={handleSkip}
+      />
+      {/* Modal */}
+      <div className="absolute inset-0 flex items-center justify-center p-4">
+        <div
+          className="relative bg-background max-w-md w-full rounded-lg border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-6 animate-in zoom-in-95 duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Close button */}
+          <button
+            onClick={handleSkip}
+            className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100 transition-opacity"
+          >
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </button>
 
-        <div className="space-y-4 pt-2">
-          {/* Rating Slider */}
-          <RatingSlider
-            value={rating}
-            onChangeComplete={handleRatingChange}
-            showClearButton={false}
-            size="md"
-            label=""
-          />
-
-          {/* Comment Input */}
-          <div>
-            <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-              Add a comment (optional)
-            </label>
-            <textarea
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder="Share your thoughts..."
-              rows={3}
-              maxLength={500}
-              className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
-            />
+          {/* Header */}
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold">How was it?</h2>
+            <p className="text-muted-foreground">
+              Rate <span className="font-semibold text-foreground">{movieTitle}</span>
+            </p>
           </div>
 
-          {/* Buttons */}
-          <div className="flex gap-3 pt-2">
-            <Button
-              variant="outline"
-              className="flex-1"
-              onClick={handleSkip}
-              disabled={isSaving}
-            >
-              Skip
-            </Button>
-            <Button
-              className="flex-1"
-              onClick={handleSave}
-              disabled={isSaving}
-            >
-              {isSaving ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                  Saving...
-                </>
-              ) : (
-                'Save'
-              )}
-            </Button>
+          <div className="space-y-4">
+            {/* Rating Slider */}
+            <RatingSlider
+              value={rating}
+              onChangeComplete={handleRatingChange}
+              showClearButton={false}
+              size="md"
+              label=""
+            />
+
+            {/* Comment Input */}
+            <div>
+              <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
+                Add a comment (optional)
+              </label>
+              <textarea
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder="Share your thoughts..."
+                rows={3}
+                maxLength={500}
+                className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
+              />
+            </div>
+
+            {/* Buttons */}
+            <div className="flex gap-3 pt-2">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={handleSkip}
+                disabled={isSaving}
+              >
+                Skip
+              </Button>
+              <Button
+                className="flex-1"
+                onClick={handleSave}
+                disabled={isSaving}
+              >
+                {isSaving ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                    Saving...
+                  </>
+                ) : (
+                  'Save'
+                )}
+              </Button>
+            </div>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </div>
+    </div>
   );
 }

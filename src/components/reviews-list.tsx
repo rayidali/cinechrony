@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { Loader2, MessageSquare } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
 import { WriteReviewInput } from '@/components/write-review-input';
@@ -62,7 +63,26 @@ export function ReviewsList({
 
   return (
     <div className="flex flex-col flex-1 h-full">
-      {/* Sort options - at top */}
+      {/* Movie info header with poster */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
+        {moviePosterUrl && (
+          <Image
+            src={moviePosterUrl}
+            alt={movieTitle}
+            width={48}
+            height={72}
+            className="rounded border border-border object-cover flex-shrink-0"
+          />
+        )}
+        <div className="min-w-0 flex-1">
+          <h3 className="font-semibold text-sm truncate">{movieTitle}</h3>
+          <p className="text-xs text-muted-foreground">
+            {reviews.length} {reviews.length === 1 ? 'comment' : 'comments'}
+          </p>
+        </div>
+      </div>
+
+      {/* Sort options */}
       {reviews.length > 1 && (
         <div className="px-4 py-2 flex gap-2 border-b border-border flex-shrink-0">
           <button

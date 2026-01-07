@@ -470,7 +470,7 @@ export function MovieDetailsModal({
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={handleTouchEnd}
-        className="max-w-4xl h-[85vh] max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0"
+        className="fixed left-0 right-0 bottom-0 top-auto translate-x-0 translate-y-0 sm:left-[50%] sm:top-[50%] sm:bottom-auto sm:translate-x-[-50%] sm:translate-y-[-50%] max-w-4xl w-full h-[92vh] sm:h-[85vh] max-h-[92vh] sm:max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 rounded-t-2xl sm:rounded-lg data-[state=open]:slide-in-from-bottom data-[state=closed]:slide-out-to-bottom sm:data-[state=open]:slide-in-from-top-[48%] sm:data-[state=closed]:slide-out-to-top-[48%] sm:data-[state=open]:slide-in-from-left-1/2 sm:data-[state=closed]:slide-out-to-left-1/2"
         style={{
           transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
           transition: isDragging ? 'none' : 'transform 0.2s ease-out',
