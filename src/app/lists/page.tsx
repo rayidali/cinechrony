@@ -636,7 +636,7 @@ export default function ListsPage() {
             listName={selectedList.name}
             currentCoverUrl={selectedList.coverImageUrl || null}
             listOwnerId={selectedList.ownerId}
-            onCoverChange={() => {
+            onCoverChange={async () => {
               // Refresh list previews for own lists
               if (user && lists) {
                 const listIds = lists.map((list) => list.id);
@@ -646,22 +646,16 @@ export default function ListsPage() {
                   }
                 });
               }
-              // Also refresh collaborative list previews
-              if (collaborativeLists.length > 0) {
-                const fetchCollabPreviews = async () => {
-                  const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
-                  await Promise.all(
-                    collaborativeLists.map(async (list) => {
-                      const result = await getListPreview(list.ownerId, list.id);
-                      previews[list.id] = {
-                        previewPosters: result.previewPosters || [],
-                        movieCount: result.movieCount || 0,
-                      };
-                    })
-                  );
-                  setCollabListPreviews(previews);
-                };
-                fetchCollabPreviews();
+              // Re-fetch collaborative lists to get updated cover URLs
+              if (user) {
+                try {
+                  const result = await getCollaborativeLists(user.uid);
+                  if (result.lists) {
+                    setCollaborativeLists(result.lists as CollaborativeList[]);
+                  }
+                } catch (error) {
+                  console.error('Failed to refresh collaborative lists:', error);
+                }
               }
             }}
           />

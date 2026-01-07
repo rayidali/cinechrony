@@ -2298,38 +2298,53 @@ export async function uploadListCover(
     const fileKey = `covers/${userId}/${listId}/cover.${ext}`;
 
     // Upload to R2
-    await s3Client.send(
-      new PutObjectCommand({
-        Bucket: bucketName,
-        Key: fileKey,
-        Body: buffer,
-        ContentType: mimeType,
-        CacheControl: 'public, max-age=31536000',
-      })
-    );
+    console.log('[uploadListCover] Uploading to R2:', fileKey);
+    try {
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: bucketName,
+          Key: fileKey,
+          Body: buffer,
+          ContentType: mimeType,
+          CacheControl: 'public, max-age=31536000',
+        })
+      );
+    } catch (r2Error) {
+      console.error('[uploadListCover] R2 upload failed:', r2Error);
+      const msg = r2Error instanceof Error ? r2Error.message : 'Unknown R2 error';
+      return { error: `R2 upload failed: ${msg}` };
+    }
 
     // Return the public URL with cache-busting timestamp
     const imageUrl = `${publicBaseUrl}/${fileKey}?v=${Date.now()}`;
+    console.log('[uploadListCover] R2 upload success, updating Firestore:', imageUrl);
 
     // Update the list document with the new cover URL
     const db = getDb();
-    await db
-      .collection('users')
-      .doc(userId)
-      .collection('lists')
-      .doc(listId)
-      .update({
-        coverImageUrl: imageUrl,
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+    try {
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('lists')
+        .doc(listId)
+        .update({
+          coverImageUrl: imageUrl,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    } catch (firestoreError) {
+      console.error('[uploadListCover] Firestore update failed:', firestoreError);
+      const msg = firestoreError instanceof Error ? firestoreError.message : 'Unknown Firestore error';
+      // Image uploaded but Firestore failed - still return the URL
+      return { error: `Image uploaded but database update failed: ${msg}`, url: imageUrl };
+    }
 
+    console.log('[uploadListCover] Success!');
     revalidatePath('/lists');
     return { url: imageUrl };
   } catch (error) {
-    console.error('[uploadListCover] Failed:', error);
+    console.error('[uploadListCover] Unexpected error:', error);
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    // Return specific error for debugging
-    return { error: `Upload failed: ${errorMessage}` };
+    return { error: `Unexpected error: ${errorMessage}` };
   }
 }
 
