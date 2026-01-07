@@ -9,6 +9,13 @@
 </p>
 
 <p align="center">
+  <a href="https://cinechrony.com"><img src="https://img.shields.io/badge/waitlist-cinechrony.com-0d9488" alt="Waitlist"></a>
+  <a href="https://github.com/rayidali/movienight/stargazers"><img src="https://img.shields.io/github/stars/rayidali/movienight" alt="Stars"></a>
+  <a href="https://github.com/rayidali/movienight/issues"><img src="https://img.shields.io/github/issues/rayidali/movienight" alt="Issues"></a>
+  <a href="https://github.com/rayidali/movienight/blob/main/LICENSE"><img src="https://img.shields.io/github/license/rayidali/movienight" alt="License"></a>
+</p>
+
+<p align="center">
   A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
 </p>
 
