@@ -341,38 +341,6 @@ export default function ListsPage() {
           {/* My Lists Section */}
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-headline font-bold">My Lists</h2>
-            <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
-              <DialogTrigger asChild>
-                <Button className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
-                  <Plus className="h-5 w-5 mr-2" />
-                  New List
-                </Button>
-              </DialogTrigger>
-              <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
-                <DialogHeader>
-                  <DialogTitle className="font-headline">Create New List</DialogTitle>
-                  <DialogDescription>
-                    Give your list a name. You can always rename it later.
-                  </DialogDescription>
-                </DialogHeader>
-                <Input
-                  placeholder="e.g., Horror Movies, Date Night..."
-                  value={newListName}
-                  onChange={(e) => setNewListName(e.target.value)}
-                  className={retroInputClass}
-                  onKeyDown={(e) => e.key === 'Enter' && handleCreateList()}
-                />
-                <DialogFooter>
-                  <Button
-                    onClick={handleCreateList}
-                    disabled={!newListName.trim() || isSubmitting}
-                    className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
-                  >
-                    {isSubmitting ? <Loader2 className="animate-spin" /> : 'Create List'}
-                  </Button>
-                </DialogFooter>
-              </DialogContent>
-            </Dialog>
           </div>
 
           {isLoadingLists ? (
@@ -576,7 +544,49 @@ export default function ListsPage() {
             }}
           />
         )}
+
+        {/* Create List Dialog */}
+        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+          <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+            <DialogHeader>
+              <DialogTitle className="font-headline text-center">Create New List</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              {/* Cover placeholder - can be tapped to add cover later */}
+              <div className="flex justify-center">
+                <div className="w-32 aspect-[4/5] rounded-xl bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border-2 border-dashed border-white/50">
+                  <ImageIcon className="h-8 w-8 text-white/70" />
+                </div>
+              </div>
+              <Input
+                placeholder="List name..."
+                value={newListName}
+                onChange={(e) => setNewListName(e.target.value)}
+                className={`${retroInputClass} text-center`}
+                onKeyDown={(e) => e.key === 'Enter' && handleCreateList()}
+                autoFocus
+              />
+            </div>
+            <DialogFooter className="sm:justify-center">
+              <Button
+                onClick={handleCreateList}
+                disabled={!newListName.trim() || isSubmitting}
+                className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold w-full`}
+              >
+                {isSubmitting ? <Loader2 className="animate-spin" /> : 'Create'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
+
+      {/* Floating Action Button */}
+      <button
+        onClick={() => setIsCreateOpen(true)}
+        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+      >
+        <Plus className="h-7 w-7" />
+      </button>
 
       <BottomNav />
     </main>
