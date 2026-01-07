@@ -193,9 +193,13 @@ export function MovieDetailsModal({
   const [rateModalComment, setRateModalComment] = useState('');
   const [swipeY, setSwipeY] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [rateModalSwipeY, setRateModalSwipeY] = useState(0);
+  const [isRateModalDragging, setIsRateModalDragging] = useState(false);
   const touchStartY = useRef(0);
   const touchStartX = useRef(0);
+  const rateModalTouchStartY = useRef(0);
   const contentRef = useRef<HTMLDivElement>(null);
+  const rateModalRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -310,6 +314,29 @@ export function MovieDetailsModal({
     }
     setSwipeY(0);
   }, [isDragging, swipeY, onClose]);
+
+  // Rate modal swipe handlers
+  const handleRateModalTouchStart = useCallback((e: React.TouchEvent) => {
+    rateModalTouchStartY.current = e.touches[0].clientY;
+    setIsRateModalDragging(true);
+  }, []);
+
+  const handleRateModalTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isRateModalDragging) return;
+    const deltaY = e.touches[0].clientY - rateModalTouchStartY.current;
+    if (deltaY > 0) {
+      setRateModalSwipeY(deltaY);
+    }
+  }, [isRateModalDragging]);
+
+  const handleRateModalTouchEnd = useCallback(() => {
+    if (!isRateModalDragging) return;
+    setIsRateModalDragging(false);
+    if (rateModalSwipeY > 100) {
+      setShowRateOnWatchModal(false);
+    }
+    setRateModalSwipeY(0);
+  }, [isRateModalDragging, rateModalSwipeY]);
 
   if (!movie || !user) return null;
 
@@ -469,7 +496,7 @@ export function MovieDetailsModal({
     <div className="fixed inset-0 z-50">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+        className="absolute inset-0 bg-black/80"
         onClick={onClose}
       />
       {/* Bottom sheet container */}
@@ -795,12 +822,20 @@ export function MovieDetailsModal({
     {showRateOnWatchModal && (
       <div className="fixed inset-0 z-[9999]">
         <div
-          className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+          className="absolute inset-0 bg-black/80"
           onClick={() => setShowRateOnWatchModal(false)}
         />
         <div className="absolute inset-0 flex items-end justify-center">
           <div
+            ref={rateModalRef}
+            onTouchStart={handleRateModalTouchStart}
+            onTouchMove={handleRateModalTouchMove}
+            onTouchEnd={handleRateModalTouchEnd}
             className="relative bg-background w-full max-w-lg rounded-t-2xl border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] p-6 pb-8 animate-slide-up"
+            style={{
+              transform: rateModalSwipeY > 0 ? `translateY(${rateModalSwipeY}px)` : undefined,
+              transition: isRateModalDragging ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-center mb-4">

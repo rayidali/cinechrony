@@ -27,9 +27,15 @@ export function RatingSlider({
   const [isDragging, setIsDragging] = useState(false);
   const sliderRef = useRef<HTMLDivElement>(null);
   const hasChangedRef = useRef(false);
+  const justFinishedDraggingRef = useRef(false);
 
   // Sync local value with prop when not dragging
   useEffect(() => {
+    // Skip sync if we just finished dragging (prevents bounce-back)
+    if (justFinishedDraggingRef.current) {
+      justFinishedDraggingRef.current = false;
+      return;
+    }
     if (!isDragging && value !== null) {
       setLocalValue(value);
     }
@@ -60,6 +66,8 @@ export function RatingSlider({
 
   const handleEnd = useCallback(() => {
     if (!isDragging) return;
+    // Mark that we just finished dragging to prevent bounce-back
+    justFinishedDraggingRef.current = true;
     setIsDragging(false);
     // Only trigger save if value actually changed
     if (hasChangedRef.current || value !== localValue) {

@@ -98,21 +98,17 @@ export default {
         'slide-up-from-bottom': {
           from: {
             transform: 'translateY(100%)',
-            opacity: '0',
           },
           to: {
             transform: 'translateY(0)',
-            opacity: '1',
           },
         },
         'slide-down-to-bottom': {
           from: {
             transform: 'translateY(0)',
-            opacity: '1',
           },
           to: {
             transform: 'translateY(100%)',
-            opacity: '0',
           },
         },
       },
