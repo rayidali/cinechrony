@@ -29,12 +29,7 @@ import {
   useUser,
 } from '@/firebase';
 import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview } from '@/app/actions';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+// Dialog removed - using custom bottom sheet
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
@@ -217,6 +212,9 @@ export function MovieDetailsModal({
       setLocalStatus(movie.status);
       setActiveTab('info');
       setUserRating(null);
+      setShowRateOnWatchModal(false);
+      setRateModalRating(7);
+      setRateModalComment('');
     }
   }, [movie?.id, movie?.status]);
 
@@ -327,8 +325,8 @@ export function MovieDetailsModal({
   const handleStatusChange = (newStatus: 'To Watch' | 'Watched') => {
     if (newStatus === localStatus) return;
 
-    // If switching to Watched and unrated, show the rate modal
-    if (newStatus === 'Watched' && userRating === null) {
+    // If switching to Watched, ALWAYS show the rate modal
+    if (newStatus === 'Watched') {
       setShowRateOnWatchModal(true);
       return;
     }
@@ -463,38 +461,56 @@ export function MovieDetailsModal({
   const displayName = displayUser?.displayName || displayUser?.username ||
     (displayUser as { email?: string })?.email?.split('@')[0] || 'Someone';
 
+  if (!isOpen) return null;
+
   return (
     <>
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        ref={contentRef}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        className="fixed left-0 right-0 bottom-0 top-auto translate-x-0 translate-y-0 max-w-4xl w-full mx-auto h-[92vh] max-h-[92vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0 rounded-t-2xl animate-slide-up"
-        style={{
-          transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
-          transition: isDragging ? 'none' : 'transform 0.2s ease-out',
-          opacity: swipeY > 0 ? Math.max(0.5, 1 - swipeY / 300) : 1,
-        }}
-      >
-        {/* Drag handle indicator */}
-        <div className="flex justify-center pt-2 pb-0">
-          <div className="w-12 h-1 rounded-full bg-muted-foreground/30" />
-        </div>
+    {/* Custom bottom sheet - no Dialog component */}
+    <div className="fixed inset-0 z-50">
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+        onClick={onClose}
+      />
+      {/* Bottom sheet container */}
+      <div className="absolute inset-0 flex items-end justify-center">
+        <div
+          ref={contentRef}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="relative bg-background w-full max-w-4xl h-[92vh] flex flex-col border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] rounded-t-2xl animate-slide-up"
+          style={{
+            transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
+            transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            opacity: swipeY > 0 ? Math.max(0.5, 1 - swipeY / 300) : 1,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Drag handle indicator */}
+          <div className="flex justify-center pt-3 pb-1">
+            <div className="w-12 h-1.5 rounded-full bg-muted-foreground/40" />
+          </div>
 
-        {/* Header */}
-        <DialogHeader className="px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
-          <DialogTitle className="text-2xl font-headline flex items-center gap-2">
-            {movie.mediaType === 'tv' ? (
-              <Tv className="h-6 w-6 text-primary flex-shrink-0" />
-            ) : (
-              <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
-            )}
-            <span className="truncate">{movie.title}</span>
-            <span className="text-muted-foreground font-normal text-lg flex-shrink-0">({movie.year})</span>
-          </DialogTitle>
-        </DialogHeader>
+          {/* Header */}
+          <div className="px-6 pt-2 pb-4 border-b border-border flex-shrink-0">
+            {/* Close button */}
+            <button
+              onClick={onClose}
+              className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <h2 className="text-2xl font-headline flex items-center gap-2 pr-10">
+              {movie.mediaType === 'tv' ? (
+                <Tv className="h-6 w-6 text-primary flex-shrink-0" />
+              ) : (
+                <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
+              )}
+              <span className="truncate">{movie.title}</span>
+              <span className="text-muted-foreground font-normal text-lg flex-shrink-0">({movie.year})</span>
+            </h2>
+          </div>
 
         {/* Scrollable content area */}
         <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'info' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
@@ -771,35 +787,30 @@ export function MovieDetailsModal({
             </button>
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+        </div>
+      </div>
+    </div>
 
     {/* Rate on Watch Modal - inline for reliability */}
     {showRateOnWatchModal && (
       <div className="fixed inset-0 z-[9999]">
         <div
-          className="absolute inset-0 bg-black/80"
-          onClick={() => {
-            handleRateOnWatchSkip();
-            setShowRateOnWatchModal(false);
-          }}
+          className="absolute inset-0 bg-black/80 animate-in fade-in duration-200"
+          onClick={() => setShowRateOnWatchModal(false)}
         />
-        <div className="absolute inset-0 flex items-end sm:items-center justify-center p-0 sm:p-4">
+        <div className="absolute inset-0 flex items-end justify-center">
           <div
-            className="relative bg-background w-full sm:max-w-md sm:rounded-lg rounded-t-2xl border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-6 animate-slide-up"
+            className="relative bg-background w-full max-w-lg rounded-t-2xl border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] p-6 pb-8 animate-slide-up"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex justify-center mb-4 sm:hidden">
-              <div className="w-12 h-1 rounded-full bg-muted-foreground/30" />
+            <div className="flex justify-center mb-4">
+              <div className="w-12 h-1.5 rounded-full bg-muted-foreground/40" />
             </div>
             <button
-              onClick={() => {
-                handleRateOnWatchSkip();
-                setShowRateOnWatchModal(false);
-              }}
-              className="absolute right-4 top-4 rounded-sm opacity-70 hover:opacity-100"
+              onClick={() => setShowRateOnWatchModal(false)}
+              className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors"
             >
-              <X className="h-4 w-4" />
+              <X className="h-5 w-5" />
             </button>
             <div className="mb-4">
               <h2 className="text-xl font-semibold">How was it?</h2>
