@@ -101,9 +101,6 @@ export function ListCard({
           )} />
         )}
 
-        {/* Gradient overlay for text readability */}
-        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
-
         {/* Dropdown menu in top-right */}
         {children && (
           <div
@@ -114,12 +111,18 @@ export function ListCard({
           </div>
         )}
 
+        {/* Blurred/dimmed footer area for text readability */}
+        <div className="absolute bottom-0 left-0 right-0 h-[45%] overflow-hidden rounded-b-2xl">
+          {/* Blur layer - uses backdrop-blur for glassmorphism effect */}
+          <div className="absolute inset-0 backdrop-blur-md bg-black/50" />
+        </div>
+
         {/* Content at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 p-3">
+        <div className="absolute bottom-0 left-0 right-0 p-3 z-[1]">
           {/* List name with lock icon if private */}
           <div className="flex items-start gap-1.5">
             {!list.isPublic && (
-              <Lock className="h-4 w-4 text-white/90 flex-shrink-0 mt-0.5" />
+              <Lock className="h-4 w-4 text-white flex-shrink-0 mt-0.5" />
             )}
             <h3 className="font-bold text-white text-base leading-tight line-clamp-2">
               {list.name}
@@ -127,7 +130,7 @@ export function ListCard({
           </div>
 
           {/* Info row: movie count and optionally owner name */}
-          <div className="flex items-center gap-2 mt-1 text-white/70 text-xs">
+          <div className="flex items-center gap-2 mt-1 text-white/80 text-xs">
             <span>{movieCount} {movieCount === 1 ? 'movie' : 'movies'}</span>
             {isCollaborative && ownerName && (
               <>

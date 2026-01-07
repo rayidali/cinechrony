@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users, ImageIcon } from 'lucide-react';
+import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users, ImageIcon, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -40,7 +40,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists, getListsPreviews } from '@/app/actions';
+import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists, getListsPreviews, getListPreview, uploadListCover, updateListCover } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
 
 // Preview data for list cards
@@ -80,7 +80,10 @@ export default function ListsPage() {
   const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
   const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
+  const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
   const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
+  const [newListCoverPreview, setNewListCoverPreview] = useState<string | null>(null);
+  const createCoverInputRef = useRef<HTMLInputElement>(null);
 
   // Track which dropdown is open (by list id) and pending action
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -176,6 +179,32 @@ export default function ListsPage() {
     fetchPreviews();
   }, [user, lists]);
 
+  // Fetch collaborative list previews when collaborative lists change
+  useEffect(() => {
+    async function fetchCollabPreviews() {
+      if (collaborativeLists.length === 0) return;
+
+      try {
+        const previews: Record<string, ListPreview> = {};
+        // Fetch previews in parallel - each list has its own owner
+        await Promise.all(
+          collaborativeLists.map(async (list) => {
+            const result = await getListPreview(list.ownerId, list.id);
+            previews[list.id] = {
+              previewPosters: result.previewPosters || [],
+              movieCount: result.movieCount || 0,
+            };
+          })
+        );
+        setCollabListPreviews(previews);
+      } catch (error) {
+        console.error('Failed to fetch collaborative list previews:', error);
+      }
+    }
+
+    fetchCollabPreviews();
+  }, [collaborativeLists]);
+
   // Process pending action after dropdown closes
   useEffect(() => {
     if (pendingAction && openDropdownId === null) {
@@ -206,8 +235,29 @@ export default function ListsPage() {
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
+        // If a cover image was selected, upload it
+        if (newListCoverPreview && result.listId) {
+          const base64Data = newListCoverPreview.split(',')[1];
+          const mimeMatch = newListCoverPreview.match(/data:([^;]+);/);
+          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+          const ext = mimeType.split('/')[1] || 'jpg';
+
+          const uploadResult = await uploadListCover(
+            user.uid,
+            result.listId,
+            base64Data,
+            `cover.${ext}`,
+            mimeType
+          );
+
+          if (uploadResult.url) {
+            await updateListCover(user.uid, result.listId, uploadResult.url);
+          }
+        }
+
         toast({ title: 'List Created', description: `"${newListName}" has been created.` });
         setNewListName('');
+        setNewListCoverPreview(null);
         setIsCreateOpen(false);
         if (result.listId) {
           router.push(`/lists/${result.listId}`);
@@ -215,6 +265,17 @@ export default function ListsPage() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCreateCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setNewListCoverPreview(e.target?.result as string);
+      };
+      reader.readAsDataURL(file);
     }
   };
 
@@ -300,13 +361,17 @@ export default function ListsPage() {
     }
   }, []);
 
-  const handleCardClick = useCallback((listId: string, e: React.MouseEvent) => {
+  const handleCardClick = useCallback((listId: string, e: React.MouseEvent, ownerId?: string) => {
     if (openDropdownId !== null) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-    router.push(`/lists/${listId}`);
+    if (ownerId) {
+      router.push(`/lists/${listId}?owner=${ownerId}`);
+    } else {
+      router.push(`/lists/${listId}`);
+    }
   }, [openDropdownId, router]);
 
   if (isUserLoading || !user || isInitializing) {
@@ -444,16 +509,42 @@ export default function ListsPage() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {collaborativeLists.map((list) => (
-                    <ListCard
-                      key={`collab-${list.id}`}
-                      list={list}
-                      previewPosters={[]}
-                      onClick={() => router.push(`/lists/${list.id}?owner=${list.ownerId}`)}
-                      isCollaborative={true}
-                      ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
-                    />
-                  ))}
+                  {collaborativeLists.map((list) => {
+                    const preview = collabListPreviews[list.id];
+                    return (
+                      <ListCard
+                        key={`collab-${list.id}`}
+                        list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                        previewPosters={preview?.previewPosters ?? []}
+                        onClick={(e) => handleCardClick(list.id, e, list.ownerId)}
+                        isCollaborative={true}
+                        ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
+                      >
+                        <DropdownMenu
+                          open={openDropdownId === `collab-${list.id}`}
+                          onOpenChange={(open) => handleDropdownOpenChange(`collab-${list.id}`, open)}
+                        >
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 flex-shrink-0 text-white hover:bg-white/20"
+                              onClick={(e) => e.stopPropagation()}
+                              onTouchEnd={(e) => e.stopPropagation()}
+                            >
+                              <MoreVertical className="h-5 w-5" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+                            <DropdownMenuItem onSelect={() => scheduleCover(list)}>
+                              <ImageIcon className="h-4 w-4 mr-2" />
+                              Set Cover
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </ListCard>
+                    );
+                  })}
                 </div>
               )}
             </div>
@@ -546,20 +637,56 @@ export default function ListsPage() {
         )}
 
         {/* Create List Dialog */}
-        <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
+        <Dialog open={isCreateOpen} onOpenChange={(open) => {
+          setIsCreateOpen(open);
+          if (!open) {
+            setNewListCoverPreview(null);
+            setNewListName('');
+          }
+        }}>
           <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
             <DialogHeader>
               <DialogTitle className="font-headline text-center">Create New List</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
-              {/* Cover placeholder - can be tapped to add cover later */}
+              {/* Cover image picker - clickable */}
+              <input
+                type="file"
+                ref={createCoverInputRef}
+                accept="image/*"
+                className="hidden"
+                onChange={handleCreateCoverSelect}
+              />
               <div className="flex justify-center">
-                <div className="w-32 aspect-[4/5] rounded-xl bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border-2 border-dashed border-white/50">
-                  <ImageIcon className="h-8 w-8 text-white/70" />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => createCoverInputRef.current?.click()}
+                  className="relative w-32 aspect-[4/5] rounded-xl overflow-hidden bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border-2 border-dashed border-white/50 transition-transform active:scale-95"
+                >
+                  {newListCoverPreview ? (
+                    <>
+                      <img src={newListCoverPreview} alt="Cover preview" className="absolute inset-0 w-full h-full object-cover" />
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setNewListCoverPreview(null);
+                        }}
+                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center"
+                      >
+                        <X className="h-4 w-4 text-white" />
+                      </button>
+                    </>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1">
+                      <ImageIcon className="h-8 w-8 text-white/70" />
+                      <span className="text-xs text-white/70">Add Cover</span>
+                    </div>
+                  )}
+                </button>
               </div>
               <Input
-                placeholder="List name..."
+                placeholder="e.g., Horror Movies, Date Night..."
                 value={newListName}
                 onChange={(e) => setNewListName(e.target.value)}
                 className={`${retroInputClass} text-center`}
