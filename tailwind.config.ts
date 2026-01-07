@@ -95,10 +95,32 @@ export default {
             height: '0',
           },
         },
+        'slide-up-from-bottom': {
+          from: {
+            transform: 'translateY(100%)',
+            opacity: '0',
+          },
+          to: {
+            transform: 'translateY(0)',
+            opacity: '1',
+          },
+        },
+        'slide-down-to-bottom': {
+          from: {
+            transform: 'translateY(0)',
+            opacity: '1',
+          },
+          to: {
+            transform: 'translateY(100%)',
+            opacity: '0',
+          },
+        },
       },
       animation: {
         'accordion-down': 'accordion-down 0.2s ease-out',
         'accordion-up': 'accordion-up 0.2s ease-out',
+        'slide-up': 'slide-up-from-bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+        'slide-down': 'slide-down-to-bottom 0.2s ease-in',
       },
     },
   },
