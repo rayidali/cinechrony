@@ -3,9 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star } from 'lucide-react';
+import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut } from 'lucide-react';
 import Image from 'next/image';
-import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,6 +35,7 @@ export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const firestore = useFirestore();
+  const auth = useAuth();
   const { toast } = useToast();
 
   const [isEditingUsername, setIsEditingUsername] = useState(false);
@@ -271,7 +272,18 @@ export default function MyProfilePage() {
                 My Lists
               </Button>
             </Link>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => auth.signOut()}
+                className="text-muted-foreground hover:text-destructive"
+                title="Log out"
+              >
+                <LogOut className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
 
           {/* Profile Header */}
