@@ -119,10 +119,11 @@ export function CoverPicker({
       onClose();
     } catch (error) {
       console.error('Failed to upload cover:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
       toast({
         variant: 'destructive',
         title: 'Upload failed',
-        description: 'Failed to upload cover image. Please try again.',
+        description: `Error: ${errorMsg}`,
       });
     } finally {
       setIsUploading(false);
