@@ -16,6 +16,8 @@ import {
   X,
   Film,
   Tv,
+  Info,
+  MessageSquare,
 } from 'lucide-react';
 
 import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
@@ -37,6 +39,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
+import { ReviewsList } from './reviews-list';
 import { useToast } from '@/hooks/use-toast';
 import { doc } from 'firebase/firestore';
 
@@ -56,6 +59,8 @@ type ExtendedTVDetails = TMDBTVDetails & {
 };
 
 type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
+
+type ViewTab = 'info' | 'reviews';
 
 const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
@@ -184,9 +189,13 @@ export function MovieDetailsModal({
   const [newSocialLink, setNewSocialLink] = useState('');
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
+  const [activeTab, setActiveTab] = useState<ViewTab>('info');
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
+
+  // Get TMDB ID for reviews
+  const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
   // Reset state when movie changes
   useEffect(() => {
@@ -195,6 +204,7 @@ export function MovieDetailsModal({
       setMediaDetails(null);
       setAddedByUser(null);
       setLocalStatus(movie.status);
+      setActiveTab('info');
     }
   }, [movie?.id, movie?.status]);
 
@@ -205,19 +215,19 @@ export function MovieDetailsModal({
 
       setIsLoadingDetails(true);
       // Extract TMDB ID - handle prefixed IDs like "movie_12345" or "tv_67890"
-      let tmdbId: number;
+      let tmdbIdLocal: number;
       if (movie.tmdbId) {
-        tmdbId = movie.tmdbId;
+        tmdbIdLocal = movie.tmdbId;
       } else {
         // Try to extract from prefixed ID
         const idMatch = movie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbId = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
+        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
       }
 
-      if (!isNaN(tmdbId)) {
+      if (!isNaN(tmdbIdLocal)) {
         const details = movie.mediaType === 'tv'
-          ? await fetchTVDetails(tmdbId)
-          : await fetchMovieDetails(tmdbId);
+          ? await fetchTVDetails(tmdbIdLocal)
+          : await fetchMovieDetails(tmdbIdLocal);
         setMediaDetails(details);
       }
       setIsLoadingDetails(false);
@@ -292,234 +302,279 @@ export function MovieDetailsModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
-        <DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0">
+        {/* Header */}
+        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
           <DialogTitle className="text-2xl font-headline flex items-center gap-2">
             {movie.mediaType === 'tv' ? (
               <Tv className="h-6 w-6 text-primary flex-shrink-0" />
             ) : (
               <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
             )}
-            {movie.title}
-            <span className="text-muted-foreground font-normal text-lg">({movie.year})</span>
+            <span className="truncate">{movie.title}</span>
+            <span className="text-muted-foreground font-normal text-lg flex-shrink-0">({movie.year})</span>
           </DialogTitle>
         </DialogHeader>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
-          {/* Left: Poster + Video */}
-          <div className="space-y-4">
-            <Image
-              src={movie.posterUrl}
-              alt={`Poster for ${movie.title}`}
-              width={400}
-              height={600}
-              className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full h-auto"
-            />
+        {/* Scrollable content area */}
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {activeTab === 'info' ? (
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {/* Left: Poster + Video */}
+                <div className="space-y-4">
+                  <Image
+                    src={movie.posterUrl}
+                    alt={`Poster for ${movie.title}`}
+                    width={400}
+                    height={600}
+                    className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full h-auto"
+                  />
 
-            {hasEmbeddableVideo && (
-              <div>
-                <h3 className="font-bold mb-2 flex items-center gap-2">
-                  {SocialIcon && <SocialIcon className="h-4 w-4" />}
-                  {getProviderDisplayName(parsedVideo?.provider || null)} Video
-                </h3>
-                <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />
-              </div>
-            )}
+                  {hasEmbeddableVideo && (
+                    <div>
+                      <h3 className="font-bold mb-2 flex items-center gap-2">
+                        {SocialIcon && <SocialIcon className="h-4 w-4" />}
+                        {getProviderDisplayName(parsedVideo?.provider || null)} Video
+                      </h3>
+                      <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />
+                    </div>
+                  )}
 
-            {movie.socialLink && (
-              <Button asChild variant="outline" className="w-full">
-                <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
-                  <ExternalLink className="h-4 w-4 mr-2" />
-                  Open in {hasEmbeddableVideo ? getProviderDisplayName(parsedVideo?.provider || null) : 'Browser'}
-                </Link>
-              </Button>
-            )}
+                  {movie.socialLink && (
+                    <Button asChild variant="outline" className="w-full">
+                      <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
+                        <ExternalLink className="h-4 w-4 mr-2" />
+                        Open in {hasEmbeddableVideo ? getProviderDisplayName(parsedVideo?.provider || null) : 'Browser'}
+                      </Link>
+                    </Button>
+                  )}
 
-            {/* Added by info */}
-            <div className="text-sm text-muted-foreground">
-              Added by {displayName}
-            </div>
-          </div>
-
-          {/* Right: Details */}
-          <div className="space-y-4">
-            {/* IMDB Rating */}
-            {isLoadingDetails ? (
-              <div className="flex items-center gap-2 text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading rating...
-              </div>
-            ) : mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' ? (
-              <div className="flex items-center gap-3">
-                <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
-                  <IMDbLogo className="h-5 w-auto" />
-                  <span className="text-lg">{mediaDetails.imdbRating}</span>
-                  <span className="text-sm font-normal">/10</span>
+                  {/* Added by info */}
+                  <div className="text-sm text-muted-foreground">
+                    Added by {displayName}
+                  </div>
                 </div>
-                {mediaDetails.imdbVotes && (
-                  <span className="text-sm text-muted-foreground">
-                    ({mediaDetails.imdbVotes} votes)
-                  </span>
-                )}
-              </div>
-            ) : null}
 
-            {/* Runtime/Seasons & Genres */}
-            {mediaDetails && (
-              <div className="flex flex-wrap gap-2">
-                {/* Movie runtime */}
-                {'runtime' in mediaDetails && mediaDetails.runtime && (
-                  <span className="bg-secondary px-2 py-1 rounded text-sm">
-                    {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
-                  </span>
-                )}
-                {/* TV show seasons/episodes */}
-                {'number_of_seasons' in mediaDetails && (
-                  <>
-                    <span className="bg-secondary px-2 py-1 rounded text-sm">
-                      {mediaDetails.number_of_seasons} Season{mediaDetails.number_of_seasons !== 1 ? 's' : ''}
-                    </span>
-                    <span className="bg-secondary px-2 py-1 rounded text-sm">
-                      {mediaDetails.number_of_episodes} Episodes
-                    </span>
-                  </>
-                )}
-                {mediaDetails.genres?.map((genre) => (
-                  <span key={genre.id} className="bg-secondary px-2 py-1 rounded text-sm">
-                    {genre.name}
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Overview */}
-            <div>
-              <h3 className="font-bold mb-2">Overview</h3>
-              {isLoadingDetails ? (
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading details...
-                </div>
-              ) : mediaDetails?.overview || movie.overview ? (
-                <p className="text-muted-foreground leading-relaxed">
-                  {mediaDetails?.overview || movie.overview}
-                </p>
-              ) : (
-                <p className="text-muted-foreground italic">No overview available</p>
-              )}
-            </div>
-
-            {/* Cast */}
-            {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
-              <div>
-                <h3 className="font-bold mb-2 flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Cast
-                </h3>
-                <div className="grid grid-cols-2 gap-2">
-                  {mediaDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
-                    <div key={actor.id} className="flex items-center gap-2 bg-secondary rounded-lg p-2">
-                      {actor.profile_path ? (
-                        <Image
-                          src={`https://image.tmdb.org/t/p/w92${actor.profile_path}`}
-                          alt={actor.name}
-                          width={32}
-                          height={32}
-                          className="rounded-full object-cover w-8 h-8"
-                        />
-                      ) : (
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                          <span className="text-xs">{actor.name.charAt(0)}</span>
-                        </div>
+                {/* Right: Details */}
+                <div className="space-y-4">
+                  {/* IMDB Rating */}
+                  {isLoadingDetails ? (
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading rating...
+                    </div>
+                  ) : mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' ? (
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
+                        <IMDbLogo className="h-5 w-auto" />
+                        <span className="text-lg">{mediaDetails.imdbRating}</span>
+                        <span className="text-sm font-normal">/10</span>
+                      </div>
+                      {mediaDetails.imdbVotes && (
+                        <span className="text-sm text-muted-foreground">
+                          ({mediaDetails.imdbVotes} votes)
+                        </span>
                       )}
-                      <div className="overflow-hidden">
-                        <p className="font-bold text-sm truncate">{actor.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">{actor.character}</p>
+                    </div>
+                  ) : null}
+
+                  {/* Runtime/Seasons & Genres */}
+                  {mediaDetails && (
+                    <div className="flex flex-wrap gap-2">
+                      {/* Movie runtime */}
+                      {'runtime' in mediaDetails && mediaDetails.runtime && (
+                        <span className="bg-secondary px-2 py-1 rounded text-sm">
+                          {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
+                        </span>
+                      )}
+                      {/* TV show seasons/episodes */}
+                      {'number_of_seasons' in mediaDetails && (
+                        <>
+                          <span className="bg-secondary px-2 py-1 rounded text-sm">
+                            {mediaDetails.number_of_seasons} Season{mediaDetails.number_of_seasons !== 1 ? 's' : ''}
+                          </span>
+                          <span className="bg-secondary px-2 py-1 rounded text-sm">
+                            {mediaDetails.number_of_episodes} Episodes
+                          </span>
+                        </>
+                      )}
+                      {mediaDetails.genres?.map((genre) => (
+                        <span key={genre.id} className="bg-secondary px-2 py-1 rounded text-sm">
+                          {genre.name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Overview */}
+                  <div>
+                    <h3 className="font-bold mb-2">Overview</h3>
+                    {isLoadingDetails ? (
+                      <div className="flex items-center gap-2 text-muted-foreground">
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Loading details...
+                      </div>
+                    ) : mediaDetails?.overview || movie.overview ? (
+                      <p className="text-muted-foreground leading-relaxed">
+                        {mediaDetails?.overview || movie.overview}
+                      </p>
+                    ) : (
+                      <p className="text-muted-foreground italic">No overview available</p>
+                    )}
+                  </div>
+
+                  {/* Cast */}
+                  {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
+                    <div>
+                      <h3 className="font-bold mb-2 flex items-center gap-2">
+                        <Users className="h-4 w-4" />
+                        Cast
+                      </h3>
+                      <div className="grid grid-cols-2 gap-2">
+                        {mediaDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
+                          <div key={actor.id} className="flex items-center gap-2 bg-secondary rounded-lg p-2">
+                            {actor.profile_path ? (
+                              <Image
+                                src={`https://image.tmdb.org/t/p/w92${actor.profile_path}`}
+                                alt={actor.name}
+                                width={32}
+                                height={32}
+                                className="rounded-full object-cover w-8 h-8"
+                              />
+                            ) : (
+                              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
+                                <span className="text-xs">{actor.name.charAt(0)}</span>
+                              </div>
+                            )}
+                            <div className="overflow-hidden">
+                              <p className="font-bold text-sm truncate">{actor.name}</p>
+                              <p className="text-xs text-muted-foreground truncate">{actor.character}</p>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  )}
+
+                  {/* IMDB Link */}
+                  {mediaDetails?.imdbId && (
+                    <Button asChild variant="outline" className="w-full">
+                      <Link
+                        href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        <IMDbLogo className="h-4 w-auto mr-2" />
+                        View on IMDb
+                      </Link>
+                    </Button>
+                  )}
+
+                  {/* Watch Status */}
+                  {canEdit && (
+                    <div className="pt-4 border-t">
+                      <h3 className="font-bold mb-2">Status</h3>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => handleStatusChange('To Watch')}
+                          variant={localStatus === 'To Watch' ? 'default' : 'outline'}
+                          className={retroButtonClass}
+                          disabled={isPending}
+                        >
+                          <EyeOff className="h-4 w-4 mr-2" />
+                          To Watch
+                        </Button>
+                        <Button
+                          onClick={() => handleStatusChange('Watched')}
+                          variant={localStatus === 'Watched' ? 'default' : 'outline'}
+                          className={retroButtonClass}
+                          disabled={isPending}
+                        >
+                          <Eye className="h-4 w-4 mr-2" />
+                          Watched
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Edit Social Link */}
+                  {canEdit && (
+                    <div className="pt-4 border-t">
+                      <h3 className="font-bold mb-2">Video Link</h3>
+                      <div className="flex gap-2">
+                        <Input
+                          type="url"
+                          value={newSocialLink}
+                          onChange={(e) => setNewSocialLink(e.target.value)}
+                          placeholder="TikTok, Instagram, or YouTube URL"
+                          className={retroInputClass}
+                        />
+                        <Button
+                          onClick={handleSaveSocialLink}
+                          disabled={isPending || newSocialLink === (movie.socialLink || '')}
+                          className={retroButtonClass}
+                        >
+                          {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Remove button */}
+                  {canEdit && (
+                    <div className="pt-4 border-t">
+                      <Button
+                        variant="destructive"
+                        onClick={handleRemove}
+                        disabled={isPending}
+                        className={`w-full ${retroButtonClass}`}
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        Remove from List
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
-            )}
+            </div>
+          ) : (
+            /* Reviews tab */
+            <ReviewsList
+              tmdbId={tmdbId}
+              mediaType={movie.mediaType || 'movie'}
+              movieTitle={movie.title}
+              moviePosterUrl={movie.posterUrl}
+              currentUserId={user.uid}
+            />
+          )}
+        </div>
 
-            {/* IMDB Link */}
-            {mediaDetails?.imdbId && (
-              <Button asChild variant="outline" className="w-full">
-                <Link
-                  href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <IMDbLogo className="h-4 w-auto mr-2" />
-                  View on IMDb
-                </Link>
-              </Button>
-            )}
-
-            {/* Watch Status */}
-            {canEdit && (
-              <div className="pt-4 border-t">
-                <h3 className="font-bold mb-2">Status</h3>
-                <div className="flex gap-2">
-                  <Button
-                    onClick={() => handleStatusChange('To Watch')}
-                    variant={localStatus === 'To Watch' ? 'default' : 'outline'}
-                    className={retroButtonClass}
-                    disabled={isPending}
-                  >
-                    <EyeOff className="h-4 w-4 mr-2" />
-                    To Watch
-                  </Button>
-                  <Button
-                    onClick={() => handleStatusChange('Watched')}
-                    variant={localStatus === 'Watched' ? 'default' : 'outline'}
-                    className={retroButtonClass}
-                    disabled={isPending}
-                  >
-                    <Eye className="h-4 w-4 mr-2" />
-                    Watched
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Edit Social Link */}
-            {canEdit && (
-              <div className="pt-4 border-t">
-                <h3 className="font-bold mb-2">Video Link</h3>
-                <div className="flex gap-2">
-                  <Input
-                    type="url"
-                    value={newSocialLink}
-                    onChange={(e) => setNewSocialLink(e.target.value)}
-                    placeholder="TikTok, Instagram, or YouTube URL"
-                    className={retroInputClass}
-                  />
-                  <Button
-                    onClick={handleSaveSocialLink}
-                    disabled={isPending || newSocialLink === (movie.socialLink || '')}
-                    className={retroButtonClass}
-                  >
-                    {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-                  </Button>
-                </div>
-              </div>
-            )}
-
-            {/* Remove button */}
-            {canEdit && (
-              <div className="pt-4 border-t">
-                <Button
-                  variant="destructive"
-                  onClick={handleRemove}
-                  disabled={isPending}
-                  className={`w-full ${retroButtonClass}`}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Remove from List
-                </Button>
-              </div>
-            )}
+        {/* Sticky bottom bar with Info/Reviews toggle */}
+        <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3">
+          <div className="flex gap-2 justify-center">
+            <button
+              onClick={() => setActiveTab('info')}
+              className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
+                activeTab === 'info'
+                  ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <Info className="h-4 w-4" />
+              Info
+            </button>
+            <button
+              onClick={() => setActiveTab('reviews')}
+              className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
+                activeTab === 'reviews'
+                  ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
+                  : 'bg-secondary text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              <MessageSquare className="h-4 w-4" />
+              Reviews
+            </button>
           </div>
         </div>
       </DialogContent>

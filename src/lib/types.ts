@@ -193,3 +193,21 @@ export type TMDBTVDetails = {
     cast: TMDBCast[];
   };
 };
+
+// Movie review
+export type Review = {
+  id: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl?: string;
+  userId: string;
+  username: string | null;
+  userDisplayName: string | null;
+  userPhotoUrl: string | null;
+  text: string;
+  likes: number;
+  likedBy: string[]; // Array of user IDs who liked this review
+  createdAt: Date;
+  updatedAt: Date;
+};

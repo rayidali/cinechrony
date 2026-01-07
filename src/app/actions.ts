@@ -2373,3 +2373,291 @@ export async function updateListCover(userId: string, listId: string, coverImage
     return { error: 'Failed to update list cover.' };
   }
 }
+
+// --- REVIEWS ---
+
+/**
+ * Create a new review for a movie/TV show.
+ */
+export async function createReview(
+  userId: string,
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  movieTitle: string,
+  moviePosterUrl: string | undefined,
+  text: string
+) {
+  const db = getDb();
+
+  try {
+    // Get user profile for username and photo
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return { error: 'User not found.' };
+    }
+    const userData = userDoc.data();
+
+    // Check if user already has a review for this movie
+    const existingReview = await db
+      .collection('reviews')
+      .where('userId', '==', userId)
+      .where('tmdbId', '==', tmdbId)
+      .limit(1)
+      .get();
+
+    if (!existingReview.empty) {
+      return { error: 'You already have a review for this title.' };
+    }
+
+    // Create the review
+    const reviewRef = db.collection('reviews').doc();
+    const reviewData = {
+      id: reviewRef.id,
+      tmdbId,
+      mediaType,
+      movieTitle,
+      moviePosterUrl: moviePosterUrl || null,
+      userId,
+      username: userData?.username || null,
+      userDisplayName: userData?.displayName || null,
+      userPhotoUrl: userData?.photoURL || null,
+      text: text.trim(),
+      likes: 0,
+      likedBy: [],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    await reviewRef.set(reviewData);
+
+    return {
+      success: true,
+      review: {
+        ...reviewData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[createReview] Failed:', error);
+    return { error: 'Failed to create review.' };
+  }
+}
+
+/**
+ * Get reviews for a movie/TV show.
+ */
+export async function getMovieReviews(
+  tmdbId: number,
+  sortBy: 'recent' | 'likes' = 'recent',
+  limit: number = 50
+) {
+  const db = getDb();
+
+  try {
+    let query = db.collection('reviews').where('tmdbId', '==', tmdbId);
+
+    if (sortBy === 'likes') {
+      query = query.orderBy('likes', 'desc').orderBy('createdAt', 'desc');
+    } else {
+      query = query.orderBy('createdAt', 'desc');
+    }
+
+    const snapshot = await query.limit(limit).get();
+
+    const reviews = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        userId: data.userId,
+        username: data.username,
+        userDisplayName: data.userDisplayName,
+        userPhotoUrl: data.userPhotoUrl,
+        text: data.text,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    });
+
+    return { reviews };
+  } catch (error) {
+    console.error('[getMovieReviews] Failed:', error);
+    return { error: 'Failed to fetch reviews.', reviews: [] };
+  }
+}
+
+/**
+ * Like a review.
+ */
+export async function likeReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    const likedBy = reviewData?.likedBy || [];
+
+    if (likedBy.includes(userId)) {
+      return { error: 'Already liked.' };
+    }
+
+    await reviewRef.update({
+      likes: FieldValue.increment(1),
+      likedBy: FieldValue.arrayUnion(userId),
+    });
+
+    return { success: true, likes: (reviewData?.likes || 0) + 1 };
+  } catch (error) {
+    console.error('[likeReview] Failed:', error);
+    return { error: 'Failed to like review.' };
+  }
+}
+
+/**
+ * Unlike a review.
+ */
+export async function unlikeReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    const likedBy = reviewData?.likedBy || [];
+
+    if (!likedBy.includes(userId)) {
+      return { error: 'Not liked yet.' };
+    }
+
+    await reviewRef.update({
+      likes: FieldValue.increment(-1),
+      likedBy: FieldValue.arrayRemove(userId),
+    });
+
+    return { success: true, likes: Math.max(0, (reviewData?.likes || 1) - 1) };
+  } catch (error) {
+    console.error('[unlikeReview] Failed:', error);
+    return { error: 'Failed to unlike review.' };
+  }
+}
+
+/**
+ * Delete a review (only by owner).
+ */
+export async function deleteReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    if (reviewData?.userId !== userId) {
+      return { error: 'You can only delete your own reviews.' };
+    }
+
+    await reviewRef.delete();
+
+    return { success: true };
+  } catch (error) {
+    console.error('[deleteReview] Failed:', error);
+    return { error: 'Failed to delete review.' };
+  }
+}
+
+/**
+ * Update a review (only by owner).
+ */
+export async function updateReview(userId: string, reviewId: string, text: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    if (reviewData?.userId !== userId) {
+      return { error: 'You can only edit your own reviews.' };
+    }
+
+    await reviewRef.update({
+      text: text.trim(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[updateReview] Failed:', error);
+    return { error: 'Failed to update review.' };
+  }
+}
+
+/**
+ * Get a user's review for a specific movie.
+ */
+export async function getUserReviewForMovie(userId: string, tmdbId: number) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('reviews')
+      .where('userId', '==', userId)
+      .where('tmdbId', '==', tmdbId)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return { review: null };
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+
+    return {
+      review: {
+        id: doc.id,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        userId: data.userId,
+        username: data.username,
+        userDisplayName: data.userDisplayName,
+        userPhotoUrl: data.userPhotoUrl,
+        text: data.text,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[getUserReviewForMovie] Failed:', error);
+    return { error: 'Failed to fetch review.', review: null };
+  }
+}
