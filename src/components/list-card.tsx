@@ -121,9 +121,9 @@ export function ListCard({
           {/* List name with visibility icon */}
           <div className="flex items-start gap-1.5">
             {list.isPublic ? (
-              <Globe className="h-4 w-4 text-white/80 flex-shrink-0 mt-0.5" />
+              <Globe className="h-5 w-5 text-white flex-shrink-0 mt-0.5 drop-shadow-md" />
             ) : (
-              <Lock className="h-4 w-4 text-white/80 flex-shrink-0 mt-0.5" />
+              <Lock className="h-5 w-5 text-white flex-shrink-0 mt-0.5 drop-shadow-md" />
             )}
             <h3 className="font-bold text-white text-base leading-tight line-clamp-2">
               {list.name}
