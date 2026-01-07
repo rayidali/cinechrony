@@ -2,12 +2,13 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users } from 'lucide-react';
+import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users, ImageIcon } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
+import { CoverPicker } from '@/components/cover-picker';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -59,7 +60,7 @@ const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4p
 
 // Pending action type for deferred dialog opening
 type PendingAction = {
-  type: 'rename' | 'delete';
+  type: 'rename' | 'delete' | 'cover';
   list: MovieList;
 } | null;
 
@@ -79,6 +80,7 @@ export default function ListsPage() {
   const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
   const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
+  const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
 
   // Track which dropdown is open (by list id) and pending action
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -186,6 +188,9 @@ export default function ListsPage() {
       } else if (type === 'delete') {
         setSelectedList(list);
         setIsDeleteOpen(true);
+      } else if (type === 'cover') {
+        setSelectedList(list);
+        setIsCoverPickerOpen(true);
       }
 
       setPendingAction(null);
@@ -257,6 +262,11 @@ export default function ListsPage() {
 
   const scheduleDelete = useCallback((list: MovieList) => {
     setPendingAction({ type: 'delete', list });
+    setOpenDropdownId(null);
+  }, []);
+
+  const scheduleCover = useCallback((list: MovieList) => {
+    setPendingAction({ type: 'cover', list });
     setOpenDropdownId(null);
   }, []);
 
@@ -366,13 +376,13 @@ export default function ListsPage() {
           </div>
 
           {isLoadingLists ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-48 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[1, 2, 3, 4].map((i) => (
+                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
               ))}
             </div>
           ) : lists && lists.length > 0 ? (
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {lists.map((list) => {
                 const preview = listPreviews[list.id];
                 return (
@@ -390,14 +400,18 @@ export default function ListsPage() {
                         <Button
                           variant="ghost"
                           size="icon"
-                          className="h-8 w-8 flex-shrink-0"
+                          className="h-8 w-8 flex-shrink-0 text-white hover:bg-white/20"
                           onClick={(e) => e.stopPropagation()}
                           onTouchEnd={(e) => e.stopPropagation()}
                         >
-                          <MoreVertical className="h-4 w-4" />
+                          <MoreVertical className="h-5 w-5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+                        <DropdownMenuItem onSelect={() => scheduleCover(list)}>
+                          <ImageIcon className="h-4 w-4 mr-2" />
+                          Set Cover
+                        </DropdownMenuItem>
                         <DropdownMenuItem onSelect={() => scheduleRename(list)}>
                           <Pencil className="h-4 w-4 mr-2" />
                           Rename
@@ -455,13 +469,13 @@ export default function ListsPage() {
                 <h2 className="text-xl font-headline font-bold">Shared Lists</h2>
               </div>
               {isLoadingCollaborative ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[1, 2].map((i) => (
-                    <div key={i} className="h-48 bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+                    <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
                   ))}
                 </div>
               ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {collaborativeLists.map((list) => (
                     <ListCard
                       key={`collab-${list.id}`}
@@ -537,6 +551,31 @@ export default function ListsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* Cover Picker */}
+        {selectedList && (
+          <CoverPicker
+            isOpen={isCoverPickerOpen}
+            onClose={() => {
+              setIsCoverPickerOpen(false);
+              setSelectedList(null);
+            }}
+            listId={selectedList.id}
+            listName={selectedList.name}
+            currentCoverUrl={selectedList.coverImageUrl || null}
+            onCoverChange={() => {
+              // Refresh list previews
+              if (user && lists) {
+                const listIds = lists.map((list) => list.id);
+                getListsPreviews(user.uid, listIds).then((result) => {
+                  if (result.previews) {
+                    setListPreviews(result.previews);
+                  }
+                });
+              }
+            }}
+          />
+        )}
       </div>
 
       <BottomNav />
