@@ -2377,7 +2377,8 @@ export async function updateListCover(userId: string, listId: string, coverImage
 // --- REVIEWS ---
 
 /**
- * Create a new review for a movie/TV show.
+ * Create a new review/comment for a movie/TV show.
+ * Users can post multiple comments on the same movie (like Reddit/YouTube).
  */
 export async function createReview(
   userId: string,
@@ -2397,19 +2398,7 @@ export async function createReview(
     }
     const userData = userDoc.data();
 
-    // Check if user already has a review for this movie
-    const existingReview = await db
-      .collection('reviews')
-      .where('userId', '==', userId)
-      .where('tmdbId', '==', tmdbId)
-      .limit(1)
-      .get();
-
-    if (!existingReview.empty) {
-      return { error: 'You already have a review for this title.' };
-    }
-
-    // Create the review
+    // Create the review (users can post multiple)
     const reviewRef = db.collection('reviews').doc();
     const reviewData = {
       id: reviewRef.id,

@@ -27,11 +27,6 @@ export function ReviewsList({
   const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
   const [editingReview, setEditingReview] = useState<Review | null>(null);
 
-  // Check if current user already has a review
-  const userReview = currentUserId
-    ? reviews.find((r) => r.userId === currentUserId)
-    : null;
-
   useEffect(() => {
     async function fetchReviews() {
       setIsLoading(true);
@@ -67,8 +62,8 @@ export function ReviewsList({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Write review input - only show if user doesn't have a review yet */}
-      {currentUserId && !userReview && !editingReview && (
+      {/* Write review input - always show for logged in users */}
+      {currentUserId && !editingReview && (
         <div className="px-4 pt-4 pb-2 border-b border-border">
           <WriteReviewInput
             tmdbId={tmdbId}
@@ -132,7 +127,7 @@ export function ReviewsList({
         ) : reviews.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No reviews yet</p>
+            <p className="text-muted-foreground">No comments yet</p>
             <p className="text-sm text-muted-foreground mt-1">
               Be the first to share your thoughts!
             </p>
