@@ -2244,9 +2244,17 @@ export async function uploadListCover(
     const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
 
     if (!accessKeyId || !secretAccessKey || !endpoint || !bucketName || !publicBaseUrl) {
-      console.error('[uploadListCover] R2 not configured');
-      return { error: 'Image upload is not configured. Please contact support.' };
+      const missing = [];
+      if (!accessKeyId) missing.push('R2_ACCESS_KEY_ID');
+      if (!secretAccessKey) missing.push('R2_SECRET_ACCESS_KEY');
+      if (!endpoint) missing.push('R2_ENDPOINT');
+      if (!bucketName) missing.push('R2_BUCKET_NAME');
+      if (!publicBaseUrl) missing.push('R2_PUBLIC_BASE_URL');
+      console.error('[uploadListCover] R2 not configured. Missing:', missing.join(', '));
+      return { error: `Missing env vars: ${missing.join(', ')}` };
     }
+
+    console.log('[uploadListCover] Starting upload for user:', userId, 'list:', listId);
 
     // Import S3 client
     const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
@@ -2303,7 +2311,9 @@ export async function uploadListCover(
     return { url: imageUrl };
   } catch (error) {
     console.error('[uploadListCover] Failed:', error);
-    return { error: 'Failed to upload cover image. Please try again.' };
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    // Return specific error for debugging
+    return { error: `Upload failed: ${errorMessage}` };
   }
 }
 
