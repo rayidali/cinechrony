@@ -118,10 +118,12 @@ export function ListCard({
 
         {/* Content at bottom */}
         <div className="absolute bottom-0 left-0 right-0 p-3 z-[1]">
-          {/* List name with lock icon if private */}
+          {/* List name with visibility icon */}
           <div className="flex items-start gap-1.5">
-            {!list.isPublic && (
-              <Lock className="h-4 w-4 text-white flex-shrink-0 mt-0.5" />
+            {list.isPublic ? (
+              <Globe className="h-4 w-4 text-white/80 flex-shrink-0 mt-0.5" />
+            ) : (
+              <Lock className="h-4 w-4 text-white/80 flex-shrink-0 mt-0.5" />
             )}
             <h3 className="font-bold text-white text-base leading-tight line-clamp-2">
               {list.name}
