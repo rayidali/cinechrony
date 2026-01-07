@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera } from 'lucide-react';
+import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star } from 'lucide-react';
+import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -19,12 +20,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto } from '@/app/actions';
+import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio } from '@/app/actions';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
+import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
-import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
+import type { UserProfile, MovieList, ListInvite, FavoriteMovie } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 const retroInputClass = "border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
@@ -47,6 +49,11 @@ export default function MyProfilePage() {
   const [collaborativeLists, setCollaborativeLists] = useState<Array<{ id: string; name: string; ownerId: string; ownerUsername: string | null }>>([]);
   const [isLoadingCollab, setIsLoadingCollab] = useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [newBio, setNewBio] = useState('');
+  const [isSavingBio, setIsSavingBio] = useState(false);
+  const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
+  const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -78,6 +85,18 @@ export default function MyProfilePage() {
       setNewUsername(userProfile.username);
     }
   }, [userProfile?.username]);
+
+  useEffect(() => {
+    if (userProfile?.bio !== undefined) {
+      setNewBio(userProfile.bio || '');
+    }
+  }, [userProfile?.bio]);
+
+  useEffect(() => {
+    if (userProfile?.favoriteMovies) {
+      setFavoriteMovies(userProfile.favoriteMovies);
+    }
+  }, [userProfile?.favoriteMovies]);
 
   // Load pending invites and collaborative lists
   useEffect(() => {
@@ -120,6 +139,23 @@ export default function MyProfilePage() {
       }
     } finally {
       setIsSavingUsername(false);
+    }
+  };
+
+  const handleSaveBio = async () => {
+    if (!user) return;
+
+    setIsSavingBio(true);
+    try {
+      const result = await updateBio(user.uid, newBio);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({ title: 'Bio Updated', description: 'Your bio has been saved.' });
+        setIsEditingBio(false);
+      }
+    } finally {
+      setIsSavingBio(false);
     }
   };
 
@@ -329,6 +365,96 @@ export default function MyProfilePage() {
                 <span className="font-bold text-lg">{userProfile?.followingCount || 0}</span>
                 <span className="text-muted-foreground ml-1">following</span>
               </button>
+            </div>
+
+            {/* Bio */}
+            <div className="mt-4 w-full max-w-md">
+              {isEditingBio ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={newBio}
+                    onChange={(e) => setNewBio(e.target.value)}
+                    placeholder="Write a short bio..."
+                    maxLength={160}
+                    rows={3}
+                    className={`${retroInputClass} w-full resize-none p-3`}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{newBio.length}/160</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setIsEditingBio(false);
+                          setNewBio(userProfile?.bio || '');
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveBio}
+                        disabled={isSavingBio}
+                        className={`${retroButtonClass} bg-primary text-primary-foreground`}
+                      >
+                        {isSavingBio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="text-center text-muted-foreground cursor-pointer hover:text-foreground transition-colors group"
+                  onClick={() => setIsEditingBio(true)}
+                >
+                  {userProfile?.bio ? (
+                    <p className="inline">{userProfile.bio}</p>
+                  ) : (
+                    <p className="italic">Add a bio...</p>
+                  )}
+                  <Pencil className="h-3 w-3 inline ml-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              )}
+            </div>
+
+            {/* Favorite Movies */}
+            <div className="mt-6 w-full max-w-md">
+              <div className="flex items-center justify-center gap-2 mb-3">
+                <Star className="h-4 w-4 text-yellow-500" />
+                <span className="text-sm font-medium">Favorite Movies</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => setIsFavoritePickerOpen(true)}
+                  className="h-6 w-6 p-0"
+                >
+                  <Pencil className="h-3 w-3" />
+                </Button>
+              </div>
+              {favoriteMovies.length > 0 ? (
+                <div className="flex justify-center gap-2">
+                  {favoriteMovies.map((movie) => (
+                    <div key={movie.tmdbId} className="relative group">
+                      <Image
+                        src={movie.posterUrl}
+                        alt={movie.title}
+                        width={50}
+                        height={75}
+                        className="rounded border-2 border-border shadow-[2px_2px_0px_0px_hsl(var(--border))]"
+                        title={movie.title}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p
+                  className="text-center text-sm text-muted-foreground italic cursor-pointer hover:text-foreground transition-colors"
+                  onClick={() => setIsFavoritePickerOpen(true)}
+                >
+                  Add your top 5 movies...
+                </p>
+              )}
             </div>
           </div>
         </header>
@@ -616,6 +742,15 @@ export default function MyProfilePage() {
           onClose={() => setIsAvatarPickerOpen(false)}
           currentAvatarUrl={userProfile?.photoURL || null}
           onAvatarChange={handleAvatarChange}
+        />
+
+        {/* Favorite Movies Picker Modal */}
+        <FavoriteMoviesPicker
+          isOpen={isFavoritePickerOpen}
+          onClose={() => setIsFavoritePickerOpen(false)}
+          userId={user.uid}
+          currentFavorites={favoriteMovies}
+          onUpdate={setFavoriteMovies}
         />
       </div>
 

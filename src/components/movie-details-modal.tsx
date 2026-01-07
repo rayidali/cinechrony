@@ -465,7 +465,7 @@ export function MovieDetailsModal({
                     variant={movie.status === 'To Watch' ? 'default' : 'outline'}
                     className={retroButtonClass}
                   >
-                    <Eye className="h-4 w-4 mr-2" />
+                    <EyeOff className="h-4 w-4 mr-2" />
                     To Watch
                   </Button>
                   <Button
@@ -475,7 +475,7 @@ export function MovieDetailsModal({
                     variant={movie.status === 'Watched' ? 'default' : 'outline'}
                     className={retroButtonClass}
                   >
-                    <EyeOff className="h-4 w-4 mr-2" />
+                    <Eye className="h-4 w-4 mr-2" />
                     Watched
                   </Button>
                 </div>
