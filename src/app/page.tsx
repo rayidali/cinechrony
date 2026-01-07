@@ -72,11 +72,6 @@ export default function LandingPage() {
             </Button>
           </Link>
         </div>
-
-        {/* Guest option */}
-        <p className="mt-6 text-sm text-muted-foreground underline underline-offset-4 cursor-pointer hover:text-foreground transition-colors">
-          Enter as guest
-        </p>
       </div>
 
       {/* Decorative popcorn at bottom */}

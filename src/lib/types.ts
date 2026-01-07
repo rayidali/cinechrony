@@ -8,9 +8,19 @@ export type UserProfile = {
   displayName: string | null;
   photoURL: string | null;
   username: string | null; // Unique username for searching/following
+  bio: string | null; // User's bio/about text
   createdAt: Date;
   followersCount: number;
   followingCount: number;
+  favoriteMovies?: FavoriteMovie[]; // Top 5 favorite movies
+};
+
+// A favorite movie (for profile display)
+export type FavoriteMovie = {
+  id: string;
+  title: string;
+  posterUrl: string;
+  tmdbId: number;
 };
 
 // Follow relationship

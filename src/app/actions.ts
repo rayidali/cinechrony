@@ -2084,3 +2084,52 @@ export async function updateProfilePhoto(userId: string, photoURL: string) {
     return { error: 'Failed to update profile photo.' };
   }
 }
+
+/**
+ * Update user's bio.
+ */
+export async function updateBio(userId: string, bio: string) {
+  const db = getDb();
+
+  try {
+    // Limit bio length
+    const trimmedBio = bio.trim().slice(0, 160);
+
+    await db.collection('users').doc(userId).update({
+      bio: trimmedBio || null,
+    });
+
+    revalidatePath('/profile');
+    revalidatePath(`/profile/[username]`);
+    return { success: true, bio: trimmedBio };
+  } catch (error) {
+    console.error('[updateBio] Failed:', error);
+    return { error: 'Failed to update bio.' };
+  }
+}
+
+/**
+ * Update user's favorite movies (top 5).
+ */
+export async function updateFavoriteMovies(
+  userId: string,
+  favoriteMovies: Array<{ id: string; title: string; posterUrl: string; tmdbId: number }>
+) {
+  const db = getDb();
+
+  try {
+    // Limit to 5 movies
+    const limitedMovies = favoriteMovies.slice(0, 5);
+
+    await db.collection('users').doc(userId).update({
+      favoriteMovies: limitedMovies,
+    });
+
+    revalidatePath('/profile');
+    revalidatePath(`/profile/[username]`);
+    return { success: true, favoriteMovies: limitedMovies };
+  } catch (error) {
+    console.error('[updateFavoriteMovies] Failed:', error);
+    return { error: 'Failed to update favorite movies.' };
+  }
+}

@@ -183,6 +183,7 @@ export function MovieDetailsModal({
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
+  const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -193,8 +194,9 @@ export function MovieDetailsModal({
       setNewSocialLink(movie.socialLink || '');
       setMediaDetails(null);
       setAddedByUser(null);
+      setLocalStatus(movie.status);
     }
-  }, [movie?.id]);
+  }, [movie?.id, movie?.status]);
 
   // Fetch movie/TV details when modal opens
   useEffect(() => {
@@ -248,9 +250,10 @@ export function MovieDetailsModal({
   const hasEmbeddableVideo = parsedVideo && parsedVideo.provider !== null;
   const SocialIcon = getProviderIcon(movie.socialLink);
 
-  const handleToggle = () => {
+  const handleStatusChange = (newStatus: 'To Watch' | 'Watched') => {
+    if (newStatus === localStatus) return;
+    setLocalStatus(newStatus);
     startTransition(() => {
-      const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
       updateDocumentNonBlocking(movieDocRef, { status: newStatus });
     });
   };
@@ -459,23 +462,21 @@ export function MovieDetailsModal({
                 <h3 className="font-bold mb-2">Status</h3>
                 <div className="flex gap-2">
                   <Button
-                    onClick={() => {
-                      if (movie.status !== 'To Watch') handleToggle();
-                    }}
-                    variant={movie.status === 'To Watch' ? 'default' : 'outline'}
+                    onClick={() => handleStatusChange('To Watch')}
+                    variant={localStatus === 'To Watch' ? 'default' : 'outline'}
                     className={retroButtonClass}
+                    disabled={isPending}
                   >
-                    <Eye className="h-4 w-4 mr-2" />
+                    <EyeOff className="h-4 w-4 mr-2" />
                     To Watch
                   </Button>
                   <Button
-                    onClick={() => {
-                      if (movie.status !== 'Watched') handleToggle();
-                    }}
-                    variant={movie.status === 'Watched' ? 'default' : 'outline'}
+                    onClick={() => handleStatusChange('Watched')}
+                    variant={localStatus === 'Watched' ? 'default' : 'outline'}
                     className={retroButtonClass}
+                    disabled={isPending}
                   >
-                    <EyeOff className="h-4 w-4 mr-2" />
+                    <Eye className="h-4 w-4 mr-2" />
                     Watched
                   </Button>
                 </div>

@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera } from 'lucide-react';
-import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc } from '@/firebase';
+import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut } from 'lucide-react';
+import Image from 'next/image';
+import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,12 +20,13 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto } from '@/app/actions';
+import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio } from '@/app/actions';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
+import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
-import type { UserProfile, MovieList, ListInvite } from '@/lib/types';
+import type { UserProfile, MovieList, ListInvite, FavoriteMovie } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 const retroInputClass = "border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
@@ -33,6 +35,7 @@ export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const firestore = useFirestore();
+  const auth = useAuth();
   const { toast } = useToast();
 
   const [isEditingUsername, setIsEditingUsername] = useState(false);
@@ -47,6 +50,11 @@ export default function MyProfilePage() {
   const [collaborativeLists, setCollaborativeLists] = useState<Array<{ id: string; name: string; ownerId: string; ownerUsername: string | null }>>([]);
   const [isLoadingCollab, setIsLoadingCollab] = useState(false);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
+  const [isEditingBio, setIsEditingBio] = useState(false);
+  const [newBio, setNewBio] = useState('');
+  const [isSavingBio, setIsSavingBio] = useState(false);
+  const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
+  const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -78,6 +86,18 @@ export default function MyProfilePage() {
       setNewUsername(userProfile.username);
     }
   }, [userProfile?.username]);
+
+  useEffect(() => {
+    if (userProfile?.bio !== undefined) {
+      setNewBio(userProfile.bio || '');
+    }
+  }, [userProfile?.bio]);
+
+  useEffect(() => {
+    if (userProfile?.favoriteMovies) {
+      setFavoriteMovies(userProfile.favoriteMovies);
+    }
+  }, [userProfile?.favoriteMovies]);
 
   // Load pending invites and collaborative lists
   useEffect(() => {
@@ -120,6 +140,23 @@ export default function MyProfilePage() {
       }
     } finally {
       setIsSavingUsername(false);
+    }
+  };
+
+  const handleSaveBio = async () => {
+    if (!user) return;
+
+    setIsSavingBio(true);
+    try {
+      const result = await updateBio(user.uid, newBio);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({ title: 'Bio Updated', description: 'Your bio has been saved.' });
+        setIsEditingBio(false);
+      }
+    } finally {
+      setIsSavingBio(false);
     }
   };
 
@@ -235,7 +272,17 @@ export default function MyProfilePage() {
                 My Lists
               </Button>
             </Link>
-            <ThemeToggle />
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => auth.signOut()}
+                className={`${retroButtonClass} text-destructive border-destructive`}
+              >
+                <LogOut className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
 
           {/* Profile Header */}
@@ -329,6 +376,107 @@ export default function MyProfilePage() {
                 <span className="font-bold text-lg">{userProfile?.followingCount || 0}</span>
                 <span className="text-muted-foreground ml-1">following</span>
               </button>
+            </div>
+
+            {/* Bio */}
+            <div className="mt-4 w-full max-w-md">
+              {isEditingBio ? (
+                <div className="space-y-2">
+                  <textarea
+                    value={newBio}
+                    onChange={(e) => setNewBio(e.target.value)}
+                    placeholder="Write a short bio..."
+                    maxLength={160}
+                    rows={3}
+                    className={`${retroInputClass} w-full resize-none p-3`}
+                  />
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted-foreground">{newBio.length}/160</span>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => {
+                          setIsEditingBio(false);
+                          setNewBio(userProfile?.bio || '');
+                        }}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={handleSaveBio}
+                        disabled={isSavingBio}
+                        className={`${retroButtonClass} bg-primary text-primary-foreground`}
+                      >
+                        {isSavingBio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  className="text-center text-muted-foreground cursor-pointer hover:text-foreground transition-colors group"
+                  onClick={() => setIsEditingBio(true)}
+                >
+                  {userProfile?.bio ? (
+                    <p className="inline">{userProfile.bio}</p>
+                  ) : (
+                    <p className="italic">Add a bio...</p>
+                  )}
+                  <Pencil className="h-3 w-3 inline ml-2 opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+              )}
+            </div>
+
+            {/* Favorite Movies */}
+            <div className="mt-8 w-full max-w-lg">
+              <div className="flex items-center justify-center gap-2 mb-4">
+                <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                <h3 className="text-lg font-headline font-bold">Top 5 Films</h3>
+              </div>
+              <div className="flex justify-center gap-3">
+                {[0, 1, 2, 3, 4].map((index) => {
+                  const movie = favoriteMovies[index];
+                  if (movie) {
+                    return (
+                      <div
+                        key={movie.tmdbId}
+                        className="relative group cursor-pointer"
+                        onClick={() => setIsFavoritePickerOpen(true)}
+                      >
+                        <Image
+                          src={movie.posterUrl}
+                          alt={movie.title}
+                          width={70}
+                          height={105}
+                          className="rounded-lg border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] transition-all duration-200 group-hover:shadow-[1px_1px_0px_0px_hsl(var(--border))] group-hover:translate-x-0.5 group-hover:translate-y-0.5"
+                          title={movie.title}
+                        />
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
+                          <Pencil className="h-4 w-4 text-white" />
+                        </div>
+                      </div>
+                    );
+                  }
+                  return (
+                    <button
+                      key={index}
+                      onClick={() => setIsFavoritePickerOpen(true)}
+                      className="w-[70px] h-[105px] rounded-lg border-[3px] border-dashed border-border/50 bg-secondary/30 flex items-center justify-center hover:border-primary hover:bg-primary/10 transition-all duration-200 group"
+                    >
+                      <div className="flex flex-col items-center gap-1">
+                        <div className="w-8 h-8 rounded-full bg-border/30 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
+                          <span className="text-xl text-muted-foreground group-hover:text-primary">+</span>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-center text-xs text-muted-foreground mt-3">
+                Click to add your favorite films
+              </p>
             </div>
           </div>
         </header>
@@ -616,6 +764,15 @@ export default function MyProfilePage() {
           onClose={() => setIsAvatarPickerOpen(false)}
           currentAvatarUrl={userProfile?.photoURL || null}
           onAvatarChange={handleAvatarChange}
+        />
+
+        {/* Favorite Movies Picker Modal */}
+        <FavoriteMoviesPicker
+          isOpen={isFavoritePickerOpen}
+          onClose={() => setIsFavoritePickerOpen(false)}
+          userId={user.uid}
+          currentFavorites={favoriteMovies}
+          onUpdate={setFavoriteMovies}
         />
       </div>
 
