@@ -54,7 +54,7 @@ export function RateOnWatchModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleSkip()}>
-      <DialogContent className="max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+      <DialogContent className="max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000] z-[60]">
         <DialogHeader>
           <DialogTitle className="text-xl">How was it?</DialogTitle>
           <DialogDescription className="text-base">

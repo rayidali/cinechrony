@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useRef, useCallback } from 'react';
 import {
   Eye,
   EyeOff,
@@ -195,6 +195,11 @@ export function MovieDetailsModal({
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
+  const [swipeY, setSwipeY] = useState(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const touchStartY = useRef(0);
+  const touchStartX = useRef(0);
+  const contentRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -412,6 +417,41 @@ export function MovieDetailsModal({
     }
   };
 
+  // Swipe-to-close gesture handlers
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Only enable swipe when at the top of scroll
+    const scrollableElement = contentRef.current?.querySelector('.overflow-y-auto');
+    if (scrollableElement && scrollableElement.scrollTop > 0) {
+      return;
+    }
+    touchStartY.current = e.touches[0].clientY;
+    touchStartX.current = e.touches[0].clientX;
+    setIsDragging(true);
+  }, []);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (!isDragging) return;
+
+    const deltaY = e.touches[0].clientY - touchStartY.current;
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+
+    // Only allow downward swipe when it's more vertical than horizontal
+    if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
+      setSwipeY(deltaY);
+    }
+  }, [isDragging]);
+
+  const handleTouchEnd = useCallback(() => {
+    if (!isDragging) return;
+    setIsDragging(false);
+
+    // If swiped more than 100px, close the modal
+    if (swipeY > 100) {
+      onClose();
+    }
+    setSwipeY(0);
+  }, [isDragging, swipeY, onClose]);
+
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
   const displayUser = addedByUser || (isAddedByCurrentUser ? {
     photoURL: user?.photoURL,
@@ -425,9 +465,25 @@ export function MovieDetailsModal({
   return (
     <>
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-4xl h-[85vh] max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0">
+      <DialogContent
+        ref={contentRef}
+        onTouchStart={handleTouchStart}
+        onTouchMove={handleTouchMove}
+        onTouchEnd={handleTouchEnd}
+        className="max-w-4xl h-[85vh] max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0"
+        style={{
+          transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
+          transition: isDragging ? 'none' : 'transform 0.2s ease-out',
+          opacity: swipeY > 0 ? Math.max(0.5, 1 - swipeY / 300) : 1,
+        }}
+      >
+        {/* Drag handle indicator (mobile only) */}
+        <div className="flex justify-center pt-2 pb-0 sm:hidden">
+          <div className="w-12 h-1 rounded-full bg-muted-foreground/30" />
+        </div>
+
         {/* Header */}
-        <DialogHeader className="px-6 pt-6 pb-4 border-b border-border flex-shrink-0">
+        <DialogHeader className="px-6 pt-4 sm:pt-6 pb-4 border-b border-border flex-shrink-0">
           <DialogTitle className="text-2xl font-headline flex items-center gap-2">
             {movie.mediaType === 'tv' ? (
               <Tv className="h-6 w-6 text-primary flex-shrink-0" />
