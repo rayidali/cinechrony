@@ -61,40 +61,10 @@ export function ReviewsList({
   };
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Write review input - always show for logged in users */}
-      {currentUserId && !editingReview && (
-        <div className="px-4 pt-4 pb-2 border-b border-border">
-          <WriteReviewInput
-            tmdbId={tmdbId}
-            mediaType={mediaType}
-            movieTitle={movieTitle}
-            moviePosterUrl={moviePosterUrl}
-            currentUserId={currentUserId}
-            onReviewCreated={handleReviewCreated}
-          />
-        </div>
-      )}
-
-      {/* Edit review input */}
-      {editingReview && (
-        <div className="px-4 pt-4 pb-2 border-b border-border">
-          <WriteReviewInput
-            tmdbId={tmdbId}
-            mediaType={mediaType}
-            movieTitle={movieTitle}
-            moviePosterUrl={moviePosterUrl}
-            currentUserId={currentUserId!}
-            existingReview={editingReview}
-            onReviewUpdated={handleReviewUpdated}
-            onCancel={() => setEditingReview(null)}
-          />
-        </div>
-      )}
-
-      {/* Sort options */}
+    <div className="flex flex-col h-full min-h-[400px]">
+      {/* Sort options - at top */}
       {reviews.length > 1 && (
-        <div className="px-4 py-2 flex gap-2 border-b border-border">
+        <div className="px-4 py-2 flex gap-2 border-b border-border flex-shrink-0">
           <button
             onClick={() => setSortBy('recent')}
             className={`text-xs px-3 py-1 rounded-full transition-colors ${
@@ -118,7 +88,7 @@ export function ReviewsList({
         </div>
       )}
 
-      {/* Reviews list */}
+      {/* Reviews list - scrollable middle section */}
       <div className="flex-1 overflow-y-auto px-4">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
@@ -146,6 +116,33 @@ export function ReviewsList({
           </div>
         )}
       </div>
+
+      {/* Input at bottom - easier thumb access */}
+      {currentUserId && (
+        <div className="px-4 py-3 border-t border-border bg-background flex-shrink-0">
+          {editingReview ? (
+            <WriteReviewInput
+              tmdbId={tmdbId}
+              mediaType={mediaType}
+              movieTitle={movieTitle}
+              moviePosterUrl={moviePosterUrl}
+              currentUserId={currentUserId}
+              existingReview={editingReview}
+              onReviewUpdated={handleReviewUpdated}
+              onCancel={() => setEditingReview(null)}
+            />
+          ) : (
+            <WriteReviewInput
+              tmdbId={tmdbId}
+              mediaType={mediaType}
+              movieTitle={movieTitle}
+              moviePosterUrl={moviePosterUrl}
+              currentUserId={currentUserId}
+              onReviewCreated={handleReviewCreated}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }

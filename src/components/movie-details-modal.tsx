@@ -317,9 +317,9 @@ export function MovieDetailsModal({
         </DialogHeader>
 
         {/* Scrollable content area */}
-        <div className="flex-1 overflow-y-auto min-h-0">
+        <div className="flex-1 overflow-y-auto min-h-0 flex flex-col">
           {activeTab === 'info' ? (
-            <div className="p-6">
+            <div className="p-6 flex-1">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {/* Left: Poster + Video */}
                 <div className="space-y-4">
@@ -539,14 +539,16 @@ export function MovieDetailsModal({
               </div>
             </div>
           ) : (
-            /* Reviews tab */
-            <ReviewsList
-              tmdbId={tmdbId}
-              mediaType={movie.mediaType || 'movie'}
-              movieTitle={movie.title}
-              moviePosterUrl={movie.posterUrl}
-              currentUserId={user.uid}
-            />
+            /* Reviews tab - flex-1 to fill available space */
+            <div className="flex-1 flex flex-col">
+              <ReviewsList
+                tmdbId={tmdbId}
+                mediaType={movie.mediaType || 'movie'}
+                movieTitle={movie.title}
+                moviePosterUrl={movie.posterUrl}
+                currentUserId={user.uid}
+              />
+            </div>
           )}
         </div>
 
