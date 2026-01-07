@@ -2379,6 +2379,7 @@ export async function updateListCover(userId: string, listId: string, coverImage
 /**
  * Create a new review/comment for a movie/TV show.
  * Users can post multiple comments on the same movie (like Reddit/YouTube).
+ * Optionally pass the user's rating to snapshot with the comment.
  */
 export async function createReview(
   userId: string,
@@ -2386,7 +2387,8 @@ export async function createReview(
   mediaType: 'movie' | 'tv',
   movieTitle: string,
   moviePosterUrl: string | undefined,
-  text: string
+  text: string,
+  ratingAtTime?: number | null // Optional: pass the current user rating to snapshot
 ) {
   const db = getDb();
 
@@ -2397,6 +2399,18 @@ export async function createReview(
       return { error: 'User not found.' };
     }
     const userData = userDoc.data();
+
+    // If no rating passed, try to fetch user's current rating
+    let rating = ratingAtTime;
+    if (rating === undefined) {
+      const ratingId = `${userId}_${tmdbId}`;
+      const ratingDoc = await db.collection('ratings').doc(ratingId).get();
+      if (ratingDoc.exists) {
+        rating = ratingDoc.data()?.rating || null;
+      } else {
+        rating = null;
+      }
+    }
 
     // Create the review (users can post multiple)
     const reviewRef = db.collection('reviews').doc();
@@ -2411,6 +2425,7 @@ export async function createReview(
       userDisplayName: userData?.displayName || null,
       userPhotoUrl: userData?.photoURL || null,
       text: text.trim(),
+      ratingAtTime: rating, // Snapshot of user's rating when this comment was posted
       likes: 0,
       likedBy: [],
       createdAt: FieldValue.serverTimestamp(),
@@ -2467,6 +2482,7 @@ export async function getMovieReviews(
         userDisplayName: data.userDisplayName,
         userPhotoUrl: data.userPhotoUrl,
         text: data.text,
+        ratingAtTime: data.ratingAtTime ?? null, // Rating snapshot when comment was posted
         likes: data.likes || 0,
         likedBy: data.likedBy || [],
         createdAt: data.createdAt?.toDate() || new Date(),
@@ -2639,6 +2655,7 @@ export async function getUserReviewForMovie(userId: string, tmdbId: number) {
         userDisplayName: data.userDisplayName,
         userPhotoUrl: data.userPhotoUrl,
         text: data.text,
+        ratingAtTime: data.ratingAtTime ?? null,
         likes: data.likes || 0,
         likedBy: data.likedBy || [],
         createdAt: data.createdAt?.toDate() || new Date(),

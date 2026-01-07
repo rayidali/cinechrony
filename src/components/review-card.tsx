@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Heart, MessageCircle, MoreVertical, Trash2, Pencil } from 'lucide-react';
+import { Heart, MessageCircle, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
@@ -98,7 +98,7 @@ export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCa
 
       {/* Review content */}
       <div className="flex-1 min-w-0">
-        {/* Header: username, action, timestamp */}
+        {/* Header: username, rating, timestamp */}
         <div className="flex items-center gap-2 flex-wrap">
           <Link
             href={`/profile/${review.username || ''}`}
@@ -106,6 +106,15 @@ export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCa
           >
             {displayName}
           </Link>
+
+          {/* Rating badge - shows the rating at time of comment */}
+          {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
+            <span className="inline-flex items-center gap-0.5 bg-green-600 text-white px-1.5 py-0.5 rounded text-xs font-bold">
+              <Star className="h-3 w-3 fill-white" />
+              {review.ratingAtTime.toFixed(1)}
+            </span>
+          )}
+
           <span className="text-muted-foreground text-xs">
             reviewed {timeAgo}
           </span>

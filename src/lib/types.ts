@@ -206,6 +206,7 @@ export type Review = {
   userDisplayName: string | null;
   userPhotoUrl: string | null;
   text: string;
+  ratingAtTime: number | null; // User's rating snapshot when this comment was posted (immutable)
   likes: number;
   likedBy: string[]; // Array of user IDs who liked this review
   createdAt: Date;

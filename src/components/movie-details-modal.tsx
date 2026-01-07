@@ -28,7 +28,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview } from '@/app/actions';
 import {
   Dialog,
   DialogContent,
@@ -41,6 +41,7 @@ import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
+import { RateOnWatchModal } from './rate-on-watch-modal';
 import { useToast } from '@/hooks/use-toast';
 import { doc } from 'firebase/firestore';
 
@@ -193,6 +194,7 @@ export function MovieDetailsModal({
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
+  const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -283,9 +285,63 @@ export function MovieDetailsModal({
 
   const handleStatusChange = (newStatus: 'To Watch' | 'Watched') => {
     if (newStatus === localStatus) return;
+
+    // If switching to Watched and unrated, show the rate modal
+    if (newStatus === 'Watched' && userRating === null) {
+      setShowRateOnWatchModal(true);
+      return;
+    }
+
     setLocalStatus(newStatus);
     startTransition(() => {
       updateDocumentNonBlocking(movieDocRef, { status: newStatus });
+    });
+  };
+
+  const handleRateOnWatchSave = async (rating: number, comment: string) => {
+    if (!user?.uid || !tmdbId) return;
+
+    // Save rating
+    await createOrUpdateRating(
+      user.uid,
+      tmdbId,
+      movie.mediaType || 'movie',
+      movie.title,
+      movie.posterUrl,
+      rating
+    );
+    setUserRating(rating);
+
+    // Save comment if provided (with rating snapshot)
+    if (comment.trim()) {
+      await createReview(
+        user.uid,
+        tmdbId,
+        movie.mediaType || 'movie',
+        movie.title,
+        movie.posterUrl,
+        comment,
+        rating // Pass the rating to snapshot with the comment
+      );
+    }
+
+    // Update status to Watched
+    setLocalStatus('Watched');
+    startTransition(() => {
+      updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
+    });
+
+    toast({
+      title: 'Marked as Watched',
+      description: `You rated ${movie.title} ${rating.toFixed(1)}/10`,
+    });
+  };
+
+  const handleRateOnWatchSkip = () => {
+    // Just mark as watched without rating
+    setLocalStatus('Watched');
+    startTransition(() => {
+      updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
     });
   };
 
@@ -311,39 +367,46 @@ export function MovieDetailsModal({
     });
   };
 
-  const handleRatingChange = async (rating: number | null) => {
+  const handleRatingSave = async (rating: number) => {
     if (!user?.uid || !tmdbId) return;
 
     setIsSavingRating(true);
     try {
-      if (rating === null) {
-        // Delete rating
-        const result = await deleteRating(user.uid, tmdbId);
-        if (result.success) {
-          setUserRating(null);
-          toast({ title: 'Rating removed' });
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        }
+      const result = await createOrUpdateRating(
+        user.uid,
+        tmdbId,
+        movie.mediaType || 'movie',
+        movie.title,
+        movie.posterUrl,
+        rating
+      );
+      if (result.success) {
+        setUserRating(rating);
+        toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
       } else {
-        // Create or update rating
-        const result = await createOrUpdateRating(
-          user.uid,
-          tmdbId,
-          movie.mediaType || 'movie',
-          movie.title,
-          movie.posterUrl,
-          rating
-        );
-        if (result.success) {
-          setUserRating(rating);
-          toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        }
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to save rating.' });
+    } finally {
+      setIsSavingRating(false);
+    }
+  };
+
+  const handleRatingClear = async () => {
+    if (!user?.uid || !tmdbId) return;
+
+    setIsSavingRating(true);
+    try {
+      const result = await deleteRating(user.uid, tmdbId);
+      if (result.success) {
+        setUserRating(null);
+        toast({ title: 'Rating removed' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove rating.' });
     } finally {
       setIsSavingRating(false);
     }
@@ -360,6 +423,7 @@ export function MovieDetailsModal({
     (displayUser as { email?: string })?.email?.split('@')[0] || 'Someone';
 
   return (
+    <>
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-4xl h-[85vh] max-h-[85vh] flex flex-col border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-0 gap-0">
         {/* Header */}
@@ -442,8 +506,9 @@ export function MovieDetailsModal({
                   <div className="pt-2 pb-2 border-y border-border">
                     <RatingSlider
                       value={userRating}
-                      onChange={handleRatingChange}
-                      isSaving={isSavingRating}
+                      onChangeComplete={handleRatingSave}
+                      onClear={handleRatingClear}
+                      disabled={isSavingRating}
                       size="md"
                       label="Your Rating"
                     />
@@ -651,5 +716,15 @@ export function MovieDetailsModal({
         </div>
       </DialogContent>
     </Dialog>
+
+    {/* Rate on Watch Modal - shown when marking as Watched without rating */}
+    <RateOnWatchModal
+      isOpen={showRateOnWatchModal}
+      onClose={() => setShowRateOnWatchModal(false)}
+      movieTitle={movie.title}
+      onSave={handleRateOnWatchSave}
+      onSkip={handleRateOnWatchSkip}
+    />
+    </>
   );
 }
