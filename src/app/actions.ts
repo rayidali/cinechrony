@@ -1988,10 +1988,9 @@ export async function uploadAvatar(
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type - allow common image types including iPhone's HEIC
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
-    if (!allowedTypes.includes(mimeType)) {
-      return { error: `Invalid file type: ${mimeType}. Please upload a JPG, PNG, WebP, GIF, or HEIC image.` };
+    // Validate mime type - accept any image type (iOS sends various formats)
+    if (!mimeType.startsWith('image/')) {
+      return { error: `Invalid file type: ${mimeType}. Please upload an image file.` };
     }
 
     // Convert base64 to buffer
@@ -2032,13 +2031,18 @@ export async function uploadAvatar(
     // Get file extension from mime type
     const extMap: Record<string, string> = {
       'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
       'image/png': 'png',
       'image/webp': 'webp',
       'image/gif': 'gif',
       'image/heic': 'heic',
       'image/heif': 'heif',
+      'image/avif': 'avif',
+      'image/tiff': 'tiff',
+      'image/bmp': 'bmp',
     };
-    const ext = extMap[mimeType] || 'jpg';
+    // Extract extension from mime type or default to jpg
+    const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
 
     // Use consistent filename per user (overwrites previous avatar)
     const fileKey = `avatars/${userId}/avatar.${ext}`;
@@ -2226,10 +2230,9 @@ export async function uploadListCover(
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type - allow common image types including iPhone's HEIC
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/heic', 'image/heif'];
-    if (!allowedTypes.includes(mimeType)) {
-      return { error: `Invalid file type: ${mimeType}. Please upload a JPG, PNG, WebP, GIF, or HEIC image.` };
+    // Validate mime type - accept any image type (iOS sends various formats)
+    if (!mimeType.startsWith('image/')) {
+      return { error: `Invalid file type: ${mimeType}. Please upload an image file.` };
     }
 
     // Convert base64 to buffer
@@ -2278,13 +2281,18 @@ export async function uploadListCover(
     // Get file extension from mime type
     const extMap: Record<string, string> = {
       'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
       'image/png': 'png',
       'image/webp': 'webp',
       'image/gif': 'gif',
       'image/heic': 'heic',
       'image/heif': 'heif',
+      'image/avif': 'avif',
+      'image/tiff': 'tiff',
+      'image/bmp': 'bmp',
     };
-    const ext = extMap[mimeType] || 'jpg';
+    // Extract extension from mime type or default to jpg
+    const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
 
     // Use consistent filename per list (overwrites previous cover)
     const fileKey = `covers/${userId}/${listId}/cover.${ext}`;
