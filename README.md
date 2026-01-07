@@ -1,23 +1,8 @@
-<p align="left">
-  <a href="https://cinechrony.com">
-    <img src="https://img.shields.io/badge/Join%20Waitlist-cinechrony.com-0d9488?style=for-the-badge">
-  </a>
-  <a href="https://github.com/rayidali/movienight/stargazers">
-    <img src="https://img.shields.io/github/stars/rayidali/movienight?style=for-the-badge">
-  </a>
-  <a href="https://github.com/rayidali/movienight/issues">
-    <img src="https://img.shields.io/github/issues/rayidali/movienight?style=for-the-badge">
-  </a>
-  <a href="https://github.com/rayidali/movienight/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/rayidali/movienight?style=for-the-badge">
-  </a>
-</p>
+[![Waitlist](https://img.shields.io/badge/waitlist-cinechrony.com-0d9488)](https://cinechrony.com)
+[![Stars](https://img.shields.io/github/stars/rayidali/movienight)](https://github.com/rayidali/movienight/stargazers)
+[![Issues](https://img.shields.io/github/issues/rayidali/movienight)](https://github.com/rayidali/movienight/issues)
+[![License](https://img.shields.io/github/license/rayidali/movienight)](https://github.com/rayidali/movienight/blob/main/LICENSE)
 
-<p align="left">
-  <img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white">
-  <img src="https://img.shields.io/badge/Firebase-FFCA28?style=for-the-badge&logo=firebase&logoColor=black">
-  <img src="https://img.shields.io/badge/Tailwind-38B2AC?style=for-the-badge&logo=tailwindcss&logoColor=white">
-</p>
 
 
 # MovieNight 🎬
