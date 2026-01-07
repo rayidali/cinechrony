@@ -282,6 +282,11 @@ export function MovieDetailsModal({
 
   // Swipe-to-close gesture handlers (must be before early return)
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    // Only enable swipe when at the top of scroll
+    const scrollableElement = contentRef.current?.querySelector('.overflow-y-auto');
+    if (scrollableElement && scrollableElement.scrollTop > 0) {
+      return;
+    }
     touchStartY.current = e.touches[0].clientY;
     touchStartX.current = e.touches[0].clientX;
     setIsDragging(true);
@@ -289,9 +294,12 @@ export function MovieDetailsModal({
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
     if (!isDragging) return;
+
     const deltaY = e.touches[0].clientY - touchStartY.current;
-    // Only allow downward movement
-    if (deltaY > 0) {
+    const deltaX = e.touches[0].clientX - touchStartX.current;
+
+    // Only allow downward swipe when it's more vertical than horizontal
+    if (deltaY > 0 && Math.abs(deltaY) > Math.abs(deltaX)) {
       setSwipeY(deltaY);
     }
   }, [isDragging]);
@@ -299,39 +307,12 @@ export function MovieDetailsModal({
   const handleTouchEnd = useCallback(() => {
     if (!isDragging) return;
     setIsDragging(false);
+
     // If swiped more than 100px, close the modal
     if (swipeY > 100) {
       onClose();
     }
     setSwipeY(0);
-  }, [isDragging, swipeY, onClose]);
-
-  // Global mouse event listeners for desktop drag
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = e.clientY - touchStartY.current;
-      if (deltaY > 0) {
-        setSwipeY(deltaY);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-      if (swipeY > 100) {
-        onClose();
-      }
-      setSwipeY(0);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
   }, [isDragging, swipeY, onClose]);
 
   // Rate modal swipe handlers
@@ -355,34 +336,6 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
     }
     setRateModalSwipeY(0);
-  }, [isRateModalDragging, rateModalSwipeY]);
-
-  // Global mouse event listeners for rate modal drag
-  useEffect(() => {
-    if (!isRateModalDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const deltaY = e.clientY - rateModalTouchStartY.current;
-      if (deltaY > 0) {
-        setRateModalSwipeY(deltaY);
-      }
-    };
-
-    const handleMouseUp = () => {
-      setIsRateModalDragging(false);
-      if (rateModalSwipeY > 100) {
-        setShowRateOnWatchModal(false);
-      }
-      setRateModalSwipeY(0);
-    };
-
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
   }, [isRateModalDragging, rateModalSwipeY]);
 
   if (!movie || !user) return null;
@@ -547,29 +500,22 @@ export function MovieDetailsModal({
         onClick={onClose}
       />
       {/* Bottom sheet container */}
-      <div className="absolute inset-0 flex items-end justify-center pb-[env(safe-area-inset-bottom,0px)]">
+      <div className="absolute inset-0 flex items-end justify-center">
         <div
           ref={contentRef}
-          className="relative bg-background w-full max-w-4xl h-[85vh] max-h-[calc(100vh-60px)] flex flex-col border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] rounded-t-2xl animate-slide-up"
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          className="relative bg-background w-full max-w-4xl h-[92vh] flex flex-col border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] rounded-t-2xl animate-slide-up"
           style={{
             transform: swipeY > 0 ? `translateY(${swipeY}px)` : undefined,
             transition: isDragging ? 'none' : 'transform 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
+            opacity: swipeY > 0 ? Math.max(0.5, 1 - swipeY / 300) : 1,
           }}
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Drag handle - interactive area */}
-          <div
-            className="flex justify-center pt-3 pb-2 cursor-grab active:cursor-grabbing touch-none"
-            onTouchStart={handleTouchStart}
-            onTouchMove={handleTouchMove}
-            onTouchEnd={handleTouchEnd}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              touchStartY.current = e.clientY;
-              touchStartX.current = e.clientX;
-              setIsDragging(true);
-            }}
-          >
+          {/* Drag handle indicator */}
+          <div className="flex justify-center pt-3 pb-1">
             <div className="w-12 h-1.5 rounded-full bg-muted-foreground/40" />
           </div>
 
@@ -879,9 +825,12 @@ export function MovieDetailsModal({
           className="absolute inset-0 bg-black/80"
           onClick={() => setShowRateOnWatchModal(false)}
         />
-        <div className="absolute inset-0 flex items-end justify-center pb-[env(safe-area-inset-bottom,0px)]">
+        <div className="absolute inset-0 flex items-end justify-center">
           <div
             ref={rateModalRef}
+            onTouchStart={handleRateModalTouchStart}
+            onTouchMove={handleRateModalTouchMove}
+            onTouchEnd={handleRateModalTouchEnd}
             className="relative bg-background w-full max-w-lg rounded-t-2xl border-[3px] border-black border-b-0 shadow-[0px_-4px_20px_0px_rgba(0,0,0,0.3)] p-6 pb-8 animate-slide-up"
             style={{
               transform: rateModalSwipeY > 0 ? `translateY(${rateModalSwipeY}px)` : undefined,
@@ -889,28 +838,16 @@ export function MovieDetailsModal({
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Drag handle - interactive area */}
-            <div
-              className="absolute top-0 left-0 right-0 flex justify-center pt-3 pb-4 cursor-grab active:cursor-grabbing touch-none"
-              onTouchStart={handleRateModalTouchStart}
-              onTouchMove={handleRateModalTouchMove}
-              onTouchEnd={handleRateModalTouchEnd}
-              onMouseDown={(e) => {
-                e.preventDefault();
-                rateModalTouchStartY.current = e.clientY;
-                setIsRateModalDragging(true);
-              }}
-            >
+            <div className="flex justify-center mb-4">
               <div className="w-12 h-1.5 rounded-full bg-muted-foreground/40" />
             </div>
             <button
               onClick={() => setShowRateOnWatchModal(false)}
-              className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors z-10"
+              className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors"
             >
               <X className="h-5 w-5" />
             </button>
-            {/* Content with top padding for drag handle */}
-            <div className="pt-4 mb-4">
+            <div className="mb-4">
               <h2 className="text-xl font-semibold">How was it?</h2>
               <p className="text-muted-foreground">
                 Rate <span className="font-semibold text-foreground">{movie.title}</span>
