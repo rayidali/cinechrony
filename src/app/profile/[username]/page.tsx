@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { FollowButton } from '@/components/follow-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { ListCard } from '@/components/list-card';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import { useToast } from '@/hooks/use-toast';
@@ -18,6 +19,7 @@ import {
   getCollaborativeLists,
   getFollowers,
   getFollowing,
+  getListPreview,
 } from '@/app/actions';
 import type { UserProfile, MovieList } from '@/lib/types';
 
@@ -45,6 +47,8 @@ export default function UserProfilePage() {
   const [following, setFollowing] = useState<UserProfile[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
+  const [listPreviews, setListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
+  const [sharedListPreviews, setSharedListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
 
   useEffect(() => {
     async function loadProfile() {
@@ -100,6 +104,56 @@ export default function UserProfilePage() {
       loadProfile();
     }
   }, [username, user, router]);
+
+  // Fetch list previews when lists change
+  useEffect(() => {
+    async function fetchListPreviews() {
+      if (!profile || lists.length === 0) return;
+
+      try {
+        const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+        await Promise.all(
+          lists.map(async (list) => {
+            const result = await getListPreview(profile.uid, list.id);
+            previews[list.id] = {
+              previewPosters: result.previewPosters || [],
+              movieCount: result.movieCount || 0,
+            };
+          })
+        );
+        setListPreviews(previews);
+      } catch (error) {
+        console.error('Failed to fetch list previews:', error);
+      }
+    }
+
+    fetchListPreviews();
+  }, [profile, lists]);
+
+  // Fetch shared list previews
+  useEffect(() => {
+    async function fetchSharedPreviews() {
+      if (sharedLists.length === 0) return;
+
+      try {
+        const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+        await Promise.all(
+          sharedLists.map(async (list) => {
+            const result = await getListPreview(list.ownerId, list.id);
+            previews[list.id] = {
+              previewPosters: result.previewPosters || [],
+              movieCount: result.movieCount || 0,
+            };
+          })
+        );
+        setSharedListPreviews(previews);
+      } catch (error) {
+        console.error('Failed to fetch shared list previews:', error);
+      }
+    }
+
+    fetchSharedPreviews();
+  }, [sharedLists]);
 
   const handleLoadFollowers = async () => {
     if (!profile) return;
@@ -243,25 +297,18 @@ export default function UserProfilePage() {
             {profile.displayName || profile.username}&apos;s Lists
           </h2>
           {lists.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {lists.map((list) => (
-                <Link
-                  key={list.id}
-                  href={`/profile/${username}/lists/${list.id}`}
-                >
-                  <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center gap-2">
-                        <List className="h-5 w-5 text-primary" />
-                        <CardTitle className="text-lg">{list.name}</CardTitle>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription>Click to view movies</CardDescription>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
+            <div className="grid grid-cols-2 gap-4">
+              {lists.map((list) => {
+                const preview = listPreviews[list.id];
+                return (
+                  <ListCard
+                    key={list.id}
+                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    previewPosters={preview?.previewPosters ?? []}
+                    onClick={() => router.push(`/profile/${username}/lists/${list.id}`)}
+                  />
+                );
+              })}
             </div>
           ) : (
             <Card className="border-[3px] border-dashed border-border rounded-2xl bg-secondary">
@@ -283,27 +330,20 @@ export default function UserProfilePage() {
               <Users className="h-5 w-5" />
               Shared Lists
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {sharedLists.map((list) => (
-                <Link
-                  key={list.id}
-                  href={`/profile/${list.ownerUsername}/lists/${list.id}`}
-                >
-                  <Card className="border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] md:hover:translate-x-0.5 md:hover:translate-y-0.5 transition-all duration-200 cursor-pointer">
-                    <CardHeader className="pb-2">
-                      <div className="flex items-center gap-2">
-                        <Users className="h-5 w-5 text-primary" />
-                        <CardTitle className="text-lg">{list.name}</CardTitle>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription>
-                        Shared by {list.ownerName || list.ownerUsername}
-                      </CardDescription>
-                    </CardContent>
-                  </Card>
-                </Link>
-              ))}
+            <div className="grid grid-cols-2 gap-4">
+              {sharedLists.map((list) => {
+                const preview = sharedListPreviews[list.id];
+                return (
+                  <ListCard
+                    key={list.id}
+                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    previewPosters={preview?.previewPosters ?? []}
+                    onClick={() => router.push(`/profile/${list.ownerUsername}/lists/${list.id}`)}
+                    isCollaborative={true}
+                    ownerName={list.ownerName || list.ownerUsername || 'Unknown'}
+                  />
+                );
+              })}
             </div>
           </section>
         )}
