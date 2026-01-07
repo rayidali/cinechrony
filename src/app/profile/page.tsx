@@ -3,14 +3,13 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut } from 'lucide-react';
+import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut, Eye, EyeOff, ImageIcon } from 'lucide-react';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,8 +18,10 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
+import { ListCard } from '@/components/list-card';
+import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio } from '@/app/actions';
+import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio, getListsPreviews, getListPreview } from '@/app/actions';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
@@ -55,6 +56,10 @@ export default function MyProfilePage() {
   const [isSavingBio, setIsSavingBio] = useState(false);
   const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
   const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
+  const [listPreviews, setListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
+  const [collabListPreviews, setCollabListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
+  const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
+  const [selectedList, setSelectedList] = useState<MovieList | null>(null);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -125,6 +130,50 @@ export default function MyProfilePage() {
 
     loadInvitesAndCollabs();
   }, [user]);
+
+  // Fetch list previews when lists change
+  useEffect(() => {
+    async function fetchPreviews() {
+      if (!user || !lists || lists.length === 0) return;
+
+      try {
+        const listIds = lists.map((list) => list.id);
+        const result = await getListsPreviews(user.uid, listIds);
+        if (result.previews) {
+          setListPreviews(result.previews);
+        }
+      } catch (error) {
+        console.error('Failed to fetch list previews:', error);
+      }
+    }
+
+    fetchPreviews();
+  }, [user, lists]);
+
+  // Fetch collaborative list previews
+  useEffect(() => {
+    async function fetchCollabPreviews() {
+      if (collaborativeLists.length === 0) return;
+
+      try {
+        const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+        await Promise.all(
+          collaborativeLists.map(async (list) => {
+            const result = await getListPreview(list.ownerId, list.id);
+            previews[list.id] = {
+              previewPosters: result.previewPosters || [],
+              movieCount: result.movieCount || 0,
+            };
+          })
+        );
+        setCollabListPreviews(previews);
+      } catch (error) {
+        console.error('Failed to fetch collaborative list previews:', error);
+      }
+    }
+
+    fetchCollabPreviews();
+  }, [collaborativeLists]);
 
   const handleSaveUsername = async () => {
     if (!user || !newUsername.trim()) return;
@@ -547,27 +596,24 @@ export default function MyProfilePage() {
               <Users className="h-5 w-5 text-primary" />
               Shared With Me
             </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {collaborativeLists.map((collab) => (
-                <Card
-                  key={collab.id}
-                  className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:md:hover:shadow-none md:hover:translate-x-0.5 md:hover:translate-y-0.5 dark:md:hover:translate-x-0 dark:md:hover:translate-y-0 transition-all duration-200 cursor-pointer"
-                  onClick={() => router.push(`/lists/${collab.id}`)}
-                >
-                  <CardHeader className="pb-2">
-                    <div className="flex items-center gap-2">
-                      <List className="h-5 w-5 text-primary" />
-                      <CardTitle className="text-lg">{collab.name}</CardTitle>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <CardDescription className="flex items-center gap-2">
-                      <Users className="h-3 w-3" />
-                      <span>By @{collab.ownerUsername}</span>
-                    </CardDescription>
-                  </CardContent>
-                </Card>
-              ))}
+            <div className="grid grid-cols-2 gap-4">
+              {collaborativeLists.map((collab) => {
+                const preview = collabListPreviews[collab.id];
+                return (
+                  <ListCard
+                    key={collab.id}
+                    list={{
+                      ...collab,
+                      movieCount: preview?.movieCount ?? 0,
+                      isPublic: true // Shared lists shown here are public
+                    } as MovieList}
+                    previewPosters={preview?.previewPosters ?? []}
+                    onClick={() => router.push(`/lists/${collab.id}?owner=${collab.ownerId}`)}
+                    isCollaborative={true}
+                    ownerName={collab.ownerUsername || 'Unknown'}
+                  />
+                );
+              })}
             </div>
           </section>
         )}
@@ -576,96 +622,61 @@ export default function MyProfilePage() {
         <section>
           <h2 className="text-xl font-headline font-bold mb-4">My Lists</h2>
           {isLoadingLists ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            <div className="grid grid-cols-2 gap-4">
+              {[1, 2].map((i) => (
+                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+              ))}
             </div>
           ) : lists && lists.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4">
               {lists.map((list) => {
-                const isPublic = list.isPublic !== false;
+                const preview = listPreviews[list.id];
                 return (
-                  <Card
+                  <ListCard
                     key={list.id}
-                    className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none md:hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:md:hover:shadow-none md:hover:translate-x-0.5 md:hover:translate-y-0.5 dark:md:hover:translate-x-0 dark:md:hover:translate-y-0 transition-all duration-200 cursor-pointer group"
+                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    previewPosters={preview?.previewPosters ?? []}
                     onClick={() => router.push(`/lists/${list.id}`)}
                   >
-                    <CardHeader className="pb-2">
-                      <div className="flex justify-between items-start">
-                        <div className="flex items-center gap-2">
-                          <List className="h-5 w-5 text-primary" />
-                          <CardTitle className="text-lg">{list.name}</CardTitle>
-                          {list.isDefault && (
-                            <span className="text-xs bg-primary text-primary-foreground px-2 py-0.5 rounded-full">
-                              Default
-                            </span>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 flex-shrink-0 text-white hover:bg-white/20"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <MoreVertical className="h-5 w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+                        <DropdownMenuItem
+                          onSelect={() => {
+                            setSelectedList(list);
+                            setIsCoverPickerOpen(true);
+                          }}
+                        >
+                          <ImageIcon className="h-4 w-4 mr-2" />
+                          Set Cover
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onSelect={() => handleToggleVisibility(list.id, list.isPublic !== false)}
+                        >
+                          {list.isPublic ? (
+                            <>
+                              <EyeOff className="h-4 w-4 mr-2" />
+                              Make Private
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="h-4 w-4 mr-2" />
+                              Make Public
+                            </>
                           )}
-                        </div>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl w-56">
-                            <DropdownMenuItem
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                router.push(`/lists/${list.id}`);
-                              }}
-                            >
-                              <List className="h-4 w-4 mr-2" />
-                              Go to List
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <div
-                              className="flex items-center justify-between px-2 py-1.5"
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <div className="flex items-center gap-2">
-                                {isPublic ? (
-                                  <Globe className="h-4 w-4 text-green-600" />
-                                ) : (
-                                  <Lock className="h-4 w-4 text-muted-foreground" />
-                                )}
-                                <span className="text-sm">
-                                  {isPublic ? 'Public' : 'Private'}
-                                </span>
-                              </div>
-                              <Switch
-                                checked={isPublic}
-                                onCheckedChange={() => handleToggleVisibility(list.id, isPublic)}
-                              />
-                            </div>
-                            <p className="px-2 py-1 text-xs text-muted-foreground">
-                              {isPublic ? 'Followers can see this list' : 'Only you can see this list'}
-                            </p>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <CardDescription className="flex items-center gap-2">
-                        {isPublic ? (
-                          <>
-                            <Globe className="h-3 w-3 text-green-600" />
-                            <span>Public</span>
-                          </>
-                        ) : (
-                          <>
-                            <Lock className="h-3 w-3" />
-                            <span>Private</span>
-                          </>
-                        )}
-                        <span className="text-muted-foreground">•</span>
-                        <span>Click to view</span>
-                      </CardDescription>
-                    </CardContent>
-                  </Card>
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </ListCard>
                 );
               })}
             </div>
@@ -774,6 +785,30 @@ export default function MyProfilePage() {
           currentFavorites={favoriteMovies}
           onUpdate={setFavoriteMovies}
         />
+
+        {/* Cover Picker */}
+        {selectedList && (
+          <CoverPicker
+            isOpen={isCoverPickerOpen}
+            onClose={() => {
+              setIsCoverPickerOpen(false);
+              setSelectedList(null);
+            }}
+            listId={selectedList.id}
+            listName={selectedList.name}
+            currentCoverUrl={selectedList.coverImageUrl || null}
+            onCoverChange={async () => {
+              // Refresh list previews
+              if (user && lists) {
+                const listIds = lists.map((list) => list.id);
+                const result = await getListsPreviews(user.uid, listIds);
+                if (result.previews) {
+                  setListPreviews(result.previews);
+                }
+              }
+            }}
+          />
+        )}
       </div>
 
       <BottomNav />

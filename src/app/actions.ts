@@ -1950,6 +1950,7 @@ export async function getCollaborativeLists(userId: string) {
             isPublic: listData.isPublic,
             isDefault: listData.isDefault || false,
             collaboratorIds: listData.collaboratorIds || [],
+            coverImageUrl: listData.coverImageUrl || null,
             createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
             updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           });
@@ -1988,18 +1989,19 @@ export async function uploadAvatar(
       return { error: 'Missing required fields.' };
     }
 
-    // Validate mime type - only allow specific image types
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowedTypes.includes(mimeType)) {
-      return { error: 'Invalid file type. Please upload a JPG, PNG, WebP, or GIF image.' };
+    // Validate mime type - accept any image type (iOS sends various formats)
+    if (!mimeType.startsWith('image/')) {
+      return { error: `Invalid file type: ${mimeType}. Please upload an image file.` };
     }
 
     // Convert base64 to buffer
     const buffer = Buffer.from(base64Data, 'base64');
 
-    // Validate file size (max 2MB)
-    if (buffer.length > 2 * 1024 * 1024) {
-      return { error: 'File too large. Maximum size is 2MB.' };
+    // Validate file size (max 5MB for avatars - phone photos can be large)
+    const maxSize = 5 * 1024 * 1024;
+    if (buffer.length > maxSize) {
+      const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+      return { error: `File too large (${sizeMB}MB). Maximum size is 5MB.` };
     }
 
     // Check R2 configuration
@@ -2030,11 +2032,18 @@ export async function uploadAvatar(
     // Get file extension from mime type
     const extMap: Record<string, string> = {
       'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
       'image/png': 'png',
       'image/webp': 'webp',
       'image/gif': 'gif',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/avif': 'avif',
+      'image/tiff': 'tiff',
+      'image/bmp': 'bmp',
     };
-    const ext = extMap[mimeType] || 'jpg';
+    // Extract extension from mime type or default to jpg
+    const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
 
     // Use consistent filename per user (overwrites previous avatar)
     const fileKey = `avatars/${userId}/avatar.${ext}`;
@@ -2131,5 +2140,236 @@ export async function updateFavoriteMovies(
   } catch (error) {
     console.error('[updateFavoriteMovies] Failed:', error);
     return { error: 'Failed to update favorite movies.' };
+  }
+}
+
+/**
+ * Get preview posters and movie count for a list.
+ */
+export async function getListPreview(userId: string, listId: string) {
+  const db = getDb();
+
+  try {
+    // Get the first 4 movies from the list for preview posters
+    const moviesSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .orderBy('createdAt', 'desc')
+      .limit(4)
+      .get();
+
+    const previewPosters: string[] = [];
+    moviesSnapshot.forEach((doc) => {
+      const data = doc.data();
+      if (data.posterUrl) {
+        previewPosters.push(data.posterUrl);
+      }
+    });
+
+    // Get total movie count
+    const allMoviesSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .count()
+      .get();
+
+    const movieCount = allMoviesSnapshot.data().count;
+
+    return { previewPosters, movieCount };
+  } catch (error) {
+    console.error('[getListPreview] Failed:', error);
+    return { previewPosters: [], movieCount: 0 };
+  }
+}
+
+/**
+ * Get preview posters for multiple lists at once (batch operation).
+ */
+export async function getListsPreviews(userId: string, listIds: string[]) {
+  const db = getDb();
+  const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+
+  try {
+    // Fetch previews for all lists in parallel
+    const results = await Promise.all(
+      listIds.map(async (listId) => {
+        const result = await getListPreview(userId, listId);
+        return { listId, ...result };
+      })
+    );
+
+    results.forEach(({ listId, previewPosters, movieCount }) => {
+      previews[listId] = { previewPosters, movieCount };
+    });
+
+    return { previews };
+  } catch (error) {
+    console.error('[getListsPreviews] Failed:', error);
+    return { previews: {} };
+  }
+}
+
+/**
+ * Upload list cover image to R2.
+ */
+export async function uploadListCover(
+  userId: string,
+  listId: string,
+  base64Data: string,
+  fileName: string,
+  mimeType: string
+): Promise<{ url?: string; error?: string }> {
+  try {
+    // Validate inputs
+    if (!userId || !listId || !base64Data) {
+      return { error: 'Missing required fields.' };
+    }
+
+    // Validate mime type - accept any image type (iOS sends various formats)
+    if (!mimeType.startsWith('image/')) {
+      return { error: `Invalid file type: ${mimeType}. Please upload an image file.` };
+    }
+
+    // Convert base64 to buffer
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    // Validate file size (max 10MB for covers - phone photos can be large)
+    const maxSize = 10 * 1024 * 1024;
+    if (buffer.length > maxSize) {
+      const sizeMB = (buffer.length / (1024 * 1024)).toFixed(1);
+      return { error: `File too large (${sizeMB}MB). Maximum size is 10MB.` };
+    }
+
+    // Check R2 configuration
+    const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+    const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+    const endpoint = process.env.R2_ENDPOINT;
+    const bucketName = process.env.R2_BUCKET_NAME;
+    const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+
+    if (!accessKeyId || !secretAccessKey || !endpoint || !bucketName || !publicBaseUrl) {
+      const missing = [];
+      if (!accessKeyId) missing.push('R2_ACCESS_KEY_ID');
+      if (!secretAccessKey) missing.push('R2_SECRET_ACCESS_KEY');
+      if (!endpoint) missing.push('R2_ENDPOINT');
+      if (!bucketName) missing.push('R2_BUCKET_NAME');
+      if (!publicBaseUrl) missing.push('R2_PUBLIC_BASE_URL');
+      console.error('[uploadListCover] R2 not configured. Missing:', missing.join(', '));
+      return { error: `Missing env vars: ${missing.join(', ')}` };
+    }
+
+    console.log('[uploadListCover] Starting upload for user:', userId, 'list:', listId);
+
+    // Import S3 client
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+
+    // Create S3 client for R2
+    const s3Client = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: {
+        accessKeyId,
+        secretAccessKey,
+      },
+    });
+
+    // Get file extension from mime type
+    const extMap: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/webp': 'webp',
+      'image/gif': 'gif',
+      'image/heic': 'heic',
+      'image/heif': 'heif',
+      'image/avif': 'avif',
+      'image/tiff': 'tiff',
+      'image/bmp': 'bmp',
+    };
+    // Extract extension from mime type or default to jpg
+    const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
+
+    // Use consistent filename per list (overwrites previous cover)
+    const fileKey = `covers/${userId}/${listId}/cover.${ext}`;
+
+    // Upload to R2
+    console.log('[uploadListCover] Uploading to R2:', fileKey);
+    try {
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: bucketName,
+          Key: fileKey,
+          Body: buffer,
+          ContentType: mimeType,
+          CacheControl: 'public, max-age=31536000',
+        })
+      );
+    } catch (r2Error) {
+      console.error('[uploadListCover] R2 upload failed:', r2Error);
+      const msg = r2Error instanceof Error ? r2Error.message : 'Unknown R2 error';
+      return { error: `R2 upload failed: ${msg}` };
+    }
+
+    // Return the public URL with cache-busting timestamp
+    const imageUrl = `${publicBaseUrl}/${fileKey}?v=${Date.now()}`;
+    console.log('[uploadListCover] R2 upload success, updating Firestore:', imageUrl);
+
+    // Update the list document with the new cover URL
+    const db = getDb();
+    try {
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('lists')
+        .doc(listId)
+        .update({
+          coverImageUrl: imageUrl,
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    } catch (firestoreError) {
+      console.error('[uploadListCover] Firestore update failed:', firestoreError);
+      const msg = firestoreError instanceof Error ? firestoreError.message : 'Unknown Firestore error';
+      // Image uploaded but Firestore failed - still return the URL
+      return { error: `Image uploaded but database update failed: ${msg}`, url: imageUrl };
+    }
+
+    console.log('[uploadListCover] Success!');
+    revalidatePath('/lists');
+    return { url: imageUrl };
+  } catch (error) {
+    console.error('[uploadListCover] Unexpected error:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return { error: `Unexpected error: ${errorMessage}` };
+  }
+}
+
+/**
+ * Update list cover image.
+ */
+export async function updateListCover(userId: string, listId: string, coverImageUrl: string | null) {
+  const db = getDb();
+
+  try {
+    await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        coverImageUrl: coverImageUrl,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath('/lists');
+    return { success: true };
+  } catch (error) {
+    console.error('[updateListCover] Failed:', error);
+    return { error: 'Failed to update list cover.' };
   }
 }
