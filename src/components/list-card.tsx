@@ -131,15 +131,12 @@ export function ListCard({
           </div>
 
           {/* Info row: movie count and optionally owner name */}
-          <div className="flex items-center gap-2 mt-1 text-white/80 text-xs">
-            <span>{movieCount} {movieCount === 1 ? 'movie' : 'movies'}</span>
+          <p className="mt-1 text-white/80 text-xs truncate">
+            {movieCount} {movieCount === 1 ? 'movie' : 'movies'}
             {isCollaborative && ownerName && (
-              <>
-                <span>•</span>
-                <span>by {ownerName}</span>
-              </>
+              <span> • by {ownerName}</span>
             )}
-          </div>
+          </p>
         </div>
       </div>
     </div>
