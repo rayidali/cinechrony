@@ -1,6 +1,11 @@
-<p align="center">
-  <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony logo" height="120">
-</p>
+[![Waitlist](https://img.shields.io/badge/waitlist-cinechrony.com-0d9488)](https://cinechrony.com)
+[![Stars](https://img.shields.io/github/stars/rayidali/movienight)](https://github.com/rayidali/movienight/stargazers)
+[![Issues](https://img.shields.io/github/issues/rayidali/movienight)](https://github.com/rayidali/movienight/issues)
+[![License](https://img.shields.io/github/license/rayidali/movienight)](https://github.com/rayidali/movienight/blob/main/LICENSE)
+
+
+
+# MovieNight 🎬
 
 <h1 align="center"><a href="https://cinechrony.com">Cinechrony</a></h1>
 
@@ -12,21 +17,7 @@
   A social movie watchlist app for friends to curate and share movies together. Create collaborative lists, save the TikTok/Reel that made you want to watch something, and track your movie journey with friends.
 </p>
 
-<p align="center">
-  <a href="#features">Features</a> •
-  <a href="#screenshot">Screenshot</a> •
-  <a href="#tech-stack">Tech Stack</a> •
-  <a href="#getting-started">Getting Started</a> •
-  <a href="#contributing">Contributing</a>
-</p>
-
----
-
-## Screenshot
-
-<p align="center">
-  <img src="https://i.postimg.cc/jSc0fH07/cinechrony_poster2_withbg.png" alt="Cinechrony app screenshot" width="600">
-</p>
+🚀 [movienight-kappa.vercel.app]([https://movienight-mzng.onrender.com](https://movienight-kappa.vercel.app))
 
 ## Features
 
