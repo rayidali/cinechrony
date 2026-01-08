@@ -94,6 +94,8 @@ export type Movie = {
   overview?: string;
   rating?: number; // TMDB vote_average
   backdropUrl?: string;
+  // Per-user notes (keyed by userId)
+  notes?: Record<string, string>;
 };
 
 // Search result from TMDB (used when adding movies/tv shows)

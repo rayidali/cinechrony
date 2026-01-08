@@ -298,6 +298,8 @@ export async function addMovieToList(formData: FormData) {
     const userId = formData.get('userId') as string;
     const listId = formData.get('listId') as string;
     const socialLink = formData.get('socialLink') as string;
+    const note = formData.get('note') as string;
+    const status = (formData.get('status') as 'To Watch' | 'Watched') || 'To Watch';
     // listOwnerId is required for collaborative lists, defaults to userId for backwards compatibility
     const listOwnerId = (formData.get('listOwnerId') as string) || userId;
 
@@ -323,21 +325,28 @@ export async function addMovieToList(formData: FormData) {
       .collection('movies')
       .doc(docId);
 
-    await movieRef.set(
-      {
-        id: docId,
-        title: movieData.title,
-        year: movieData.year,
-        posterUrl: movieData.posterUrl,
-        posterHint: movieData.posterHint,
-        mediaType: mediaType,
-        addedBy: userId, // Track who added the movie
-        socialLink: socialLink || '',
-        status: 'To Watch',
-        createdAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // Build the movie document
+    const movieDoc: Record<string, unknown> = {
+      id: docId,
+      title: movieData.title,
+      year: movieData.year,
+      posterUrl: movieData.posterUrl,
+      posterHint: movieData.posterHint,
+      mediaType: mediaType,
+      addedBy: userId,
+      socialLink: socialLink || '',
+      status: status,
+      createdAt: FieldValue.serverTimestamp(),
+    };
+
+    // Add user note if provided (stored in a notes map keyed by userId)
+    if (note) {
+      movieDoc.notes = {
+        [userId]: note,
+      };
+    }
+
+    await movieRef.set(movieDoc, { merge: true });
 
     // Update list's updatedAt
     await db

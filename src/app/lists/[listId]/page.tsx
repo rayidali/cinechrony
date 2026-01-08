@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Users, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Users, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -11,8 +11,8 @@ import { BottomNav } from '@/components/bottom-nav';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
-import { AddMovieFormForList } from '@/components/add-movie-form-list';
 import { ListCollaborators } from '@/components/list-collaborators';
+import { AddMovieModal } from '@/components/add-movie-modal';
 import { getCollaborativeLists } from '@/app/actions';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
 
@@ -34,6 +34,8 @@ export default function ListDetailPage() {
   const [lookupComplete, setLookupComplete] = useState(false);
   // Safety timeout to prevent infinite loading
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
+  // Add movie modal state
+  const [isAddMovieOpen, setIsAddMovieOpen] = useState(false);
 
   // Determine the effective owner ID (user's own or collaborative)
   const effectiveOwnerId = collaborativeListOwner || user?.uid;
@@ -281,15 +283,9 @@ export default function ListDetailPage() {
               </div>
             )}
 
-            <p className="max-w-2xl text-center text-muted-foreground mb-8">
+            <p className="max-w-2xl text-center text-muted-foreground mb-4">
               Add movies, track what to watch, and what you&apos;ve watched.
             </p>
-
-            {canEdit && (
-              <div className="w-full max-w-2xl">
-                <AddMovieFormForList listId={listId} listOwnerId={effectiveOwnerId} />
-              </div>
-            )}
           </div>
         </header>
 
@@ -321,6 +317,28 @@ export default function ListDetailPage() {
       </div>
 
       <BottomNav />
+
+      {/* FAB for adding movies */}
+      {canEdit && effectiveOwnerId && (
+        <button
+          onClick={() => setIsAddMovieOpen(true)}
+          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform hover:shadow-xl"
+          aria-label="Add movie"
+        >
+          <Plus className="h-7 w-7" />
+        </button>
+      )}
+
+      {/* Add Movie Modal */}
+      {effectiveOwnerId && (
+        <AddMovieModal
+          isOpen={isAddMovieOpen}
+          onClose={() => setIsAddMovieOpen(false)}
+          listId={listId}
+          listOwnerId={effectiveOwnerId}
+          listName={listData?.name}
+        />
+      )}
     </main>
   );
 }
