@@ -1918,6 +1918,43 @@ export async function transferOwnership(currentOwnerId: string, listId: string, 
 }
 
 /**
+ * Get all lists owned by a user.
+ */
+export async function getUserLists(userId: string) {
+  const db = getDb();
+
+  try {
+    const listsSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const lists = listsSnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        isDefault: data.isDefault || false,
+        isPublic: data.isPublic || false,
+        ownerId: userId,
+        collaboratorIds: data.collaboratorIds || [],
+        coverImageUrl: data.coverImageUrl || null,
+        movieCount: data.movieCount || 0,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+      };
+    });
+
+    return { lists };
+  } catch (error) {
+    console.error('[getUserLists] Failed:', error);
+    return { error: 'Failed to get user lists.', lists: [] };
+  }
+}
+
+/**
  * Get lists where user is a collaborator (not owner).
  */
 export async function getCollaborativeLists(userId: string) {
