@@ -346,17 +346,29 @@ export async function addMovieToList(formData: FormData) {
       };
     }
 
+    // Check if movie already exists (to avoid double-counting)
+    const existingDoc = await movieRef.get();
+    const isNewMovie = !existingDoc.exists;
+
     await movieRef.set(movieDoc, { merge: true });
 
-    // Update list's updatedAt
-    await db
+    // Update list's updatedAt and increment movieCount if new
+    const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
-      .doc(listId)
-      .update({
+      .doc(listId);
+
+    if (isNewMovie) {
+      await listRef.update({
+        updatedAt: FieldValue.serverTimestamp(),
+        movieCount: FieldValue.increment(1),
+      });
+    } else {
+      await listRef.update({
         updatedAt: FieldValue.serverTimestamp(),
       });
+    }
 
     revalidatePath(`/lists/${listId}`);
     return { success: true };
@@ -395,7 +407,7 @@ export async function removeMovieFromList(
 
     await movieRef.delete();
 
-    // Update list's updatedAt
+    // Update list's updatedAt and decrement movieCount
     await db
       .collection('users')
       .doc(listOwnerId)
@@ -403,6 +415,7 @@ export async function removeMovieFromList(
       .doc(listId)
       .update({
         updatedAt: FieldValue.serverTimestamp(),
+        movieCount: FieldValue.increment(-1),
       });
 
     revalidatePath(`/lists/${listId}`);
