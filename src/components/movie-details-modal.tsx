@@ -671,7 +671,7 @@ export function MovieDetailsModal({
                   </div>
                 </div>
               ) : (
-                <div className="flex-1 flex flex-col">
+                <div className="flex-1 flex flex-col min-h-0">
                   <ReviewsList
                     tmdbId={tmdbId}
                     mediaType={movie.mediaType || 'movie'}

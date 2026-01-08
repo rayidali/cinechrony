@@ -62,7 +62,7 @@ export function ReviewsList({
   };
 
   return (
-    <div className="flex flex-col flex-1 h-full">
+    <div className="flex flex-col flex-1 h-full min-h-0">
       {/* Movie info header with poster */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
         {moviePosterUrl && (
