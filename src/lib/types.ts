@@ -193,3 +193,35 @@ export type TMDBTVDetails = {
     cast: TMDBCast[];
   };
 };
+
+// Movie review
+export type Review = {
+  id: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl?: string;
+  userId: string;
+  username: string | null;
+  userDisplayName: string | null;
+  userPhotoUrl: string | null;
+  text: string;
+  ratingAtTime: number | null; // User's rating snapshot when this comment was posted (immutable)
+  likes: number;
+  likedBy: string[]; // Array of user IDs who liked this review
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+// User rating for a movie (global, one per user per movie)
+export type UserRating = {
+  id: string; // Format: `${userId}_${tmdbId}`
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl?: string;
+  rating: number; // 1.0 - 10.0 with one decimal
+  createdAt: Date;
+  updatedAt: Date;
+};

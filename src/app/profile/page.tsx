@@ -605,8 +605,11 @@ export default function MyProfilePage() {
                     list={{
                       ...collab,
                       movieCount: preview?.movieCount ?? 0,
-                      isPublic: true // Shared lists shown here are public
-                    } as MovieList}
+                      isPublic: true, // Shared lists shown here are public
+                      createdAt: new Date(),
+                      updatedAt: new Date(),
+                      isDefault: false,
+                    }}
                     previewPosters={preview?.previewPosters ?? []}
                     onClick={() => router.push(`/lists/${collab.id}?owner=${collab.ownerId}`)}
                     isCollaborative={true}

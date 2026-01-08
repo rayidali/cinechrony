@@ -2373,3 +2373,464 @@ export async function updateListCover(userId: string, listId: string, coverImage
     return { error: 'Failed to update list cover.' };
   }
 }
+
+// --- REVIEWS ---
+
+/**
+ * Create a new review/comment for a movie/TV show.
+ * Users can post multiple comments on the same movie (like Reddit/YouTube).
+ * Optionally pass the user's rating to snapshot with the comment.
+ */
+export async function createReview(
+  userId: string,
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  movieTitle: string,
+  moviePosterUrl: string | undefined,
+  text: string,
+  ratingAtTime?: number | null // Optional: pass the current user rating to snapshot
+) {
+  const db = getDb();
+
+  try {
+    // Get user profile for username and photo
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return { error: 'User not found.' };
+    }
+    const userData = userDoc.data();
+
+    // If no rating passed, try to fetch user's current rating
+    let rating = ratingAtTime;
+    if (rating === undefined) {
+      const ratingId = `${userId}_${tmdbId}`;
+      const ratingDoc = await db.collection('ratings').doc(ratingId).get();
+      if (ratingDoc.exists) {
+        rating = ratingDoc.data()?.rating || null;
+      } else {
+        rating = null;
+      }
+    }
+
+    // Create the review (users can post multiple)
+    const reviewRef = db.collection('reviews').doc();
+    const reviewData = {
+      id: reviewRef.id,
+      tmdbId,
+      mediaType,
+      movieTitle,
+      moviePosterUrl: moviePosterUrl || null,
+      userId,
+      username: userData?.username || null,
+      userDisplayName: userData?.displayName || null,
+      userPhotoUrl: userData?.photoURL || null,
+      text: text.trim(),
+      ratingAtTime: rating, // Snapshot of user's rating when this comment was posted
+      likes: 0,
+      likedBy: [],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    await reviewRef.set(reviewData);
+
+    return {
+      success: true,
+      review: {
+        ...reviewData,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[createReview] Failed:', error);
+    return { error: 'Failed to create review.' };
+  }
+}
+
+/**
+ * Get reviews for a movie/TV show.
+ */
+export async function getMovieReviews(
+  tmdbId: number,
+  sortBy: 'recent' | 'likes' = 'recent',
+  limit: number = 50
+) {
+  const db = getDb();
+
+  try {
+    let query = db.collection('reviews').where('tmdbId', '==', tmdbId);
+
+    if (sortBy === 'likes') {
+      query = query.orderBy('likes', 'desc').orderBy('createdAt', 'desc');
+    } else {
+      query = query.orderBy('createdAt', 'desc');
+    }
+
+    const snapshot = await query.limit(limit).get();
+
+    const reviews = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        userId: data.userId,
+        username: data.username,
+        userDisplayName: data.userDisplayName,
+        userPhotoUrl: data.userPhotoUrl,
+        text: data.text,
+        ratingAtTime: data.ratingAtTime ?? null, // Rating snapshot when comment was posted
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    });
+
+    return { reviews };
+  } catch (error) {
+    console.error('[getMovieReviews] Failed:', error);
+    return { error: 'Failed to fetch reviews.', reviews: [] };
+  }
+}
+
+/**
+ * Like a review.
+ */
+export async function likeReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    const likedBy = reviewData?.likedBy || [];
+
+    if (likedBy.includes(userId)) {
+      return { error: 'Already liked.' };
+    }
+
+    await reviewRef.update({
+      likes: FieldValue.increment(1),
+      likedBy: FieldValue.arrayUnion(userId),
+    });
+
+    return { success: true, likes: (reviewData?.likes || 0) + 1 };
+  } catch (error) {
+    console.error('[likeReview] Failed:', error);
+    return { error: 'Failed to like review.' };
+  }
+}
+
+/**
+ * Unlike a review.
+ */
+export async function unlikeReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    const likedBy = reviewData?.likedBy || [];
+
+    if (!likedBy.includes(userId)) {
+      return { error: 'Not liked yet.' };
+    }
+
+    await reviewRef.update({
+      likes: FieldValue.increment(-1),
+      likedBy: FieldValue.arrayRemove(userId),
+    });
+
+    return { success: true, likes: Math.max(0, (reviewData?.likes || 1) - 1) };
+  } catch (error) {
+    console.error('[unlikeReview] Failed:', error);
+    return { error: 'Failed to unlike review.' };
+  }
+}
+
+/**
+ * Delete a review (only by owner).
+ */
+export async function deleteReview(userId: string, reviewId: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    if (reviewData?.userId !== userId) {
+      return { error: 'You can only delete your own reviews.' };
+    }
+
+    await reviewRef.delete();
+
+    return { success: true };
+  } catch (error) {
+    console.error('[deleteReview] Failed:', error);
+    return { error: 'Failed to delete review.' };
+  }
+}
+
+/**
+ * Update a review (only by owner).
+ */
+export async function updateReview(userId: string, reviewId: string, text: string) {
+  const db = getDb();
+
+  try {
+    const reviewRef = db.collection('reviews').doc(reviewId);
+    const reviewDoc = await reviewRef.get();
+
+    if (!reviewDoc.exists) {
+      return { error: 'Review not found.' };
+    }
+
+    const reviewData = reviewDoc.data();
+    if (reviewData?.userId !== userId) {
+      return { error: 'You can only edit your own reviews.' };
+    }
+
+    await reviewRef.update({
+      text: text.trim(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[updateReview] Failed:', error);
+    return { error: 'Failed to update review.' };
+  }
+}
+
+/**
+ * Get a user's review for a specific movie.
+ */
+export async function getUserReviewForMovie(userId: string, tmdbId: number) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('reviews')
+      .where('userId', '==', userId)
+      .where('tmdbId', '==', tmdbId)
+      .limit(1)
+      .get();
+
+    if (snapshot.empty) {
+      return { review: null };
+    }
+
+    const doc = snapshot.docs[0];
+    const data = doc.data();
+
+    return {
+      review: {
+        id: doc.id,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        userId: data.userId,
+        username: data.username,
+        userDisplayName: data.userDisplayName,
+        userPhotoUrl: data.userPhotoUrl,
+        text: data.text,
+        ratingAtTime: data.ratingAtTime ?? null,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[getUserReviewForMovie] Failed:', error);
+    return { error: 'Failed to fetch review.', review: null };
+  }
+}
+
+// --- USER RATINGS ---
+
+/**
+ * Create or update a user's rating for a movie/TV show.
+ * Rating is 1.0-10.0 with one decimal place.
+ */
+export async function createOrUpdateRating(
+  userId: string,
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  movieTitle: string,
+  moviePosterUrl: string | undefined,
+  rating: number
+) {
+  const db = getDb();
+
+  try {
+    // Validate rating range (1.0 - 10.0)
+    if (rating < 1 || rating > 10) {
+      return { error: 'Rating must be between 1.0 and 10.0.' };
+    }
+
+    // Round to one decimal place
+    const roundedRating = Math.round(rating * 10) / 10;
+
+    // Use deterministic document ID: `${userId}_${tmdbId}`
+    const ratingId = `${userId}_${tmdbId}`;
+    const ratingRef = db.collection('ratings').doc(ratingId);
+    const existingDoc = await ratingRef.get();
+
+    const ratingData = {
+      id: ratingId,
+      userId,
+      tmdbId,
+      mediaType,
+      movieTitle,
+      moviePosterUrl: moviePosterUrl || null,
+      rating: roundedRating,
+      updatedAt: FieldValue.serverTimestamp(),
+    };
+
+    if (existingDoc.exists) {
+      // Update existing rating
+      await ratingRef.update(ratingData);
+    } else {
+      // Create new rating
+      await ratingRef.set({
+        ...ratingData,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    return {
+      success: true,
+      rating: {
+        ...ratingData,
+        createdAt: existingDoc.exists
+          ? existingDoc.data()?.createdAt?.toDate() || new Date()
+          : new Date(),
+        updatedAt: new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[createOrUpdateRating] Failed:', error);
+    return { error: 'Failed to save rating.' };
+  }
+}
+
+/**
+ * Get a user's rating for a specific movie/TV show.
+ */
+export async function getUserRating(userId: string, tmdbId: number) {
+  const db = getDb();
+
+  try {
+    const ratingId = `${userId}_${tmdbId}`;
+    const ratingDoc = await db.collection('ratings').doc(ratingId).get();
+
+    if (!ratingDoc.exists) {
+      return { rating: null };
+    }
+
+    const data = ratingDoc.data();
+    return {
+      rating: {
+        id: ratingDoc.id,
+        userId: data?.userId,
+        tmdbId: data?.tmdbId,
+        mediaType: data?.mediaType,
+        movieTitle: data?.movieTitle,
+        moviePosterUrl: data?.moviePosterUrl,
+        rating: data?.rating,
+        createdAt: data?.createdAt?.toDate() || new Date(),
+        updatedAt: data?.updatedAt?.toDate() || new Date(),
+      },
+    };
+  } catch (error) {
+    console.error('[getUserRating] Failed:', error);
+    return { error: 'Failed to fetch rating.', rating: null };
+  }
+}
+
+/**
+ * Delete a user's rating for a movie/TV show.
+ */
+export async function deleteRating(userId: string, tmdbId: number) {
+  const db = getDb();
+
+  try {
+    const ratingId = `${userId}_${tmdbId}`;
+    const ratingRef = db.collection('ratings').doc(ratingId);
+    const ratingDoc = await ratingRef.get();
+
+    if (!ratingDoc.exists) {
+      return { error: 'Rating not found.' };
+    }
+
+    const data = ratingDoc.data();
+    if (data?.userId !== userId) {
+      return { error: 'You can only delete your own ratings.' };
+    }
+
+    await ratingRef.delete();
+
+    return { success: true };
+  } catch (error) {
+    console.error('[deleteRating] Failed:', error);
+    return { error: 'Failed to delete rating.' };
+  }
+}
+
+/**
+ * Get all ratings for a user (for profile/stats).
+ */
+export async function getUserRatings(userId: string, limit: number = 100) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('ratings')
+      .where('userId', '==', userId)
+      .orderBy('updatedAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const ratings = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        rating: data.rating,
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    });
+
+    return { ratings };
+  } catch (error) {
+    console.error('[getUserRatings] Failed:', error);
+    return { error: 'Failed to fetch ratings.', ratings: [] };
+  }
+}
