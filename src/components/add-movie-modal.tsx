@@ -349,8 +349,21 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
 
   const selectedCount = selectedLists.size;
 
-  // Render preview posters grid for a list
+  // Render list cover - prioritize custom cover, then preview posters
   const renderListCover = (list: ListWithPreview) => {
+    // First check for custom cover image
+    if (list.coverImageUrl) {
+      return (
+        <Image
+          src={list.coverImageUrl}
+          alt={list.name}
+          fill
+          className="object-cover"
+        />
+      );
+    }
+
+    // Fall back to preview posters
     const posters = list.previewPosters || [];
 
     if (posters.length === 0) {
@@ -392,7 +405,13 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
   return (
     <>
       {/* Step 1: Search Bottom Sheet */}
-      <Drawer.Root open={isOpen && step === 'search'} onOpenChange={(open) => !open && onClose()}>
+      <Drawer.Root
+        open={isOpen && step === 'search'}
+        onOpenChange={(open) => !open && onClose()}
+        snapPoints={[1]}
+        activeSnapPoint={1}
+        setActiveSnapPoint={() => {}}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[100dvh] max-h-[100dvh]">
@@ -487,7 +506,13 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       </Drawer.Root>
 
       {/* Step 2: Movie Preview Bottom Sheet */}
-      <Drawer.Root open={isOpen && step === 'preview' && !!selectedMovie} onOpenChange={(open) => !open && handleBackToSearch()}>
+      <Drawer.Root
+        open={isOpen && step === 'preview' && !!selectedMovie}
+        onOpenChange={(open) => !open && handleBackToSearch()}
+        snapPoints={[0.85]}
+        activeSnapPoint={0.85}
+        setActiveSnapPoint={() => {}}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[85dvh] max-h-[85dvh]">
@@ -605,7 +630,13 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       </Drawer.Root>
 
       {/* Step 3: Multi-List Selection Bottom Sheet */}
-      <Drawer.Root open={isOpen && step === 'select-list'} onOpenChange={(open) => !open && handleBackToPreview()}>
+      <Drawer.Root
+        open={isOpen && step === 'select-list'}
+        onOpenChange={(open) => !open && handleBackToPreview()}
+        snapPoints={[0.85]}
+        activeSnapPoint={0.85}
+        setActiveSnapPoint={() => {}}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
           <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[85dvh] max-h-[85dvh]">
