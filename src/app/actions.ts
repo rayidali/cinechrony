@@ -226,6 +226,34 @@ export async function renameList(userId: string, listOwnerId: string, listId: st
 }
 
 /**
+ * Update list visibility (public/private).
+ * Only the list owner can update visibility.
+ */
+export async function updateListVisibility(userId: string, listOwnerId: string, listId: string, isPublic: boolean) {
+  const db = getDb();
+
+  try {
+    // Only owner can update visibility
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can update visibility.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+    await listRef.update({
+      isPublic,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/lists');
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update list visibility:', error);
+    return { error: 'Failed to update visibility.' };
+  }
+}
+
+/**
  * Deletes a list and all its movies.
  * Cannot delete the default list.
  * Only the list owner can delete.

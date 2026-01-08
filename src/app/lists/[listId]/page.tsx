@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Users, AlertTriangle, Plus } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -11,7 +11,7 @@ import { BottomNav } from '@/components/bottom-nav';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
-import { ListCollaborators } from '@/components/list-collaborators';
+import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { getCollaborativeLists } from '@/app/actions';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
@@ -177,7 +177,6 @@ export default function ListDetailPage() {
 
   // Check if this is a collaborative list (has collaborators)
   const hasCollaborators = (listData?.collaboratorIds?.length ?? 0) > 0;
-  const showCollaborators = isOwner || isCollaborator || hasCollaborators;
 
   if (isUserLoading || !user) {
     return (
@@ -254,8 +253,9 @@ export default function ListDetailPage() {
   return (
     <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
       <div className="container mx-auto p-4 md:p-8">
-        <header className="mb-12">
-          <div className="w-full flex justify-between items-center mb-4">
+        <header className="mb-8">
+          {/* Top bar with back button */}
+          <div className="w-full flex justify-between items-center mb-6">
             <Link href="/lists">
               <Button variant="ghost" className="gap-2">
                 <ArrowLeft className="h-4 w-4" />
@@ -267,52 +267,28 @@ export default function ListDetailPage() {
               <UserAvatar />
             </div>
           </div>
-          <div className="flex flex-col items-center">
-            <div className="flex items-center gap-4 mb-2">
-              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10 md:h-12 md:w-12" />
-              <h1 className="text-4xl md:text-6xl font-headline font-bold text-center tracking-tighter">
-                {isLoadingList ? '...' : listData?.name || 'List'}
-              </h1>
-            </div>
 
-            {/* Collaborative badge */}
-            {isCollaborator && (
-              <div className="flex items-center gap-2 mb-4 text-sm text-muted-foreground">
-                <Users className="h-4 w-4" />
-                <span>Collaborative list</span>
-              </div>
-            )}
-
-            <p className="max-w-2xl text-center text-muted-foreground mb-4">
-              Add movies, track what to watch, and what you&apos;ve watched.
-            </p>
-          </div>
-        </header>
-
-        <div className="flex flex-col lg:flex-row gap-8">
-          {/* Collaborators sidebar - shows first on mobile, right side on desktop */}
-          {showCollaborators && effectiveOwnerId && listData && (
-            <div className="order-first lg:order-last lg:w-80 lg:flex-shrink-0">
-              <div className="lg:sticky lg:top-8">
-                <ListCollaborators
-                  listId={listId}
-                  listOwnerId={effectiveOwnerId}
-                  listName={listData.name}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Movie list */}
-          <div className="flex-1 min-w-0">
-            <MovieList
-              initialMovies={movies || []}
-              isLoading={isLoadingMovies}
+          {/* New List Header with avatar bar */}
+          {effectiveOwnerId && listData && (
+            <ListHeader
               listId={listId}
               listOwnerId={effectiveOwnerId}
-              canEdit={canEdit}
+              listData={listData}
+              isOwner={isOwner}
+              isCollaborator={isCollaborator}
             />
-          </div>
+          )}
+        </header>
+
+        {/* Movie list - full width now */}
+        <div className="w-full">
+          <MovieList
+            initialMovies={movies || []}
+            isLoading={isLoadingMovies}
+            listId={listId}
+            listOwnerId={effectiveOwnerId}
+            canEdit={canEdit}
+          />
         </div>
       </div>
 
