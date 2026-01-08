@@ -233,15 +233,8 @@ export default function ListSettingsPage() {
     setMembers(updatedMembers);
   };
 
-  if (isUserLoading || isLoadingList) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!listData) {
+  // Show not found only after loading completes
+  if (!isUserLoading && !isLoadingList && !listData) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">List not found</p>
@@ -359,8 +352,7 @@ export default function ListSettingsPage() {
           {/* Add Collaborators Button */}
           <Button
             onClick={() => setIsInviteOpen(true)}
-            variant="outline"
-            className="w-full h-12 rounded-full border-[3px] border-border font-semibold"
+            className="w-full h-12 rounded-full border-[3px] border-border bg-primary text-primary-foreground font-semibold shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all"
           >
             <Plus className="h-5 w-5 mr-2" />
             Add Collaborators
@@ -371,7 +363,7 @@ export default function ListSettingsPage() {
         <div className="bg-secondary/50 rounded-2xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold">Public List</p>
+              <p className="font-semibold">{isPublic ? 'Public List' : 'Private List'}</p>
               <p className="text-sm text-muted-foreground">
                 {isPublic ? 'Visible to everyone' : 'Only you and collaborators can see'}
               </p>
@@ -384,7 +376,7 @@ export default function ListSettingsPage() {
         </div>
 
         {/* Delete Button */}
-        {!listData.isDefault && (
+        {listData && !listData.isDefault && (
           <button
             onClick={() => setIsDeleteOpen(true)}
             className="w-full flex items-center justify-center gap-2 text-destructive py-3 hover:bg-destructive/10 rounded-xl transition-colors"
@@ -413,7 +405,7 @@ export default function ListSettingsPage() {
         onClose={() => setIsInviteOpen(false)}
         listId={listId}
         listOwnerId={user?.uid || ''}
-        listName={listData.name}
+        listName={listData?.name || ''}
         members={members}
         onMembersUpdate={handleMembersUpdate}
       />
@@ -445,7 +437,7 @@ export default function ListSettingsPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete List</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{listData.name}&quot;? This cannot be undone.
+              Are you sure you want to delete &quot;{listData?.name}&quot;? This cannot be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
