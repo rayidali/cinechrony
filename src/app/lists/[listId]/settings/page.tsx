@@ -308,7 +308,7 @@ export default function ListSettingsPage() {
 
         {/* Collaborators Section */}
         <div className="bg-secondary/50 rounded-2xl p-4 space-y-4">
-          <h3 className="font-semibold text-sm">collaborators</h3>
+          <h3 className="font-semibold text-sm">Collaborators</h3>
 
           {isLoadingMembers ? (
             <div className="flex justify-center py-4">
@@ -318,7 +318,10 @@ export default function ListSettingsPage() {
             <div className="space-y-3">
               {members.map((member) => (
                 <div key={member.uid} className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
+                  <Link
+                    href={`/profile/${member.username}`}
+                    className="flex items-center gap-3 flex-1 hover:opacity-80 transition-opacity"
+                  >
                     <ProfileAvatar
                       photoURL={member.photoURL}
                       displayName={member.displayName}
@@ -327,14 +330,14 @@ export default function ListSettingsPage() {
                     />
                     <div>
                       <p className="font-medium">
-                        {member.uid === user?.uid ? 'you' : member.displayName || member.username}
+                        {member.uid === user?.uid ? 'You' : member.displayName || member.username}
                       </p>
                       <p className="text-sm text-muted-foreground">@{member.username}</p>
                     </div>
-                  </div>
+                  </Link>
 
                   {member.role === 'owner' ? (
-                    <span className="text-sm text-muted-foreground">owner</span>
+                    <span className="text-sm text-muted-foreground">Owner</span>
                   ) : (
                     <Button
                       variant="outline"
@@ -345,7 +348,7 @@ export default function ListSettingsPage() {
                         setIsRemoveOpen(true);
                       }}
                     >
-                      remove
+                      Remove
                     </Button>
                   )}
                 </div>
@@ -356,25 +359,26 @@ export default function ListSettingsPage() {
           {/* Add Collaborators Button */}
           <Button
             onClick={() => setIsInviteOpen(true)}
-            className="w-full h-12 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white font-semibold"
+            variant="outline"
+            className="w-full h-12 rounded-full border-[3px] border-border font-semibold"
           >
             <Plus className="h-5 w-5 mr-2" />
-            add collaborators
+            Add Collaborators
           </Button>
         </div>
 
-        {/* Gatekeep / Visibility Toggle */}
+        {/* Visibility Toggle */}
         <div className="bg-secondary/50 rounded-2xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <p className="font-semibold">gatekeep 🔒</p>
+              <p className="font-semibold">Public List</p>
               <p className="text-sm text-muted-foreground">
-                collaborators and link access only
+                {isPublic ? 'Visible to everyone' : 'Only you and collaborators can see'}
               </p>
             </div>
             <Switch
-              checked={!isPublic}
-              onCheckedChange={(checked) => setIsPublic(!checked)}
+              checked={isPublic}
+              onCheckedChange={setIsPublic}
             />
           </div>
         </div>

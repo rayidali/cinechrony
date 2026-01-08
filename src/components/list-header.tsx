@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser } from '@/firebase';
@@ -14,7 +13,7 @@ interface ListHeaderProps {
   listOwnerId: string;
   listData: MovieList | null;
   isOwner: boolean;
-  isCollaborator: boolean;
+  isCollaborator?: boolean;
 }
 
 export function ListHeader({
@@ -22,14 +21,10 @@ export function ListHeader({
   listOwnerId,
   listData,
   isOwner,
-  isCollaborator,
 }: ListHeaderProps) {
   const { user } = useUser();
-  const router = useRouter();
   const [members, setMembers] = useState<ListMember[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
-
-  const canEdit = isOwner || isCollaborator;
 
   // Load members for avatar bar
   useEffect(() => {
@@ -57,12 +52,6 @@ export function ListHeader({
     return 0;
   });
 
-  const handleCollaborateClick = () => {
-    if (isOwner) {
-      router.push(`/lists/${listId}/settings`);
-    }
-  };
-
   return (
     <div className="flex flex-col items-center">
       {/* List name */}
@@ -78,54 +67,71 @@ export function ListHeader({
       </div>
 
       {/* Tappable Collaborator Bar */}
-      <button
-        onClick={handleCollaborateClick}
-        disabled={!isOwner}
-        className={`flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50 transition-colors ${
-          isOwner ? 'hover:bg-secondary cursor-pointer' : 'cursor-default'
-        }`}
-      >
-        {/* Avatar stack */}
-        {isLoadingMembers ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : (
-          <div className="flex -space-x-2">
-            {sortedMembers.slice(0, 3).map((member, index) => (
-              <div
-                key={member.uid}
-                className="relative"
-                style={{ zIndex: sortedMembers.length - index }}
-              >
-                <ProfileAvatar
-                  photoURL={member.photoURL}
-                  displayName={member.displayName}
-                  username={member.username}
-                  size="sm"
-                  className="ring-2 ring-background"
-                />
-              </div>
-            ))}
-          </div>
-        )}
+      {isOwner ? (
+        <Link
+          href={`/lists/${listId}/settings`}
+          className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50 transition-colors hover:bg-secondary"
+        >
+          {/* Avatar stack */}
+          {isLoadingMembers ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <div className="flex -space-x-2">
+              {sortedMembers.slice(0, 3).map((member, index) => (
+                <div
+                  key={member.uid}
+                  className="relative"
+                  style={{ zIndex: sortedMembers.length - index }}
+                >
+                  <ProfileAvatar
+                    photoURL={member.photoURL}
+                    displayName={member.displayName}
+                    username={member.username}
+                    size="sm"
+                    className="ring-2 ring-background"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
 
-        {/* Collaborate text */}
-        <span className="text-sm font-medium">
-          {members.length > 1 ? `${members.length} collaborators` : 'collaborate'}
-        </span>
-      </button>
+          {/* Collaborate text */}
+          <span className="text-sm font-medium">
+            {members.length > 1 ? `${members.length} collaborators` : 'collaborate'}
+          </span>
+        </Link>
+      ) : (
+        <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50">
+          {/* Avatar stack - clickable to profiles */}
+          {isLoadingMembers ? (
+            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+          ) : (
+            <div className="flex -space-x-2">
+              {sortedMembers.slice(0, 3).map((member, index) => (
+                <Link
+                  key={member.uid}
+                  href={`/profile/${member.username}`}
+                  className="relative hover:opacity-80 transition-opacity"
+                  style={{ zIndex: sortedMembers.length - index }}
+                >
+                  <ProfileAvatar
+                    photoURL={member.photoURL}
+                    displayName={member.displayName}
+                    username={member.username}
+                    size="sm"
+                    className="ring-2 ring-background"
+                  />
+                </Link>
+              ))}
+            </div>
+          )}
 
-      {/* Stats row */}
-      <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
-        <span>{listData?.movieCount || 0} movies</span>
-        <span>•</span>
-        <span className={`${
-          listData?.isPublic
-            ? 'text-green-600 dark:text-green-400'
-            : ''
-        }`}>
-          {listData?.isPublic ? 'Public' : 'Private'}
-        </span>
-      </div>
+          {/* Collaborator count text */}
+          <span className="text-sm font-medium">
+            {members.length > 1 ? `${members.length} collaborators` : 'collaborate'}
+          </span>
+        </div>
+      )}
     </div>
   );
 }
