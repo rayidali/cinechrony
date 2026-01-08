@@ -402,120 +402,115 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
     );
   };
 
+  // Don't render anything if not open
+  if (!isOpen) return null;
+
   return (
     <>
-      {/* Step 1: Search Bottom Sheet */}
-      <Drawer.Root
-        open={isOpen && step === 'search'}
-        onOpenChange={(open) => !open && onClose()}
-        snapPoints={[1]}
-        activeSnapPoint={1}
-        setActiveSnapPoint={() => {}}
-      >
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[100dvh] max-h-[100dvh]">
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
+      {/* Step 1: Search - Full Screen Overlay (not Vaul - for consistent height) */}
+      {step === 'search' && (
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in slide-in-from-bottom-4 duration-200">
+          {/* Drag handle visual */}
+          <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-              <div className="w-9" />
-              <Drawer.Title className="text-lg font-semibold">Search</Drawer.Title>
-              <button
-                onClick={onClose}
-                className="p-2 -mr-2 rounded-full hover:bg-secondary transition-colors"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
+          {/* Header */}
+          <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
+            <div className="w-9" />
+            <h2 className="text-lg font-semibold">Search</h2>
+            <button
+              onClick={onClose}
+              className="p-2 -mr-2 rounded-full hover:bg-secondary transition-colors"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
 
-            {/* Search Input - using text-base (16px) to prevent iOS zoom */}
-            <div className="p-4 flex-shrink-0">
-              <div className="relative">
-                <Input
-                  type="text"
-                  placeholder="Search movies or TV shows..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  className="pr-10 h-12 text-base bg-secondary/50 border-border rounded-xl"
-                  style={{ fontSize: '16px' }} // Prevent iOS zoom
-                  autoFocus
-                />
-                <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                  {isSearching ? (
-                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                  ) : (
-                    <Search className="h-5 w-5 text-muted-foreground" />
-                  )}
-                </div>
+          {/* Search Input */}
+          <div className="p-4 flex-shrink-0">
+            <div className="relative">
+              <Input
+                type="text"
+                placeholder="Search movies or TV shows..."
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="pr-10 h-12 text-base bg-secondary/50 border-border rounded-xl"
+                style={{ fontSize: '16px' }}
+                autoFocus
+              />
+              <div className="absolute inset-y-0 right-0 flex items-center pr-3">
+                {isSearching ? (
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                ) : (
+                  <Search className="h-5 w-5 text-muted-foreground" />
+                )}
               </div>
             </div>
+          </div>
 
-            {/* Search Results */}
-            <div className="flex-1 overflow-y-auto min-h-0 pb-[env(safe-area-inset-bottom,0px)]">
-              {results.length === 0 && query && !isSearching ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Search className="h-12 w-12 mb-4 opacity-50" />
-                  <p>No results found</p>
-                </div>
-              ) : results.length === 0 && !query ? (
-                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                  <Film className="h-12 w-12 mb-4 opacity-50" />
-                  <p>Search for movies or TV shows</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-border">
-                  {results.map((movie) => (
-                    <button
-                      key={`${movie.mediaType}-${movie.id}`}
-                      onClick={() => handleSelectMovie(movie)}
-                      className="w-full text-left p-4 hover:bg-secondary/50 active:bg-secondary transition-colors flex items-center gap-4"
-                    >
-                      <Image
-                        src={movie.posterUrl}
-                        alt={movie.title}
-                        width={48}
-                        height={72}
-                        className="rounded-lg border border-border object-cover flex-shrink-0"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold truncate">{movie.title}</p>
-                        <p className="text-sm text-muted-foreground">{movie.year}</p>
-                      </div>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full flex-shrink-0">
-                        {movie.mediaType === 'movie' ? (
-                          <>
-                            <Film className="h-3 w-3" />
-                            <span>Movie</span>
-                          </>
-                        ) : (
-                          <>
-                            <Tv className="h-3 w-3" />
-                            <span>TV</span>
-                          </>
-                        )}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
+          {/* Search Results */}
+          <div className="flex-1 overflow-y-auto min-h-0 pb-[env(safe-area-inset-bottom,0px)]">
+            {results.length === 0 && query && !isSearching ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Search className="h-12 w-12 mb-4 opacity-50" />
+                <p>No results found</p>
+              </div>
+            ) : results.length === 0 && !query ? (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Film className="h-12 w-12 mb-4 opacity-50" />
+                <p>Search for movies or TV shows</p>
+              </div>
+            ) : (
+              <div className="divide-y divide-border">
+                {results.map((movie) => (
+                  <button
+                    key={`${movie.mediaType}-${movie.id}`}
+                    onClick={() => handleSelectMovie(movie)}
+                    className="w-full text-left p-4 hover:bg-secondary/50 active:bg-secondary transition-colors flex items-center gap-4"
+                  >
+                    <Image
+                      src={movie.posterUrl}
+                      alt={movie.title}
+                      width={48}
+                      height={72}
+                      className="rounded-lg border border-border object-cover flex-shrink-0"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold truncate">{movie.title}</p>
+                      <p className="text-sm text-muted-foreground">{movie.year}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full flex-shrink-0">
+                      {movie.mediaType === 'movie' ? (
+                        <>
+                          <Film className="h-3 w-3" />
+                          <span>Movie</span>
+                        </>
+                      ) : (
+                        <>
+                          <Tv className="h-3 w-3" />
+                          <span>TV</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Step 2: Movie Preview Bottom Sheet */}
       <Drawer.Root
-        open={isOpen && step === 'preview' && !!selectedMovie}
+        open={step === 'preview' && !!selectedMovie}
         onOpenChange={(open) => !open && handleBackToSearch()}
-        snapPoints={[0.85]}
-        activeSnapPoint={0.85}
-        setActiveSnapPoint={() => {}}
+        modal={true}
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[85dvh] max-h-[85dvh]">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none"
+            style={{ height: '85vh', maxHeight: '85vh' }}
+          >
             {/* Drag handle */}
             <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
@@ -597,7 +592,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                       onChange={(e) => setSocialLink(e.target.value)}
                       placeholder="Paste TikTok, Reel, or YouTube link..."
                       className={`bg-secondary/50 rounded-xl text-base ${parsedVideo?.provider ? 'pr-10' : ''}`}
-                      style={{ fontSize: '16px' }} // Prevent iOS zoom
+                      style={{ fontSize: '16px' }}
                     />
                     {parsedVideo?.provider && (
                       <div className="absolute inset-y-0 right-0 flex items-center pr-3">
@@ -631,15 +626,16 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
 
       {/* Step 3: Multi-List Selection Bottom Sheet */}
       <Drawer.Root
-        open={isOpen && step === 'select-list'}
+        open={step === 'select-list'}
         onOpenChange={(open) => !open && handleBackToPreview()}
-        snapPoints={[0.85]}
-        activeSnapPoint={0.85}
-        setActiveSnapPoint={() => {}}
+        modal={true}
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-t border-border outline-none h-[85dvh] max-h-[85dvh]">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-t border-border outline-none"
+            style={{ height: '85vh', maxHeight: '85vh' }}
+          >
             {/* Drag handle */}
             <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
@@ -657,6 +653,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
               <div className="w-9" />
             </div>
 
+            {/* Scrollable list area */}
             <div className="flex-1 overflow-y-auto min-h-0">
               {isLoadingLists ? (
                 <div className="flex items-center justify-center py-12">
@@ -682,7 +679,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                           onClick={() => toggleListSelection(list)}
                           className="w-full p-3 flex items-center gap-3"
                         >
-                          {/* List Cover - using preview posters */}
+                          {/* List Cover */}
                           <div className="w-16 h-16 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0 overflow-hidden relative">
                             {renderListCover(list)}
                           </div>
@@ -711,7 +708,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                           </div>
                         </button>
 
-                        {/* Note Input (only when selected) - removed "Add a link" */}
+                        {/* Note Input (only when selected) */}
                         {isSelected && (
                           <div className="px-3 pb-3">
                             <textarea
@@ -721,7 +718,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                               rows={2}
                               maxLength={200}
                               className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              style={{ fontSize: '16px' }} // Prevent iOS zoom
+                              style={{ fontSize: '16px' }}
                             />
                           </div>
                         )}
@@ -732,8 +729,8 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
               )}
             </div>
 
-            {/* Save Button */}
-            <div className="p-4 border-t border-border bg-background pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
+            {/* Fixed Save Button at bottom */}
+            <div className="flex-shrink-0 p-4 border-t border-border bg-background pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
               <Button
                 onClick={handleAddMovie}
                 disabled={isAdding || selectedCount === 0}
