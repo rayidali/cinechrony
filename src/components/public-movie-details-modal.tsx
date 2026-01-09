@@ -193,12 +193,12 @@ export function PublicMovieDetailsModal({
     <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 mt-24 flex h-[85vh] flex-col rounded-t-2xl bg-background border-[3px] border-border border-b-0 outline-none">
+        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 mt-24 flex h-[85vh] flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none">
           {/* Drag handle */}
           <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
           {/* Header */}
-          <div className="px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
+          <div className="relative px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
             <Drawer.Title className="text-2xl font-headline flex items-center gap-2 pr-10">
               {movie.mediaType === 'tv' ? (
                 <Tv className="h-6 w-6 text-primary flex-shrink-0" />
@@ -213,8 +213,8 @@ export function PublicMovieDetailsModal({
             </Drawer.Close>
           </div>
 
-          {/* Scrollable content area */}
-          <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'info' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
+          {/* Scrollable content area - use explicit height calc to leave room for tabs */}
+          <div className={`flex-1 min-h-0 ${activeTab === 'info' ? 'overflow-y-auto' : 'flex flex-col overflow-hidden'}`}>
             {activeTab === 'info' ? (
               <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -378,20 +378,18 @@ export function PublicMovieDetailsModal({
                 </div>
               </div>
             ) : (
-              <div className="flex-1 flex flex-col min-h-0">
-                <ReviewsList
-                  tmdbId={tmdbId}
-                  mediaType={movie.mediaType || 'movie'}
-                  movieTitle={movie.title}
-                  moviePosterUrl={movie.posterUrl}
-                  currentUserId={user?.uid || ''}
-                />
-              </div>
+              <ReviewsList
+                tmdbId={tmdbId}
+                mediaType={movie.mediaType || 'movie'}
+                movieTitle={movie.title}
+                moviePosterUrl={movie.posterUrl}
+                currentUserId={user?.uid || ''}
+              />
             )}
           </div>
 
-          {/* Sticky bottom bar with Info/Reviews toggle */}
-          <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+          {/* Bottom bar with Info/Reviews toggle - always visible */}
+          <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]" style={{ minHeight: '60px' }}>
             <div className="flex gap-2 justify-center">
               <button
                 onClick={() => setActiveTab('info')}

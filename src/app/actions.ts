@@ -1367,18 +1367,28 @@ export async function getListMembers(listOwnerId: string, listId: string) {
       });
     }
 
-    // Get collaborator profiles
-    for (const collabId of collaboratorIds) {
-      const collabDoc = await db.collection('users').doc(collabId).get();
-      if (collabDoc.exists) {
-        const collabData = collabDoc.data();
-        members.push({
-          uid: collabId,
-          username: collabData?.username || null,
-          displayName: collabData?.displayName || null,
-          photoURL: collabData?.photoURL || null,
-          role: 'collaborator',
-        });
+    // Get collaborator profiles in PARALLEL (not sequentially)
+    if (collaboratorIds.length > 0) {
+      const collabPromises = collaboratorIds.map(async (collabId) => {
+        const collabDoc = await db.collection('users').doc(collabId).get();
+        if (collabDoc.exists) {
+          const collabData = collabDoc.data();
+          return {
+            uid: collabId,
+            username: collabData?.username || null,
+            displayName: collabData?.displayName || null,
+            photoURL: collabData?.photoURL || null,
+            role: 'collaborator' as const,
+          };
+        }
+        return null;
+      });
+
+      const collabResults = await Promise.all(collabPromises);
+      for (const collab of collabResults) {
+        if (collab) {
+          members.push(collab);
+        }
       }
     }
 
