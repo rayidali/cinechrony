@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { Loader2, ExternalLink, Users, Instagram, Youtube, X, Film, Tv, Info, MessageSquare } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -13,6 +13,7 @@ import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { useUser } from '@/firebase';
+import { useViewportHeight } from '@/hooks/use-viewport-height';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 const OMDB_API_KEY = 'fc5ca6d0';
@@ -145,26 +146,10 @@ export function PublicMovieDetailsModal({
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
-  const [drawerHeight, setDrawerHeight] = useState<number>(0);
   const { user } = useUser();
 
-  // Calculate actual viewport height (fixes iOS Safari issue where vh includes browser chrome)
-  useEffect(() => {
-    function updateHeight() {
-      // Use visualViewport if available (more accurate on mobile), fallback to innerHeight
-      const vh = window.visualViewport?.height || window.innerHeight;
-      setDrawerHeight(Math.floor(vh * 0.85));
-    }
-
-    updateHeight();
-    window.addEventListener('resize', updateHeight);
-    window.visualViewport?.addEventListener('resize', updateHeight);
-
-    return () => {
-      window.removeEventListener('resize', updateHeight);
-      window.visualViewport?.removeEventListener('resize', updateHeight);
-    };
-  }, []);
+  // Use shared hook for viewport height (fixes iOS Safari issue)
+  const drawerHeight = useViewportHeight(85);
 
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);

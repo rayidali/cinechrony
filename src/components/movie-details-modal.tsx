@@ -36,6 +36,7 @@ import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
 import { useToast } from '@/hooks/use-toast';
+import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { doc } from 'firebase/firestore';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
@@ -190,28 +191,12 @@ export function MovieDetailsModal({
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
   const [rateModalRating, setRateModalRating] = useState(7);
   const [rateModalComment, setRateModalComment] = useState('');
-  const [drawerHeight, setDrawerHeight] = useState<number>(0);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Calculate actual viewport height (fixes iOS Safari issue where vh includes browser chrome)
-  useEffect(() => {
-    function updateHeight() {
-      // Use visualViewport if available (more accurate on mobile), fallback to innerHeight
-      const vh = window.visualViewport?.height || window.innerHeight;
-      setDrawerHeight(Math.floor(vh * 0.85));
-    }
-
-    updateHeight();
-    window.addEventListener('resize', updateHeight);
-    window.visualViewport?.addEventListener('resize', updateHeight);
-
-    return () => {
-      window.removeEventListener('resize', updateHeight);
-      window.visualViewport?.removeEventListener('resize', updateHeight);
-    };
-  }, []);
+  // Use shared hook for viewport height (fixes iOS Safari issue)
+  const drawerHeight = useViewportHeight(85);
 
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
