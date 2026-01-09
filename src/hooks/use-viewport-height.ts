@@ -1,6 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useLayoutEffect } from 'react';
+
+// Use useLayoutEffect on client, useEffect on server (SSR safety)
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 /**
  * Hook to get the actual viewport height, accounting for mobile browser chrome.
@@ -8,18 +11,29 @@ import { useState, useEffect } from 'react';
  * to be pushed off-screen. This hook uses the visualViewport API for accuracy.
  *
  * @param percentage - What percentage of viewport height to return (default 85%)
- * @returns The calculated height in pixels, or 0 before mount
+ * @returns The calculated height in pixels
  */
 export function useViewportHeight(percentage: number = 85): number {
-  const [height, setHeight] = useState<number>(0);
+  // Initialize with a calculated value to avoid flash of wrong height
+  const [height, setHeight] = useState<number>(() => {
+    if (typeof window !== 'undefined') {
+      const vh = window.visualViewport?.height || window.innerHeight;
+      return Math.floor(vh * (percentage / 100));
+    }
+    return 0;
+  });
 
-  useEffect(() => {
+  // Use layoutEffect to update BEFORE browser paint
+  useIsomorphicLayoutEffect(() => {
     function updateHeight() {
-      // Use visualViewport if available (more accurate on mobile), fallback to innerHeight
       const vh = window.visualViewport?.height || window.innerHeight;
       setHeight(Math.floor(vh * (percentage / 100)));
+
+      // Also set CSS variable for fallback use
+      document.documentElement.style.setProperty('--dvh', `${vh * 0.01}px`);
     }
 
+    // Calculate immediately
     updateHeight();
 
     // Listen for resize events
