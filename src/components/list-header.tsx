@@ -70,6 +70,7 @@ export function ListHeader({
       {isOwner ? (
         <Link
           href={`/lists/${listId}/settings`}
+          prefetch={true}
           className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50 transition-colors hover:bg-secondary"
         >
           {/* Avatar stack */}

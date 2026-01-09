@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2, ExternalLink, Users, Instagram, Youtube, X, Film, Tv, Info, MessageSquare } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -145,7 +145,26 @@ export function PublicMovieDetailsModal({
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
+  const [drawerHeight, setDrawerHeight] = useState<number>(0);
   const { user } = useUser();
+
+  // Calculate actual viewport height (fixes iOS Safari issue where vh includes browser chrome)
+  useEffect(() => {
+    function updateHeight() {
+      // Use visualViewport if available (more accurate on mobile), fallback to innerHeight
+      const vh = window.visualViewport?.height || window.innerHeight;
+      setDrawerHeight(Math.floor(vh * 0.85));
+    }
+
+    updateHeight();
+    window.addEventListener('resize', updateHeight);
+    window.visualViewport?.addEventListener('resize', updateHeight);
+
+    return () => {
+      window.removeEventListener('resize', updateHeight);
+      window.visualViewport?.removeEventListener('resize', updateHeight);
+    };
+  }, []);
 
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
@@ -193,7 +212,10 @@ export function PublicMovieDetailsModal({
     <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none" style={{ height: '85svh', maxHeight: '85svh' }}>
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
+          style={{ height: drawerHeight > 0 ? `${drawerHeight}px` : '85vh', maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : '85vh' }}
+        >
           {/* Drag handle */}
           <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
