@@ -1352,45 +1352,26 @@ export async function getListMembers(listOwnerId: string, listId: string) {
 
     const listData = listDoc.data();
     const collaboratorIds: string[] = listData?.collaboratorIds || [];
-    const members: ListMember[] = [];
 
-    // Get owner profile
-    const ownerDoc = await db.collection('users').doc(listOwnerId).get();
-    if (ownerDoc.exists) {
-      const ownerData = ownerDoc.data();
-      members.push({
-        uid: listOwnerId,
-        username: ownerData?.username || null,
-        displayName: ownerData?.displayName || null,
-        photoURL: ownerData?.photoURL || null,
-        role: 'owner',
-      });
-    }
-
-    // Get collaborator profiles in PARALLEL (not sequentially)
-    if (collaboratorIds.length > 0) {
-      const collabPromises = collaboratorIds.map(async (collabId) => {
-        const collabDoc = await db.collection('users').doc(collabId).get();
-        if (collabDoc.exists) {
-          const collabData = collabDoc.data();
-          return {
-            uid: collabId,
-            username: collabData?.username || null,
-            displayName: collabData?.displayName || null,
-            photoURL: collabData?.photoURL || null,
-            role: 'collaborator' as const,
-          };
-        }
-        return null;
-      });
-
-      const collabResults = await Promise.all(collabPromises);
-      for (const collab of collabResults) {
-        if (collab) {
-          members.push(collab);
-        }
+    // Fetch owner AND all collaborators in PARALLEL
+    const allUserIds = [listOwnerId, ...collaboratorIds];
+    const userPromises = allUserIds.map(async (userId, index) => {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        return {
+          uid: userId,
+          username: userData?.username || null,
+          displayName: userData?.displayName || null,
+          photoURL: userData?.photoURL || null,
+          role: index === 0 ? 'owner' as const : 'collaborator' as const,
+        };
       }
-    }
+      return null;
+    });
+
+    const results = await Promise.all(userPromises);
+    const members = results.filter((m): m is ListMember => m !== null);
 
     return { members };
   } catch (error) {
@@ -2012,19 +1993,14 @@ export async function getCollaborativeLists(userId: string) {
   const db = getDb();
 
   try {
-    // Query all lists where user is in collaboratorIds
-    // Note: This requires checking across all users' lists, which isn't efficient
-    // For now, we'll store a reference in the user's document or use a separate collection
-
-    // Alternative approach: Query the invites collection for accepted invites
+    // Query the invites collection for accepted invites
     const acceptedInvites = await db.collection('invites')
       .where('inviteeId', '==', userId)
       .where('status', '==', 'accepted')
       .get();
 
-    const lists = [];
-
-    for (const inviteDoc of acceptedInvites.docs) {
+    // Fetch all lists in PARALLEL (not sequentially)
+    const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
       const inviteData = inviteDoc.data();
       const listDoc = await db
         .collection('users')
@@ -2037,8 +2013,7 @@ export async function getCollaborativeLists(userId: string) {
         const listData = listDoc.data();
         // Verify user is still a collaborator
         if (listData?.collaboratorIds?.includes(userId)) {
-          // Convert Firestore Timestamps to ISO strings for serialization
-          lists.push({
+          return {
             id: listDoc.id,
             name: listData.name,
             ownerId: inviteData.listOwnerId,
@@ -2050,10 +2025,14 @@ export async function getCollaborativeLists(userId: string) {
             coverImageUrl: listData.coverImageUrl || null,
             createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
             updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          });
+          };
         }
       }
-    }
+      return null;
+    });
+
+    const results = await Promise.all(listPromises);
+    const lists = results.filter((list): list is NonNullable<typeof list> => list !== null);
 
     return { lists };
   } catch (error) {

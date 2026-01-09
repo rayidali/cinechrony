@@ -233,8 +233,17 @@ export default function ListSettingsPage() {
     setMembers(updatedMembers);
   };
 
+  // Show loading spinner while user or list is loading
+  if (isUserLoading || isLoadingList) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      </div>
+    );
+  }
+
   // Show not found only after loading completes
-  if (!isUserLoading && !isLoadingList && !listData) {
+  if (!listData) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <p className="text-muted-foreground">List not found</p>
