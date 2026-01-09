@@ -6,6 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser } from '@/firebase';
 import { getListMembers } from '@/app/actions';
+import { useListMembersCache } from '@/contexts/list-members-cache';
 import type { ListMember, MovieList } from '@/lib/types';
 
 interface ListHeaderProps {
@@ -23,18 +24,30 @@ export function ListHeader({
   isOwner,
 }: ListHeaderProps) {
   const { user } = useUser();
+  const { getMembers, setMembers: cacheMembers } = useListMembersCache();
   const [members, setMembers] = useState<ListMember[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
 
-  // Load members for avatar bar
+  // Load members for avatar bar (check cache first)
   useEffect(() => {
     async function loadMembers() {
       if (!user) return;
 
+      // Check cache first
+      const cachedMembers = getMembers(listOwnerId, listId);
+      if (cachedMembers) {
+        setMembers(cachedMembers);
+        setIsLoadingMembers(false);
+        return;
+      }
+
       setIsLoadingMembers(true);
       try {
         const result = await getListMembers(listOwnerId, listId);
-        setMembers(result.members || []);
+        const loadedMembers = result.members || [];
+        setMembers(loadedMembers);
+        // Cache for later use (e.g., settings page)
+        cacheMembers(listOwnerId, listId, loadedMembers);
       } catch (error) {
         console.error('Failed to load members:', error);
       } finally {
@@ -43,7 +56,7 @@ export function ListHeader({
     }
 
     loadMembers();
-  }, [user, listId, listOwnerId]);
+  }, [user, listId, listOwnerId, getMembers, cacheMembers]);
 
   // Sort members: owner first, then collaborators
   const sortedMembers = [...members].sort((a, b) => {

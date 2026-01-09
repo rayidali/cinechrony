@@ -30,6 +30,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { InviteCollaboratorModal } from '@/components/invite-collaborator-modal';
 import { useToast } from '@/hooks/use-toast';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
+import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import {
   renameList,
@@ -49,6 +50,7 @@ export default function ListSettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listId = params.listId as string;
   const firestore = useFirestore();
+  const { getMembers: getCachedMembers, setMembers: cacheMembers } = useListMembersCache();
 
   // Get list data
   const listDocRef = useMemoFirebase(() => {
@@ -82,15 +84,26 @@ export default function ListSettingsPage() {
     }
   }, [listData]);
 
-  // Load members
+  // Load members (check cache first for instant display)
   useEffect(() => {
     async function loadMembers() {
       if (!user || !listId) return;
 
+      // Check cache first - if cached, show instantly
+      const cachedMembers = getCachedMembers(user.uid, listId);
+      if (cachedMembers) {
+        setMembers(cachedMembers);
+        setIsLoadingMembers(false);
+        return;
+      }
+
+      // Not cached, fetch from server
       setIsLoadingMembers(true);
       try {
         const result = await getListMembers(user.uid, listId);
-        setMembers(result.members || []);
+        const loadedMembers = result.members || [];
+        setMembers(loadedMembers);
+        cacheMembers(user.uid, listId, loadedMembers);
       } catch (error) {
         console.error('Failed to load members:', error);
       } finally {
@@ -99,7 +112,7 @@ export default function ListSettingsPage() {
     }
 
     loadMembers();
-  }, [user, listId]);
+  }, [user, listId, getCachedMembers, cacheMembers]);
 
   // Redirect if not authenticated or not owner
   useEffect(() => {
