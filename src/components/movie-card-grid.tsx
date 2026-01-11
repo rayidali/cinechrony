@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
+import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv, StickyNote } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
@@ -92,6 +92,9 @@ export function MovieCardGrid({
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
 
+  // Count notes on this movie
+  const notesCount = movie.notes ? Object.keys(movie.notes).length : 0;
+
   // Get added by display info
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
   const addedByName = isAddedByCurrentUser
@@ -136,12 +139,21 @@ export function MovieCardGrid({
             )}
           </div>
 
-          {/* Social link badge */}
-          {hasSocialLink && (
-            <div className="bg-black/80 text-white p-1 rounded" title="Has video link">
-              <SocialIcon className="h-3 w-3" />
-            </div>
-          )}
+          {/* Right side badges: Notes + Social link */}
+          <div className="flex items-center gap-1">
+            {/* Notes badge */}
+            {notesCount > 0 && (
+              <div className="bg-amber-500 text-white p-1 rounded" title={`${notesCount} note${notesCount > 1 ? 's' : ''}`}>
+                <StickyNote className="h-3 w-3" />
+              </div>
+            )}
+            {/* Social link badge */}
+            {hasSocialLink && (
+              <div className="bg-black/80 text-white p-1 rounded" title="Has video link">
+                <SocialIcon className="h-3 w-3" />
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Bottom row: Added by + Status */}

@@ -505,6 +505,67 @@ export async function updateMovieStatus(
 }
 
 /**
+ * Update a user's note on a movie.
+ * Notes are stored per-user in the movie document.
+ */
+export async function updateMovieNote(
+  userId: string,
+  listOwnerId: string,
+  listId: string,
+  movieId: string,
+  note: string
+) {
+  const db = getDb();
+
+  try {
+    // Check if user can edit this list (owner or collaborator)
+    const canEdit = await canEditList(userId, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to add notes in this list.' };
+    }
+
+    const movieRef = db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .doc(movieId);
+
+    // Use dot notation to update only this user's note
+    const noteKey = `notes.${userId}`;
+
+    if (note.trim() === '') {
+      // Remove the note if empty
+      await movieRef.update({
+        [noteKey]: FieldValue.delete(),
+      });
+    } else {
+      // Set or update the note
+      await movieRef.update({
+        [noteKey]: note.trim(),
+      });
+    }
+
+    // Update list's updatedAt
+    await db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update movie note:', error);
+    return { error: 'Failed to update movie note.' };
+  }
+}
+
+/**
  * Legacy addMovie function for backward compatibility.
  * Adds movie to user's default list.
  */

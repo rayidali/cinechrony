@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useTransition, useEffect } from 'react';
-import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
+import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv, StickyNote } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import {
@@ -122,13 +122,21 @@ export function MovieCardList({
           </div>
           <p className="text-xs text-muted-foreground">{movie.year}</p>
 
-          {/* Rating */}
-          {movie.rating && (
-            <div className="flex items-center gap-1 mt-1">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-              <span className="text-xs font-medium">{movie.rating.toFixed(1)}</span>
-            </div>
-          )}
+          {/* Rating and Notes indicator */}
+          <div className="flex items-center gap-2 mt-1">
+            {movie.rating && (
+              <div className="flex items-center gap-1">
+                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                <span className="text-xs font-medium">{movie.rating.toFixed(1)}</span>
+              </div>
+            )}
+            {movie.notes && Object.keys(movie.notes).length > 0 && (
+              <div className="flex items-center gap-1 text-amber-600" title={`${Object.keys(movie.notes).length} note${Object.keys(movie.notes).length > 1 ? 's' : ''}`}>
+                <StickyNote className="h-3 w-3" />
+                <span className="text-xs font-medium">{Object.keys(movie.notes).length}</span>
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Added by */}

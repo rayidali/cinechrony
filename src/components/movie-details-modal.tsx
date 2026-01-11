@@ -28,7 +28,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
@@ -191,6 +191,9 @@ export function MovieDetailsModal({
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
   const [rateModalRating, setRateModalRating] = useState(7);
   const [rateModalComment, setRateModalComment] = useState('');
+  const [userNote, setUserNote] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -213,8 +216,10 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
       setRateModalRating(7);
       setRateModalComment('');
+      // Initialize user's note from movie data
+      setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
-  }, [movie?.id, movie?.status]);
+  }, [movie?.id, movie?.status, user?.uid]);
 
   // Fetch user's rating for this movie
   useEffect(() => {
@@ -271,6 +276,35 @@ export function MovieDetailsModal({
     }
     if (isOpen && movie) fetchUser();
   }, [movie?.addedBy, isOpen]);
+
+  // Fetch note authors for displaying usernames
+  useEffect(() => {
+    async function fetchNoteAuthors() {
+      if (!movie?.notes || !isOpen) return;
+
+      const otherUserIds = Object.keys(movie.notes).filter(uid => uid !== user?.uid);
+      if (otherUserIds.length === 0) return;
+
+      const authors: Record<string, { name: string; photoURL: string | null }> = {};
+      await Promise.all(
+        otherUserIds.map(async (uid) => {
+          try {
+            const result = await getUserProfile(uid);
+            if (result.user) {
+              authors[uid] = {
+                name: result.user.displayName || result.user.username || 'User',
+                photoURL: result.user.photoURL,
+              };
+            }
+          } catch {
+            authors[uid] = { name: 'User', photoURL: null };
+          }
+        })
+      );
+      setNoteAuthors(authors);
+    }
+    fetchNoteAuthors();
+  }, [movie?.notes, isOpen, user?.uid]);
 
   if (!movie || !user) return null;
 
@@ -404,6 +438,27 @@ export function MovieDetailsModal({
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove rating.' });
     } finally {
       setIsSavingRating(false);
+    }
+  };
+
+  const handleSaveNote = async () => {
+    if (!user?.uid || !listId || !listOwnerId) return;
+
+    setIsSavingNote(true);
+    try {
+      const result = await updateMovieNote(user.uid, listOwnerId, listId, movie.id, userNote);
+      if (result.success) {
+        toast({
+          title: userNote.trim() ? 'Note saved' : 'Note removed',
+          description: userNote.trim() ? 'Your note has been saved.' : 'Your note has been removed.',
+        });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save note.' });
+    } finally {
+      setIsSavingNote(false);
     }
   };
 
@@ -636,6 +691,71 @@ export function MovieDetailsModal({
                               <Eye className="h-4 w-4 mr-2" />
                               Watched
                             </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Your Note */}
+                      {canEdit && listId && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-2">Your Note</h3>
+                          <div className="space-y-2">
+                            <textarea
+                              value={userNote}
+                              onChange={(e) => setUserNote(e.target.value)}
+                              placeholder="Add a personal note about this movie..."
+                              rows={3}
+                              maxLength={500}
+                              className={`w-full resize-none px-3 py-2 text-sm bg-background ${retroInputClass}`}
+                            />
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">
+                                {userNote.length}/500
+                              </span>
+                              <Button
+                                onClick={handleSaveNote}
+                                disabled={isSavingNote || userNote === (movie.notes?.[user.uid] || '')}
+                                size="sm"
+                                className={retroButtonClass}
+                              >
+                                {isSavingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Note'}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Other Users' Notes */}
+                      {movie.notes && Object.keys(movie.notes).filter(uid => uid !== user.uid).length > 0 && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-2">Team Notes</h3>
+                          <div className="space-y-3">
+                            {Object.entries(movie.notes)
+                              .filter(([uid]) => uid !== user.uid)
+                              .map(([uid, note]) => {
+                                const author = noteAuthors[uid];
+                                return (
+                                  <div key={uid} className="bg-secondary/50 rounded-lg p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                      {author?.photoURL ? (
+                                        <Image
+                                          src={author.photoURL}
+                                          alt={author.name}
+                                          width={20}
+                                          height={20}
+                                          className="rounded-full"
+                                        />
+                                      ) : (
+                                        <div className="w-5 h-5 rounded-full bg-primary/20 flex items-center justify-center text-xs font-medium">
+                                          {(author?.name || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <span className="text-xs font-medium">{author?.name || 'Loading...'}</span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground whitespace-pre-wrap">{note}</p>
+                                  </div>
+                                );
+                              })}
                           </div>
                         </div>
                       )}
