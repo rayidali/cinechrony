@@ -223,16 +223,16 @@ export function MovieCardGrid({
 
         {/* Notes displayed below title */}
         {notesEntries.length > 0 && (
-          <div className="mt-1 space-y-0.5">
+          <div className="mt-1.5 space-y-1">
             {notesEntries.slice(0, 2).map(([uid, note]) => (
-              <p key={uid} className="text-[10px] text-muted-foreground italic leading-tight">
-                <span className="font-medium text-foreground/80 not-italic">@{noteAuthors[uid] || '...'}</span>
-                <span className="mx-1">•</span>
-                <span className="line-clamp-1">{note}</span>
-              </p>
+              <div key={uid} className="text-[11px] leading-snug">
+                <span className="font-semibold text-primary">@{noteAuthors[uid] || '...'}</span>
+                <span className="text-muted-foreground/60 mx-1">·</span>
+                <span className="text-muted-foreground line-clamp-1 break-words">{note}</span>
+              </div>
             ))}
             {notesEntries.length > 2 && (
-              <p className="text-[10px] text-muted-foreground">+{notesEntries.length - 2} more</p>
+              <p className="text-[10px] text-muted-foreground/50 font-medium">+{notesEntries.length - 2} more</p>
             )}
           </div>
         )}

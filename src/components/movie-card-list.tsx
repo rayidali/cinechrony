@@ -220,13 +220,13 @@ export function MovieCardList({
 
       {/* Notes section - displayed below the main card content */}
       {notesEntries.length > 0 && (
-        <div className="px-3 pb-3 pt-0 space-y-1">
+        <div className="px-3 pb-3 pt-1 border-t border-border/50 space-y-1.5">
           {notesEntries.map(([uid, note]) => (
-            <p key={uid} className="text-sm text-muted-foreground italic">
-              <span className="font-medium text-foreground not-italic">@{noteAuthors[uid] || '...'}</span>
-              <span className="mx-1.5">•</span>
-              <span className="line-clamp-1">{note}</span>
-            </p>
+            <div key={uid} className="text-sm leading-relaxed">
+              <span className="font-semibold text-primary">@{noteAuthors[uid] || '...'}</span>
+              <span className="text-muted-foreground/50 mx-1.5">·</span>
+              <span className="text-muted-foreground line-clamp-2 break-words">{note}</span>
+            </div>
           ))}
         </div>
       )}
