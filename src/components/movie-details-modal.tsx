@@ -706,7 +706,7 @@ export function MovieDetailsModal({
                               placeholder="Add a personal note about this movie..."
                               rows={3}
                               maxLength={500}
-                              className={`w-full resize-none px-3 py-2 text-sm bg-background ${retroInputClass}`}
+                              className={`w-full resize-none px-3 py-2 text-base bg-background ${retroInputClass}`}
                             />
                             <div className="flex justify-between items-center">
                               <span className="text-xs text-muted-foreground">
