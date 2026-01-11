@@ -704,6 +704,23 @@ export function MovieDetailsModal({
                             <textarea
                               value={userNote}
                               onChange={(e) => setUserNote(e.target.value)}
+                              onFocus={() => {
+                                // DEBUG: Log viewport info when textarea is focused
+                                const logDebug = () => {
+                                  console.log('=== KEYBOARD DEBUG ===', {
+                                    innerHeight: window.innerHeight,
+                                    clientHeight: document.documentElement.clientHeight,
+                                    visualViewport: window.visualViewport?.height,
+                                    visualViewportOffsetTop: window.visualViewport?.offsetTop,
+                                    drawerHeight: drawerHeight,
+                                    scrollY: window.scrollY,
+                                  });
+                                };
+                                logDebug();
+                                // Log again after keyboard animation
+                                setTimeout(logDebug, 500);
+                                setTimeout(logDebug, 1000);
+                              }}
                               placeholder="Add a personal note..."
                               rows={3}
                               maxLength={500}
