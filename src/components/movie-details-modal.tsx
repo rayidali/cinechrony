@@ -579,71 +579,6 @@ export function MovieDetailsModal({
                         />
                       </div>
 
-                      {/* Your Note - placed near top to avoid iOS keyboard scroll issues */}
-                      {canEdit && listId && (
-                        <div className="pt-2">
-                          <h3 className="font-bold mb-2">Your Note</h3>
-                          <div className="space-y-2">
-                            <textarea
-                              value={userNote}
-                              onChange={(e) => setUserNote(e.target.value)}
-                              placeholder="Add a personal note about this movie..."
-                              rows={2}
-                              maxLength={500}
-                              className={`w-full resize-none px-3 py-2 text-base bg-background ${retroInputClass}`}
-                            />
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs text-muted-foreground">
-                                {userNote.length}/500
-                              </span>
-                              <Button
-                                onClick={handleSaveNote}
-                                disabled={isSavingNote || userNote === (movie.notes?.[user.uid] || '')}
-                                size="sm"
-                                className={retroButtonClass}
-                              >
-                                {isSavingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Note'}
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Other Users' Notes */}
-                      {movie.notes && Object.keys(movie.notes).filter(uid => uid !== user.uid).length > 0 && (
-                        <div className="pt-2 pb-2 border-b border-border">
-                          <h3 className="font-bold mb-2">Team Notes</h3>
-                          <div className="space-y-2">
-                            {Object.entries(movie.notes)
-                              .filter(([uid]) => uid !== user.uid)
-                              .map(([uid, note]) => {
-                                const author = noteAuthors[uid];
-                                return (
-                                  <div key={uid} className="bg-secondary/30 rounded-lg p-2.5 border border-border/50">
-                                    <div className="flex items-center gap-2 mb-1">
-                                      {author?.photoURL ? (
-                                        <Image
-                                          src={author.photoURL}
-                                          alt={author.name}
-                                          width={16}
-                                          height={16}
-                                          className="rounded-full"
-                                        />
-                                      ) : (
-                                        <div className="w-4 h-4 rounded-full bg-primary/20 flex items-center justify-center text-[9px] font-semibold text-primary">
-                                          {(author?.name || 'U').charAt(0).toUpperCase()}
-                                        </div>
-                                      )}
-                                      <span className="text-xs font-semibold text-primary">@{author?.name || '...'}</span>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground leading-snug whitespace-pre-wrap break-words">{note}</p>
-                                  </div>
-                                );
-                              })}
-                          </div>
-                        </div>
-                      )}
-
                       {/* Runtime/Seasons & Genres */}
                       {mediaDetails && (
                         <div className="flex flex-wrap gap-2">
@@ -757,6 +692,71 @@ export function MovieDetailsModal({
                               <Eye className="h-4 w-4 mr-2" />
                               Watched
                             </Button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Your Note */}
+                      {canEdit && listId && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-2">Your Note</h3>
+                          <div className="space-y-2">
+                            <textarea
+                              value={userNote}
+                              onChange={(e) => setUserNote(e.target.value)}
+                              placeholder="Add a personal note..."
+                              rows={3}
+                              maxLength={500}
+                              className={`w-full resize-none px-3 py-2 text-base bg-background ${retroInputClass}`}
+                            />
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">
+                                {userNote.length}/500
+                              </span>
+                              <Button
+                                onClick={handleSaveNote}
+                                disabled={isSavingNote || userNote === (movie.notes?.[user.uid] || '')}
+                                size="sm"
+                                className={retroButtonClass}
+                              >
+                                {isSavingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Note'}
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Other Users' Notes */}
+                      {movie.notes && Object.keys(movie.notes).filter(uid => uid !== user.uid).length > 0 && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-3">Team Notes</h3>
+                          <div className="space-y-3">
+                            {Object.entries(movie.notes)
+                              .filter(([uid]) => uid !== user.uid)
+                              .map(([uid, note]) => {
+                                const author = noteAuthors[uid];
+                                return (
+                                  <div key={uid} className="bg-secondary/30 rounded-lg p-3 border border-border/50">
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                      {author?.photoURL ? (
+                                        <Image
+                                          src={author.photoURL}
+                                          alt={author.name}
+                                          width={18}
+                                          height={18}
+                                          className="rounded-full"
+                                        />
+                                      ) : (
+                                        <div className="w-[18px] h-[18px] rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary">
+                                          {(author?.name || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <span className="text-sm font-semibold text-primary">@{author?.name || '...'}</span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">{note}</p>
+                                  </div>
+                                );
+                              })}
                           </div>
                         </div>
                       )}
