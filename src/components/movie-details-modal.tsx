@@ -444,6 +444,11 @@ export function MovieDetailsModal({
   const handleSaveNote = async () => {
     if (!user?.uid || !listId || !listOwnerId) return;
 
+    // Blur active element to dismiss keyboard on mobile
+    if (document.activeElement instanceof HTMLElement) {
+      document.activeElement.blur();
+    }
+
     setIsSavingNote(true);
     try {
       const result = await updateMovieNote(user.uid, listOwnerId, listId, movie.id, userNote);
