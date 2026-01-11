@@ -480,7 +480,7 @@ export function MovieDetailsModal({
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
-            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none transition-[height,max-height] duration-200"
+            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
             style={{
               height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
               maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
@@ -704,6 +704,23 @@ export function MovieDetailsModal({
                             <textarea
                               value={userNote}
                               onChange={(e) => setUserNote(e.target.value)}
+                              onFocus={() => {
+                                // DEBUG: Log viewport info when textarea is focused
+                                const logDebug = () => {
+                                  console.log('=== KEYBOARD DEBUG ===', {
+                                    innerHeight: window.innerHeight,
+                                    clientHeight: document.documentElement.clientHeight,
+                                    visualViewport: window.visualViewport?.height,
+                                    visualViewportOffsetTop: window.visualViewport?.offsetTop,
+                                    drawerHeight: drawerHeight,
+                                    scrollY: window.scrollY,
+                                  });
+                                };
+                                logDebug();
+                                // Log again after keyboard animation
+                                setTimeout(logDebug, 500);
+                                setTimeout(logDebug, 1000);
+                              }}
                               placeholder="Add a personal note..."
                               rows={3}
                               maxLength={500}
