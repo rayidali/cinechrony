@@ -444,19 +444,15 @@ export function MovieDetailsModal({
   const handleSaveNote = async () => {
     if (!user?.uid || !listId || !listOwnerId) return;
 
-    // Blur active element to dismiss keyboard on mobile
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-
     setIsSavingNote(true);
     try {
       const result = await updateMovieNote(user.uid, listOwnerId, listId, movie.id, userNote);
       if (result.success) {
         toast({
           title: userNote.trim() ? 'Note saved' : 'Note removed',
-          description: userNote.trim() ? 'Your note has been saved.' : 'Your note has been removed.',
         });
+        // Close the modal so user can see the updated note on the card
+        onClose();
       } else {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
