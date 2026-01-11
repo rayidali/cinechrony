@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useLayoutEffect } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef } from 'react';
 
 // Use useLayoutEffect on client, useEffect on server (SSR safety)
 const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -10,14 +10,21 @@ const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffec
  * On iOS Safari, `vh` units include the browser's address bar, causing content
  * to be pushed off-screen. This hook uses the visualViewport API for accuracy.
  *
+ * IMPORTANT: This hook ignores keyboard-induced viewport shrinking to prevent
+ * modals/drawers from collapsing when the keyboard opens.
+ *
  * @param percentage - What percentage of viewport height to return (default 85%)
  * @returns The calculated height in pixels
  */
 export function useViewportHeight(percentage: number = 85): number {
+  // Store the initial "full" viewport height (without keyboard)
+  const initialHeightRef = useRef<number>(0);
+
   // Initialize with a calculated value to avoid flash of wrong height
   const [height, setHeight] = useState<number>(() => {
     if (typeof window !== 'undefined') {
       const vh = window.visualViewport?.height || window.innerHeight;
+      initialHeightRef.current = vh;
       return Math.floor(vh * (percentage / 100));
     }
     return 0;
@@ -26,29 +33,34 @@ export function useViewportHeight(percentage: number = 85): number {
   // Use layoutEffect to update BEFORE browser paint
   useIsomorphicLayoutEffect(() => {
     function updateHeight() {
-      const vh = window.visualViewport?.height || window.innerHeight;
-      setHeight(Math.floor(vh * (percentage / 100)));
+      const currentVh = window.visualViewport?.height || window.innerHeight;
 
-      // Also set CSS variable for fallback use
-      document.documentElement.style.setProperty('--dvh', `${vh * 0.01}px`);
+      // Only update if viewport GREW (orientation change, browser chrome hiding)
+      // Ignore shrinking (keyboard opening) to prevent drawer collapse
+      if (currentVh >= initialHeightRef.current * 0.9) {
+        initialHeightRef.current = currentVh;
+        setHeight(Math.floor(currentVh * (percentage / 100)));
+        document.documentElement.style.setProperty('--dvh', `${currentVh * 0.01}px`);
+      }
     }
 
     // Calculate immediately
-    updateHeight();
+    const vh = window.visualViewport?.height || window.innerHeight;
+    initialHeightRef.current = vh;
+    setHeight(Math.floor(vh * (percentage / 100)));
+    document.documentElement.style.setProperty('--dvh', `${vh * 0.01}px`);
 
     // Listen for resize events
     window.addEventListener('resize', updateHeight);
     window.addEventListener('orientationchange', updateHeight);
 
-    // visualViewport resize is critical for iOS Safari keyboard/toolbar changes
+    // visualViewport resize for iOS Safari toolbar changes (but not keyboard)
     window.visualViewport?.addEventListener('resize', updateHeight);
-    window.visualViewport?.addEventListener('scroll', updateHeight);
 
     return () => {
       window.removeEventListener('resize', updateHeight);
       window.removeEventListener('orientationchange', updateHeight);
       window.visualViewport?.removeEventListener('resize', updateHeight);
-      window.visualViewport?.removeEventListener('scroll', updateHeight);
     };
   }, [percentage]);
 
