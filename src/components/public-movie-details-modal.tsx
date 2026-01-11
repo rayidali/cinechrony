@@ -399,7 +399,7 @@ export function PublicMovieDetailsModal({
           </div>
 
           {/* Bottom bar with Info/Reviews toggle - always visible */}
-          <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]" style={{ minHeight: '60px' }}>
+          <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
             <div className="flex gap-2 justify-center">
               <button
                 onClick={() => setActiveTab('info')}
