@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { useState, useEffect } from 'react';
-import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv, StickyNote } from 'lucide-react';
+import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
@@ -41,6 +41,7 @@ export function MovieCardGrid({
 }: MovieCardGridProps) {
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const [userRating, setUserRating] = useState<number | null>(null);
+  const [noteAuthors, setNoteAuthors] = useState<Record<string, string>>({});
   const { user } = useUser();
 
   // Get TMDB ID
@@ -80,6 +81,35 @@ export function MovieCardGrid({
     fetchUserRating();
   }, [user?.uid, tmdbId]);
 
+  // Fetch note authors
+  useEffect(() => {
+    async function fetchNoteAuthors() {
+      if (!movie.notes) return;
+      const userIds = Object.keys(movie.notes);
+      if (userIds.length === 0) return;
+
+      const authors: Record<string, string> = {};
+      await Promise.all(
+        userIds.map(async (uid) => {
+          if (uid === user?.uid) {
+            authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+          } else {
+            try {
+              const result = await getUserProfile(uid);
+              if (result.user) {
+                authors[uid] = result.user.username || result.user.displayName || 'user';
+              }
+            } catch {
+              authors[uid] = 'user';
+            }
+          }
+        })
+      );
+      setNoteAuthors(authors);
+    }
+    fetchNoteAuthors();
+  }, [movie.notes, user?.uid, user?.displayName, user?.email]);
+
   if (!user) return null;
 
   const handleClick = () => {
@@ -92,8 +122,8 @@ export function MovieCardGrid({
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
 
-  // Count notes on this movie
-  const notesCount = movie.notes ? Object.keys(movie.notes).length : 0;
+  // Get notes to display
+  const notesEntries = movie.notes ? Object.entries(movie.notes) : [];
 
   // Get added by display info
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
@@ -139,21 +169,12 @@ export function MovieCardGrid({
             )}
           </div>
 
-          {/* Right side badges: Notes + Social link */}
-          <div className="flex items-center gap-1">
-            {/* Notes badge */}
-            {notesCount > 0 && (
-              <div className="bg-amber-500 text-white p-1 rounded" title={`${notesCount} note${notesCount > 1 ? 's' : ''}`}>
-                <StickyNote className="h-3 w-3" />
-              </div>
-            )}
-            {/* Social link badge */}
-            {hasSocialLink && (
-              <div className="bg-black/80 text-white p-1 rounded" title="Has video link">
-                <SocialIcon className="h-3 w-3" />
-              </div>
-            )}
-          </div>
+          {/* Social link badge */}
+          {hasSocialLink && (
+            <div className="bg-black/80 text-white p-1 rounded" title="Has video link">
+              <SocialIcon className="h-3 w-3" />
+            </div>
+          )}
         </div>
 
         {/* Bottom row: Added by + Status */}
@@ -193,12 +214,28 @@ export function MovieCardGrid({
         </div>
       </div>
 
-      {/* Title and year below poster */}
+      {/* Title, year, and notes below poster */}
       <div className="mt-1.5 px-0.5">
         <p className="text-xs font-medium truncate leading-tight" title={movie.title}>
           {movie.title}
         </p>
         <p className="text-xs text-muted-foreground">{movie.year}</p>
+
+        {/* Notes displayed below title */}
+        {notesEntries.length > 0 && (
+          <div className="mt-1 space-y-0.5">
+            {notesEntries.slice(0, 2).map(([uid, note]) => (
+              <p key={uid} className="text-[10px] text-muted-foreground italic leading-tight">
+                <span className="font-medium text-foreground/80 not-italic">@{noteAuthors[uid] || '...'}</span>
+                <span className="mx-1">•</span>
+                <span className="line-clamp-1">{note}</span>
+              </p>
+            ))}
+            {notesEntries.length > 2 && (
+              <p className="text-[10px] text-muted-foreground">+{notesEntries.length - 2} more</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
