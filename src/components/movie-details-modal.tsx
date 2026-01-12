@@ -35,7 +35,6 @@ import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
-import { NoteEditorOverlay } from './note-editor-overlay';
 import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { doc } from 'firebase/firestore';
@@ -194,7 +193,6 @@ export function MovieDetailsModal({
   const [rateModalComment, setRateModalComment] = useState('');
   const [userNote, setUserNote] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
-  const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
@@ -218,7 +216,6 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
       setRateModalRating(7);
       setRateModalComment('');
-      setShowNoteEditor(false);
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
@@ -705,18 +702,30 @@ export function MovieDetailsModal({
                       {canEdit && listId && (
                         <div className="pt-4 border-t">
                           <h3 className="font-bold mb-2">Your Note</h3>
-                          <button
-                            onClick={() => setShowNoteEditor(true)}
-                            className={`w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 transition-colors border border-border/50 ${
-                              userNote ? '' : 'text-muted-foreground'
-                            }`}
-                          >
-                            {userNote ? (
-                              <p className="text-sm leading-relaxed line-clamp-3 whitespace-pre-wrap">{userNote}</p>
-                            ) : (
-                              <p className="text-sm">Tap to add a note...</p>
-                            )}
-                          </button>
+                          <div className="space-y-2">
+                            <textarea
+                              value={userNote}
+                              onChange={(e) => setUserNote(e.target.value)}
+                              placeholder="Add a personal note..."
+                              rows={3}
+                              maxLength={500}
+                              className="w-full resize-none px-3 py-2 text-base bg-background border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary focus:outline-none transition-shadow duration-200"
+                              style={{ fontSize: '16px' }}
+                            />
+                            <div className="flex justify-between items-center">
+                              <span className="text-xs text-muted-foreground">
+                                {userNote.length}/500
+                              </span>
+                              <Button
+                                onClick={() => handleSaveNote(userNote)}
+                                disabled={isSavingNote || userNote === (movie.notes?.[user.uid] || '')}
+                                size="sm"
+                                className={retroButtonClass}
+                              >
+                                {isSavingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Note'}
+                              </Button>
+                            </div>
+                          </div>
                         </div>
                       )}
 
@@ -904,16 +913,6 @@ export function MovieDetailsModal({
               </div>
             </div>
           </Drawer.Content>
-          {/* Note Editor Overlay - inside portal to be above drawer */}
-          {showNoteEditor && (
-            <NoteEditorOverlay
-              isOpen={showNoteEditor}
-              onClose={() => setShowNoteEditor(false)}
-              onSave={handleSaveNote}
-              initialNote={userNote}
-              movieTitle={movie.title}
-            />
-          )}
         </Drawer.Portal>
       </Drawer.Root>
     </>
