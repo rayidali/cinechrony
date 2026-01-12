@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect, memo } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
@@ -9,6 +9,7 @@ import { parseVideoUrl } from '@/lib/video-utils';
 import { useUser } from '@/firebase';
 import { getUserProfile, getUserRating } from '@/app/actions';
 import { TiktokIcon } from './icons';
+import { getRatingStyle } from '@/lib/utils';
 
 type MovieCardGridProps = {
   movie: Movie;
@@ -43,6 +44,9 @@ export const MovieCardGrid = memo(function MovieCardGrid({
   const [userRating, setUserRating] = useState<number | null>(null);
   const [noteAuthors, setNoteAuthors] = useState<Record<string, string>>({});
   const { user } = useUser();
+
+  // Get rating style for badge (uses HSL interpolation for consistent colors)
+  const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
 
   // Get TMDB ID
   const tmdbId = movie.tmdbId || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
@@ -151,13 +155,14 @@ export const MovieCardGrid = memo(function MovieCardGrid({
         <div className="absolute top-1 left-1 right-1 flex justify-between items-start">
           {/* Left side: User Rating + TV badge */}
           <div className="flex items-center gap-1">
-            {/* User's personal rating badge - distinct green style */}
+            {/* User's personal rating badge - color reflects rating */}
             {userRating !== null ? (
               <div
-                className="bg-green-600 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                className="px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
                 title={`Your rating: ${userRating.toFixed(1)}/10`}
               >
-                <Star className="h-3 w-3 fill-white text-white" />
+                <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
                 {userRating.toFixed(1)}
               </div>
             ) : null}

@@ -6,28 +6,118 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Rating color system - single source of truth for all rating displays.
- * Uses 7 color buckets for a smooth gradient from red (bad) to emerald (excellent).
- * All colors work in both light and dark mode with proper contrast.
+ * Rating color system using HSL interpolation.
+ * Maps rating 1-10 to a continuous color gradient from red to green.
+ * Uses inline styles to avoid Tailwind dynamic class generation issues.
  */
-export type RatingColors = {
-  /** Background class for badges, fills (e.g., bg-red-500) */
-  bg: string;
-  /** Text color class (e.g., text-red-500) */
-  text: string;
-  /** Text color for use ON the background (always readable) */
-  textOnBg: string;
-  /** Fill class for SVG icons */
-  fill: string;
+
+export type RatingStyle = {
+  /** Inline style for background (use on badge/fill elements) */
+  background: React.CSSProperties;
+  /** Inline style for text displayed ON the background */
+  textOnBg: React.CSSProperties;
+  /** Inline style for text/icon that should match the rating color */
+  accent: React.CSSProperties;
 };
 
 /**
- * Get rating colors for a given rating value.
- * @param rating - Rating value 1-10, or null/undefined
- * @returns Object with bg, text, textOnBg, and fill classes
+ * Get HSL color values for a rating.
+ * Rating 1 = red (hue 0), Rating 10 = green (hue 120)
+ * Uses a smooth interpolation for continuous color gradient.
  */
-export function getRatingColors(rating: number | null | undefined): RatingColors {
+function getRatingHSL(rating: number, isDark: boolean = false): { h: number; s: number; l: number } {
+  // Clamp rating to 1-10
+  const clampedRating = Math.max(1, Math.min(10, rating));
+
+  // Map rating 1-10 to hue 0-120 (red to green)
+  // Using a slightly curved mapping for better visual distribution
+  const normalizedRating = (clampedRating - 1) / 9; // 0 to 1
+  const hue = Math.round(normalizedRating * 120);
+
+  // Saturation: keep vibrant
+  const saturation = isDark ? 65 : 70;
+
+  // Lightness: adjust for theme
+  // For backgrounds: darker in dark mode
+  const lightness = isDark ? 45 : 50;
+
+  return { h: hue, s: saturation, l: lightness };
+}
+
+/**
+ * Get rating styles for a given rating value.
+ * Returns inline CSS styles that work in both light and dark mode.
+ *
+ * @param rating - Rating value 1-10, or null/undefined
+ * @returns Object with background, textOnBg, and accent styles
+ */
+export function getRatingStyle(rating: number | null | undefined): RatingStyle {
   // Handle null/undefined with neutral gray
+  if (rating === null || rating === undefined) {
+    return {
+      background: { backgroundColor: 'rgb(156 163 175)' }, // gray-400
+      textOnBg: { color: 'white' },
+      accent: { color: 'rgb(107 114 128)' }, // gray-500
+    };
+  }
+
+  const { h, s, l } = getRatingHSL(rating);
+
+  // Background color
+  const bgColor = `hsl(${h}, ${s}%, ${l}%)`;
+
+  // Text on background - white for most colors, dark for yellow range
+  const needsDarkText = h >= 45 && h <= 75 && l >= 45; // Yellow range
+  const textOnBgColor = needsDarkText ? `hsl(${h}, ${s}%, 15%)` : 'white';
+
+  // Accent color (for text/icons) - slightly darker/more saturated
+  const accentColor = `hsl(${h}, ${s + 10}%, ${l - 5}%)`;
+
+  return {
+    background: { backgroundColor: bgColor },
+    textOnBg: { color: textOnBgColor },
+    accent: { color: accentColor },
+  };
+}
+
+/**
+ * Get rating background color as a CSS string.
+ * Useful for elements that need just the color value.
+ */
+export function getRatingBgColorValue(rating: number | null | undefined): string {
+  if (rating === null || rating === undefined) {
+    return 'rgb(156 163 175)'; // gray-400
+  }
+  const { h, s, l } = getRatingHSL(rating);
+  return `hsl(${h}, ${s}%, ${l}%)`;
+}
+
+/**
+ * Get rating text color as a CSS string.
+ * For text/icons that should match the rating color.
+ */
+export function getRatingTextColorValue(rating: number | null | undefined): string {
+  if (rating === null || rating === undefined) {
+    return 'rgb(107 114 128)'; // gray-500
+  }
+  const { h, s, l } = getRatingHSL(rating);
+  return `hsl(${h}, ${s + 10}%, ${l - 5}%)`;
+}
+
+// ============================================================================
+// Legacy/Tailwind-based helpers (kept for backwards compatibility)
+// These use Tailwind classes but may have issues with dynamic class generation
+// Prefer getRatingStyle() for new code
+// ============================================================================
+
+export type RatingColors = {
+  bg: string;
+  text: string;
+  textOnBg: string;
+  fill: string;
+};
+
+export function getRatingColors(rating: number | null | undefined): RatingColors {
   if (rating === null || rating === undefined) {
     return {
       bg: 'bg-gray-400 dark:bg-gray-600',
@@ -37,15 +127,7 @@ export function getRatingColors(rating: number | null | undefined): RatingColors
     };
   }
 
-  // 7 color buckets for smooth gradient: 1-10 rating scale
-  // 9.0+ : Emerald (exceptional)
-  // 8.0+ : Green (great)
-  // 7.0+ : Lime (good)
-  // 6.0+ : Yellow (decent)
-  // 5.0+ : Amber (average)
-  // 4.0+ : Orange (below average)
-  // <4.0 : Red (poor)
-
+  // Map to discrete buckets for Tailwind classes
   if (rating >= 9.0) {
     return {
       bg: 'bg-emerald-500 dark:bg-emerald-600',
@@ -94,7 +176,6 @@ export function getRatingColors(rating: number | null | undefined): RatingColors
       fill: 'fill-orange-600 dark:fill-orange-400',
     };
   }
-  // Below 4.0 - red
   return {
     bg: 'bg-red-500 dark:bg-red-600',
     text: 'text-red-600 dark:text-red-400',
@@ -103,7 +184,6 @@ export function getRatingColors(rating: number | null | undefined): RatingColors
   };
 }
 
-// Legacy helpers for backwards compatibility - use getRatingColors() for new code
 export function getRatingTextColor(rating: number): string {
   return getRatingColors(rating).text;
 }

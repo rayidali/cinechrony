@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useTransition, useEffect, memo } from 'react';
+import { useState, useTransition, useEffect, memo, useMemo } from 'react';
 import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
@@ -15,6 +15,7 @@ import { getUserProfile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { getRatingStyle } from '@/lib/utils';
 
 type MovieCardListProps = {
   movie: Movie;
@@ -37,6 +38,9 @@ export const MovieCardList = memo(function MovieCardList({
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
+
+  // Get rating style for movie rating badge
+  const ratingStyle = useMemo(() => getRatingStyle(movie.rating ?? null), [movie.rating]);
 
   // Fetch the user who added this movie
   useEffect(() => {
@@ -159,8 +163,8 @@ export const MovieCardList = memo(function MovieCardList({
             {/* Rating */}
             {movie.rating && (
               <div className="flex items-center gap-1 mt-1">
-                <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                <span className="text-xs font-medium">{movie.rating.toFixed(1)}</span>
+                <Star className="h-3 w-3" style={{ ...ratingStyle.accent, fill: ratingStyle.accent.color }} />
+                <span className="text-xs font-medium" style={ratingStyle.accent}>{movie.rating.toFixed(1)}</span>
               </div>
             )}
           </div>

@@ -1,8 +1,10 @@
 'use client';
 
 import Image from 'next/image';
+import { useMemo } from 'react';
 import { Eye, EyeOff, Star } from 'lucide-react';
 import type { Movie } from '@/lib/types';
+import { getRatingStyle } from '@/lib/utils';
 
 type PublicMovieListItemProps = {
   movie: Movie;
@@ -15,6 +17,9 @@ export function PublicMovieListItem({ movie, onOpenDetails }: PublicMovieListIte
       onOpenDetails(movie);
     }
   };
+
+  // Get rating style for badge
+  const ratingStyle = useMemo(() => getRatingStyle(movie.rating ?? null), [movie.rating]);
 
   return (
     <div
@@ -43,8 +48,8 @@ export function PublicMovieListItem({ movie, onOpenDetails }: PublicMovieListIte
           {/* Rating */}
           {movie.rating && (
             <div className="flex items-center gap-1 mt-1">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-              <span className="text-xs font-medium">{movie.rating.toFixed(1)}</span>
+              <Star className="h-3 w-3" style={{ ...ratingStyle.accent, fill: ratingStyle.accent.color }} />
+              <span className="text-xs font-medium" style={ratingStyle.accent}>{movie.rating.toFixed(1)}</span>
             </div>
           )}
         </div>
