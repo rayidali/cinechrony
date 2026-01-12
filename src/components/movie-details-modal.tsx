@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -28,7 +28,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateReview, updateMovieNote } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
@@ -193,6 +193,9 @@ export function MovieDetailsModal({
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [showSocialLinkEditor, setShowSocialLinkEditor] = useState(false);
+  const [showCommentEditor, setShowCommentEditor] = useState(false);
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
+  const [pendingNewComment, setPendingNewComment] = useState<Review | null>(null);
   const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
@@ -216,6 +219,9 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
       setShowNoteEditor(false);
       setShowSocialLinkEditor(false);
+      setShowCommentEditor(false);
+      setEditingComment(null);
+      setPendingNewComment(null);
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
@@ -227,6 +233,8 @@ export function MovieDetailsModal({
       setShowNoteEditor(false);
       setShowSocialLinkEditor(false);
       setShowRateOnWatchModal(false);
+      setShowCommentEditor(false);
+      setEditingComment(null);
     }
   }, [isOpen]);
 
@@ -480,6 +488,66 @@ export function MovieDetailsModal({
     }
   };
 
+  // Handler for saving comments from fullscreen editor (create or edit)
+  const handleSaveComment = async (text: string) => {
+    if (!user?.uid || !tmdbId) return;
+
+    if (editingComment) {
+      // Update existing comment
+      const result = await updateReview(user.uid, editingComment.id, text);
+      if (result.success) {
+        // Optimistic update handled by ReviewsList via pendingNewComment
+        setPendingNewComment({
+          id: editingComment.id,
+          text: text.trim(),
+          userId: user.uid,
+          tmdbId,
+          mediaType: movie.mediaType || 'movie',
+          movieTitle: movie.title,
+          moviePosterUrl: movie.posterUrl,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          likes: [],
+          likeCount: 0,
+          _isUpdate: true, // Signal this is an update
+        } as Review & { _isUpdate?: boolean });
+        toast({ title: 'Updated', description: 'Your comment has been updated.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error);
+      }
+    } else {
+      // Create new comment
+      const result = await createReview(
+        user.uid,
+        tmdbId,
+        movie.mediaType || 'movie',
+        movie.title,
+        movie.posterUrl,
+        text
+      );
+      if (result.success && result.review) {
+        // Optimistic update - add to list immediately
+        setPendingNewComment(result.review as Review);
+        toast({ title: 'Posted', description: 'Your comment has been posted.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error || 'Failed to post comment');
+      }
+    }
+  };
+
+  // Callbacks for ReviewsList
+  const handleRequestAddComment = () => {
+    setEditingComment(null);
+    setShowCommentEditor(true);
+  };
+
+  const handleRequestEditComment = (review: Review) => {
+    setEditingComment({ id: review.id, text: review.text });
+    setShowCommentEditor(true);
+  };
+
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
   const displayUser = addedByUser || (isAddedByCurrentUser ? {
     photoURL: user?.photoURL,
@@ -494,8 +562,8 @@ export function MovieDetailsModal({
     <>
       {/* Main Movie Details Drawer - Close when any fullscreen editor is open to release focus trap */}
       <Drawer.Root
-        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal}
-        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && onClose()}
+        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor}
+        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor && onClose()}
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
@@ -810,6 +878,10 @@ export function MovieDetailsModal({
                     movieTitle={movie.title}
                     moviePosterUrl={movie.posterUrl}
                     currentUserId={user.uid}
+                    onRequestAddComment={handleRequestAddComment}
+                    onRequestEditComment={handleRequestEditComment}
+                    pendingNewComment={pendingNewComment}
+                    onPendingCommentHandled={() => setPendingNewComment(null)}
                   />
                 </div>
               )}
@@ -889,6 +961,21 @@ export function MovieDetailsModal({
         maxLength={500}
         singleLine={true}
         inputType="url"
+      />
+
+      {/* Fullscreen Comment Editor for Reviews Tab */}
+      <FullscreenTextInput
+        isOpen={isOpen && showCommentEditor}
+        onClose={() => {
+          setShowCommentEditor(false);
+          setEditingComment(null);
+        }}
+        onSave={handleSaveComment}
+        initialValue={editingComment?.text || ''}
+        title={editingComment ? 'Edit Comment' : 'Add Comment'}
+        subtitle={movie.title}
+        placeholder="Share your thoughts..."
+        maxLength={500}
       />
     </>
   );
