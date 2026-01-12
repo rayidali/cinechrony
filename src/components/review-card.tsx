@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, memo } from 'react';
+import { useState, memo, useMemo } from 'react';
 import Link from 'next/link';
 import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
-import { getRatingBgColor } from '@/lib/utils';
+import { getRatingColors } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,9 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   const isOwner = currentUserId === review.userId;
   const displayName = review.userDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
+
+  // Get colors for the rating badge
+  const ratingColors = useMemo(() => getRatingColors(review.ratingAtTime), [review.ratingAtTime]);
 
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;
@@ -110,8 +113,8 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
 
           {/* Rating badge - shows the rating at time of comment */}
           {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
-            <span className={`inline-flex items-center gap-0.5 ${getRatingBgColor(review.ratingAtTime)} text-white px-1.5 py-0.5 rounded text-xs font-bold`}>
-              <Star className="h-3 w-3 fill-white" />
+            <span className={`inline-flex items-center gap-0.5 ${ratingColors.bg} ${ratingColors.textOnBg} px-1.5 py-0.5 rounded text-xs font-bold`}>
+              <Star className={`h-3 w-3 fill-current`} />
               {review.ratingAtTime.toFixed(1)}
             </span>
           )}

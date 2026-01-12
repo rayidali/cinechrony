@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Star, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getRatingTextColor, getRatingBgColor } from '@/lib/utils';
+import { getRatingColors } from '@/lib/utils';
 
 interface RatingSliderProps {
   value: number | null;
@@ -119,6 +119,8 @@ export function RatingSlider({
     onChangeComplete(num);
   };
 
+  // Get colors for current rating value (memoized for performance)
+  const colors = useMemo(() => getRatingColors(localValue), [localValue]);
 
   // Calculate fill percentage (1-10 mapped to 0-100%)
   const fillPercentage = ((localValue - 1) / 9) * 100;
@@ -158,8 +160,8 @@ export function RatingSlider({
       <div className="flex items-center gap-4">
         {/* Rating display */}
         <div className="flex items-center gap-1.5 min-w-[80px]">
-          <Star className={`h-5 w-5 fill-current ${getRatingTextColor(localValue)}`} />
-          <span className={`font-bold ${textSizeClasses[size]} ${getRatingTextColor(localValue)} tabular-nums`}>
+          <Star className={`h-5 w-5 ${colors.text} ${colors.fill}`} />
+          <span className={`font-bold ${textSizeClasses[size]} ${colors.text} tabular-nums`}>
             {localValue.toFixed(1)}
           </span>
           <span className="text-muted-foreground text-sm">/10</span>
@@ -176,7 +178,7 @@ export function RatingSlider({
         >
           {/* Fill */}
           <div
-            className={`absolute inset-y-0 left-0 rounded-full ${getRatingBgColor(localValue)} ${isDragging ? '' : 'transition-all duration-150'}`}
+            className={`absolute inset-y-0 left-0 rounded-full ${colors.bg} ${isDragging ? '' : 'transition-all duration-150'}`}
             style={{ width: `${fillPercentage}%` }}
           />
           {/* Thumb */}
