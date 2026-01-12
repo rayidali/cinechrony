@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Drawer } from 'vaul';
@@ -16,7 +16,6 @@ import {
   Camera,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
 import {
   AlertDialog,
@@ -28,6 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { FullscreenTextInput } from './fullscreen-text-input';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { renameList, updateListVisibility, uploadListCover, deleteList } from '@/app/actions';
@@ -61,6 +61,14 @@ export function ListSettingsModal({
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showNameEditor, setShowNameEditor] = useState(false);
+
+  // Reset name editor when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setShowNameEditor(false);
+    }
+  }, [isOpen]);
 
   const hasChanges = name !== listData.name || isPublic !== listData.isPublic || coverFile !== null;
 
@@ -170,9 +178,18 @@ export function ListSettingsModal({
     }
   };
 
+  const handleSaveName = async (newName: string) => {
+    setName(newName);
+    // Don't actually save to server here - wait for the main Save button
+  };
+
   return (
     <>
-      <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()} modal={true}>
+      <Drawer.Root
+        open={isOpen && !showNameEditor}
+        onOpenChange={(open) => !open && !showNameEditor && onClose()}
+        modal={true}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
@@ -231,20 +248,18 @@ export function ListSettingsModal({
                 />
               </div>
 
-              {/* List Name */}
+              {/* List Name - Tap to open fullscreen editor */}
               <div>
                 <label className="text-sm font-medium mb-2 block">List Name</label>
-                <div className="relative">
-                  <Input
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Enter list name..."
-                    className="pr-10 text-base"
-                    style={{ fontSize: '16px' }}
-                    maxLength={50}
-                  />
-                  <Pencil className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                </div>
+                <button
+                  onClick={() => setShowNameEditor(true)}
+                  className="w-full flex items-center justify-between px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+                >
+                  <span className={name ? 'text-foreground' : 'text-muted-foreground'}>
+                    {name || 'Enter list name...'}
+                  </span>
+                  <Pencil className="h-4 w-4 text-muted-foreground" />
+                </button>
               </div>
 
               {/* Visibility */}
@@ -316,6 +331,19 @@ export function ListSettingsModal({
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+
+      {/* Fullscreen Name Editor */}
+      <FullscreenTextInput
+        isOpen={isOpen && showNameEditor}
+        onClose={() => setShowNameEditor(false)}
+        onSave={handleSaveName}
+        initialValue={name}
+        title="List Name"
+        placeholder="Enter list name..."
+        maxLength={50}
+        singleLine={true}
+        inputType="text"
+      />
 
       {/* Delete Confirmation */}
       <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>

@@ -30,7 +30,6 @@ import {
 } from '@/firebase';
 import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote } from '@/app/actions';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
@@ -190,11 +189,10 @@ export function MovieDetailsModal({
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
-  const [rateModalRating, setRateModalRating] = useState(7);
-  const [rateModalComment, setRateModalComment] = useState('');
   const [userNote, setUserNote] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [showSocialLinkEditor, setShowSocialLinkEditor] = useState(false);
   const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
@@ -216,18 +214,19 @@ export function MovieDetailsModal({
       setActiveTab('info');
       setUserRating(null);
       setShowRateOnWatchModal(false);
-      setRateModalRating(7);
-      setRateModalComment('');
       setShowNoteEditor(false);
+      setShowSocialLinkEditor(false);
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
   }, [movie?.id, movie?.status, user?.uid]);
 
-  // Reset note editor when modal closes
+  // Reset editors when modal closes
   useEffect(() => {
     if (!isOpen) {
       setShowNoteEditor(false);
+      setShowSocialLinkEditor(false);
+      setShowRateOnWatchModal(false);
     }
   }, [isOpen]);
 
@@ -341,8 +340,11 @@ export function MovieDetailsModal({
     });
   };
 
-  const handleRateOnWatchSave = async (rating: number, comment: string) => {
+  // Handler for rate-on-watch fullscreen input (comment: string, rating?: number)
+  const handleRateOnWatchSave = async (comment: string, rating?: number) => {
     if (!user?.uid || !tmdbId) return;
+
+    const finalRating = rating ?? 7;
 
     await createOrUpdateRating(
       user.uid,
@@ -350,9 +352,9 @@ export function MovieDetailsModal({
       movie.mediaType || 'movie',
       movie.title,
       movie.posterUrl,
-      rating
+      finalRating
     );
-    setUserRating(rating);
+    setUserRating(finalRating);
 
     if (comment.trim()) {
       await createReview(
@@ -362,7 +364,7 @@ export function MovieDetailsModal({
         movie.title,
         movie.posterUrl,
         comment,
-        rating
+        finalRating
       );
     }
 
@@ -373,7 +375,7 @@ export function MovieDetailsModal({
 
     toast({
       title: 'Marked as Watched',
-      description: `You rated ${movie.title} ${rating.toFixed(1)}/10`,
+      description: `You rated ${movie.title} ${finalRating.toFixed(1)}/10`,
     });
   };
 
@@ -396,12 +398,15 @@ export function MovieDetailsModal({
     });
   };
 
-  const handleSaveSocialLink = () => {
+  // Handler for saving social link from fullscreen input
+  const handleSaveSocialLink = async (link: string) => {
+    const trimmedLink = link.trim();
+    setNewSocialLink(trimmedLink);
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { socialLink: newSocialLink || null });
+      updateDocumentNonBlocking(movieDocRef, { socialLink: trimmedLink || null });
       toast({
         title: 'Link Updated',
-        description: newSocialLink ? 'Social link has been updated.' : 'Social link has been removed.',
+        description: trimmedLink ? 'Social link has been updated.' : 'Social link has been removed.',
       });
     });
   };
@@ -487,8 +492,11 @@ export function MovieDetailsModal({
 
   return (
     <>
-      {/* Main Movie Details Drawer - Close when note editor is open to release focus trap */}
-      <Drawer.Root open={isOpen && !showNoteEditor} onOpenChange={(open) => !open && !showNoteEditor && onClose()}>
+      {/* Main Movie Details Drawer - Close when any fullscreen editor is open to release focus trap */}
+      <Drawer.Root
+        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal}
+        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && onClose()}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
@@ -760,26 +768,20 @@ export function MovieDetailsModal({
                         </div>
                       )}
 
-                      {/* Edit Social Link */}
+                      {/* Edit Social Link - Tap to open fullscreen editor */}
                       {canEdit && (
                         <div className="pt-4 border-t">
                           <h3 className="font-bold mb-2">Video Link</h3>
-                          <div className="flex gap-2">
-                            <Input
-                              type="url"
-                              value={newSocialLink}
-                              onChange={(e) => setNewSocialLink(e.target.value)}
-                              placeholder="TikTok, Instagram, or YouTube URL"
-                              className={retroInputClass}
-                            />
-                            <Button
-                              onClick={handleSaveSocialLink}
-                              disabled={isPending || newSocialLink === (movie.socialLink || '')}
-                              className={retroButtonClass}
-                            >
-                              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-                            </Button>
-                          </div>
+                          <button
+                            onClick={() => setShowSocialLinkEditor(true)}
+                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+                          >
+                            {newSocialLink ? (
+                              <p className="text-sm text-primary truncate">{newSocialLink}</p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Tap to add a video link...</p>
+                            )}
+                          </button>
                         </div>
                       )}
 
@@ -844,73 +846,23 @@ export function MovieDetailsModal({
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Rate on Watch Drawer */}
-      <Drawer.Root open={showRateOnWatchModal} onOpenChange={(open) => !open && setShowRateOnWatchModal(false)}>
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none">
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
-
-            <div className="p-6 pb-[calc(2rem+env(safe-area-inset-bottom,0px))]">
-              <Drawer.Close className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors">
-                <X className="h-5 w-5" />
-              </Drawer.Close>
-
-              <Drawer.Title className="text-xl font-semibold mb-1">How was it?</Drawer.Title>
-              <p className="text-muted-foreground mb-6">
-                Rate <span className="font-semibold text-foreground">{movie.title}</span>
-              </p>
-
-              <div className="space-y-4">
-                <RatingSlider
-                  value={rateModalRating}
-                  onChangeComplete={setRateModalRating}
-                  showClearButton={false}
-                  size="md"
-                  label=""
-                />
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-                    Add a comment (optional)
-                  </label>
-                  <textarea
-                    value={rateModalComment}
-                    onChange={(e) => setRateModalComment(e.target.value)}
-                    placeholder="Share your thoughts..."
-                    rows={3}
-                    maxLength={500}
-                    className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => {
-                      handleRateOnWatchSkip();
-                      setShowRateOnWatchModal(false);
-                    }}
-                  >
-                    Skip
-                  </Button>
-                  <Button
-                    className="flex-1"
-                    onClick={async () => {
-                      await handleRateOnWatchSave(rateModalRating, rateModalComment);
-                      setShowRateOnWatchModal(false);
-                      setRateModalRating(7);
-                      setRateModalComment('');
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
+      {/* Rate on Watch - Fullscreen Input with Rating (iOS Safari safe) */}
+      <FullscreenTextInput
+        isOpen={isOpen && showRateOnWatchModal}
+        onClose={() => {
+          handleRateOnWatchSkip();
+          setShowRateOnWatchModal(false);
+        }}
+        onSave={handleRateOnWatchSave}
+        initialValue=""
+        title="Rate & Review"
+        subtitle={movie.title}
+        placeholder="Share your thoughts... (optional)"
+        maxLength={500}
+        showRating={true}
+        initialRating={7}
+        ratingLabel="Your Rating"
+      />
 
       {/* Fullscreen Note Editor - Renders INSTEAD of drawer (not alongside it) */}
       {/* This matches the working pattern in add-movie-modal: drawer closes, fullscreen opens */}
@@ -923,6 +875,20 @@ export function MovieDetailsModal({
         subtitle={`For: ${movie.title}`}
         placeholder="Add a personal note about this movie..."
         maxLength={500}
+      />
+
+      {/* Fullscreen Social Link Editor */}
+      <FullscreenTextInput
+        isOpen={isOpen && showSocialLinkEditor}
+        onClose={() => setShowSocialLinkEditor(false)}
+        onSave={handleSaveSocialLink}
+        initialValue={newSocialLink}
+        title="Video Link"
+        subtitle={movie.title}
+        placeholder="TikTok, Instagram, or YouTube URL"
+        maxLength={500}
+        singleLine={true}
+        inputType="url"
       />
     </>
   );
