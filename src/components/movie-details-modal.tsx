@@ -35,6 +35,7 @@ import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
+import { FullscreenTextInput } from './fullscreen-text-input';
 import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { doc } from 'firebase/firestore';
@@ -193,6 +194,7 @@ export function MovieDetailsModal({
   const [rateModalComment, setRateModalComment] = useState('');
   const [userNote, setUserNote] = useState('');
   const [isSavingNote, setIsSavingNote] = useState(false);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
@@ -702,30 +704,16 @@ export function MovieDetailsModal({
                       {canEdit && listId && (
                         <div className="pt-4 border-t">
                           <h3 className="font-bold mb-2">Your Note</h3>
-                          <div className="space-y-2">
-                            <textarea
-                              value={userNote}
-                              onChange={(e) => setUserNote(e.target.value)}
-                              placeholder="Add a personal note..."
-                              rows={3}
-                              maxLength={500}
-                              className="w-full resize-none px-3 py-2 text-base bg-background border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary focus:outline-none transition-shadow duration-200"
-                              style={{ fontSize: '16px' }}
-                            />
-                            <div className="flex justify-between items-center">
-                              <span className="text-xs text-muted-foreground">
-                                {userNote.length}/500
-                              </span>
-                              <Button
-                                onClick={() => handleSaveNote(userNote)}
-                                disabled={isSavingNote || userNote === (movie.notes?.[user.uid] || '')}
-                                size="sm"
-                                className={retroButtonClass}
-                              >
-                                {isSavingNote ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save Note'}
-                              </Button>
-                            </div>
-                          </div>
+                          <button
+                            onClick={() => setShowNoteEditor(true)}
+                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+                          >
+                            {userNote ? (
+                              <p className="text-sm leading-relaxed line-clamp-3 whitespace-pre-wrap">{userNote}</p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Tap to add a note...</p>
+                            )}
+                          </button>
                         </div>
                       )}
 
@@ -915,6 +903,18 @@ export function MovieDetailsModal({
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+
+      {/* Fullscreen Note Editor - OUTSIDE drawer, just like the search input */}
+      <FullscreenTextInput
+        isOpen={showNoteEditor}
+        onClose={() => setShowNoteEditor(false)}
+        onSave={handleSaveNote}
+        initialValue={userNote}
+        title="Note"
+        subtitle={`For: ${movie.title}`}
+        placeholder="Add a personal note about this movie..."
+        maxLength={500}
+      />
     </>
   );
 }
