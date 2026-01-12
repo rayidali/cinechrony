@@ -2,13 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, MoreVertical, Pencil, Trash2, Eye, EyeOff, Film, Users, ImageIcon, X } from 'lucide-react';
+import { Plus, Loader2, Film, Users, ImageIcon, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
-import { CoverPicker } from '@/components/cover-picker';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -16,31 +15,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createList, renameList, deleteList, ensureUserProfile, migrateMoviesToList, toggleListVisibility, getCollaborativeLists, getListsPreviews, getListPreview, uploadListCover, updateListCover } from '@/app/actions';
+import { createList, ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview, uploadListCover, updateListCover } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
 
 // Preview data for list cards
@@ -55,14 +35,8 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200 bg-card";
+const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
 const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
-
-// Pending action type for deferred dialog opening
-type PendingAction = {
-  type: 'rename' | 'delete' | 'cover';
-  list: MovieList;
-} | null;
 
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
@@ -71,23 +45,15 @@ export default function ListsPage() {
   const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isRenameOpen, setIsRenameOpen] = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [newListName, setNewListName] = useState('');
-  const [selectedList, setSelectedList] = useState<MovieList | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
   const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
-  const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
   const [newListCoverPreview, setNewListCoverPreview] = useState<string | null>(null);
   const createCoverInputRef = useRef<HTMLInputElement>(null);
-
-  // Track which dropdown is open (by list id) and pending action
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
 
   // Query for user's lists
   const listsQuery = useMemoFirebase(() => {
@@ -205,27 +171,6 @@ export default function ListsPage() {
     fetchCollabPreviews();
   }, [collaborativeLists]);
 
-  // Process pending action after dropdown closes
-  useEffect(() => {
-    if (pendingAction && openDropdownId === null) {
-      const { type, list } = pendingAction;
-
-      if (type === 'rename') {
-        setSelectedList(list);
-        setNewListName(list.name);
-        setIsRenameOpen(true);
-      } else if (type === 'delete') {
-        setSelectedList(list);
-        setIsDeleteOpen(true);
-      } else if (type === 'cover') {
-        setSelectedList(list);
-        setIsCoverPickerOpen(true);
-      }
-
-      setPendingAction(null);
-    }
-  }, [pendingAction, openDropdownId]);
-
   const handleCreateList = async () => {
     // Prevent double submission
     if (!user || !newListName.trim() || isSubmitting) return;
@@ -325,100 +270,13 @@ export default function ListsPage() {
     }
   };
 
-  const handleRenameList = async () => {
-    if (!user || !selectedList || !newListName.trim()) return;
-
-    setIsSubmitting(true);
-    try {
-      const result = await renameList(user.uid, user.uid, selectedList.id, newListName);
-      if (result.error) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'List Renamed', description: `List renamed to "${newListName}".` });
-        setNewListName('');
-        setSelectedList(null);
-        setIsRenameOpen(false);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleDeleteList = async () => {
-    if (!user || !selectedList) return;
-
-    setIsSubmitting(true);
-    try {
-      const result = await deleteList(user.uid, user.uid, selectedList.id);
-      if (result.error) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'List Deleted', description: `"${selectedList.name}" has been deleted.` });
-        setSelectedList(null);
-        setIsDeleteOpen(false);
-      }
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const scheduleRename = useCallback((list: MovieList) => {
-    setPendingAction({ type: 'rename', list });
-    setOpenDropdownId(null);
-  }, []);
-
-  const scheduleDelete = useCallback((list: MovieList) => {
-    setPendingAction({ type: 'delete', list });
-    setOpenDropdownId(null);
-  }, []);
-
-  const scheduleCover = useCallback((list: MovieList) => {
-    setPendingAction({ type: 'cover', list });
-    setOpenDropdownId(null);
-  }, []);
-
-  const handleToggleVisibility = useCallback(async (list: MovieList) => {
-    if (!user) return;
-    setOpenDropdownId(null);
-
-    try {
-      const result = await toggleListVisibility(user.uid, user.uid, list.id);
-      if (result.error) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({
-          title: list.isPublic ? 'List is now private' : 'List is now public',
-          description: list.isPublic
-            ? 'Only you can see this list.'
-            : 'Your followers can now see this list.',
-        });
-      }
-    } catch (error) {
-      console.error('Failed to toggle visibility:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update visibility.' });
-    }
-  }, [user, toast]);
-
-  const handleDropdownOpenChange = useCallback((listId: string, open: boolean) => {
-    if (open) {
-      setOpenDropdownId(listId);
-    } else {
-      setOpenDropdownId(null);
-    }
-  }, []);
-
   const handleCardClick = useCallback((listId: string, e: React.MouseEvent, ownerId?: string) => {
-    if (openDropdownId !== null) {
-      e.preventDefault();
-      e.stopPropagation();
-      return;
-    }
     if (ownerId) {
       router.push(`/lists/${listId}?owner=${ownerId}`);
     } else {
       router.push(`/lists/${listId}`);
     }
-  }, [openDropdownId, router]);
+  }, [router]);
 
   if (isUserLoading || !user || isInitializing) {
     return (
@@ -470,59 +328,7 @@ export default function ListsPage() {
                     list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
                     previewPosters={preview?.previewPosters ?? []}
                     onClick={(e) => handleCardClick(list.id, e)}
-                  >
-                    <DropdownMenu
-                      open={openDropdownId === list.id}
-                      onOpenChange={(open) => handleDropdownOpenChange(list.id, open)}
-                    >
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 flex-shrink-0 text-white hover:bg-white/20"
-                          onClick={(e) => e.stopPropagation()}
-                          onTouchEnd={(e) => e.stopPropagation()}
-                        >
-                          <MoreVertical className="h-5 w-5" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
-                        <DropdownMenuItem onSelect={() => scheduleCover(list)}>
-                          <ImageIcon className="h-4 w-4 mr-2" />
-                          Set Cover
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => scheduleRename(list)}>
-                          <Pencil className="h-4 w-4 mr-2" />
-                          Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onSelect={() => handleToggleVisibility(list)}>
-                          {list.isPublic ? (
-                            <>
-                              <EyeOff className="h-4 w-4 mr-2" />
-                              Make Private
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="h-4 w-4 mr-2" />
-                              Make Public
-                            </>
-                          )}
-                        </DropdownMenuItem>
-                        {!list.isDefault && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onSelect={() => scheduleDelete(list)}
-                              className="text-destructive"
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </ListCard>
+                  />
                 );
               })}
             </div>
@@ -565,30 +371,7 @@ export default function ListsPage() {
                         onClick={(e) => handleCardClick(list.id, e, list.ownerId)}
                         isCollaborative={true}
                         ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
-                      >
-                        <DropdownMenu
-                          open={openDropdownId === `collab-${list.id}`}
-                          onOpenChange={(open) => handleDropdownOpenChange(`collab-${list.id}`, open)}
-                        >
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 flex-shrink-0 text-white hover:bg-white/20"
-                              onClick={(e) => e.stopPropagation()}
-                              onTouchEnd={(e) => e.stopPropagation()}
-                            >
-                              <MoreVertical className="h-5 w-5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
-                            <DropdownMenuItem onSelect={() => scheduleCover(list)}>
-                              <ImageIcon className="h-4 w-4 mr-2" />
-                              Set Cover
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </ListCard>
+                      />
                     );
                   })}
                 </div>
@@ -596,103 +379,6 @@ export default function ListsPage() {
             </div>
           )}
         </div>
-
-        {/* Rename Dialog */}
-        <Dialog open={isRenameOpen} onOpenChange={(open) => {
-          setIsRenameOpen(open);
-          if (!open) {
-            setSelectedList(null);
-            setNewListName('');
-          }
-        }}>
-          <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
-            <DialogHeader>
-              <DialogTitle className="font-headline">Rename List</DialogTitle>
-              <DialogDescription>Enter a new name for this list.</DialogDescription>
-            </DialogHeader>
-            <Input
-              placeholder="New list name"
-              value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
-              className={retroInputClass}
-              onKeyDown={(e) => e.key === 'Enter' && handleRenameList()}
-            />
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setIsRenameOpen(false)} className="rounded-full">Cancel</Button>
-              <Button
-                onClick={handleRenameList}
-                disabled={!newListName.trim() || isSubmitting}
-                className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
-              >
-                {isSubmitting ? <Loader2 className="animate-spin" /> : 'Rename'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-
-        {/* Delete Confirmation */}
-        <AlertDialog open={isDeleteOpen} onOpenChange={(open) => {
-          setIsDeleteOpen(open);
-          if (!open) {
-            setSelectedList(null);
-          }
-        }}>
-          <AlertDialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="font-headline">Delete List</AlertDialogTitle>
-              <AlertDialogDescription>
-                Are you sure you want to delete &quot;{selectedList?.name}&quot;? This will remove all movies in the list. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="rounded-full">Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDeleteList}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 rounded-full"
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? <Loader2 className="animate-spin" /> : 'Delete'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-        {/* Cover Picker */}
-        {selectedList && (
-          <CoverPicker
-            isOpen={isCoverPickerOpen}
-            onClose={() => {
-              setIsCoverPickerOpen(false);
-              setSelectedList(null);
-            }}
-            listId={selectedList.id}
-            listName={selectedList.name}
-            currentCoverUrl={selectedList.coverImageUrl || null}
-            listOwnerId={selectedList.ownerId}
-            onCoverChange={async () => {
-              // Refresh list previews for own lists
-              if (user && lists) {
-                const listIds = lists.map((list) => list.id);
-                getListsPreviews(user.uid, listIds).then((result) => {
-                  if (result.previews) {
-                    setListPreviews(result.previews);
-                  }
-                });
-              }
-              // Re-fetch collaborative lists to get updated cover URLs
-              if (user) {
-                try {
-                  const result = await getCollaborativeLists(user.uid);
-                  if (result.lists) {
-                    setCollaborativeLists(result.lists as CollaborativeList[]);
-                  }
-                } catch (error) {
-                  console.error('Failed to refresh collaborative lists:', error);
-                }
-              }
-            }}
-          />
-        )}
 
         {/* Create List Dialog */}
         <Dialog open={isCreateOpen} onOpenChange={(open) => {

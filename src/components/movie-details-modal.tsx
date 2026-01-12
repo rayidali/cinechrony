@@ -20,7 +20,7 @@ import {
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -28,14 +28,15 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateReview, updateMovieNote } from '@/app/actions';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
+import { FullscreenTextInput } from './fullscreen-text-input';
 import { useToast } from '@/hooks/use-toast';
+import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { doc } from 'firebase/firestore';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
@@ -61,7 +62,7 @@ const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
 
 const retroInputClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200';
+  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -180,6 +181,7 @@ export function MovieDetailsModal({
 }: MovieDetailsModalProps) {
   const [isPending, startTransition] = useTransition();
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
+  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
@@ -188,29 +190,56 @@ export function MovieDetailsModal({
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
-  const [rateModalRating, setRateModalRating] = useState(7);
-  const [rateModalComment, setRateModalComment] = useState('');
+  const [userNote, setUserNote] = useState('');
+  const [isSavingNote, setIsSavingNote] = useState(false);
+  const [showNoteEditor, setShowNoteEditor] = useState(false);
+  const [showSocialLinkEditor, setShowSocialLinkEditor] = useState(false);
+  const [showCommentEditor, setShowCommentEditor] = useState(false);
+  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
+  const [pendingNewComment, setPendingNewComment] = useState<Review | null>(null);
+  const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
 
+  // Use shared hook for viewport height (fixes iOS Safari issue)
+  const drawerHeight = useViewportHeight(85);
+
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
-  // Reset state when movie changes
+  // Reset state when movie ID changes (not status changes)
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
       setMediaDetails(null);
+      setMediaDetailsForId(null);
       setAddedByUser(null);
       setLocalStatus(movie.status);
       setActiveTab('info');
       setUserRating(null);
       setShowRateOnWatchModal(false);
-      setRateModalRating(7);
-      setRateModalComment('');
+      setShowNoteEditor(false);
+      setShowSocialLinkEditor(false);
+      setShowCommentEditor(false);
+      setEditingComment(null);
+      setPendingNewComment(null);
+      // Initialize user's note from movie data
+      setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
-  }, [movie?.id, movie?.status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movie?.id]); // Only reset on movie ID change, not status changes
+
+  // Reset editors when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setShowNoteEditor(false);
+      setShowSocialLinkEditor(false);
+      setShowRateOnWatchModal(false);
+      setShowCommentEditor(false);
+      setEditingComment(null);
+    }
+  }, [isOpen]);
 
   // Fetch user's rating for this movie
   useEffect(() => {
@@ -229,30 +258,43 @@ export function MovieDetailsModal({
     fetchUserRating();
   }, [movie?.id, isOpen, user?.uid, tmdbId]);
 
-  // Fetch movie/TV details when modal opens
+  // Fetch movie/TV details when modal opens - simplified dependencies
   useEffect(() => {
-    async function loadDetails() {
-      if (!movie || !isOpen || mediaDetails || isLoadingDetails) return;
+    if (!movie || !isOpen) return;
 
+    // Capture movie reference for async closure
+    const currentMovie = movie;
+    let cancelled = false;
+
+    async function loadDetails() {
       setIsLoadingDetails(true);
       let tmdbIdLocal: number;
-      if (movie.tmdbId) {
-        tmdbIdLocal = movie.tmdbId;
+      if (currentMovie.tmdbId) {
+        tmdbIdLocal = currentMovie.tmdbId;
       } else {
-        const idMatch = movie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
+        const idMatch = currentMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(currentMovie.id, 10);
       }
 
       if (!isNaN(tmdbIdLocal)) {
-        const details = movie.mediaType === 'tv'
+        const details = currentMovie.mediaType === 'tv'
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
-        setMediaDetails(details);
+        if (!cancelled) {
+          setMediaDetails(details);
+          setMediaDetailsForId(currentMovie.id);
+        }
       }
-      setIsLoadingDetails(false);
+      if (!cancelled) {
+        setIsLoadingDetails(false);
+      }
     }
     loadDetails();
-  }, [movie, isOpen]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [movie?.id, isOpen]); // Only depends on movie ID and modal open state
 
   // Fetch added by user
   useEffect(() => {
@@ -267,6 +309,35 @@ export function MovieDetailsModal({
     }
     if (isOpen && movie) fetchUser();
   }, [movie?.addedBy, isOpen]);
+
+  // Fetch note authors for displaying usernames
+  useEffect(() => {
+    async function fetchNoteAuthors() {
+      if (!movie?.notes || !isOpen) return;
+
+      const otherUserIds = Object.keys(movie.notes).filter(uid => uid !== user?.uid);
+      if (otherUserIds.length === 0) return;
+
+      const authors: Record<string, { name: string; photoURL: string | null }> = {};
+      await Promise.all(
+        otherUserIds.map(async (uid) => {
+          try {
+            const result = await getUserProfile(uid);
+            if (result.user) {
+              authors[uid] = {
+                name: result.user.displayName || result.user.username || 'User',
+                photoURL: result.user.photoURL,
+              };
+            }
+          } catch {
+            authors[uid] = { name: 'User', photoURL: null };
+          }
+        })
+      );
+      setNoteAuthors(authors);
+    }
+    fetchNoteAuthors();
+  }, [movie?.notes, isOpen, user?.uid]);
 
   if (!movie || !user) return null;
 
@@ -293,8 +364,11 @@ export function MovieDetailsModal({
     });
   };
 
-  const handleRateOnWatchSave = async (rating: number, comment: string) => {
+  // Handler for rate-on-watch fullscreen input (comment: string, rating?: number)
+  const handleRateOnWatchSave = async (comment: string, rating?: number) => {
     if (!user?.uid || !tmdbId) return;
+
+    const finalRating = rating ?? 7;
 
     await createOrUpdateRating(
       user.uid,
@@ -302,9 +376,9 @@ export function MovieDetailsModal({
       movie.mediaType || 'movie',
       movie.title,
       movie.posterUrl,
-      rating
+      finalRating
     );
-    setUserRating(rating);
+    setUserRating(finalRating);
 
     if (comment.trim()) {
       await createReview(
@@ -314,7 +388,7 @@ export function MovieDetailsModal({
         movie.title,
         movie.posterUrl,
         comment,
-        rating
+        finalRating
       );
     }
 
@@ -325,7 +399,7 @@ export function MovieDetailsModal({
 
     toast({
       title: 'Marked as Watched',
-      description: `You rated ${movie.title} ${rating.toFixed(1)}/10`,
+      description: `You rated ${movie.title} ${finalRating.toFixed(1)}/10`,
     });
   };
 
@@ -348,12 +422,15 @@ export function MovieDetailsModal({
     });
   };
 
-  const handleSaveSocialLink = () => {
+  // Handler for saving social link from fullscreen input
+  const handleSaveSocialLink = async (link: string) => {
+    const trimmedLink = link.trim();
+    setNewSocialLink(trimmedLink);
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { socialLink: newSocialLink || null });
+      updateDocumentNonBlocking(movieDocRef, { socialLink: trimmedLink || null });
       toast({
         title: 'Link Updated',
-        description: newSocialLink ? 'Social link has been updated.' : 'Social link has been removed.',
+        description: trimmedLink ? 'Social link has been updated.' : 'Social link has been removed.',
       });
     });
   };
@@ -403,6 +480,90 @@ export function MovieDetailsModal({
     }
   };
 
+  const handleSaveNote = async (noteToSave: string) => {
+    if (!user?.uid || !listId || !listOwnerId) return;
+
+    setIsSavingNote(true);
+    try {
+      const result = await updateMovieNote(user.uid, listOwnerId, listId, movie.id, noteToSave);
+      if (result.success) {
+        // Update local state with the saved note
+        setUserNote(noteToSave);
+        toast({
+          title: noteToSave.trim() ? 'Note saved' : 'Note removed',
+        });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error);
+      }
+    } catch (error) {
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save note.' });
+      throw error;
+    } finally {
+      setIsSavingNote(false);
+    }
+  };
+
+  // Handler for saving comments from fullscreen editor (create or edit)
+  const handleSaveComment = async (text: string) => {
+    if (!user?.uid || !tmdbId) return;
+
+    if (editingComment) {
+      // Update existing comment
+      const result = await updateReview(user.uid, editingComment.id, text);
+      if (result.success) {
+        // Optimistic update handled by ReviewsList via pendingNewComment
+        setPendingNewComment({
+          id: editingComment.id,
+          text: text.trim(),
+          userId: user.uid,
+          tmdbId,
+          mediaType: movie.mediaType || 'movie',
+          movieTitle: movie.title,
+          moviePosterUrl: movie.posterUrl,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          likes: [],
+          likeCount: 0,
+          _isUpdate: true, // Signal this is an update
+        } as Review & { _isUpdate?: boolean });
+        toast({ title: 'Updated', description: 'Your comment has been updated.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error);
+      }
+    } else {
+      // Create new comment
+      const result = await createReview(
+        user.uid,
+        tmdbId,
+        movie.mediaType || 'movie',
+        movie.title,
+        movie.posterUrl,
+        text
+      );
+      if (result.success && result.review) {
+        // Optimistic update - add to list immediately
+        setPendingNewComment(result.review as Review);
+        toast({ title: 'Posted', description: 'Your comment has been posted.' });
+      } else {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error || 'Failed to post comment');
+      }
+    }
+  };
+
+  // Callbacks for ReviewsList
+  const handleRequestAddComment = () => {
+    setEditingComment(null);
+    setShowCommentEditor(true);
+  };
+
+  const handleRequestEditComment = (review: Review) => {
+    setEditingComment({ id: review.id, text: review.text });
+    setShowCommentEditor(true);
+  };
+
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
   const displayUser = addedByUser || (isAddedByCurrentUser ? {
     photoURL: user?.photoURL,
@@ -415,11 +576,20 @@ export function MovieDetailsModal({
 
   return (
     <>
-      {/* Main Movie Details Drawer */}
-      <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      {/* Main Movie Details Drawer - Close when any fullscreen editor is open to release focus trap */}
+      <Drawer.Root
+        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor}
+        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor && onClose()}
+      >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-50 mt-24 flex h-[85vh] flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
+            style={{
+              height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
+              maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
+            }}
+          >
             {/* Drag handle */}
             <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
 
@@ -449,9 +619,9 @@ export function MovieDetailsModal({
                       <Image
                         src={movie.posterUrl}
                         alt={`Poster for ${movie.title}`}
-                        width={400}
-                        height={600}
-                        className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full h-auto"
+                        width={200}
+                        height={300}
+                        className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full max-w-[200px] h-auto mx-auto md:mx-0"
                       />
 
                       {hasEmbeddableVideo && (
@@ -630,26 +800,72 @@ export function MovieDetailsModal({
                         </div>
                       )}
 
-                      {/* Edit Social Link */}
+                      {/* Your Note */}
+                      {canEdit && listId && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-2">Your Note</h3>
+                          <button
+                            onClick={() => setShowNoteEditor(true)}
+                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+                          >
+                            {userNote ? (
+                              <p className="text-sm leading-relaxed line-clamp-3 whitespace-pre-wrap">{userNote}</p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Tap to add a note...</p>
+                            )}
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Other Users' Notes */}
+                      {movie.notes && Object.keys(movie.notes).filter(uid => uid !== user.uid).length > 0 && (
+                        <div className="pt-4 border-t">
+                          <h3 className="font-bold mb-3">Team Notes</h3>
+                          <div className="space-y-3">
+                            {Object.entries(movie.notes)
+                              .filter(([uid]) => uid !== user.uid)
+                              .map(([uid, note]) => {
+                                const author = noteAuthors[uid];
+                                return (
+                                  <div key={uid} className="bg-secondary/30 rounded-lg p-3 border border-border/50">
+                                    <div className="flex items-center gap-2 mb-1.5">
+                                      {author?.photoURL ? (
+                                        <Image
+                                          src={author.photoURL}
+                                          alt={author.name}
+                                          width={18}
+                                          height={18}
+                                          className="rounded-full"
+                                        />
+                                      ) : (
+                                        <div className="w-[18px] h-[18px] rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary">
+                                          {(author?.name || 'U').charAt(0).toUpperCase()}
+                                        </div>
+                                      )}
+                                      <span className="text-sm font-semibold text-primary">@{author?.name || '...'}</span>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">{note}</p>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Edit Social Link - Tap to open fullscreen editor */}
                       {canEdit && (
                         <div className="pt-4 border-t">
                           <h3 className="font-bold mb-2">Video Link</h3>
-                          <div className="flex gap-2">
-                            <Input
-                              type="url"
-                              value={newSocialLink}
-                              onChange={(e) => setNewSocialLink(e.target.value)}
-                              placeholder="TikTok, Instagram, or YouTube URL"
-                              className={retroInputClass}
-                            />
-                            <Button
-                              onClick={handleSaveSocialLink}
-                              disabled={isPending || newSocialLink === (movie.socialLink || '')}
-                              className={retroButtonClass}
-                            >
-                              {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
-                            </Button>
-                          </div>
+                          <button
+                            onClick={() => setShowSocialLinkEditor(true)}
+                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+                          >
+                            {newSocialLink ? (
+                              <p className="text-sm text-primary truncate">{newSocialLink}</p>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">Tap to add a video link...</p>
+                            )}
+                          </button>
                         </div>
                       )}
 
@@ -678,13 +894,17 @@ export function MovieDetailsModal({
                     movieTitle={movie.title}
                     moviePosterUrl={movie.posterUrl}
                     currentUserId={user.uid}
+                    onRequestAddComment={handleRequestAddComment}
+                    onRequestEditComment={handleRequestEditComment}
+                    pendingNewComment={pendingNewComment}
+                    onPendingCommentHandled={() => setPendingNewComment(null)}
                   />
                 </div>
               )}
             </div>
 
             {/* Sticky bottom bar with Info/Reviews toggle */}
-            <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+            <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
               <div className="flex gap-2 justify-center">
                 <button
                   onClick={() => setActiveTab('info')}
@@ -714,73 +934,65 @@ export function MovieDetailsModal({
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Rate on Watch Drawer */}
-      <Drawer.Root open={showRateOnWatchModal} onOpenChange={(open) => !open && setShowRateOnWatchModal(false)}>
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none">
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
+      {/* Rate on Watch - Fullscreen Input with Rating (iOS Safari safe) */}
+      <FullscreenTextInput
+        isOpen={isOpen && showRateOnWatchModal}
+        onClose={() => {
+          handleRateOnWatchSkip();
+          setShowRateOnWatchModal(false);
+        }}
+        onSave={handleRateOnWatchSave}
+        initialValue=""
+        title="Rate & Review"
+        subtitle={movie.title}
+        placeholder="Share your thoughts... (optional)"
+        maxLength={500}
+        showRating={true}
+        initialRating={7}
+        ratingLabel="Your Rating"
+      />
 
-            <div className="p-6 pb-[calc(2rem+env(safe-area-inset-bottom,0px))]">
-              <Drawer.Close className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors">
-                <X className="h-5 w-5" />
-              </Drawer.Close>
+      {/* Fullscreen Note Editor - Renders INSTEAD of drawer (not alongside it) */}
+      {/* This matches the working pattern in add-movie-modal: drawer closes, fullscreen opens */}
+      <FullscreenTextInput
+        isOpen={isOpen && showNoteEditor}
+        onClose={() => setShowNoteEditor(false)}
+        onSave={handleSaveNote}
+        initialValue={userNote}
+        title="Note"
+        subtitle={`For: ${movie.title}`}
+        placeholder="Add a personal note about this movie..."
+        maxLength={500}
+      />
 
-              <Drawer.Title className="text-xl font-semibold mb-1">How was it?</Drawer.Title>
-              <p className="text-muted-foreground mb-6">
-                Rate <span className="font-semibold text-foreground">{movie.title}</span>
-              </p>
+      {/* Fullscreen Social Link Editor */}
+      <FullscreenTextInput
+        isOpen={isOpen && showSocialLinkEditor}
+        onClose={() => setShowSocialLinkEditor(false)}
+        onSave={handleSaveSocialLink}
+        initialValue={newSocialLink}
+        title="Video Link"
+        subtitle={movie.title}
+        placeholder="TikTok, Instagram, or YouTube URL"
+        maxLength={500}
+        singleLine={true}
+        inputType="url"
+      />
 
-              <div className="space-y-4">
-                <RatingSlider
-                  value={rateModalRating}
-                  onChangeComplete={setRateModalRating}
-                  showClearButton={false}
-                  size="md"
-                  label=""
-                />
-                <div>
-                  <label className="text-sm font-medium text-muted-foreground mb-1.5 block">
-                    Add a comment (optional)
-                  </label>
-                  <textarea
-                    value={rateModalComment}
-                    onChange={(e) => setRateModalComment(e.target.value)}
-                    placeholder="Share your thoughts..."
-                    rows={3}
-                    maxLength={500}
-                    className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
-                  />
-                </div>
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => {
-                      handleRateOnWatchSkip();
-                      setShowRateOnWatchModal(false);
-                    }}
-                  >
-                    Skip
-                  </Button>
-                  <Button
-                    className="flex-1"
-                    onClick={async () => {
-                      await handleRateOnWatchSave(rateModalRating, rateModalComment);
-                      setShowRateOnWatchModal(false);
-                      setRateModalRating(7);
-                      setRateModalComment('');
-                    }}
-                  >
-                    Save
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
+      {/* Fullscreen Comment Editor for Reviews Tab */}
+      <FullscreenTextInput
+        isOpen={isOpen && showCommentEditor}
+        onClose={() => {
+          setShowCommentEditor(false);
+          setEditingComment(null);
+        }}
+        onSave={handleSaveComment}
+        initialValue={editingComment?.text || ''}
+        title={editingComment ? 'Edit Comment' : 'Add Comment'}
+        subtitle={movie.title}
+        placeholder="Share your thoughts..."
+        maxLength={500}
+      />
     </>
   );
 }

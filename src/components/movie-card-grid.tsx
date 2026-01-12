@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useMemo } from 'react';
 import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
@@ -9,6 +9,7 @@ import { parseVideoUrl } from '@/lib/video-utils';
 import { useUser } from '@/firebase';
 import { getUserProfile, getUserRating } from '@/app/actions';
 import { TiktokIcon } from './icons';
+import { getRatingStyle } from '@/lib/utils';
 
 type MovieCardGridProps = {
   movie: Movie;
@@ -33,7 +34,7 @@ function getProviderIcon(url: string | undefined) {
   }
 }
 
-export function MovieCardGrid({
+export const MovieCardGrid = memo(function MovieCardGrid({
   movie,
   listId,
   listOwnerId,
@@ -41,44 +42,91 @@ export function MovieCardGrid({
 }: MovieCardGridProps) {
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const [userRating, setUserRating] = useState<number | null>(null);
+  const [noteAuthors, setNoteAuthors] = useState<Record<string, string>>({});
   const { user } = useUser();
+
+  // Get rating style for badge (uses HSL interpolation for consistent colors)
+  const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
 
   // Get TMDB ID
   const tmdbId = movie.tmdbId || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
   // Fetch the user who added this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchAddedByUser() {
       if (!movie.addedBy) return;
       // Skip fetching if it's the current user
       if (movie.addedBy === user?.uid) return;
       try {
         const result = await getUserProfile(movie.addedBy);
-        if (result.user) {
+        if (!cancelled && result.user) {
           setAddedByUser(result.user);
         }
       } catch (error) {
-        console.error('Failed to fetch addedBy user:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch addedBy user:', error);
+        }
       }
     }
     fetchAddedByUser();
+    return () => { cancelled = true; };
   }, [movie.addedBy, user?.uid]);
 
   // Fetch user's personal rating for this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchUserRating() {
       if (!user?.uid || !tmdbId) return;
       try {
         const result = await getUserRating(user.uid, tmdbId);
-        if (result.rating) {
+        if (!cancelled && result.rating) {
           setUserRating(result.rating.rating);
         }
       } catch (error) {
-        console.error('Failed to fetch user rating:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch user rating:', error);
+        }
       }
     }
     fetchUserRating();
+    return () => { cancelled = true; };
   }, [user?.uid, tmdbId]);
+
+  // Fetch note authors
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchNoteAuthors() {
+      if (!movie.notes) return;
+      const userIds = Object.keys(movie.notes);
+      if (userIds.length === 0) return;
+
+      const authors: Record<string, string> = {};
+      await Promise.all(
+        userIds.map(async (uid) => {
+          if (uid === user?.uid) {
+            authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+          } else {
+            try {
+              const result = await getUserProfile(uid);
+              if (!cancelled && result.user) {
+                authors[uid] = result.user.username || result.user.displayName || 'user';
+              }
+            } catch {
+              if (!cancelled) {
+                authors[uid] = 'user';
+              }
+            }
+          }
+        })
+      );
+      if (!cancelled) {
+        setNoteAuthors(authors);
+      }
+    }
+    fetchNoteAuthors();
+    return () => { cancelled = true; };
+  }, [movie.notes, user?.uid, user?.displayName, user?.email]);
 
   if (!user) return null;
 
@@ -91,6 +139,12 @@ export function MovieCardGrid({
   // Check for social link
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
+
+  // Get notes to display (memoized to prevent array recreation)
+  const notesEntries = useMemo(
+    () => (movie.notes ? Object.entries(movie.notes) : []),
+    [movie.notes]
+  );
 
   // Get added by display info
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
@@ -118,13 +172,14 @@ export function MovieCardGrid({
         <div className="absolute top-1 left-1 right-1 flex justify-between items-start">
           {/* Left side: User Rating + TV badge */}
           <div className="flex items-center gap-1">
-            {/* User's personal rating badge - distinct green style */}
+            {/* User's personal rating badge - color reflects rating */}
             {userRating !== null ? (
               <div
-                className="bg-green-600 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                className="px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
                 title={`Your rating: ${userRating.toFixed(1)}/10`}
               >
-                <Star className="h-3 w-3 fill-white text-white" />
+                <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
                 {userRating.toFixed(1)}
               </div>
             ) : null}
@@ -181,13 +236,29 @@ export function MovieCardGrid({
         </div>
       </div>
 
-      {/* Title and year below poster */}
+      {/* Title, year, and notes below poster */}
       <div className="mt-1.5 px-0.5">
         <p className="text-xs font-medium truncate leading-tight" title={movie.title}>
           {movie.title}
         </p>
         <p className="text-xs text-muted-foreground">{movie.year}</p>
+
+        {/* Notes displayed below title */}
+        {notesEntries.length > 0 && (
+          <div className="mt-1.5 space-y-1">
+            {notesEntries.slice(0, 2).map(([uid, note]) => (
+              <div key={uid} className="text-[11px] leading-snug">
+                <span className="font-semibold text-primary">@{noteAuthors[uid] || '...'}</span>
+                <span className="text-muted-foreground/60 mx-1">·</span>
+                <span className="text-muted-foreground line-clamp-1 break-words">{note}</span>
+              </div>
+            ))}
+            {notesEntries.length > 2 && (
+              <p className="text-[10px] text-muted-foreground/50 font-medium">+{notesEntries.length - 2} more</p>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
-}
+});

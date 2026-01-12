@@ -154,7 +154,7 @@ async function searchAll(query: string): Promise<SearchResult[]> {
   return combined.slice(0, 12);
 }
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:translate-x-0.5 focus:translate-y-0.5 dark:focus:translate-x-0 dark:focus:translate-y-0 transition-all duration-200 bg-card";
+const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
 const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
 
 export default function AddPage() {

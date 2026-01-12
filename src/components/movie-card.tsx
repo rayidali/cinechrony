@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, memo } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -81,7 +81,7 @@ const retroButtonClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
 
 const retroInputClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:translate-x-0.5 focus:translate-y-0.5 transition-all duration-200';
+  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 const OMDB_API_KEY = 'fc5ca6d0';
@@ -210,7 +210,7 @@ async function searchMovieByTitle(title: string, year: string): Promise<number |
   }
 }
 
-export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit = true }: MovieCardProps) {
+export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit = true }: MovieCardProps) {
   const [isPending, startTransition] = useTransition();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -225,6 +225,7 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
 
   // Fetch the user who added this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchAddedByUser() {
       if (!movie.addedBy) {
         // No addedBy field - movie was added before this feature
@@ -232,16 +233,19 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
       }
       try {
         const result = await getUserProfile(movie.addedBy);
-        if (result.user) {
+        if (!cancelled && result.user) {
           setAddedByUser(result.user);
-        } else {
+        } else if (!cancelled) {
           console.log('User profile not found for addedBy:', movie.addedBy);
         }
       } catch (error) {
-        console.error('Failed to fetch addedBy user:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch addedBy user:', error);
+        }
       }
     }
     fetchAddedByUser();
+    return () => { cancelled = true; };
   }, [movie.addedBy]);
 
   // Parse video URL to check if we have an embeddable video
@@ -749,4 +753,4 @@ export function MovieCard({ movie, listId, listOwnerId, userAvatarUrl, canEdit =
       </Dialog>
     </>
   );
-}
+});

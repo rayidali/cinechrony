@@ -4,6 +4,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { Space_Grotesk, Space_Mono } from 'next/font/google';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { ThemeProvider } from '@/components/theme-provider';
+import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -51,7 +52,9 @@ export default function RootLayout({
       <body className={`${spaceGrotesk.variable} ${spaceMono.variable} font-body antialiased`}>
         <ThemeProvider>
           <FirebaseClientProvider>
-            {children}
+            <ListMembersCacheProvider>
+              {children}
+            </ListMembersCacheProvider>
           </FirebaseClientProvider>
           <Toaster />
         </ThemeProvider>

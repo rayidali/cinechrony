@@ -1,10 +1,12 @@
 'use client';
 
 import Image from 'next/image';
+import { useMemo } from 'react';
 import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube } from 'lucide-react';
 import type { Movie } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
 import { TiktokIcon } from './icons';
+import { getRatingStyle } from '@/lib/utils';
 
 type PublicMovieGridProps = {
   movie: Movie;
@@ -37,6 +39,9 @@ export function PublicMovieGrid({ movie, onOpenDetails }: PublicMovieGridProps) 
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
 
+  // Get rating style for badge
+  const ratingStyle = useMemo(() => getRatingStyle(movie.rating ?? null), [movie.rating]);
+
   return (
     <div className="group relative cursor-pointer" onClick={handleClick}>
       {/* Poster */}
@@ -53,8 +58,11 @@ export function PublicMovieGrid({ movie, onOpenDetails }: PublicMovieGridProps) 
         <div className="absolute top-1 left-1 right-1 flex justify-between items-start">
           {/* Rating badge */}
           {movie.rating ? (
-            <div className="bg-black/80 text-white px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5">
-              <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+            <div
+              className="px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+              style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
+            >
+              <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
               {movie.rating.toFixed(1)}
             </div>
           ) : (

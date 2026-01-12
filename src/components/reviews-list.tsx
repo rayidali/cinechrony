@@ -1,10 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 import Image from 'next/image';
-import { Loader2, MessageSquare } from 'lucide-react';
+import { Loader2, MessageSquare, Send } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
-import { WriteReviewInput } from '@/components/write-review-input';
 import { getMovieReviews } from '@/app/actions';
 import type { Review } from '@/lib/types';
 
@@ -14,55 +13,84 @@ interface ReviewsListProps {
   movieTitle: string;
   moviePosterUrl?: string;
   currentUserId?: string;
+  // Callbacks for fullscreen editor (iOS Safari safe)
+  onRequestAddComment?: () => void;
+  onRequestEditComment?: (review: Review) => void;
+  // Optimistic update - parent passes new/updated comment after save
+  pendingNewComment?: Review | null;
+  onPendingCommentHandled?: () => void;
 }
 
-export function ReviewsList({
+export const ReviewsList = memo(function ReviewsList({
   tmdbId,
   mediaType,
   movieTitle,
   moviePosterUrl,
   currentUserId,
+  onRequestAddComment,
+  onRequestEditComment,
+  pendingNewComment,
+  onPendingCommentHandled,
 }: ReviewsListProps) {
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
-  const [editingReview, setEditingReview] = useState<Review | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchReviews() {
       setIsLoading(true);
       try {
         const result = await getMovieReviews(tmdbId, sortBy);
-        if (result.reviews) {
+        if (!cancelled && result.reviews) {
           setReviews(result.reviews as Review[]);
         }
       } catch (error) {
-        console.error('Failed to fetch reviews:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch reviews:', error);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     fetchReviews();
+
+    return () => {
+      cancelled = true;
+    };
   }, [tmdbId, sortBy]);
 
-  const handleReviewCreated = (newReview: Review) => {
-    setReviews((prev) => [newReview, ...prev]);
-  };
+  // Handle pending new/updated comment from fullscreen editor
+  useEffect(() => {
+    if (pendingNewComment) {
+      // Check if this is an update (has _isUpdate flag) or new comment
+      const isUpdate = (pendingNewComment as Review & { _isUpdate?: boolean })._isUpdate;
 
-  const handleReviewUpdated = (updatedReview: Review) => {
-    setReviews((prev) =>
-      prev.map((r) => (r.id === updatedReview.id ? updatedReview : r))
-    );
-    setEditingReview(null);
-  };
+      if (isUpdate) {
+        // Update existing review in list
+        setReviews((prev) =>
+          prev.map((r) => (r.id === pendingNewComment.id ? { ...pendingNewComment, _isUpdate: undefined } : r))
+        );
+      } else {
+        // Add new review to top of list
+        setReviews((prev) => [pendingNewComment, ...prev]);
+      }
 
-  const handleReviewDeleted = (reviewId: string) => {
+      // Notify parent that we've handled the pending comment
+      onPendingCommentHandled?.();
+    }
+  }, [pendingNewComment, onPendingCommentHandled]);
+
+  const deleteReview = (reviewId: string) => {
     setReviews((prev) => prev.filter((r) => r.id !== reviewId));
   };
 
   return (
-    <div className="flex flex-col flex-1 h-full min-h-0">
+    <div className="flex flex-col flex-1 min-h-0">
       {/* Movie info header with poster */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-border flex-shrink-0">
         {moviePosterUrl && (
@@ -109,7 +137,7 @@ export function ReviewsList({
       )}
 
       {/* Reviews list - scrollable middle section */}
-      <div className="flex-1 overflow-y-auto px-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4">
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -129,40 +157,26 @@ export function ReviewsList({
                 key={review.id}
                 review={review}
                 currentUserId={currentUserId}
-                onDelete={handleReviewDeleted}
-                onEdit={setEditingReview}
+                onDelete={deleteReview}
+                onEdit={onRequestEditComment}
               />
             ))}
           </div>
         )}
       </div>
 
-      {/* Input at bottom - easier thumb access */}
-      {currentUserId && (
+      {/* Tap to add comment button - iOS Safari safe (no inline textarea) */}
+      {currentUserId && onRequestAddComment && (
         <div className="px-4 py-3 border-t border-border bg-background flex-shrink-0">
-          {editingReview ? (
-            <WriteReviewInput
-              tmdbId={tmdbId}
-              mediaType={mediaType}
-              movieTitle={movieTitle}
-              moviePosterUrl={moviePosterUrl}
-              currentUserId={currentUserId}
-              existingReview={editingReview}
-              onReviewUpdated={handleReviewUpdated}
-              onCancel={() => setEditingReview(null)}
-            />
-          ) : (
-            <WriteReviewInput
-              tmdbId={tmdbId}
-              mediaType={mediaType}
-              movieTitle={movieTitle}
-              moviePosterUrl={moviePosterUrl}
-              currentUserId={currentUserId}
-              onReviewCreated={handleReviewCreated}
-            />
-          )}
+          <button
+            onClick={onRequestAddComment}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
+          >
+            <Send className="h-4 w-4 text-muted-foreground flex-shrink-0" />
+            <span className="text-muted-foreground text-left flex-1">Add a comment...</span>
+          </button>
         </div>
       )}
     </div>
   );
-}
+});

@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, memo, useMemo } from 'react';
 import Link from 'next/link';
-import { Heart, MessageCircle, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
+import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
@@ -23,7 +24,7 @@ interface ReviewCardProps {
   onEdit?: (review: Review) => void;
 }
 
-export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCardProps) {
+export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCardProps) {
   const { toast } = useToast();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
@@ -35,6 +36,9 @@ export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCa
   const isOwner = currentUserId === review.userId;
   const displayName = review.userDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
+
+  // Get styles for the rating badge (using inline styles for consistency)
+  const ratingStyle = useMemo(() => getRatingStyle(review.ratingAtTime), [review.ratingAtTime]);
 
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;
@@ -109,8 +113,11 @@ export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCa
 
           {/* Rating badge - shows the rating at time of comment */}
           {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
-            <span className="inline-flex items-center gap-0.5 bg-green-600 text-white px-1.5 py-0.5 rounded text-xs font-bold">
-              <Star className="h-3 w-3 fill-white" />
+            <span
+              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold"
+              style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
+            >
+              <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
               {review.ratingAtTime.toFixed(1)}
             </span>
           )}
@@ -171,4 +178,4 @@ export function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCa
       </div>
     </div>
   );
-}
+});

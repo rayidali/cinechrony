@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Movie } from '@/lib/types';
 import { MovieCard } from './movie-card';
 import { MovieCardGrid } from './movie-card-grid';
@@ -44,17 +44,20 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     localStorage.setItem(VIEW_MODE_KEY, mode);
   };
 
-  const handleOpenDetails = (movie: Movie) => {
+  const handleOpenDetails = useCallback((movie: Movie) => {
     setSelectedMovie(movie);
     setIsModalOpen(true);
-  };
+  }, []);
 
-  const handleCloseModal = () => {
+  const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedMovie(null);
-  };
+  }, []);
 
-  const filteredMovies = initialMovies.filter((movie) => movie.status === filter);
+  const filteredMovies = useMemo(
+    () => initialMovies.filter((movie) => movie.status === filter),
+    [initialMovies, filter]
+  );
 
   // Render grid view skeleton
   const renderGridSkeleton = () => (

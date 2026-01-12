@@ -226,6 +226,34 @@ export async function renameList(userId: string, listOwnerId: string, listId: st
 }
 
 /**
+ * Update list visibility (public/private).
+ * Only the list owner can update visibility.
+ */
+export async function updateListVisibility(userId: string, listOwnerId: string, listId: string, isPublic: boolean) {
+  const db = getDb();
+
+  try {
+    // Only owner can update visibility
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can update visibility.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+    await listRef.update({
+      isPublic,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/lists');
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update list visibility:', error);
+    return { error: 'Failed to update visibility.' };
+  }
+}
+
+/**
  * Deletes a list and all its movies.
  * Cannot delete the default list.
  * Only the list owner can delete.
@@ -298,6 +326,8 @@ export async function addMovieToList(formData: FormData) {
     const userId = formData.get('userId') as string;
     const listId = formData.get('listId') as string;
     const socialLink = formData.get('socialLink') as string;
+    const note = formData.get('note') as string;
+    const status = (formData.get('status') as 'To Watch' | 'Watched') || 'To Watch';
     // listOwnerId is required for collaborative lists, defaults to userId for backwards compatibility
     const listOwnerId = (formData.get('listOwnerId') as string) || userId;
 
@@ -323,31 +353,50 @@ export async function addMovieToList(formData: FormData) {
       .collection('movies')
       .doc(docId);
 
-    await movieRef.set(
-      {
-        id: docId,
-        title: movieData.title,
-        year: movieData.year,
-        posterUrl: movieData.posterUrl,
-        posterHint: movieData.posterHint,
-        mediaType: mediaType,
-        addedBy: userId, // Track who added the movie
-        socialLink: socialLink || '',
-        status: 'To Watch',
-        createdAt: FieldValue.serverTimestamp(),
-      },
-      { merge: true }
-    );
+    // Build the movie document
+    const movieDoc: Record<string, unknown> = {
+      id: docId,
+      title: movieData.title,
+      year: movieData.year,
+      posterUrl: movieData.posterUrl,
+      posterHint: movieData.posterHint,
+      mediaType: mediaType,
+      addedBy: userId,
+      socialLink: socialLink || '',
+      status: status,
+      createdAt: FieldValue.serverTimestamp(),
+    };
 
-    // Update list's updatedAt
-    await db
+    // Add user note if provided (stored in a notes map keyed by userId)
+    if (note) {
+      movieDoc.notes = {
+        [userId]: note,
+      };
+    }
+
+    // Check if movie already exists (to avoid double-counting)
+    const existingDoc = await movieRef.get();
+    const isNewMovie = !existingDoc.exists;
+
+    await movieRef.set(movieDoc, { merge: true });
+
+    // Update list's updatedAt and increment movieCount if new
+    const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
-      .doc(listId)
-      .update({
+      .doc(listId);
+
+    if (isNewMovie) {
+      await listRef.update({
+        updatedAt: FieldValue.serverTimestamp(),
+        movieCount: FieldValue.increment(1),
+      });
+    } else {
+      await listRef.update({
         updatedAt: FieldValue.serverTimestamp(),
       });
+    }
 
     revalidatePath(`/lists/${listId}`);
     return { success: true };
@@ -386,7 +435,7 @@ export async function removeMovieFromList(
 
     await movieRef.delete();
 
-    // Update list's updatedAt
+    // Update list's updatedAt and decrement movieCount
     await db
       .collection('users')
       .doc(listOwnerId)
@@ -394,6 +443,7 @@ export async function removeMovieFromList(
       .doc(listId)
       .update({
         updatedAt: FieldValue.serverTimestamp(),
+        movieCount: FieldValue.increment(-1),
       });
 
     revalidatePath(`/lists/${listId}`);
@@ -451,6 +501,67 @@ export async function updateMovieStatus(
   } catch (error) {
     console.error('Failed to update movie status:', error);
     return { error: 'Failed to update movie status.' };
+  }
+}
+
+/**
+ * Update a user's note on a movie.
+ * Notes are stored per-user in the movie document.
+ */
+export async function updateMovieNote(
+  userId: string,
+  listOwnerId: string,
+  listId: string,
+  movieId: string,
+  note: string
+) {
+  const db = getDb();
+
+  try {
+    // Check if user can edit this list (owner or collaborator)
+    const canEdit = await canEditList(userId, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to add notes in this list.' };
+    }
+
+    const movieRef = db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .collection('movies')
+      .doc(movieId);
+
+    // Use dot notation to update only this user's note
+    const noteKey = `notes.${userId}`;
+
+    if (note.trim() === '') {
+      // Remove the note if empty
+      await movieRef.update({
+        [noteKey]: FieldValue.delete(),
+      });
+    } else {
+      // Set or update the note
+      await movieRef.update({
+        [noteKey]: note.trim(),
+      });
+    }
+
+    // Update list's updatedAt
+    await db
+      .collection('users')
+      .doc(listOwnerId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update movie note:', error);
+    return { error: 'Failed to update movie note.' };
   }
 }
 
@@ -1302,35 +1413,26 @@ export async function getListMembers(listOwnerId: string, listId: string) {
 
     const listData = listDoc.data();
     const collaboratorIds: string[] = listData?.collaboratorIds || [];
-    const members: ListMember[] = [];
 
-    // Get owner profile
-    const ownerDoc = await db.collection('users').doc(listOwnerId).get();
-    if (ownerDoc.exists) {
-      const ownerData = ownerDoc.data();
-      members.push({
-        uid: listOwnerId,
-        username: ownerData?.username || null,
-        displayName: ownerData?.displayName || null,
-        photoURL: ownerData?.photoURL || null,
-        role: 'owner',
-      });
-    }
-
-    // Get collaborator profiles
-    for (const collabId of collaboratorIds) {
-      const collabDoc = await db.collection('users').doc(collabId).get();
-      if (collabDoc.exists) {
-        const collabData = collabDoc.data();
-        members.push({
-          uid: collabId,
-          username: collabData?.username || null,
-          displayName: collabData?.displayName || null,
-          photoURL: collabData?.photoURL || null,
-          role: 'collaborator',
-        });
+    // Fetch owner AND all collaborators in PARALLEL
+    const allUserIds = [listOwnerId, ...collaboratorIds];
+    const userPromises = allUserIds.map(async (userId, index) => {
+      const userDoc = await db.collection('users').doc(userId).get();
+      if (userDoc.exists) {
+        const userData = userDoc.data();
+        return {
+          uid: userId,
+          username: userData?.username || null,
+          displayName: userData?.displayName || null,
+          photoURL: userData?.photoURL || null,
+          role: index === 0 ? 'owner' as const : 'collaborator' as const,
+        };
       }
-    }
+      return null;
+    });
+
+    const results = await Promise.all(userPromises);
+    const members = results.filter((m): m is ListMember => m !== null);
 
     return { members };
   } catch (error) {
@@ -1909,25 +2011,57 @@ export async function transferOwnership(currentOwnerId: string, listId: string, 
 }
 
 /**
+ * Get all lists owned by a user.
+ */
+export async function getUserLists(userId: string) {
+  const db = getDb();
+
+  try {
+    const listsSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .orderBy('createdAt', 'desc')
+      .get();
+
+    const lists = listsSnapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        isDefault: data.isDefault || false,
+        isPublic: data.isPublic || false,
+        ownerId: userId,
+        collaboratorIds: data.collaboratorIds || [],
+        coverImageUrl: data.coverImageUrl || null,
+        movieCount: data.movieCount || 0,
+        createdAt: data.createdAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString() || new Date().toISOString(),
+      };
+    });
+
+    return { lists };
+  } catch (error) {
+    console.error('[getUserLists] Failed:', error);
+    return { error: 'Failed to get user lists.', lists: [] };
+  }
+}
+
+/**
  * Get lists where user is a collaborator (not owner).
  */
 export async function getCollaborativeLists(userId: string) {
   const db = getDb();
 
   try {
-    // Query all lists where user is in collaboratorIds
-    // Note: This requires checking across all users' lists, which isn't efficient
-    // For now, we'll store a reference in the user's document or use a separate collection
-
-    // Alternative approach: Query the invites collection for accepted invites
+    // Query the invites collection for accepted invites
     const acceptedInvites = await db.collection('invites')
       .where('inviteeId', '==', userId)
       .where('status', '==', 'accepted')
       .get();
 
-    const lists = [];
-
-    for (const inviteDoc of acceptedInvites.docs) {
+    // Fetch all lists in PARALLEL (not sequentially)
+    const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
       const inviteData = inviteDoc.data();
       const listDoc = await db
         .collection('users')
@@ -1940,8 +2074,7 @@ export async function getCollaborativeLists(userId: string) {
         const listData = listDoc.data();
         // Verify user is still a collaborator
         if (listData?.collaboratorIds?.includes(userId)) {
-          // Convert Firestore Timestamps to ISO strings for serialization
-          lists.push({
+          return {
             id: listDoc.id,
             name: listData.name,
             ownerId: inviteData.listOwnerId,
@@ -1953,10 +2086,14 @@ export async function getCollaborativeLists(userId: string) {
             coverImageUrl: listData.coverImageUrl || null,
             createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
             updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          });
+          };
         }
       }
-    }
+      return null;
+    });
+
+    const results = await Promise.all(listPromises);
+    const lists = results.filter((list): list is NonNullable<typeof list> => list !== null);
 
     return { lists };
   } catch (error) {
