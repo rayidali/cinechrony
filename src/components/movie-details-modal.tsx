@@ -218,10 +218,18 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
       setRateModalRating(7);
       setRateModalComment('');
+      setShowNoteEditor(false);
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
   }, [movie?.id, movie?.status, user?.uid]);
+
+  // Reset note editor when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setShowNoteEditor(false);
+    }
+  }, [isOpen]);
 
   // Fetch user's rating for this movie
   useEffect(() => {
@@ -479,8 +487,8 @@ export function MovieDetailsModal({
 
   return (
     <>
-      {/* Main Movie Details Drawer */}
-      <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      {/* Main Movie Details Drawer - Close when note editor is open to release focus trap */}
+      <Drawer.Root open={isOpen && !showNoteEditor} onOpenChange={(open) => !open && !showNoteEditor && onClose()}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
@@ -904,9 +912,10 @@ export function MovieDetailsModal({
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Fullscreen Note Editor - OUTSIDE drawer, just like the search input */}
+      {/* Fullscreen Note Editor - Renders INSTEAD of drawer (not alongside it) */}
+      {/* This matches the working pattern in add-movie-modal: drawer closes, fullscreen opens */}
       <FullscreenTextInput
-        isOpen={showNoteEditor}
+        isOpen={isOpen && showNoteEditor}
         onClose={() => setShowNoteEditor(false)}
         onSave={handleSaveNote}
         initialValue={userNote}
