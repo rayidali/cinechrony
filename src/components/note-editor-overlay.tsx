@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { createPortal } from 'react-dom';
-import { X, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 type NoteEditorOverlayProps = {
@@ -24,13 +23,7 @@ export function NoteEditorOverlay({
 }: NoteEditorOverlayProps) {
   const [note, setNote] = useState(initialNote);
   const [isSaving, setIsSaving] = useState(false);
-  const [mounted, setMounted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  // Handle mounting for portal
-  useEffect(() => {
-    setMounted(true);
-  }, []);
 
   // Reset note when opened with new initial value
   useEffect(() => {
@@ -69,18 +62,17 @@ export function NoteEditorOverlay({
 
   const hasChanges = note !== initialNote;
 
-  if (!mounted || !isOpen) return null;
+  if (!isOpen) return null;
 
-  const content = (
+  return (
     <div
-      className="fixed inset-0 z-[100] bg-background flex flex-col"
+      className="fixed inset-0 z-[200] bg-background flex flex-col"
       style={{
-        // Use dvh for proper mobile viewport handling
         height: '100dvh',
       }}
     >
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background safe-area-top">
+      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-border bg-background">
         <Button
           variant="ghost"
           size="sm"
@@ -121,7 +113,6 @@ export function NoteEditorOverlay({
           maxLength={maxLength}
           className="flex-1 w-full resize-none text-base bg-transparent outline-none placeholder:text-muted-foreground leading-relaxed"
           style={{
-            // Ensure 16px font to prevent iOS zoom
             fontSize: '16px',
           }}
         />
@@ -141,6 +132,4 @@ export function NoteEditorOverlay({
       />
     </div>
   );
-
-  return createPortal(content, document.body);
 }

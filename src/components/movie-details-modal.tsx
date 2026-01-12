@@ -904,17 +904,18 @@ export function MovieDetailsModal({
               </div>
             </div>
           </Drawer.Content>
+          {/* Note Editor Overlay - inside portal to be above drawer */}
+          {showNoteEditor && (
+            <NoteEditorOverlay
+              isOpen={showNoteEditor}
+              onClose={() => setShowNoteEditor(false)}
+              onSave={handleSaveNote}
+              initialNote={userNote}
+              movieTitle={movie.title}
+            />
+          )}
         </Drawer.Portal>
       </Drawer.Root>
-
-      {/* Note Editor Overlay */}
-      <NoteEditorOverlay
-        isOpen={showNoteEditor}
-        onClose={() => setShowNoteEditor(false)}
-        onSave={handleSaveNote}
-        initialNote={userNote}
-        movieTitle={movie.title}
-      />
     </>
   );
 }
