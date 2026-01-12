@@ -181,6 +181,7 @@ export function MovieDetailsModal({
 }: MovieDetailsModalProps) {
   const [isPending, startTransition] = useTransition();
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
+  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
@@ -211,7 +212,11 @@ export function MovieDetailsModal({
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
-      setMediaDetails(null);
+      // Only clear media details if switching to a different movie
+      if (mediaDetailsForId !== movie.id) {
+        setMediaDetails(null);
+        setMediaDetailsForId(null);
+      }
       setAddedByUser(null);
       setLocalStatus(movie.status);
       setActiveTab('info');
@@ -225,7 +230,7 @@ export function MovieDetailsModal({
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
-  }, [movie?.id, movie?.status, user?.uid]);
+  }, [movie?.id, movie?.status, user?.uid, mediaDetailsForId]);
 
   // Reset editors when modal closes
   useEffect(() => {
@@ -258,7 +263,11 @@ export function MovieDetailsModal({
   // Fetch movie/TV details when modal opens
   useEffect(() => {
     async function loadDetails() {
-      if (!movie || !isOpen || mediaDetails || isLoadingDetails) return;
+      // Skip if no movie, modal closed, or already loading
+      if (!movie || !isOpen || isLoadingDetails) return;
+
+      // Skip if we already have details for this movie
+      if (mediaDetailsForId === movie.id && mediaDetails) return;
 
       setIsLoadingDetails(true);
       let tmdbIdLocal: number;
@@ -274,11 +283,12 @@ export function MovieDetailsModal({
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
         setMediaDetails(details);
+        setMediaDetailsForId(movie.id);
       }
       setIsLoadingDetails(false);
     }
     loadDetails();
-  }, [movie, isOpen]);
+  }, [movie?.id, isOpen, mediaDetailsForId, mediaDetails, isLoadingDetails]);
 
   // Fetch added by user
   useEffect(() => {
@@ -603,9 +613,9 @@ export function MovieDetailsModal({
                       <Image
                         src={movie.posterUrl}
                         alt={`Poster for ${movie.title}`}
-                        width={400}
-                        height={600}
-                        className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full h-auto"
+                        width={200}
+                        height={300}
+                        className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full max-w-[200px] h-auto mx-auto md:mx-0"
                       />
 
                       {hasEmbeddableVideo && (

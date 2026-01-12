@@ -171,8 +171,10 @@ export default function ListDetailPage() {
   }, [user, isUserLoading, router]);
 
   // Determine if user can edit this list
-  const isOwner = effectiveOwnerId === user?.uid && !collaborativeListOwner;
-  const isCollaborator = !!collaborativeListOwner;
+  // User is owner if they have their own list data (not accessed via collaborator lookup)
+  const isOwner = !!ownListData;
+  // User is collaborator if they're accessing via collab list data (and don't own it)
+  const isCollaborator = !!collabListData && !ownListData;
   const canEdit = isOwner || isCollaborator;
 
   // Check if this is a collaborative list (has collaborators)

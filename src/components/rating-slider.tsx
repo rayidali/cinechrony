@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { Star, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { getRatingTextColor, getRatingBgColor } from '@/lib/utils';
 
 interface RatingSliderProps {
   value: number | null;
@@ -118,20 +119,6 @@ export function RatingSlider({
     onChangeComplete(num);
   };
 
-  // Get color based on rating
-  const getRatingColor = (rating: number) => {
-    if (rating >= 8) return 'text-green-500';
-    if (rating >= 6) return 'text-yellow-500';
-    if (rating >= 4) return 'text-orange-500';
-    return 'text-red-500';
-  };
-
-  const getBgColor = (rating: number) => {
-    if (rating >= 8) return 'bg-green-500';
-    if (rating >= 6) return 'bg-yellow-500';
-    if (rating >= 4) return 'bg-orange-500';
-    return 'bg-red-500';
-  };
 
   // Calculate fill percentage (1-10 mapped to 0-100%)
   const fillPercentage = ((localValue - 1) / 9) * 100;
@@ -171,8 +158,8 @@ export function RatingSlider({
       <div className="flex items-center gap-4">
         {/* Rating display */}
         <div className="flex items-center gap-1.5 min-w-[80px]">
-          <Star className={`h-5 w-5 fill-current ${getRatingColor(localValue)}`} />
-          <span className={`font-bold ${textSizeClasses[size]} ${getRatingColor(localValue)} tabular-nums`}>
+          <Star className={`h-5 w-5 fill-current ${getRatingTextColor(localValue)}`} />
+          <span className={`font-bold ${textSizeClasses[size]} ${getRatingTextColor(localValue)} tabular-nums`}>
             {localValue.toFixed(1)}
           </span>
           <span className="text-muted-foreground text-sm">/10</span>
@@ -189,7 +176,7 @@ export function RatingSlider({
         >
           {/* Fill */}
           <div
-            className={`absolute inset-y-0 left-0 rounded-full ${getBgColor(localValue)} ${isDragging ? '' : 'transition-all duration-150'}`}
+            className={`absolute inset-y-0 left-0 rounded-full ${getRatingBgColor(localValue)} ${isDragging ? '' : 'transition-all duration-150'}`}
             style={{ width: `${fillPercentage}%` }}
           />
           {/* Thumb */}

@@ -144,6 +144,7 @@ export function PublicMovieDetailsModal({
   onClose,
 }: PublicMovieDetailsModalProps) {
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
+  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
   const { user } = useUser();
@@ -157,15 +158,23 @@ export function PublicMovieDetailsModal({
   // Reset state when movie changes
   useEffect(() => {
     if (movie) {
-      setMediaDetails(null);
+      // Only clear media details if switching to a different movie
+      if (mediaDetailsForId !== movie.id) {
+        setMediaDetails(null);
+        setMediaDetailsForId(null);
+      }
       setActiveTab('info');
     }
-  }, [movie?.id]);
+  }, [movie?.id, mediaDetailsForId]);
 
   // Fetch movie/TV details when modal opens
   useEffect(() => {
     async function loadDetails() {
-      if (!movie || !isOpen || mediaDetails || isLoadingDetails) return;
+      // Skip if no movie, modal closed, or already loading
+      if (!movie || !isOpen || isLoadingDetails) return;
+
+      // Skip if we already have details for this movie
+      if (mediaDetailsForId === movie.id && mediaDetails) return;
 
       setIsLoadingDetails(true);
       let tmdbIdLocal: number;
@@ -181,11 +190,12 @@ export function PublicMovieDetailsModal({
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
         setMediaDetails(details);
+        setMediaDetailsForId(movie.id);
       }
       setIsLoadingDetails(false);
     }
     loadDetails();
-  }, [movie, isOpen]);
+  }, [movie?.id, isOpen, mediaDetailsForId, mediaDetails, isLoadingDetails]);
 
   if (!movie) return null;
 
@@ -233,9 +243,9 @@ export function PublicMovieDetailsModal({
                     <Image
                       src={movie.posterUrl}
                       alt={`Poster for ${movie.title}`}
-                      width={400}
-                      height={600}
-                      className="rounded-lg border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] w-full h-auto"
+                      width={200}
+                      height={300}
+                      className="rounded-lg border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] w-full max-w-[200px] h-auto mx-auto md:mx-0"
                     />
 
                     {hasEmbeddableVideo && (

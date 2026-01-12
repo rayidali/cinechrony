@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, memo } from 'react';
 import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
@@ -24,7 +24,7 @@ type MovieCardListProps = {
   onOpenDetails?: (movie: Movie) => void;
 };
 
-export function MovieCardList({
+export const MovieCardList = memo(function MovieCardList({
   movie,
   listId,
   listOwnerId,
@@ -232,4 +232,4 @@ export function MovieCardList({
       )}
     </div>
   );
-}
+});

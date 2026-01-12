@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo } from 'react';
 import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie, UserProfile } from '@/lib/types';
@@ -33,7 +33,7 @@ function getProviderIcon(url: string | undefined) {
   }
 }
 
-export function MovieCardGrid({
+export const MovieCardGrid = memo(function MovieCardGrid({
   movie,
   listId,
   listOwnerId,
@@ -239,4 +239,4 @@ export function MovieCardGrid({
       </div>
     </div>
   );
-}
+});
