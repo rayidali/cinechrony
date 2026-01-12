@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, memo, useCallback } from 'react';
 import Image from 'next/image';
 import { Loader2, MessageSquare, Send } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
@@ -21,7 +21,7 @@ interface ReviewsListProps {
   onPendingCommentHandled?: () => void;
 }
 
-export function ReviewsList({
+export const ReviewsList = memo(function ReviewsList({
   tmdbId,
   mediaType,
   movieTitle,
@@ -37,21 +37,31 @@ export function ReviewsList({
   const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
 
   useEffect(() => {
+    let cancelled = false;
+
     async function fetchReviews() {
       setIsLoading(true);
       try {
         const result = await getMovieReviews(tmdbId, sortBy);
-        if (result.reviews) {
+        if (!cancelled && result.reviews) {
           setReviews(result.reviews as Review[]);
         }
       } catch (error) {
-        console.error('Failed to fetch reviews:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch reviews:', error);
+        }
       } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          setIsLoading(false);
+        }
       }
     }
 
     fetchReviews();
+
+    return () => {
+      cancelled = true;
+    };
   }, [tmdbId, sortBy]);
 
   // Handle pending new/updated comment from fullscreen editor
@@ -169,4 +179,4 @@ export function ReviewsList({
       )}
     </div>
   );
-}
+});

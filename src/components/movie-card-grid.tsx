@@ -53,40 +53,49 @@ export const MovieCardGrid = memo(function MovieCardGrid({
 
   // Fetch the user who added this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchAddedByUser() {
       if (!movie.addedBy) return;
       // Skip fetching if it's the current user
       if (movie.addedBy === user?.uid) return;
       try {
         const result = await getUserProfile(movie.addedBy);
-        if (result.user) {
+        if (!cancelled && result.user) {
           setAddedByUser(result.user);
         }
       } catch (error) {
-        console.error('Failed to fetch addedBy user:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch addedBy user:', error);
+        }
       }
     }
     fetchAddedByUser();
+    return () => { cancelled = true; };
   }, [movie.addedBy, user?.uid]);
 
   // Fetch user's personal rating for this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchUserRating() {
       if (!user?.uid || !tmdbId) return;
       try {
         const result = await getUserRating(user.uid, tmdbId);
-        if (result.rating) {
+        if (!cancelled && result.rating) {
           setUserRating(result.rating.rating);
         }
       } catch (error) {
-        console.error('Failed to fetch user rating:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch user rating:', error);
+        }
       }
     }
     fetchUserRating();
+    return () => { cancelled = true; };
   }, [user?.uid, tmdbId]);
 
   // Fetch note authors
   useEffect(() => {
+    let cancelled = false;
     async function fetchNoteAuthors() {
       if (!movie.notes) return;
       const userIds = Object.keys(movie.notes);
@@ -100,18 +109,23 @@ export const MovieCardGrid = memo(function MovieCardGrid({
           } else {
             try {
               const result = await getUserProfile(uid);
-              if (result.user) {
+              if (!cancelled && result.user) {
                 authors[uid] = result.user.username || result.user.displayName || 'user';
               }
             } catch {
-              authors[uid] = 'user';
+              if (!cancelled) {
+                authors[uid] = 'user';
+              }
             }
           }
         })
       );
-      setNoteAuthors(authors);
+      if (!cancelled) {
+        setNoteAuthors(authors);
+      }
     }
     fetchNoteAuthors();
+    return () => { cancelled = true; };
   }, [movie.notes, user?.uid, user?.displayName, user?.email]);
 
   if (!user) return null;
@@ -126,8 +140,11 @@ export const MovieCardGrid = memo(function MovieCardGrid({
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
 
-  // Get notes to display
-  const notesEntries = movie.notes ? Object.entries(movie.notes) : [];
+  // Get notes to display (memoized to prevent array recreation)
+  const notesEntries = useMemo(
+    () => (movie.notes ? Object.entries(movie.notes) : []),
+    [movie.notes]
+  );
 
   // Get added by display info
   const isAddedByCurrentUser = movie.addedBy === user?.uid;

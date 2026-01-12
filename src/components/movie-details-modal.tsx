@@ -208,15 +208,12 @@ export function MovieDetailsModal({
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
-  // Reset state when movie changes
+  // Reset state when movie ID changes (not status changes)
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
-      // Only clear media details if switching to a different movie
-      if (mediaDetailsForId !== movie.id) {
-        setMediaDetails(null);
-        setMediaDetailsForId(null);
-      }
+      setMediaDetails(null);
+      setMediaDetailsForId(null);
       setAddedByUser(null);
       setLocalStatus(movie.status);
       setActiveTab('info');
@@ -230,7 +227,8 @@ export function MovieDetailsModal({
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
-  }, [movie?.id, movie?.status, user?.uid, mediaDetailsForId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [movie?.id]); // Only reset on movie ID change, not status changes
 
   // Reset editors when modal closes
   useEffect(() => {
@@ -260,35 +258,43 @@ export function MovieDetailsModal({
     fetchUserRating();
   }, [movie?.id, isOpen, user?.uid, tmdbId]);
 
-  // Fetch movie/TV details when modal opens
+  // Fetch movie/TV details when modal opens - simplified dependencies
   useEffect(() => {
+    if (!movie || !isOpen) return;
+
+    // Capture movie reference for async closure
+    const currentMovie = movie;
+    let cancelled = false;
+
     async function loadDetails() {
-      // Skip if no movie, modal closed, or already loading
-      if (!movie || !isOpen || isLoadingDetails) return;
-
-      // Skip if we already have details for this movie
-      if (mediaDetailsForId === movie.id && mediaDetails) return;
-
       setIsLoadingDetails(true);
       let tmdbIdLocal: number;
-      if (movie.tmdbId) {
-        tmdbIdLocal = movie.tmdbId;
+      if (currentMovie.tmdbId) {
+        tmdbIdLocal = currentMovie.tmdbId;
       } else {
-        const idMatch = movie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
+        const idMatch = currentMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(currentMovie.id, 10);
       }
 
       if (!isNaN(tmdbIdLocal)) {
-        const details = movie.mediaType === 'tv'
+        const details = currentMovie.mediaType === 'tv'
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
-        setMediaDetails(details);
-        setMediaDetailsForId(movie.id);
+        if (!cancelled) {
+          setMediaDetails(details);
+          setMediaDetailsForId(currentMovie.id);
+        }
       }
-      setIsLoadingDetails(false);
+      if (!cancelled) {
+        setIsLoadingDetails(false);
+      }
     }
     loadDetails();
-  }, [movie?.id, isOpen, mediaDetailsForId, mediaDetails, isLoadingDetails]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [movie?.id, isOpen]); // Only depends on movie ID and modal open state
 
   // Fetch added by user
   useEffect(() => {

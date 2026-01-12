@@ -44,22 +44,27 @@ export const MovieCardList = memo(function MovieCardList({
 
   // Fetch the user who added this movie
   useEffect(() => {
+    let cancelled = false;
     async function fetchAddedByUser() {
       if (!movie.addedBy) return;
       try {
         const result = await getUserProfile(movie.addedBy);
-        if (result.user) {
+        if (!cancelled && result.user) {
           setAddedByUser(result.user);
         }
       } catch (error) {
-        console.error('Failed to fetch addedBy user:', error);
+        if (!cancelled) {
+          console.error('Failed to fetch addedBy user:', error);
+        }
       }
     }
     fetchAddedByUser();
+    return () => { cancelled = true; };
   }, [movie.addedBy]);
 
   // Fetch note authors
   useEffect(() => {
+    let cancelled = false;
     async function fetchNoteAuthors() {
       if (!movie.notes) return;
       const userIds = Object.keys(movie.notes);
@@ -73,18 +78,23 @@ export const MovieCardList = memo(function MovieCardList({
           } else {
             try {
               const result = await getUserProfile(uid);
-              if (result.user) {
+              if (!cancelled && result.user) {
                 authors[uid] = result.user.username || result.user.displayName || 'user';
               }
             } catch {
-              authors[uid] = 'user';
+              if (!cancelled) {
+                authors[uid] = 'user';
+              }
             }
           }
         })
       );
-      setNoteAuthors(authors);
+      if (!cancelled) {
+        setNoteAuthors(authors);
+      }
     }
     fetchNoteAuthors();
+    return () => { cancelled = true; };
   }, [movie.notes, user?.uid, user?.displayName, user?.email]);
 
   if (!user) return null;
@@ -125,8 +135,11 @@ export const MovieCardList = memo(function MovieCardList({
   const addedByName = addedByUser?.displayName || addedByUser?.username ||
     (isAddedByCurrentUser ? (user?.displayName || user?.email?.split('@')[0] || 'You') : 'Someone');
 
-  // Get notes to display
-  const notesEntries = movie.notes ? Object.entries(movie.notes) : [];
+  // Get notes to display (memoized to prevent array recreation)
+  const notesEntries = useMemo(
+    () => (movie.notes ? Object.entries(movie.notes) : []),
+    [movie.notes]
+  );
 
   return (
     <div
