@@ -37,6 +37,7 @@ import { RatingSlider } from './rating-slider';
 import { FullscreenTextInput } from './fullscreen-text-input';
 import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
+import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
@@ -199,6 +200,10 @@ export function MovieDetailsModal({
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
+  const { getMembers } = useListMembersCache();
+
+  // Get cached list members for note author lookup
+  const cachedMembers = listOwnerId && listId ? getMembers(listOwnerId, listId) : null;
 
   // Use denormalized user data from movie doc - no fetch needed!
   const addedByInfo = useMemo(() => {
@@ -216,27 +221,40 @@ export function MovieDetailsModal({
     };
   }, [movie, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
-  // Build note authors using denormalized data when available - no fetch needed!
+  // Build note authors using cached members and denormalized data - no fetch needed!
   const noteAuthors = useMemo(() => {
     if (!movie?.notes) return {};
     const authors: Record<string, { name: string; photoURL: string | null }> = {};
     Object.keys(movie.notes).forEach(uid => {
       if (uid === user?.uid) {
+        // Current user
         authors[uid] = {
           name: user?.displayName || user?.email?.split('@')[0] || 'You',
           photoURL: user?.photoURL || null,
         };
       } else if (uid === movie.addedBy && movie.addedByUsername) {
+        // Movie adder - use denormalized data
         authors[uid] = {
           name: movie.addedByUsername,
           photoURL: movie.addedByPhotoURL || null,
         };
+      } else if (cachedMembers) {
+        // Other collaborators - look up from cached members
+        const member = cachedMembers.find(m => m.uid === uid);
+        if (member) {
+          authors[uid] = {
+            name: member.username || member.displayName || 'User',
+            photoURL: member.photoURL || null,
+          };
+        } else {
+          authors[uid] = { name: 'User', photoURL: null };
+        }
       } else {
         authors[uid] = { name: 'User', photoURL: null };
       }
     });
     return authors;
-  }, [movie?.notes, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, user?.uid, user?.displayName, user?.email, user?.photoURL]);
+  }, [movie?.notes, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, cachedMembers, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
   const drawerHeight = useViewportHeight(85);
