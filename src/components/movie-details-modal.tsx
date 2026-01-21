@@ -203,7 +203,11 @@ export function MovieDetailsModal({
   const { getMembers } = useListMembersCache();
 
   // Get cached list members for note author lookup
-  const cachedMembers = listOwnerId && listId ? getMembers(listOwnerId, listId) : null;
+  // Re-read cache when modal opens (isOpen) to catch async-populated cache
+  const cachedMembers = useMemo(() => {
+    if (!isOpen || !listOwnerId || !listId) return null;
+    return getMembers(listOwnerId, listId);
+  }, [isOpen, listOwnerId, listId, getMembers]);
 
   // Use denormalized user data from movie doc - no fetch needed!
   const addedByInfo = useMemo(() => {
