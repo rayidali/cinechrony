@@ -31,8 +31,9 @@ Target: iOS PWA + Desktop
 │  ┌────────────────────────────────────────────────────────────┐ │
 │  │                    State Management                         │ │
 │  │  • useCollection/useDoc (real-time Firestore hooks)        │ │
-│  │  • React Context (Firebase, ListMembersCache)              │ │
+│  │  • React Context (Firebase, ListMembersCache, RatingsCache)│ │
 │  │  • Local state + useTransition (optimistic updates)        │ │
+│  │  • Denormalized data (addedBy info, noteAuthors on movies) │ │
 │  └────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -88,7 +89,10 @@ Target: iOS PWA + Desktop
   │           ├── tmdbId, rating, overview
   │           ├── socialLink (TikTok/IG/YT URL)
   │           ├── notes: { [userId]: string }
-  │           └── addedBy, createdAt
+  │           ├── noteAuthors: { [userId]: { username, displayName, photoURL } }  # Denormalized
+  │           ├── addedBy, createdAt
+  │           ├── addedByDisplayName, addedByUsername, addedByPhotoURL  # Denormalized
+  │           └── (denormalized fields populated at write time)
   │
   ├── /followers/{followerId}
   │     └── followerId, followingId, createdAt
@@ -165,7 +169,8 @@ src/
 │   └── use-viewport-height.ts  # iOS Safari viewport fix
 │
 └── contexts/
-    └── list-members-cache.tsx  # Collaborator caching
+    ├── list-members-cache.tsx  # Collaborator caching
+    └── user-ratings-cache.tsx  # User ratings O(1) lookup cache
 ```
 
 ---
@@ -204,24 +209,56 @@ UI updates use fire-and-forget writes for snappy feel:
 updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
 ```
 
-### 4. Component Memoization Pattern
-List item components use React.memo with cancellation in effects:
+### 4. Denormalization Pattern (N+1 Prevention)
+User data is denormalized at write time to avoid per-movie fetches:
 
 ```typescript
-export const MovieCardGrid = memo(function MovieCardGrid({ movie }) {
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchData() {
-      const result = await getUserProfile(movie.addedBy);
-      if (!cancelled) setUser(result);
-    }
-    fetchData();
-    return () => { cancelled = true; };
-  }, [movie.addedBy]);
+// When adding a movie (in addMovieToList server action):
+const movieDoc = {
+  ...movieData,
+  addedByDisplayName: userData?.displayName || null,
+  addedByUsername: userData?.username || null,
+  addedByPhotoURL: userData?.photoURL || null,
+};
+
+// When saving a note (in updateMovieNote server action):
+await movieRef.update({
+  [`notes.${userId}`]: note,
+  [`noteAuthors.${userId}`]: {
+    username: userData?.username,
+    displayName: userData?.displayName,
+    photoURL: userData?.photoURL,
+  },
 });
 ```
 
-### 5. Rating Color System
+### 5. User Ratings Cache Pattern
+Ratings are fetched once per session and cached for O(1) lookup:
+
+```typescript
+// In UserRatingsCacheProvider - fetches all ratings once
+const { getRating } = useUserRatingsCache();
+
+// In movie card components - instant lookup, no network call
+const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
+```
+
+### 6. Component Memoization Pattern
+List item components use React.memo with useMemo for computed values:
+
+```typescript
+export const MovieCardGrid = memo(function MovieCardGrid({ movie }) {
+  const { getRating } = useUserRatingsCache();
+
+  // O(1) rating lookup from cache
+  const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
+
+  // Use denormalized data - no fetch needed
+  const addedByName = movie.addedByUsername || movie.addedByDisplayName || 'Someone';
+});
+```
+
+### 7. Rating Color System
 HSL interpolation for consistent red-to-green gradient:
 
 ```typescript
@@ -230,7 +267,7 @@ const ratingStyle = getRatingStyle(7.5);
 // { background: { backgroundColor: 'hsl(80, 70%, 50%)' }, ... }
 ```
 
-### 6. iOS Safari Handling
+### 8. iOS Safari Handling
 - `useViewportHeight()` - Handles dynamic viewport with keyboard
 - Vaul drawers for mobile-native modals
 - `FullscreenTextInput` for reliable keyboard input in drawers
@@ -297,8 +334,11 @@ See `firestore.rules` for complete rules. Key principles:
 
 ## Performance Notes
 
+- **Denormalization eliminates N+1 fetches**: User data (addedBy info, note authors) stored on movie docs at write time
+- **UserRatingsCacheProvider**: Fetches all user ratings once, provides O(1) Map lookup via `getRating(tmdbId)`
+- **Before**: ~100+ network calls per list view (user profile + rating per movie)
+- **After**: 1-2 network calls total (real-time movie subscription + ratings cache)
 - Components use `React.memo` to prevent re-renders
-- Async effects use `cancelled` flag for cleanup
 - `useMemoFirebase` ensures stable query references
 - Images use Next.js `<Image>` with proper `sizes`
 - No virtualization needed (typical list < 50 items)
@@ -310,7 +350,13 @@ See `firestore.rules` for complete rules. Key principles:
 - [ ] Activity feed (Coming Soon placeholder)
 - [ ] OMDB API key exposed in client (should move to server)
 - [ ] Some TypeScript errors suppressed in `next.config.ts`
-- [ ] Review type casting in `movie-details-modal.tsx`
+- [x] ~~N+1 fetch problem~~ (Fixed: denormalization + ratings cache)
+- [x] ~~"Added by Someone" / "@user" for existing data~~ (Fixed: backfill script)
+
+## Admin Scripts
+
+- `/api/admin/backfill-movies` - One-time migration to populate denormalized user data on existing movies
+  - Run via GET in development, or POST with `x-admin-token` header in production
 
 ---
 

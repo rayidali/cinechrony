@@ -32,7 +32,9 @@ src/app/
 │
 ├── invite/[code]/page.tsx  # Invite acceptance (protected)
 │
-└── api/admin/backfill/route.ts  # Admin utility (protected)
+└── api/admin/
+    ├── backfill/route.ts         # User search fields backfill
+    └── backfill-movies/route.ts  # Movie denormalization backfill
 ```
 
 ---
@@ -153,6 +155,11 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 | `getUserRating()` | Get user's rating |
 | `getUserRatings()` | Get all user's ratings |
 
+### Admin / Backfill
+| Function | Purpose |
+|----------|---------|
+| `backfillMovieUserData()` | Populate denormalized user data on existing movies |
+
 ### File Uploads
 | Function | Purpose |
 |----------|---------|
@@ -197,6 +204,7 @@ RootLayout (layout.tsx)
 ├── ThemeProvider (next-themes)
 ├── FirebaseClientProvider (auth + Firestore)
 ├── ListMembersCacheProvider (collaborator caching)
+├── UserRatingsCacheProvider (O(1) rating lookups)
 └── Toaster (notifications)
     │
     └── Page Content
