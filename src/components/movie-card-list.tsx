@@ -1,17 +1,16 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useTransition, useEffect, memo, useMemo } from 'react';
+import { useTransition, memo, useMemo } from 'react';
 import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
 
-import type { Movie, UserProfile } from '@/lib/types';
+import type { Movie } from '@/lib/types';
 import {
   updateDocumentNonBlocking,
   deleteDocumentNonBlocking,
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
@@ -33,8 +32,6 @@ export const MovieCardList = memo(function MovieCardList({
   onOpenDetails,
 }: MovieCardListProps) {
   const [isPending, startTransition] = useTransition();
-  const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
-  const [noteAuthors, setNoteAuthors] = useState<Record<string, string>>({});
   const { user } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
@@ -42,60 +39,38 @@ export const MovieCardList = memo(function MovieCardList({
   // Get rating style for movie rating badge
   const ratingStyle = useMemo(() => getRatingStyle(movie.rating ?? null), [movie.rating]);
 
-  // Fetch the user who added this movie
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchAddedByUser() {
-      if (!movie.addedBy) return;
-      try {
-        const result = await getUserProfile(movie.addedBy);
-        if (!cancelled && result.user) {
-          setAddedByUser(result.user);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch addedBy user:', error);
-        }
-      }
-    }
-    fetchAddedByUser();
-    return () => { cancelled = true; };
-  }, [movie.addedBy]);
+  // Get notes to display (memoized to prevent array recreation)
+  const notesEntries = useMemo(
+    () => (movie.notes ? Object.entries(movie.notes) : []),
+    [movie.notes]
+  );
 
-  // Fetch note authors
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchNoteAuthors() {
-      if (!movie.notes) return;
-      const userIds = Object.keys(movie.notes);
-      if (userIds.length === 0) return;
-
-      const authors: Record<string, string> = {};
-      await Promise.all(
-        userIds.map(async (uid) => {
-          if (uid === user?.uid) {
-            authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
-          } else {
-            try {
-              const result = await getUserProfile(uid);
-              if (!cancelled && result.user) {
-                authors[uid] = result.user.username || result.user.displayName || 'user';
-              }
-            } catch {
-              if (!cancelled) {
-                authors[uid] = 'user';
-              }
-            }
-          }
-        })
-      );
-      if (!cancelled) {
-        setNoteAuthors(authors);
-      }
+  // Use denormalized user data from movie doc - no fetch needed!
+  const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const addedByName = useMemo(() => {
+    if (isAddedByCurrentUser) {
+      return user?.displayName || user?.email?.split('@')[0] || 'You';
     }
-    fetchNoteAuthors();
-    return () => { cancelled = true; };
-  }, [movie.notes, user?.uid, user?.displayName, user?.email]);
+    // Use denormalized data from movie doc
+    return movie.addedByDisplayName || movie.addedByUsername || 'Someone';
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, movie.addedByDisplayName, movie.addedByUsername]);
+
+  // Build note author names using denormalized data when available
+  const noteAuthors = useMemo(() => {
+    const authors: Record<string, string> = {};
+    notesEntries.forEach(([uid]) => {
+      if (uid === user?.uid) {
+        authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+      } else if (uid === movie.addedBy && movie.addedByUsername) {
+        // Use denormalized data for the person who added the movie
+        authors[uid] = movie.addedByUsername;
+      } else {
+        // For other collaborators, show fallback
+        authors[uid] = 'user';
+      }
+    });
+    return authors;
+  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.addedBy, movie.addedByUsername]);
 
   if (!user) return null;
 
@@ -129,17 +104,6 @@ export const MovieCardList = memo(function MovieCardList({
       onOpenDetails(movie);
     }
   };
-
-  // Get display name for added by
-  const isAddedByCurrentUser = movie.addedBy === user?.uid;
-  const addedByName = addedByUser?.displayName || addedByUser?.username ||
-    (isAddedByCurrentUser ? (user?.displayName || user?.email?.split('@')[0] || 'You') : 'Someone');
-
-  // Get notes to display (memoized to prevent array recreation)
-  const notesEntries = useMemo(
-    () => (movie.notes ? Object.entries(movie.notes) : []),
-    [movie.notes]
-  );
 
   return (
     <div

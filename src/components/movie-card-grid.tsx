@@ -1,13 +1,13 @@
 'use client';
 
 import Image from 'next/image';
-import { useState, useEffect, memo, useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
-import type { Movie, UserProfile } from '@/lib/types';
+import type { Movie } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
 import { useUser } from '@/firebase';
-import { getUserProfile, getUserRating } from '@/app/actions';
+import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
 import { TiktokIcon } from './icons';
 import { getRatingStyle } from '@/lib/utils';
 
@@ -40,93 +40,51 @@ export const MovieCardGrid = memo(function MovieCardGrid({
   listOwnerId,
   onOpenDetails,
 }: MovieCardGridProps) {
-  const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
-  const [userRating, setUserRating] = useState<number | null>(null);
-  const [noteAuthors, setNoteAuthors] = useState<Record<string, string>>({});
   const { user } = useUser();
+  const { getRating } = useUserRatingsCache();
+
+  // Get TMDB ID for rating lookup
+  const tmdbId = movie.tmdbId || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
+
+  // Get user's rating from cache - O(1) lookup, no network call
+  const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
 
   // Get rating style for badge (uses HSL interpolation for consistent colors)
   const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
 
-  // Get TMDB ID
-  const tmdbId = movie.tmdbId || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
+  // Get notes to display (memoized to prevent array recreation)
+  const notesEntries = useMemo(
+    () => (movie.notes ? Object.entries(movie.notes) : []),
+    [movie.notes]
+  );
 
-  // Fetch the user who added this movie
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchAddedByUser() {
-      if (!movie.addedBy) return;
-      // Skip fetching if it's the current user
-      if (movie.addedBy === user?.uid) return;
-      try {
-        const result = await getUserProfile(movie.addedBy);
-        if (!cancelled && result.user) {
-          setAddedByUser(result.user);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch addedBy user:', error);
-        }
+  // Use denormalized user data from movie doc - no fetch needed!
+  const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const addedByName = useMemo(() => {
+    if (isAddedByCurrentUser) return 'You';
+    // Use denormalized data from movie doc
+    return movie.addedByDisplayName || movie.addedByUsername || null;
+  }, [isAddedByCurrentUser, movie.addedByDisplayName, movie.addedByUsername]);
+
+  const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
+
+  // Build note author names using denormalized data when available
+  const noteAuthors = useMemo(() => {
+    const authors: Record<string, string> = {};
+    notesEntries.forEach(([uid]) => {
+      if (uid === user?.uid) {
+        authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+      } else if (uid === movie.addedBy && movie.addedByUsername) {
+        // Use denormalized data for the person who added the movie
+        authors[uid] = movie.addedByUsername;
+      } else {
+        // For other collaborators, show shortened uid as fallback
+        // In practice, most notes are from the current user or movie adder
+        authors[uid] = 'user';
       }
-    }
-    fetchAddedByUser();
-    return () => { cancelled = true; };
-  }, [movie.addedBy, user?.uid]);
-
-  // Fetch user's personal rating for this movie
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchUserRating() {
-      if (!user?.uid || !tmdbId) return;
-      try {
-        const result = await getUserRating(user.uid, tmdbId);
-        if (!cancelled && result.rating) {
-          setUserRating(result.rating.rating);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch user rating:', error);
-        }
-      }
-    }
-    fetchUserRating();
-    return () => { cancelled = true; };
-  }, [user?.uid, tmdbId]);
-
-  // Fetch note authors
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchNoteAuthors() {
-      if (!movie.notes) return;
-      const userIds = Object.keys(movie.notes);
-      if (userIds.length === 0) return;
-
-      const authors: Record<string, string> = {};
-      await Promise.all(
-        userIds.map(async (uid) => {
-          if (uid === user?.uid) {
-            authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
-          } else {
-            try {
-              const result = await getUserProfile(uid);
-              if (!cancelled && result.user) {
-                authors[uid] = result.user.username || result.user.displayName || 'user';
-              }
-            } catch {
-              if (!cancelled) {
-                authors[uid] = 'user';
-              }
-            }
-          }
-        })
-      );
-      if (!cancelled) {
-        setNoteAuthors(authors);
-      }
-    }
-    fetchNoteAuthors();
-    return () => { cancelled = true; };
-  }, [movie.notes, user?.uid, user?.displayName, user?.email]);
+    });
+    return authors;
+  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.addedBy, movie.addedByUsername]);
 
   if (!user) return null;
 
@@ -139,19 +97,6 @@ export const MovieCardGrid = memo(function MovieCardGrid({
   // Check for social link
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
-
-  // Get notes to display (memoized to prevent array recreation)
-  const notesEntries = useMemo(
-    () => (movie.notes ? Object.entries(movie.notes) : []),
-    [movie.notes]
-  );
-
-  // Get added by display info
-  const isAddedByCurrentUser = movie.addedBy === user?.uid;
-  const addedByName = isAddedByCurrentUser
-    ? 'You'
-    : addedByUser?.displayName || addedByUser?.username || null;
-  const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
 
   return (
     <div

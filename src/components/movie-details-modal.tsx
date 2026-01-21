@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition, useEffect } from 'react';
+import { useState, useTransition, useEffect, useMemo } from 'react';
 import {
   Eye,
   EyeOff,
@@ -184,7 +184,6 @@ export function MovieDetailsModal({
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
-  const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const [activeTab, setActiveTab] = useState<ViewTab>('info');
   const [userRating, setUserRating] = useState<number | null>(null);
@@ -197,10 +196,47 @@ export function MovieDetailsModal({
   const [showCommentEditor, setShowCommentEditor] = useState(false);
   const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
   const [pendingNewComment, setPendingNewComment] = useState<Review | null>(null);
-  const [noteAuthors, setNoteAuthors] = useState<Record<string, { name: string; photoURL: string | null }>>({});
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
+
+  // Use denormalized user data from movie doc - no fetch needed!
+  const addedByInfo = useMemo(() => {
+    if (!movie) return null;
+    const isAddedByCurrentUser = movie.addedBy === user?.uid;
+    if (isAddedByCurrentUser) {
+      return {
+        displayName: user?.displayName || user?.email?.split('@')[0] || 'You',
+        photoURL: user?.photoURL || null,
+      };
+    }
+    return {
+      displayName: movie.addedByDisplayName || movie.addedByUsername || 'Someone',
+      photoURL: movie.addedByPhotoURL || null,
+    };
+  }, [movie, user?.uid, user?.displayName, user?.email, user?.photoURL]);
+
+  // Build note authors using denormalized data when available - no fetch needed!
+  const noteAuthors = useMemo(() => {
+    if (!movie?.notes) return {};
+    const authors: Record<string, { name: string; photoURL: string | null }> = {};
+    Object.keys(movie.notes).forEach(uid => {
+      if (uid === user?.uid) {
+        authors[uid] = {
+          name: user?.displayName || user?.email?.split('@')[0] || 'You',
+          photoURL: user?.photoURL || null,
+        };
+      } else if (uid === movie.addedBy && movie.addedByUsername) {
+        authors[uid] = {
+          name: movie.addedByUsername,
+          photoURL: movie.addedByPhotoURL || null,
+        };
+      } else {
+        authors[uid] = { name: 'User', photoURL: null };
+      }
+    });
+    return authors;
+  }, [movie?.notes, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
   const drawerHeight = useViewportHeight(85);
@@ -214,7 +250,6 @@ export function MovieDetailsModal({
       setNewSocialLink(movie.socialLink || '');
       setMediaDetails(null);
       setMediaDetailsForId(null);
-      setAddedByUser(null);
       setLocalStatus(movie.status);
       setActiveTab('info');
       setUserRating(null);
@@ -295,49 +330,6 @@ export function MovieDetailsModal({
       cancelled = true;
     };
   }, [movie?.id, isOpen]); // Only depends on movie ID and modal open state
-
-  // Fetch added by user
-  useEffect(() => {
-    async function fetchUser() {
-      if (!movie?.addedBy) return;
-      try {
-        const result = await getUserProfile(movie.addedBy);
-        if (result.user) setAddedByUser(result.user);
-      } catch (error) {
-        console.error('Failed to fetch addedBy user:', error);
-      }
-    }
-    if (isOpen && movie) fetchUser();
-  }, [movie?.addedBy, isOpen]);
-
-  // Fetch note authors for displaying usernames
-  useEffect(() => {
-    async function fetchNoteAuthors() {
-      if (!movie?.notes || !isOpen) return;
-
-      const otherUserIds = Object.keys(movie.notes).filter(uid => uid !== user?.uid);
-      if (otherUserIds.length === 0) return;
-
-      const authors: Record<string, { name: string; photoURL: string | null }> = {};
-      await Promise.all(
-        otherUserIds.map(async (uid) => {
-          try {
-            const result = await getUserProfile(uid);
-            if (result.user) {
-              authors[uid] = {
-                name: result.user.displayName || result.user.username || 'User',
-                photoURL: result.user.photoURL,
-              };
-            }
-          } catch {
-            authors[uid] = { name: 'User', photoURL: null };
-          }
-        })
-      );
-      setNoteAuthors(authors);
-    }
-    fetchNoteAuthors();
-  }, [movie?.notes, isOpen, user?.uid]);
 
   if (!movie || !user) return null;
 
@@ -564,15 +556,8 @@ export function MovieDetailsModal({
     setShowCommentEditor(true);
   };
 
-  const isAddedByCurrentUser = movie.addedBy === user?.uid;
-  const displayUser = addedByUser || (isAddedByCurrentUser ? {
-    photoURL: user?.photoURL,
-    displayName: user?.displayName,
-    email: user?.email,
-    username: null,
-  } : null);
-  const displayName = displayUser?.displayName || displayUser?.username ||
-    (displayUser as { email?: string })?.email?.split('@')[0] || 'Someone';
+  // Use addedByInfo computed above for display
+  const displayName = addedByInfo?.displayName || 'Someone';
 
   return (
     <>
