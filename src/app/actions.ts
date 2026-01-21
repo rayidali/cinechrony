@@ -547,16 +547,27 @@ export async function updateMovieNote(
 
     // Use dot notation to update only this user's note
     const noteKey = `notes.${userId}`;
+    const noteAuthorKey = `noteAuthors.${userId}`;
 
     if (note.trim() === '') {
-      // Remove the note if empty
+      // Remove the note and author info if empty
       await movieRef.update({
         [noteKey]: FieldValue.delete(),
+        [noteAuthorKey]: FieldValue.delete(),
       });
     } else {
-      // Set or update the note
+      // Fetch user profile for denormalization
+      const userDoc = await db.collection('users').doc(userId).get();
+      const userData = userDoc.exists ? userDoc.data() : null;
+
+      // Set or update the note with author info
       await movieRef.update({
         [noteKey]: note.trim(),
+        [noteAuthorKey]: {
+          username: userData?.username || null,
+          displayName: userData?.displayName || null,
+          photoURL: userData?.photoURL || null,
+        },
       });
     }
 

@@ -225,7 +225,7 @@ export function MovieDetailsModal({
     };
   }, [movie, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
-  // Build note authors using cached members and denormalized data - no fetch needed!
+  // Build note authors using denormalized noteAuthors data - no fetch needed!
   const noteAuthors = useMemo(() => {
     if (!movie?.notes) return {};
     const authors: Record<string, { name: string; photoURL: string | null }> = {};
@@ -236,14 +236,21 @@ export function MovieDetailsModal({
           name: user?.displayName || user?.email?.split('@')[0] || 'You',
           photoURL: user?.photoURL || null,
         };
+      } else if (movie.noteAuthors?.[uid]) {
+        // Use denormalized note author data (most reliable)
+        const author = movie.noteAuthors[uid];
+        authors[uid] = {
+          name: author.username || author.displayName || 'User',
+          photoURL: author.photoURL || null,
+        };
       } else if (uid === movie.addedBy && movie.addedByUsername) {
-        // Movie adder - use denormalized data
+        // Fallback: movie adder's denormalized data
         authors[uid] = {
           name: movie.addedByUsername,
           photoURL: movie.addedByPhotoURL || null,
         };
       } else if (cachedMembers) {
-        // Other collaborators - look up from cached members
+        // Fallback: cached list members
         const member = cachedMembers.find(m => m.uid === uid);
         if (member) {
           authors[uid] = {
@@ -258,7 +265,7 @@ export function MovieDetailsModal({
       }
     });
     return authors;
-  }, [movie?.notes, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, cachedMembers, user?.uid, user?.displayName, user?.email, user?.photoURL]);
+  }, [movie?.notes, movie?.noteAuthors, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, cachedMembers, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
   const drawerHeight = useViewportHeight(85);
