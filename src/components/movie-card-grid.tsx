@@ -68,23 +68,26 @@ export const MovieCardGrid = memo(function MovieCardGrid({
 
   const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
 
-  // Build note author names using denormalized data when available
-  const noteAuthors = useMemo(() => {
+  // Build note author names using denormalized noteAuthors data
+  const noteAuthorNames = useMemo(() => {
     const authors: Record<string, string> = {};
     notesEntries.forEach(([uid]) => {
       if (uid === user?.uid) {
         authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+      } else if (movie.noteAuthors?.[uid]) {
+        // Use denormalized note author data
+        const author = movie.noteAuthors[uid];
+        authors[uid] = author.username || author.displayName || 'user';
       } else if (uid === movie.addedBy && movie.addedByUsername) {
-        // Use denormalized data for the person who added the movie
+        // Fallback to movie adder's denormalized data
         authors[uid] = movie.addedByUsername;
       } else {
-        // For other collaborators, show shortened uid as fallback
-        // In practice, most notes are from the current user or movie adder
+        // Final fallback
         authors[uid] = 'user';
       }
     });
     return authors;
-  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.addedBy, movie.addedByUsername]);
+  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.noteAuthors, movie.addedBy, movie.addedByUsername]);
 
   if (!user) return null;
 
@@ -193,7 +196,7 @@ export const MovieCardGrid = memo(function MovieCardGrid({
           <div className="mt-1.5 space-y-1">
             {notesEntries.slice(0, 2).map(([uid, note]) => (
               <div key={uid} className="text-[11px] leading-snug">
-                <span className="font-semibold text-primary">@{noteAuthors[uid] || '...'}</span>
+                <span className="font-semibold text-primary">@{noteAuthorNames[uid] || '...'}</span>
                 <span className="text-muted-foreground/60 mx-1">·</span>
                 <span className="text-muted-foreground line-clamp-1 break-words">{note}</span>
               </div>

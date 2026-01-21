@@ -55,22 +55,26 @@ export const MovieCardList = memo(function MovieCardList({
     return movie.addedByDisplayName || movie.addedByUsername || 'Someone';
   }, [isAddedByCurrentUser, user?.displayName, user?.email, movie.addedByDisplayName, movie.addedByUsername]);
 
-  // Build note author names using denormalized data when available
-  const noteAuthors = useMemo(() => {
+  // Build note author names using denormalized noteAuthors data
+  const noteAuthorNames = useMemo(() => {
     const authors: Record<string, string> = {};
     notesEntries.forEach(([uid]) => {
       if (uid === user?.uid) {
         authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
+      } else if (movie.noteAuthors?.[uid]) {
+        // Use denormalized note author data
+        const author = movie.noteAuthors[uid];
+        authors[uid] = author.username || author.displayName || 'user';
       } else if (uid === movie.addedBy && movie.addedByUsername) {
-        // Use denormalized data for the person who added the movie
+        // Fallback to movie adder's denormalized data
         authors[uid] = movie.addedByUsername;
       } else {
-        // For other collaborators, show fallback
+        // Final fallback
         authors[uid] = 'user';
       }
     });
     return authors;
-  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.addedBy, movie.addedByUsername]);
+  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.noteAuthors, movie.addedBy, movie.addedByUsername]);
 
   if (!user) return null;
 
@@ -204,7 +208,7 @@ export const MovieCardList = memo(function MovieCardList({
         <div className="px-3 pb-3 pt-1 border-t border-border/50 space-y-1.5">
           {notesEntries.map(([uid, note]) => (
             <div key={uid} className="text-sm leading-relaxed">
-              <span className="font-semibold text-primary">@{noteAuthors[uid] || '...'}</span>
+              <span className="font-semibold text-primary">@{noteAuthorNames[uid] || '...'}</span>
               <span className="text-muted-foreground/50 mx-1.5">·</span>
               <span className="text-muted-foreground line-clamp-2 break-words">{note}</span>
             </div>

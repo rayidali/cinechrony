@@ -96,6 +96,8 @@ export type Movie = {
   backdropUrl?: string;
   // Per-user notes (keyed by userId)
   notes?: Record<string, string>;
+  // Denormalized note author info (populated when saving notes)
+  noteAuthors?: Record<string, { username: string | null; displayName: string | null; photoURL: string | null }>;
   // Denormalized user data (populated at write time to avoid N+1 fetches)
   addedByDisplayName?: string | null;
   addedByPhotoURL?: string | null;
