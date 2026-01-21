@@ -86,6 +86,11 @@ type Movie = {
   rating?: number;             // TMDB vote_average
   backdropUrl?: string;
   notes?: Record<string, string>;  // { [userId]: note }
+  // Denormalized fields (populated at write time to avoid N+1 fetches)
+  noteAuthors?: Record<string, { username: string | null; displayName: string | null; photoURL: string | null }>;
+  addedByDisplayName?: string | null;
+  addedByPhotoURL?: string | null;
+  addedByUsername?: string | null;
 };
 ```
 

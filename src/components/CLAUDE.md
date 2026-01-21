@@ -99,11 +99,15 @@ Full details in Vaul drawer with tabs:
 ## Component Patterns
 
 ### Memoization Pattern (List Items)
-All movie cards use `React.memo` with effect cleanup:
+All movie cards use `React.memo` with denormalized data (no async fetches):
 
 ```typescript
 export const MovieCardGrid = memo(function MovieCardGrid({ movie, onOpenDetails }) {
-  const [userRating, setUserRating] = useState<number | null>(null);
+  const { user } = useUser();
+  const { getRating } = useUserRatingsCache();
+
+  // O(1) rating lookup from cache - no network call
+  const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
 
   // Memoize computed values
   const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
@@ -112,22 +116,34 @@ export const MovieCardGrid = memo(function MovieCardGrid({ movie, onOpenDetails 
     [movie.notes]
   );
 
-  // Effect with cancellation
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchUserRating() {
-      const result = await getUserRating(user.uid, tmdbId);
-      if (!cancelled && result.rating) {
-        setUserRating(result.rating.rating);
+  // Use denormalized data - no fetch needed!
+  const addedByName = useMemo(() => {
+    if (movie.addedBy === user?.uid) return 'You';
+    return movie.addedByDisplayName || movie.addedByUsername || null;
+  }, [movie.addedBy, movie.addedByDisplayName, movie.addedByUsername, user?.uid]);
+
+  // Note authors from denormalized noteAuthors field
+  const noteAuthorNames = useMemo(() => {
+    const authors: Record<string, string> = {};
+    notesEntries.forEach(([uid]) => {
+      if (uid === user?.uid) {
+        authors[uid] = user?.displayName || 'you';
+      } else if (movie.noteAuthors?.[uid]) {
+        authors[uid] = movie.noteAuthors[uid].username || 'user';
+      } else {
+        authors[uid] = 'user';
       }
-    }
-    fetchUserRating();
-    return () => { cancelled = true; };
-  }, [user?.uid, tmdbId]);
+    });
+    return authors;
+  }, [notesEntries, movie.noteAuthors, user?.uid, user?.displayName]);
 
   // ...
 });
 ```
+
+**Key Performance Pattern**: No async `useEffect` for user data - everything comes from:
+1. **Denormalized fields** on the movie document (`addedByUsername`, `noteAuthors`)
+2. **UserRatingsCacheProvider** for O(1) rating lookups
 
 ### Vaul Drawer Pattern
 Mobile-first modal using Vaul (iOS-safe):
