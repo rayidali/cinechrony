@@ -2995,3 +2995,141 @@ export async function getUserRatings(userId: string, limit: number = 100) {
     return { error: 'Failed to fetch ratings.', ratings: [] };
   }
 }
+
+// --- BACKFILL: Denormalize user data for existing movies ---
+
+/**
+ * One-time backfill to populate denormalized user data on existing movies.
+ * This adds addedByDisplayName, addedByUsername, addedByPhotoURL, and noteAuthors
+ * to movies that were created before the denormalization feature was added.
+ *
+ * Run this once via an admin page or API route.
+ */
+export async function backfillMovieUserData(adminSecret: string) {
+  // Simple protection against accidental runs
+  if (adminSecret !== process.env.ADMIN_SECRET && adminSecret !== 'run-backfill-now') {
+    return { error: 'Invalid admin secret. Pass "run-backfill-now" to confirm.' };
+  }
+
+  const db = getDb();
+  const stats = {
+    usersProcessed: 0,
+    listsProcessed: 0,
+    moviesProcessed: 0,
+    moviesUpdated: 0,
+    notesUpdated: 0,
+    errors: [] as string[],
+  };
+
+  try {
+    // Cache user profiles to avoid repeated lookups
+    const userProfileCache = new Map<string, { username: string | null; displayName: string | null; photoURL: string | null }>();
+
+    async function getUserData(uid: string) {
+      if (userProfileCache.has(uid)) {
+        return userProfileCache.get(uid)!;
+      }
+
+      const userDoc = await db.collection('users').doc(uid).get();
+      const data = userDoc.exists ? userDoc.data() : null;
+      const profile = {
+        username: data?.username || null,
+        displayName: data?.displayName || null,
+        photoURL: data?.photoURL || null,
+      };
+      userProfileCache.set(uid, profile);
+      return profile;
+    }
+
+    // Get all users
+    const usersSnapshot = await db.collection('users').get();
+
+    for (const userDoc of usersSnapshot.docs) {
+      stats.usersProcessed++;
+      const userId = userDoc.id;
+
+      try {
+        // Get all lists for this user
+        const listsSnapshot = await db
+          .collection('users')
+          .doc(userId)
+          .collection('lists')
+          .get();
+
+        for (const listDoc of listsSnapshot.docs) {
+          stats.listsProcessed++;
+          const listId = listDoc.id;
+
+          try {
+            // Get all movies in this list
+            const moviesSnapshot = await db
+              .collection('users')
+              .doc(userId)
+              .collection('lists')
+              .doc(listId)
+              .collection('movies')
+              .get();
+
+            for (const movieDoc of moviesSnapshot.docs) {
+              stats.moviesProcessed++;
+              const movieData = movieDoc.data();
+              const updates: Record<string, unknown> = {};
+              let needsUpdate = false;
+
+              // Check if addedBy denormalization is needed
+              if (movieData.addedBy && !movieData.addedByUsername) {
+                const addedByUser = await getUserData(movieData.addedBy);
+                updates.addedByUsername = addedByUser.username;
+                updates.addedByDisplayName = addedByUser.displayName;
+                updates.addedByPhotoURL = addedByUser.photoURL;
+                needsUpdate = true;
+              }
+
+              // Check if notes need author denormalization
+              if (movieData.notes && Object.keys(movieData.notes).length > 0) {
+                const noteAuthors: Record<string, { username: string | null; displayName: string | null; photoURL: string | null }> =
+                  movieData.noteAuthors || {};
+
+                for (const noteAuthorUid of Object.keys(movieData.notes)) {
+                  if (!noteAuthors[noteAuthorUid]) {
+                    const authorData = await getUserData(noteAuthorUid);
+                    noteAuthors[noteAuthorUid] = authorData;
+                    stats.notesUpdated++;
+                    needsUpdate = true;
+                  }
+                }
+
+                if (needsUpdate && Object.keys(noteAuthors).length > 0) {
+                  updates.noteAuthors = noteAuthors;
+                }
+              }
+
+              // Apply updates if needed
+              if (needsUpdate) {
+                await movieDoc.ref.update(updates);
+                stats.moviesUpdated++;
+              }
+            }
+          } catch (listError) {
+            stats.errors.push(`List ${listId}: ${String(listError)}`);
+          }
+        }
+      } catch (userError) {
+        stats.errors.push(`User ${userId}: ${String(userError)}`);
+      }
+    }
+
+    return {
+      success: true,
+      stats,
+      message: `Backfill complete. Updated ${stats.moviesUpdated} movies and ${stats.notesUpdated} notes.`,
+    };
+  } catch (error) {
+    console.error('[backfillMovieUserData] Failed:', error);
+    return {
+      error: 'Backfill failed',
+      details: String(error),
+      stats,
+    };
+  }
+}
