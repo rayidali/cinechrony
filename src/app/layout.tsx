@@ -5,6 +5,7 @@ import { Space_Grotesk, Space_Mono } from 'next/font/google';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
+import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -53,7 +54,9 @@ export default function RootLayout({
         <ThemeProvider>
           <FirebaseClientProvider>
             <ListMembersCacheProvider>
-              {children}
+              <UserRatingsCacheProvider>
+                {children}
+              </UserRatingsCacheProvider>
             </ListMembersCacheProvider>
           </FirebaseClientProvider>
           <Toaster />

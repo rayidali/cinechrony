@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useTransition, useEffect, memo } from 'react';
+import { useState, useTransition, memo, useMemo } from 'react';
 import {
   ChevronDown,
   ChevronUp,
@@ -19,7 +19,7 @@ import {
   Users
 } from 'lucide-react';
 
-import type { Movie, TMDBMovieDetails, TMDBCast, UserProfile } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -27,7 +27,6 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile } from '@/app/actions';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -218,35 +217,25 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   const [newSocialLink, setNewSocialLink] = useState(movie.socialLink || '');
   const [movieDetails, setMovieDetails] = useState<ExtendedMovieDetails | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [addedByUser, setAddedByUser] = useState<UserProfile | null>(null);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Fetch the user who added this movie
-  useEffect(() => {
-    let cancelled = false;
-    async function fetchAddedByUser() {
-      if (!movie.addedBy) {
-        // No addedBy field - movie was added before this feature
-        return;
-      }
-      try {
-        const result = await getUserProfile(movie.addedBy);
-        if (!cancelled && result.user) {
-          setAddedByUser(result.user);
-        } else if (!cancelled) {
-          console.log('User profile not found for addedBy:', movie.addedBy);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          console.error('Failed to fetch addedBy user:', error);
-        }
-      }
+  // Use denormalized user data from movie doc - no fetch needed!
+  const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const addedByInfo = useMemo(() => {
+    if (isAddedByCurrentUser) {
+      return {
+        displayName: user?.displayName || user?.email?.split('@')[0] || 'You',
+        photoURL: user?.photoURL || null,
+      };
     }
-    fetchAddedByUser();
-    return () => { cancelled = true; };
-  }, [movie.addedBy]);
+    // Use denormalized data from movie doc
+    return {
+      displayName: movie.addedByDisplayName || movie.addedByUsername || 'Someone',
+      photoURL: movie.addedByPhotoURL || null,
+    };
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, user?.photoURL, movie.addedByDisplayName, movie.addedByUsername, movie.addedByPhotoURL]);
 
   // Parse video URL to check if we have an embeddable video
   const parsedVideo = parseVideoUrl(movie.socialLink);
@@ -329,28 +318,11 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
         <CardHeader>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              {(() => {
-                // Determine display info: use fetched profile, or fallback to current user if they added it
-                const isAddedByCurrentUser = movie.addedBy === user?.uid;
-                const displayUser = addedByUser || (isAddedByCurrentUser ? {
-                  photoURL: user?.photoURL,
-                  displayName: user?.displayName,
-                  email: user?.email,
-                  username: null,
-                } : null);
-                const displayName = displayUser?.displayName || displayUser?.username || displayUser?.email?.split('@')[0] || 'Someone';
-                const avatarFallback = displayName.charAt(0).toUpperCase();
-
-                return (
-                  <>
-                    <Avatar className="h-10 w-10 border-[3px] border-black">
-                      <AvatarImage src={displayUser?.photoURL || userAvatarUrl} alt={displayName} />
-                      <AvatarFallback>{avatarFallback}</AvatarFallback>
-                    </Avatar>
-                    <p className="font-bold text-sm">Added by {displayName}</p>
-                  </>
-                );
-              })()}
+              <Avatar className="h-10 w-10 border-[3px] border-black">
+                <AvatarImage src={addedByInfo.photoURL || userAvatarUrl} alt={addedByInfo.displayName} />
+                <AvatarFallback>{addedByInfo.displayName.charAt(0).toUpperCase()}</AvatarFallback>
+              </Avatar>
+              <p className="font-bold text-sm">Added by {addedByInfo.displayName}</p>
             </div>
             {/* Expand to modal button */}
             <Button

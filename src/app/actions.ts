@@ -341,6 +341,10 @@ export async function addMovieToList(formData: FormData) {
       return { error: 'You do not have permission to add movies to this list.' };
     }
 
+    // Fetch user profile for denormalization (eliminates N+1 fetches on list render)
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.exists ? userDoc.data() : null;
+
     // Use prefixed ID to distinguish movies and TV shows with same TMDB ID
     const mediaType = movieData.mediaType || 'movie';
     const docId = `${mediaType}_${movieData.id}`;
@@ -353,7 +357,7 @@ export async function addMovieToList(formData: FormData) {
       .collection('movies')
       .doc(docId);
 
-    // Build the movie document
+    // Build the movie document with denormalized user data
     const movieDoc: Record<string, unknown> = {
       id: docId,
       title: movieData.title,
@@ -362,9 +366,18 @@ export async function addMovieToList(formData: FormData) {
       posterHint: movieData.posterHint,
       mediaType: mediaType,
       addedBy: userId,
+      // Denormalized user data to avoid N+1 fetches
+      addedByDisplayName: userData?.displayName || null,
+      addedByPhotoURL: userData?.photoURL || null,
+      addedByUsername: userData?.username || null,
       socialLink: socialLink || '',
       status: status,
       createdAt: FieldValue.serverTimestamp(),
+      // Store TMDB data at write time
+      tmdbId: movieData.tmdbId || parseInt(movieData.id, 10) || null,
+      overview: movieData.overview || null,
+      rating: movieData.rating || null,
+      backdropUrl: movieData.backdropUrl || null,
     };
 
     // Add user note if provided (stored in a notes map keyed by userId)
