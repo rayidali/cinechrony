@@ -1189,6 +1189,8 @@ export async function getUserPublicLists(userId: string) {
         isPublic: data.isPublic || false,
         ownerId: data.ownerId,
         collaboratorIds: data.collaboratorIds || [],
+        coverImageUrl: data.coverImageUrl || null,
+        movieCount: data.movieCount || 0,
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Pencil } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser } from '@/firebase';
 import { getListMembers } from '@/app/actions';
@@ -77,6 +77,16 @@ export function ListHeader({
         <h1 className="text-3xl md:text-5xl font-headline font-bold text-center tracking-tighter">
           {listData?.name || 'List'}
         </h1>
+        {isOwner && (
+          <Link
+            href={`/lists/${listId}/settings`}
+            prefetch={true}
+            className="p-2 rounded-full hover:bg-secondary transition-colors"
+            title="Edit list settings"
+          >
+            <Pencil className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+          </Link>
+        )}
       </div>
 
       {/* Tappable Collaborator Bar */}
