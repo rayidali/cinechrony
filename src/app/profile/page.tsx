@@ -409,26 +409,8 @@ export default function MyProfilePage() {
               )}
             </div>
 
-            {/* Follower/Following Stats */}
-            <div className="flex gap-6 mt-4">
-              <button
-                onClick={handleLoadFollowers}
-                className="text-center hover:opacity-70 transition-opacity"
-              >
-                <span className="font-bold text-lg">{userProfile?.followersCount || 0}</span>
-                <span className="text-muted-foreground ml-1">followers</span>
-              </button>
-              <button
-                onClick={handleLoadFollowing}
-                className="text-center hover:opacity-70 transition-opacity"
-              >
-                <span className="font-bold text-lg">{userProfile?.followingCount || 0}</span>
-                <span className="text-muted-foreground ml-1">following</span>
-              </button>
-            </div>
-
             {/* Bio */}
-            <div className="mt-4 w-full max-w-md">
+            <div className="mt-3 w-full max-w-md">
               {isEditingBio ? (
                 <div className="space-y-2">
                   <textarea
@@ -469,13 +451,38 @@ export default function MyProfilePage() {
                   onClick={() => setIsEditingBio(true)}
                 >
                   {userProfile?.bio ? (
-                    <p className="inline">{userProfile.bio}</p>
+                    <p className="inline italic">{userProfile.bio}</p>
                   ) : (
                     <p className="italic">Add a bio...</p>
                   )}
                   <Pencil className="h-3 w-3 inline ml-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
               )}
+            </div>
+
+            {/* Stats Row - Styled Boxes */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleLoadFollowers}
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+              >
+                <span className="font-bold text-2xl">{userProfile?.followersCount || 0}</span>
+                <span className="text-xs text-muted-foreground">followers</span>
+              </button>
+              <button
+                onClick={handleLoadFollowing}
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+              >
+                <span className="font-bold text-2xl">{userProfile?.followingCount || 0}</span>
+                <span className="text-xs text-muted-foreground">following</span>
+              </button>
+              <Link
+                href="/lists"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+              >
+                <span className="font-bold text-2xl">{lists?.length || 0}</span>
+                <span className="text-xs">lists</span>
+              </Link>
             </div>
 
             {/* Favorite Movies */}

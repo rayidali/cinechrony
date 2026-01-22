@@ -55,7 +55,7 @@ type MovieList = {
   isDefault: boolean;
   isPublic: boolean;
   ownerId: string;
-  collaboratorIds?: string[];  // Max 3 total including owner
+  collaboratorIds?: string[];  // Max 10 total including owner
   coverImageUrl?: string;
   movieCount?: number;
 };

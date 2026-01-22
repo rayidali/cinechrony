@@ -95,7 +95,7 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
 
   const isOwner = user?.uid === listOwnerId;
   const isCollaborator = members.some(m => m.uid === user?.uid && m.role === 'collaborator');
-  const canInvite = (isOwner || isCollaborator) && members.length < 3;
+  const canInvite = (isOwner || isCollaborator) && members.length < 10;
 
   useEffect(() => {
     async function loadData() {
@@ -419,7 +419,7 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
           )}
         </div>
         <CardDescription>
-          {members.length}/3 members
+          {members.length}/10 members
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

@@ -12,6 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
+import { FullscreenTextInput } from '@/components/fullscreen-text-input';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -98,7 +99,7 @@ interface AddMovieModalProps {
   listName?: string;
 }
 
-type Step = 'search' | 'preview' | 'select-list';
+type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
 
 interface ListWithPreview extends MovieList {
   previewPosters?: string[];
@@ -502,7 +503,12 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       {/* Step 2: Movie Preview Bottom Sheet */}
       <Drawer.Root
         open={step === 'preview' && !!selectedMovie}
-        onOpenChange={(open) => !open && handleBackToSearch()}
+        onOpenChange={(open) => {
+          // Only go back to search if user actually dismissed the drawer (not transitioning to another step)
+          if (!open && step === 'preview') {
+            handleBackToSearch();
+          }
+        }}
         modal={true}
       >
         <Drawer.Portal>
@@ -577,7 +583,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                   )}
                 </div>
 
-                {/* Social Link Input */}
+                {/* Social Link Input - Tap to open fullscreen input */}
                 <div className="p-4 border-t border-border">
                   <label className="text-sm font-medium mb-1 block">
                     What made you want to watch this?
@@ -585,21 +591,24 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                   <p className="text-xs text-muted-foreground mb-3">
                     Saw a cool edit or trailer? Paste the link so others can see!
                   </p>
-                  <div className="relative">
-                    <Input
-                      type="url"
-                      value={socialLink}
-                      onChange={(e) => setSocialLink(e.target.value)}
-                      placeholder="Paste TikTok, Reel, or YouTube link..."
-                      className={`bg-secondary/50 rounded-xl text-base ${parsedVideo?.provider ? 'pr-10' : ''}`}
-                      style={{ fontSize: '16px' }}
-                    />
-                    {parsedVideo?.provider && (
-                      <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                        {getProviderIcon()}
-                      </div>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setStep('edit-link')}
+                    className={`w-full text-left bg-secondary/50 rounded-xl px-3 py-3 text-base border border-border hover:border-primary/50 transition-colors ${
+                      socialLink ? 'text-foreground' : 'text-muted-foreground'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="truncate flex-1">
+                        {socialLink || 'Paste TikTok, Reel, or YouTube link...'}
+                      </span>
+                      {parsedVideo?.provider && (
+                        <span className="flex-shrink-0 ml-2">
+                          {getProviderIcon()}
+                        </span>
+                      )}
+                    </div>
+                  </button>
                   {parsedVideo?.provider ? (
                     <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
                       {getProviderIcon()}
@@ -750,6 +759,23 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
+
+      {/* Fullscreen input for social link - renders when drawer is CLOSED */}
+      <FullscreenTextInput
+        isOpen={step === 'edit-link'}
+        onClose={() => setStep('preview')}
+        onSave={async (text) => {
+          setSocialLink(text);
+          // Note: FullscreenTextInput calls onClose after onSave, which sets step back to 'preview'
+        }}
+        initialValue={socialLink}
+        title="Add Link"
+        subtitle={selectedMovie?.title}
+        placeholder="Paste TikTok, Reel, or YouTube link..."
+        singleLine
+        inputType="url"
+        maxLength={500}
+      />
     </>
   );
 }
