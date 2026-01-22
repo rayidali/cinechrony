@@ -454,9 +454,9 @@ export default function ListsPage() {
       {/* Floating Action Button */}
       <button
         onClick={() => setIsCreateOpen(true)}
-        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-4 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform font-medium"
+        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-5 rounded-full bg-yellow-400 text-black border-[3px] border-black dark:border-2 dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none flex items-center justify-center gap-2 hover:shadow-[2px_2px_0px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all font-headline font-bold"
       >
-        <Plus className="h-5 w-5" />
+        <Plus className="h-5 w-5" strokeWidth={3} />
         <span>New List</span>
       </button>
 
