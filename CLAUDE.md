@@ -78,7 +78,7 @@ Target: iOS PWA + Desktop
   │
   ├── /lists/{listId}
   │     ├── name, isDefault, isPublic
-  │     ├── ownerId, collaboratorIds[]
+  │     ├── ownerId, collaboratorIds[]  # Max 10 members total
   │     ├── coverImageUrl, movieCount
   │     ├── createdAt, updatedAt
   │     │
@@ -270,7 +270,31 @@ const ratingStyle = getRatingStyle(7.5);
 ### 8. iOS Safari Handling
 - `useViewportHeight()` - Handles dynamic viewport with keyboard
 - Vaul drawers for mobile-native modals
-- `FullscreenTextInput` for reliable keyboard input in drawers
+- `FullscreenTextInput` for reliable keyboard input (renders OUTSIDE Vaul to avoid focus trap)
+
+### 9. Fullscreen Input Pattern for Drawers
+When text input is needed inside a Vaul drawer, close the drawer and open `FullscreenTextInput`:
+
+```typescript
+// In add-movie-modal.tsx - social link input
+type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
+
+// When user taps input field, transition to edit-link step (closes drawer)
+<button onClick={() => setStep('edit-link')}>
+  {socialLink || 'Paste TikTok, Reel, or YouTube link...'}
+</button>
+
+// Render FullscreenTextInput when drawer is CLOSED
+<FullscreenTextInput
+  isOpen={step === 'edit-link'}
+  onClose={() => setStep('preview')}  // Returns to drawer
+  onSave={async (text) => setSocialLink(text)}
+  singleLine
+  inputType="url"
+/>
+```
+
+**Critical**: FullscreenTextInput must render when Vaul drawer is closed - the drawer's focus trap blocks input.
 
 ---
 
@@ -282,6 +306,35 @@ const ratingStyle = getRatingStyle(7.5);
 - Press effect: `active:translate-x-1 active:translate-y-1`
 - Typography: Space Grotesk (headlines), Space Mono (body)
 - Colors: Primary blue (#2962FF), Success green, Warning yellow
+
+**Profile Page Stats Boxes:**
+```typescript
+// Styled stat boxes with neo-brutalist shadows and hover/press effects
+<button className="flex flex-col items-center px-5 py-3 rounded-xl
+  border-[3px] dark:border-2 border-border bg-card
+  shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none
+  hover:shadow-[2px_2px_0px_0px_hsl(var(--border))]
+  hover:translate-x-0.5 hover:translate-y-0.5
+  active:shadow-none active:translate-x-1 active:translate-y-1
+  transition-all min-w-[90px]">
+  <span className="font-bold text-2xl">{count}</span>
+  <span className="text-xs text-muted-foreground">label</span>
+</button>
+
+// Yellow highlight for "lists" stat
+className="bg-yellow-400 dark:bg-yellow-500 text-black"
+```
+
+**Extended FAB Buttons:**
+FAB buttons use pill shape with icon + label for better discoverability:
+```typescript
+<button className="fixed bottom-24 right-4 z-40 h-12 px-4 rounded-full
+  bg-primary text-primary-foreground shadow-lg
+  flex items-center gap-2 font-medium">
+  <Plus className="h-5 w-5" />
+  <span>Add</span>  {/* or "New List" */}
+</button>
+```
 
 ---
 
@@ -352,6 +405,10 @@ See `firestore.rules` for complete rules. Key principles:
 - [ ] Some TypeScript errors suppressed in `next.config.ts`
 - [x] ~~N+1 fetch problem~~ (Fixed: denormalization + ratings cache)
 - [x] ~~"Added by Someone" / "@user" for existing data~~ (Fixed: backfill script)
+- [x] ~~Bio/Top 5 not showing on public profiles~~ (Fixed: getUserByUsername now returns bio + favoriteMovies)
+- [x] ~~Collaborator limit too low~~ (Increased from 3 to 10)
+- [x] ~~No way to revoke pending invites~~ (Added revoke button in invite modal)
+- [x] ~~FAB buttons unclear for first-time users~~ (Added labels: "+ Add", "+ New List")
 
 ## Admin Scripts
 
@@ -361,3 +418,24 @@ See `firestore.rules` for complete rules. Key principles:
 ---
 
 *Last updated: January 2025*
+
+## Recent Changes (January 2025)
+
+### Profile Page Redesign
+- Stats displayed as styled boxes (followers, following, lists) with neo-brutalist shadows
+- Lists count highlighted in yellow
+- Bio text displayed in italics
+- Public profiles now show bio and Top 5 Films (was missing before)
+
+### Collaboration System
+- Max collaborators increased from 3 to 10
+- Added revoke button for pending invites in invite modal
+- Invite modal shows accurate "X spots left" count
+
+### iOS Keyboard Fixes
+- Social link input in add-movie flow uses FullscreenTextInput
+- Drawer closes during text input to avoid Vaul focus trap issues
+
+### UX Improvements
+- FAB buttons now show labels ("+ Add", "+ New List") for discoverability
+- Extended pill-shaped FABs instead of icon-only circles

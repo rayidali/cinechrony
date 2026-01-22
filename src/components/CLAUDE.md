@@ -29,9 +29,9 @@ src/components/
 ├── Lists & Collaboration
 │   ├── list-card.tsx           # List preview card
 │   ├── list-header.tsx         # List title + actions
-│   ├── list-collaborators.tsx  # Show collaborator avatars
+│   ├── list-collaborators.tsx  # Show collaborator avatars (max 10 members)
 │   ├── list-settings-modal.tsx # List settings drawer
-│   └── invite-collaborator-modal.tsx
+│   └── invite-collaborator-modal.tsx  # Invite users + revoke pending invites
 │
 ├── User & Profile
 │   ├── user-avatar.tsx         # Current user dropdown
@@ -217,8 +217,28 @@ Key functions:
 ### Fullscreen Text Input
 `FullscreenTextInput` solves Vaul + iOS keyboard issues:
 - Opens full-screen overlay for text entry
-- Keeps drawer stable while typing
+- **CRITICAL**: Must render when Vaul drawer is CLOSED (focus trap blocks input)
 - Auto-focuses input on open
+- Supports `singleLine` mode for URLs, `inputType="url"` for proper keyboard
+
+**Pattern for inputs inside drawers** (used in `add-movie-modal.tsx`):
+```typescript
+type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
+
+// Instead of inline input, use a tappable trigger
+<button onClick={() => setStep('edit-link')}>
+  {socialLink || 'Paste TikTok, Reel, or YouTube link...'}
+</button>
+
+// FullscreenTextInput renders when drawer is closed
+<FullscreenTextInput
+  isOpen={step === 'edit-link'}
+  onClose={() => setStep('preview')}
+  onSave={async (text) => setSocialLink(text)}
+  singleLine
+  inputType="url"
+/>
+```
 
 ---
 
@@ -269,6 +289,31 @@ movie-list.tsx
 user-avatar.tsx
 ├── avatar-picker.tsx
 └── dropdown-menu (ui)
+```
+
+---
+
+---
+
+## Invite Collaborator Modal (invite-collaborator-modal.tsx)
+
+Two-step flow with iOS-safe search:
+1. **Options step** (Vaul drawer): Shows spots left, search button, invite link, pending invites with revoke
+2. **Search step** (Fullscreen overlay): User search with instant results
+
+Key features:
+- `spotsLeft = 10 - members.length` (max 10 collaborators)
+- Pending invites show X button to revoke via `revokeInvite()` action
+- Search uses fullscreen overlay (not Vaul) for iOS keyboard compatibility
+
+```typescript
+// Revoke invite handler
+const handleRevokeInvite = async (inviteId: string) => {
+  const result = await revokeInvite(user.uid, inviteId);
+  if (!result.error) {
+    setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+  }
+};
 ```
 
 ---
