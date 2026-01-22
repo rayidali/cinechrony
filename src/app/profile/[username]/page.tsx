@@ -257,7 +257,7 @@ export default function UserProfilePage() {
 
             {/* Bio */}
             {profile.bio && (
-              <p className="mt-3 text-center text-muted-foreground max-w-md">
+              <p className="mt-3 text-center text-muted-foreground max-w-md italic">
                 {profile.bio}
               </p>
             )}
@@ -266,22 +266,22 @@ export default function UserProfilePage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleLoadFollowers}
-                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
               >
-                <span className="font-bold text-xl">{profile.followersCount || 0}</span>
+                <span className="font-bold text-2xl">{profile.followersCount || 0}</span>
                 <span className="text-xs text-muted-foreground">followers</span>
               </button>
               <button
                 onClick={handleLoadFollowing}
-                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
               >
-                <span className="font-bold text-xl">{profile.followingCount || 0}</span>
+                <span className="font-bold text-2xl">{profile.followingCount || 0}</span>
                 <span className="text-xs text-muted-foreground">following</span>
               </button>
               <div
-                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black min-w-[80px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none min-w-[90px]"
               >
-                <span className="font-bold text-xl">{lists.length}</span>
+                <span className="font-bold text-2xl">{lists.length}</span>
                 <span className="text-xs">lists</span>
               </div>
             </div>
