@@ -114,20 +114,23 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 | `getListPreview()` | Get list with cover previews |
 | `canEditList()` | Check edit permission |
 
-### Collaboration
+### Collaboration (Max 10 members per list)
 | Function | Purpose |
 |----------|---------|
 | `getListMembers()` | Get owner + collaborators |
 | `inviteToList()` | Send direct invite |
 | `createInviteLink()` | Create shareable link |
 | `getInviteByCode()` | Get invite by code |
+| `getListPendingInvites()` | Get pending invites for a list |
 | `getMyPendingInvites()` | User's pending invites |
 | `acceptInvite()` | Accept collaboration invite |
 | `declineInvite()` | Decline invite |
-| `revokeInvite()` | Owner revokes invite |
+| `revokeInvite()` | Cancel pending invite (owner/collaborator) |
 | `removeCollaborator()` | Owner removes collaborator |
 | `leaveList()` | Collaborator leaves |
 | `transferOwnership()` | Transfer list ownership |
+
+**Note**: `MAX_LIST_MEMBERS = 10` (owner + 9 collaborators)
 
 ### Movie Operations
 | Function | Purpose |
@@ -177,17 +180,33 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 - Add social link (TikTok/IG/YouTube)
 - Submits to `addMovieToList()` server action
 
+### `/lists` Page
+- Shows all user's lists + collaborative lists
+- Extended FAB button: `[+ New List]` (pill shape with label)
+- Create list modal
+
 ### `/lists/[listId]` Page
 - Uses Vaul drawer for movie details modal
 - Real-time subscription to movies collection
 - Filter tabs: "To Watch" / "Watched"
 - View modes: Grid / List / Cards
+- Extended FAB button: `[+ Add]` for adding movies (pill shape with label)
+- Add movie modal uses fullscreen text input for social links (iOS fix)
 
 ### `/profile/[username]` Page
 - Public profile view (no auth required)
-- Shows bio, followers/following counts
+- Shows bio (italic), followers/following/lists counts as styled stat boxes
+- Shows Top 5 Films if user has set them
+- Lists count highlighted in yellow
 - Shows public lists only
 - Follow/unfollow button for logged-in users
+
+### `/profile` Page (Own Profile)
+- Same stat box design as public profile
+- Editable bio, avatar, username
+- Top 5 Films picker with tap-to-add placeholders
+- Find Friends search
+- Shared With Me section for collaborative lists
 
 ### `/invite/[code]` Page
 - Validates invite code
