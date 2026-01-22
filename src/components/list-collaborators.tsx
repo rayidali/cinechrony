@@ -419,7 +419,7 @@ export function ListCollaborators({ listId, listOwnerId, listName }: ListCollabo
           )}
         </div>
         <CardDescription>
-          {members.length}/3 members
+          {members.length}/10 members
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
