@@ -409,26 +409,8 @@ export default function MyProfilePage() {
               )}
             </div>
 
-            {/* Follower/Following Stats */}
-            <div className="flex gap-6 mt-4">
-              <button
-                onClick={handleLoadFollowers}
-                className="text-center hover:opacity-70 transition-opacity"
-              >
-                <span className="font-bold text-lg">{userProfile?.followersCount || 0}</span>
-                <span className="text-muted-foreground ml-1">followers</span>
-              </button>
-              <button
-                onClick={handleLoadFollowing}
-                className="text-center hover:opacity-70 transition-opacity"
-              >
-                <span className="font-bold text-lg">{userProfile?.followingCount || 0}</span>
-                <span className="text-muted-foreground ml-1">following</span>
-              </button>
-            </div>
-
             {/* Bio */}
-            <div className="mt-4 w-full max-w-md">
+            <div className="mt-3 w-full max-w-md">
               {isEditingBio ? (
                 <div className="space-y-2">
                   <textarea
@@ -476,6 +458,31 @@ export default function MyProfilePage() {
                   <Pencil className="h-3 w-3 inline ml-2 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
               )}
+            </div>
+
+            {/* Stats Row - Styled Boxes */}
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleLoadFollowers}
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
+              >
+                <span className="font-bold text-xl">{userProfile?.followersCount || 0}</span>
+                <span className="text-xs text-muted-foreground">followers</span>
+              </button>
+              <button
+                onClick={handleLoadFollowing}
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
+              >
+                <span className="font-bold text-xl">{userProfile?.followingCount || 0}</span>
+                <span className="text-xs text-muted-foreground">following</span>
+              </button>
+              <Link
+                href="/lists"
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black hover:bg-yellow-300 dark:hover:bg-yellow-400 transition-colors min-w-[80px]"
+              >
+                <span className="font-bold text-xl">{lists?.length || 0}</span>
+                <span className="text-xs">lists</span>
+              </Link>
             </div>
 
             {/* Favorite Movies */}

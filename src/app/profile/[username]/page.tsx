@@ -3,7 +3,8 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, List, Lock, X, Users } from 'lucide-react';
+import { ArrowLeft, Loader2, List, Lock, X, Users, Star } from 'lucide-react';
+import Image from 'next/image';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -254,23 +255,60 @@ export default function UserProfilePage() {
 
             <p className="text-muted-foreground mt-1">@{profile.username}</p>
 
-            {/* Follower/Following Stats */}
-            <div className="flex gap-6 mt-4">
+            {/* Bio */}
+            {profile.bio && (
+              <p className="mt-3 text-center text-muted-foreground max-w-md">
+                {profile.bio}
+              </p>
+            )}
+
+            {/* Stats Row - Styled Boxes */}
+            <div className="flex gap-3 mt-6">
               <button
                 onClick={handleLoadFollowers}
-                className="text-center hover:opacity-70 transition-opacity"
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
               >
-                <span className="font-bold text-lg">{profile.followersCount || 0}</span>
-                <span className="text-muted-foreground ml-1">followers</span>
+                <span className="font-bold text-xl">{profile.followersCount || 0}</span>
+                <span className="text-xs text-muted-foreground">followers</span>
               </button>
               <button
                 onClick={handleLoadFollowing}
-                className="text-center hover:opacity-70 transition-opacity"
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-card hover:bg-secondary transition-colors min-w-[80px]"
               >
-                <span className="font-bold text-lg">{profile.followingCount || 0}</span>
-                <span className="text-muted-foreground ml-1">following</span>
+                <span className="font-bold text-xl">{profile.followingCount || 0}</span>
+                <span className="text-xs text-muted-foreground">following</span>
               </button>
+              <div
+                className="flex flex-col items-center px-4 py-2 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black min-w-[80px]"
+              >
+                <span className="font-bold text-xl">{lists.length}</span>
+                <span className="text-xs">lists</span>
+              </div>
             </div>
+
+            {/* Top 5 Films */}
+            {profile.favoriteMovies && profile.favoriteMovies.length > 0 && (
+              <div className="mt-8 w-full max-w-lg">
+                <div className="flex items-center justify-center gap-2 mb-4">
+                  <Star className="h-5 w-5 text-yellow-500 fill-yellow-500" />
+                  <h3 className="text-lg font-headline font-bold">Top 5 Films</h3>
+                </div>
+                <div className="flex justify-center gap-3">
+                  {profile.favoriteMovies.map((movie) => (
+                    <div key={movie.tmdbId} className="relative">
+                      <Image
+                        src={movie.posterUrl}
+                        alt={movie.title}
+                        width={70}
+                        height={105}
+                        className="rounded-lg border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+                        title={movie.title}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* Follow Button */}
             {!isUserLoading && user && (
