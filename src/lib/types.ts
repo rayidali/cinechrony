@@ -40,7 +40,7 @@ export type MovieList = {
   isDefault: boolean; // The first list created for a user
   isPublic: boolean; // Whether the list is visible to followers
   ownerId: string; // User who owns the list
-  collaboratorIds?: string[]; // Users who can edit this list (max 3 total including owner)
+  collaboratorIds?: string[]; // Users who can edit this list (max 10 total including owner)
   coverImageUrl?: string; // Optional custom cover image for the list
   movieCount?: number; // Cached count of movies in the list
 };

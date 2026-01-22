@@ -1395,7 +1395,7 @@ export async function backfillUserSearchFields() {
 
 // --- COLLABORATIVE LISTS ---
 
-const MAX_LIST_MEMBERS = 3; // Owner + 2 collaborators
+const MAX_LIST_MEMBERS = 10; // Owner + 9 collaborators
 
 /**
  * Generate a random invite code for link-based invites.
