@@ -883,6 +883,8 @@ export async function getUserByUsername(username: string) {
         displayName: data.displayName || null,
         photoURL: data.photoURL || null,
         username: data.username || null,
+        bio: data.bio || null,
+        favoriteMovies: data.favoriteMovies || [],
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         followersCount: data.followersCount || 0,
         followingCount: data.followingCount || 0,
