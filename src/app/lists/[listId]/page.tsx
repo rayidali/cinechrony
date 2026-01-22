@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle, Plus, Settings } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -265,13 +265,6 @@ export default function ListDetailPage() {
               </Button>
             </Link>
             <div className="flex items-center gap-3">
-              {isOwner && (
-                <Link href={`/lists/${listId}/settings`} prefetch={true}>
-                  <Button variant="ghost" size="icon" className="h-9 w-9">
-                    <Settings className="h-5 w-5" />
-                  </Button>
-                </Link>
-              )}
               <ThemeToggle />
               <UserAvatar />
             </div>
