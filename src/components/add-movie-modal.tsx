@@ -99,7 +99,7 @@ interface AddMovieModalProps {
   listName?: string;
 }
 
-type Step = 'search' | 'preview' | 'select-list';
+type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
 
 interface ListWithPreview extends MovieList {
   previewPosters?: string[];
@@ -133,7 +133,6 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
   const [isSearching, startSearchTransition] = useTransition();
   const [isAdding, startAddingTransition] = useTransition();
   const [isLoadingLists, setIsLoadingLists] = useState(false);
-  const [isSocialLinkInputOpen, setIsSocialLinkInputOpen] = useState(false);
 
   const parsedVideo = parseVideoUrl(socialLink);
 
@@ -147,7 +146,6 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       setSocialLink('');
       setSelectedLists(new Map());
       setAllLists([]);
-      setIsSocialLinkInputOpen(false);
     }
   }, [isOpen]);
 
@@ -505,7 +503,12 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       {/* Step 2: Movie Preview Bottom Sheet */}
       <Drawer.Root
         open={step === 'preview' && !!selectedMovie}
-        onOpenChange={(open) => !open && handleBackToSearch()}
+        onOpenChange={(open) => {
+          // Only go back to search if user actually dismissed the drawer (not transitioning to another step)
+          if (!open && step === 'preview') {
+            handleBackToSearch();
+          }
+        }}
         modal={true}
       >
         <Drawer.Portal>
@@ -590,7 +593,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                   </p>
                   <button
                     type="button"
-                    onClick={() => setIsSocialLinkInputOpen(true)}
+                    onClick={() => setStep('edit-link')}
                     className={`w-full text-left bg-secondary/50 rounded-xl px-3 py-3 text-base border border-border hover:border-primary/50 transition-colors ${
                       socialLink ? 'text-foreground' : 'text-muted-foreground'
                     }`}
@@ -757,12 +760,13 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Fullscreen input for social link - renders on top of drawer */}
+      {/* Fullscreen input for social link - renders when drawer is CLOSED */}
       <FullscreenTextInput
-        isOpen={isSocialLinkInputOpen}
-        onClose={() => setIsSocialLinkInputOpen(false)}
+        isOpen={step === 'edit-link'}
+        onClose={() => setStep('preview')}
         onSave={async (text) => {
           setSocialLink(text);
+          // Note: FullscreenTextInput calls onClose after onSave, which sets step back to 'preview'
         }}
         initialValue={socialLink}
         title="Add Link"
