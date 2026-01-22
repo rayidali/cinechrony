@@ -21,6 +21,7 @@ import {
   inviteToList,
   createInviteLink,
   getListPendingInvites,
+  revokeInvite,
 } from '@/app/actions';
 import type { ListMember, ListInvite, UserProfile } from '@/lib/types';
 
@@ -169,7 +170,24 @@ export function InviteCollaboratorModal({
     toast({ title: 'Link Copied', description: 'Invite link copied to clipboard.' });
   };
 
-  const spotsLeft = 3 - members.length;
+  const handleRevokeInvite = async (inviteId: string) => {
+    if (!user) return;
+
+    try {
+      const result = await revokeInvite(user.uid, inviteId);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({ title: 'Invite Cancelled', description: 'The invite has been revoked.' });
+        setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
+      }
+    } catch (error) {
+      console.error('Failed to revoke:', error);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to revoke invite' });
+    }
+  };
+
+  const spotsLeft = 10 - members.length;
 
   return (
     <>
@@ -285,9 +303,13 @@ export function InviteCollaboratorModal({
                             <p className="text-xs text-muted-foreground">Pending</p>
                           </div>
                         </div>
-                        <span className="text-xs text-amber-600 bg-amber-100 px-2 py-1 rounded-full">
-                          Waiting
-                        </span>
+                        <button
+                          onClick={() => handleRevokeInvite(invite.id)}
+                          className="p-2 rounded-full hover:bg-destructive/10 transition-colors"
+                          title="Cancel invite"
+                        >
+                          <X className="h-4 w-4 text-destructive" />
+                        </button>
                       </div>
                     ))}
                   </div>
