@@ -454,9 +454,10 @@ export default function ListsPage() {
       {/* Floating Action Button */}
       <button
         onClick={() => setIsCreateOpen(true)}
-        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform"
+        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-4 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform font-medium"
       >
-        <Plus className="h-7 w-7" />
+        <Plus className="h-5 w-5" />
+        <span>New List</span>
       </button>
 
       <BottomNav />

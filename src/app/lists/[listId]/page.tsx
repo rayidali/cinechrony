@@ -307,10 +307,11 @@ export default function ListDetailPage() {
       {canEdit && effectiveOwnerId && (
         <button
           onClick={() => setIsAddMovieOpen(true)}
-          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center active:scale-95 transition-transform hover:shadow-xl"
+          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 h-12 px-4 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center gap-2 active:scale-95 transition-transform hover:shadow-xl font-medium"
           aria-label="Add movie"
         >
-          <Plus className="h-7 w-7" />
+          <Plus className="h-5 w-5" />
+          <span>Add</span>
         </button>
       )}
 
