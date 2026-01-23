@@ -2,7 +2,7 @@
 
 import { useState, memo, useMemo } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Star, MessageCircle } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -178,10 +178,9 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
             <button
               onClick={() => onReply(review)}
               disabled={!currentUserId}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              <MessageCircle className="h-4 w-4" />
-              {replyCount > 0 && <span>{replyCount}</span>}
+              Reply{replyCount > 0 && ` (${replyCount})`}
             </button>
           )}
         </div>
