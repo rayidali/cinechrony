@@ -53,6 +53,7 @@ export type LetterboxdMovie = {
   Year: string;
   'Letterboxd URI'?: string;
   Rating?: string;
+  Review?: string; // Review text (from reviews.csv)
 };
 
 // A favorite movie (for profile display)

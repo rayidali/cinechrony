@@ -11,6 +11,7 @@ type ImportLetterboxdUploadScreenProps = {
     watched: LetterboxdMovie[];
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
+    reviews: LetterboxdMovie[];
   }) => void;
   onBack: () => void;
   onNeedHelp: () => void;
@@ -61,6 +62,7 @@ export function ImportLetterboxdUploadScreen({
               watched: result.data.watched || [],
               ratings: result.data.ratings || [],
               watchlist: result.data.watchlist || [],
+              reviews: result.data.reviews || [],
             });
           }
         } catch (err: any) {
@@ -92,8 +94,17 @@ export function ImportLetterboxdUploadScreen({
       </button>
 
       <div className="w-full max-w-sm">
+        {/* Letterboxd logo */}
+        <div className="flex justify-center mb-6">
+          <img
+            src="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png"
+            alt="Letterboxd"
+            className="h-16 w-16"
+          />
+        </div>
+
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">
-          Welcome back! 👋
+          Welcome back!
         </h1>
         <p className="text-muted-foreground text-center mb-8">
           Upload your Letterboxd export

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Film, Star, Clock } from 'lucide-react';
+import { ArrowLeft, Loader2, Film, Star, Clock, MessageSquare } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { importLetterboxdMovies } from '@/app/actions';
@@ -15,6 +15,7 @@ type ImportLetterboxdPreviewScreenProps = {
     watched: LetterboxdMovie[];
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
+    reviews: LetterboxdMovie[];
   };
   onImport: (count: number) => void;
   onBack: () => void;
@@ -33,10 +34,12 @@ export function ImportLetterboxdPreviewScreen({
   const [importWatched, setImportWatched] = useState(true);
   const [importRatings, setImportRatings] = useState(true);
   const [importWatchlist, setImportWatchlist] = useState(true);
+  const [importReviews, setImportReviews] = useState(true);
 
   const watchedCount = letterboxdData.watched.length;
   const ratingsCount = letterboxdData.ratings.length;
   const watchlistCount = letterboxdData.watchlist.length;
+  const reviewsCount = letterboxdData.reviews.filter(r => r.Review && r.Review.trim()).length;
 
   const handleImport = async () => {
     if (!user) return;
@@ -50,6 +53,7 @@ export function ImportLetterboxdPreviewScreen({
           importWatched,
           importRatings,
           importWatchlist,
+          importReviews,
         }
       );
 
@@ -88,8 +92,13 @@ export function ImportLetterboxdPreviewScreen({
       </button>
 
       <div className="w-full max-w-sm">
+        {/* Letterboxd logo */}
         <div className="text-center mb-6">
-          <span className="text-5xl">🎉</span>
+          <img
+            src="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png"
+            alt="Letterboxd"
+            className="h-16 w-16 mx-auto"
+          />
         </div>
 
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">
@@ -125,6 +134,14 @@ export function ImportLetterboxdPreviewScreen({
               </div>
             </div>
           )}
+          {reviewsCount > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <MessageSquare className="h-5 w-5 text-green-500" />
+                <span>{reviewsCount} reviews</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Import options */}
@@ -151,7 +168,7 @@ export function ImportLetterboxdPreviewScreen({
                 onChange={(e) => setImportRatings(e.target.checked)}
                 className="w-5 h-5 rounded"
               />
-              <span>Ratings → converted to /10</span>
+              <span>Ratings → converted to /10 + Top 5</span>
             </label>
           )}
 
@@ -164,6 +181,18 @@ export function ImportLetterboxdPreviewScreen({
                 className="w-5 h-5 rounded"
               />
               <span>Watchlist → &quot;To Watch&quot; list</span>
+            </label>
+          )}
+
+          {reviewsCount > 0 && (
+            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={importReviews}
+                onChange={(e) => setImportReviews(e.target.checked)}
+                className="w-5 h-5 rounded"
+              />
+              <span>Reviews → imported as reviews</span>
             </label>
           )}
         </div>

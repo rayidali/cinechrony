@@ -29,9 +29,11 @@ export function ImportLetterboxdScreen({
 
       <div className="w-full max-w-sm">
         <div className="flex justify-center mb-6">
-          <div className="w-20 h-20 rounded-2xl bg-orange-500/10 flex items-center justify-center">
-            <span className="text-4xl">🎬</span>
-          </div>
+          <img
+            src="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png"
+            alt="Letterboxd"
+            className="h-20 w-20"
+          />
         </div>
 
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">

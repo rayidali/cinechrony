@@ -3403,19 +3403,30 @@ export async function parseLetterboxdExport(base64Data: string, fileName: string
       Rating?: string;
     };
 
-    const parseCSV = (text: string): LetterboxdRow[] => {
-      const result = Papa.parse<LetterboxdRow>(text, { header: true });
-      return result.data.filter(row => row.Name && row.Name.trim());
+    type LetterboxdReviewRow = {
+      Date?: string;
+      Name: string;
+      Year: string;
+      'Letterboxd URI'?: string;
+      Rating?: string;
+      Review?: string;
+    };
+
+    const parseCSV = <T>(text: string): T[] => {
+      const result = Papa.parse<T>(text, { header: true });
+      return result.data.filter((row: any) => row.Name && row.Name.trim());
     };
 
     let data: {
       watched: LetterboxdRow[];
       ratings: LetterboxdRow[];
       watchlist: LetterboxdRow[];
+      reviews: LetterboxdReviewRow[];
     } = {
       watched: [],
       ratings: [],
       watchlist: [],
+      reviews: [],
     };
 
     if (fileName.endsWith('.zip')) {
@@ -3425,35 +3436,42 @@ export async function parseLetterboxdExport(base64Data: string, fileName: string
       const watchedFile = zip.file('watched.csv');
       const ratingsFile = zip.file('ratings.csv');
       const watchlistFile = zip.file('watchlist.csv');
+      const reviewsFile = zip.file('reviews.csv');
 
       if (watchedFile) {
         const text = await watchedFile.async('text');
-        data.watched = parseCSV(text);
+        data.watched = parseCSV<LetterboxdRow>(text);
       }
 
       if (ratingsFile) {
         const text = await ratingsFile.async('text');
-        data.ratings = parseCSV(text);
+        data.ratings = parseCSV<LetterboxdRow>(text);
       }
 
       if (watchlistFile) {
         const text = await watchlistFile.async('text');
-        data.watchlist = parseCSV(text);
+        data.watchlist = parseCSV<LetterboxdRow>(text);
+      }
+
+      if (reviewsFile) {
+        const text = await reviewsFile.async('text');
+        data.reviews = parseCSV<LetterboxdReviewRow>(text);
       }
     } else if (fileName.endsWith('.csv')) {
       // Single CSV file - determine type by name or content
       const text = buffer.toString('utf-8');
-      const parsed = parseCSV(text);
 
       if (fileName.includes('watched')) {
-        data.watched = parsed;
+        data.watched = parseCSV<LetterboxdRow>(text);
       } else if (fileName.includes('rating')) {
-        data.ratings = parsed;
+        data.ratings = parseCSV<LetterboxdRow>(text);
       } else if (fileName.includes('watchlist')) {
-        data.watchlist = parsed;
+        data.watchlist = parseCSV<LetterboxdRow>(text);
+      } else if (fileName.includes('review')) {
+        data.reviews = parseCSV<LetterboxdReviewRow>(text);
       } else {
         // Default to watched
-        data.watched = parsed;
+        data.watched = parseCSV<LetterboxdRow>(text);
       }
     } else {
       return { error: 'Invalid file type. Please upload a .zip or .csv file.' };
@@ -3475,11 +3493,13 @@ export async function importLetterboxdMovies(
     watched: Array<{ Name: string; Year: string; Rating?: string }>;
     ratings: Array<{ Name: string; Year: string; Rating?: string }>;
     watchlist: Array<{ Name: string; Year: string }>;
+    reviews?: Array<{ Name: string; Year: string; Rating?: string; Review?: string }>;
   },
   options: {
     importWatched: boolean;
     importRatings: boolean;
     importWatchlist: boolean;
+    importReviews?: boolean;
   }
 ) {
   const db = getDb();
@@ -3532,6 +3552,26 @@ export async function importLetterboxdMovies(
         }
       }
     }
+
+    // Build reviews map for quick lookup
+    const reviewsMap = new Map<string, string>();
+    if (options.importReviews && letterboxdData.reviews) {
+      for (const row of letterboxdData.reviews) {
+        if (row.Review && row.Review.trim()) {
+          const key = `${row.Name.toLowerCase()}_${row.Year}`;
+          reviewsMap.set(key, row.Review.trim());
+        }
+      }
+    }
+
+    // Track top-rated movies for favorites (5 stars = 10/10)
+    const topRatedMovies: Array<{
+      id: string;
+      title: string;
+      posterUrl: string;
+      tmdbId: number;
+      rating: number;
+    }> = [];
 
     // Collect all movies to import
     const moviesToProcess: Array<{
@@ -3648,6 +3688,45 @@ export async function importLetterboxdMovies(
             updatedAt: FieldValue.serverTimestamp(),
           }, { merge: true });
           operationCount++;
+
+          // Track top-rated (10/10 = 5 stars) for favorites
+          if (userRating === 10) {
+            topRatedMovies.push({
+              id: docId,
+              title: match.title,
+              posterUrl: match.poster_path
+                ? `https://image.tmdb.org/t/p/w500${match.poster_path}`
+                : '',
+              tmdbId: match.id,
+              rating: userRating,
+            });
+          }
+        }
+
+        // Create review if applicable
+        const userReview = reviewsMap.get(ratingKey);
+        if (userReview && options.importReviews) {
+          const reviewRef = db.collection('reviews').doc();
+          currentBatch.set(reviewRef, {
+            id: reviewRef.id,
+            tmdbId: match.id,
+            mediaType: 'movie',
+            movieTitle: match.title,
+            moviePosterUrl: match.poster_path
+              ? `https://image.tmdb.org/t/p/w500${match.poster_path}`
+              : null,
+            userId,
+            username: userData?.username || null,
+            userDisplayName: userData?.displayName || null,
+            userPhotoUrl: userData?.photoURL || null,
+            text: userReview,
+            ratingAtTime: userRating || null,
+            likes: 0,
+            likedBy: [],
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          });
+          operationCount++;
         }
 
         if (operationCount >= 450) {
@@ -3684,12 +3763,28 @@ export async function importLetterboxdMovies(
         updatedAt: FieldValue.serverTimestamp(),
       });
 
+    // Update user's favorite movies with top-rated (limit to 5)
+    if (topRatedMovies.length > 0) {
+      const favoriteMovies = topRatedMovies
+        .slice(0, 5)
+        .map(({ id, title, posterUrl, tmdbId }) => ({
+          id,
+          title,
+          posterUrl,
+          tmdbId,
+        }));
+
+      await db.collection('users').doc(userId).update({
+        favoriteMovies,
+      });
+    }
+
     // Mark onboarding as complete
     await db.collection('users').doc(userId).update({
       onboardingComplete: true,
     });
 
-    return { success: true, importedCount };
+    return { success: true, importedCount, reviewsImported: reviewsMap.size };
   } catch (error) {
     console.error('[importLetterboxdMovies] Failed:', error);
     return { error: 'Failed to import movies' };

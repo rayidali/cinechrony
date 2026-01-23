@@ -39,6 +39,7 @@ export default function OnboardingPage() {
     watched: LetterboxdMovie[];
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
+    reviews: LetterboxdMovie[];
   } | null>(null);
 
   // Track imported movies count
