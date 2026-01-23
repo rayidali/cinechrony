@@ -266,6 +266,9 @@ export type Review = {
   ratingAtTime: number | null; // User's rating snapshot when this comment was posted (immutable)
   likes: number;
   likedBy: string[]; // Array of user IDs who liked this review
+  // Threading support (1-level, like Instagram)
+  parentId: string | null; // If this is a reply, the parent review's ID
+  replyCount: number; // Number of replies to this review
   createdAt: Date;
   updatedAt: Date;
 };

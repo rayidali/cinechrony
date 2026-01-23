@@ -2764,7 +2764,8 @@ export async function createReview(
   movieTitle: string,
   moviePosterUrl: string | undefined,
   text: string,
-  ratingAtTime?: number | null // Optional: pass the current user rating to snapshot
+  ratingAtTime?: number | null, // Optional: pass the current user rating to snapshot
+  parentId?: string | null // Optional: if replying to another review
 ) {
   const db = getDb();
 
@@ -2804,11 +2805,21 @@ export async function createReview(
       ratingAtTime: rating, // Snapshot of user's rating when this comment was posted
       likes: 0,
       likedBy: [],
+      parentId: parentId || null, // Threading: null = top-level review
+      replyCount: 0, // Threading: starts at 0, incremented when replies are added
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
 
     await reviewRef.set(reviewData);
+
+    // If this is a reply, increment the parent's replyCount
+    if (parentId) {
+      const parentRef = db.collection('reviews').doc(parentId);
+      await parentRef.update({
+        replyCount: FieldValue.increment(1),
+      });
+    }
 
     return {
       success: true,
@@ -2835,7 +2846,10 @@ export async function getMovieReviews(
   const db = getDb();
 
   try {
-    let query = db.collection('reviews').where('tmdbId', '==', tmdbId);
+    // Only fetch top-level reviews (not replies)
+    let query = db.collection('reviews')
+      .where('tmdbId', '==', tmdbId)
+      .where('parentId', '==', null);
 
     if (sortBy === 'likes') {
       query = query.orderBy('likes', 'desc').orderBy('createdAt', 'desc');
@@ -2861,6 +2875,8 @@ export async function getMovieReviews(
         ratingAtTime: data.ratingAtTime ?? null, // Rating snapshot when comment was posted
         likes: data.likes || 0,
         likedBy: data.likedBy || [],
+        parentId: data.parentId || null,
+        replyCount: data.replyCount || 0,
         createdAt: data.createdAt?.toDate() || new Date(),
         updatedAt: data.updatedAt?.toDate() || new Date(),
       };
@@ -2870,6 +2886,49 @@ export async function getMovieReviews(
   } catch (error) {
     console.error('[getMovieReviews] Failed:', error);
     return { error: 'Failed to fetch reviews.', reviews: [] };
+  }
+}
+
+/**
+ * Get replies for a review.
+ */
+export async function getReviewReplies(parentId: string, limit: number = 50) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db.collection('reviews')
+      .where('parentId', '==', parentId)
+      .orderBy('createdAt', 'asc') // Oldest first for replies (chronological)
+      .limit(limit)
+      .get();
+
+    const replies = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        userId: data.userId,
+        username: data.username,
+        userDisplayName: data.userDisplayName,
+        userPhotoUrl: data.userPhotoUrl,
+        text: data.text,
+        ratingAtTime: data.ratingAtTime ?? null,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        parentId: data.parentId,
+        replyCount: 0, // Replies don't have replies (1-level threading)
+        createdAt: data.createdAt?.toDate() || new Date(),
+        updatedAt: data.updatedAt?.toDate() || new Date(),
+      };
+    });
+
+    return { replies };
+  } catch (error) {
+    console.error('[getReviewReplies] Failed:', error);
+    return { error: 'Failed to fetch replies.', replies: [] };
   }
 }
 

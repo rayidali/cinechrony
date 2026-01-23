@@ -4,11 +4,11 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, MessageSquare, Send } from 'lucide-react';
+import { ArrowLeft, Loader2, MessageSquare, Send, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser, useFirestore } from '@/firebase';
-import { getMovieReviews, createReview } from '@/app/actions';
+import { getMovieReviews, createReview, getReviewReplies } from '@/app/actions';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import type { Review } from '@/lib/types';
@@ -40,6 +40,11 @@ function CommentsPageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [userProfile, setUserProfile] = useState<{ photoURL?: string; displayName?: string; username?: string } | null>(null);
+
+  // Reply state
+  const [replyingTo, setReplyingTo] = useState<Review | null>(null);
+  const [expandedReplies, setExpandedReplies] = useState<Record<string, Review[]>>({});
+  const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({});
 
   // Refs
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -150,6 +155,8 @@ function CommentsPageContent() {
     if (!user || !commentText.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
+    const parentId = replyingTo?.id || null;
+
     try {
       const result = await createReview(
         user.uid,
@@ -157,7 +164,9 @@ function CommentsPageContent() {
         mediaType,
         movieTitle,
         moviePoster || undefined,
-        commentText.trim()
+        commentText.trim(),
+        undefined, // ratingAtTime
+        parentId // parentId for replies
       );
 
       if (result.error) {
@@ -165,16 +174,33 @@ function CommentsPageContent() {
       }
 
       if (result.review) {
-        // Add to list optimistically
-        setReviews(prev => [result.review as Review, ...prev]);
+        if (parentId) {
+          // Add reply to expanded replies if parent is expanded
+          if (expandedReplies[parentId]) {
+            setExpandedReplies(prev => ({
+              ...prev,
+              [parentId]: [...prev[parentId], result.review as Review],
+            }));
+          }
+          // Update parent's reply count
+          setReviews(prev => prev.map(r =>
+            r.id === parentId ? { ...r, replyCount: (r.replyCount || 0) + 1 } : r
+          ));
+          // Clear replying state
+          setReplyingTo(null);
+        } else {
+          // Add top-level comment to list
+          setReviews(prev => [result.review as Review, ...prev]);
+        }
+
         setCommentText('');
 
         // Blur input to dismiss keyboard
         inputRef.current?.blur();
 
         toast({
-          title: 'Comment posted',
-          description: 'Your comment has been added.',
+          title: parentId ? 'Reply posted' : 'Comment posted',
+          description: parentId ? 'Your reply has been added.' : 'Your comment has been added.',
         });
       }
     } catch (error: any) {
@@ -191,7 +217,63 @@ function CommentsPageContent() {
   // Handle review deletion
   const handleDeleteReview = useCallback((reviewId: string) => {
     setReviews(prev => prev.filter(r => r.id !== reviewId));
+    // Also remove from expanded replies if it was a reply
+    setExpandedReplies(prev => {
+      const updated = { ...prev };
+      for (const parentId in updated) {
+        updated[parentId] = updated[parentId].filter(r => r.id !== reviewId);
+      }
+      return updated;
+    });
   }, []);
+
+  // Handle starting a reply
+  const handleStartReply = useCallback((review: Review) => {
+    setReplyingTo(review);
+    setCommentText(`@${review.username || review.userDisplayName || 'user'} `);
+    inputRef.current?.focus();
+  }, []);
+
+  // Cancel replying
+  const handleCancelReply = useCallback(() => {
+    setReplyingTo(null);
+    setCommentText('');
+  }, []);
+
+  // Toggle showing replies for a review
+  const handleToggleReplies = useCallback(async (review: Review) => {
+    const parentId = review.id;
+
+    // If already expanded, collapse
+    if (expandedReplies[parentId]) {
+      setExpandedReplies(prev => {
+        const updated = { ...prev };
+        delete updated[parentId];
+        return updated;
+      });
+      return;
+    }
+
+    // Fetch replies
+    setLoadingReplies(prev => ({ ...prev, [parentId]: true }));
+    try {
+      const result = await getReviewReplies(parentId);
+      if (result.replies) {
+        setExpandedReplies(prev => ({
+          ...prev,
+          [parentId]: result.replies as Review[],
+        }));
+      }
+    } catch (error) {
+      console.error('Failed to fetch replies:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to load replies',
+      });
+    } finally {
+      setLoadingReplies(prev => ({ ...prev, [parentId]: false }));
+    }
+  }, [expandedReplies, toast]);
 
   // Handle review edit (for now, just remove and let them re-add)
   const handleEditReview = useCallback((review: Review) => {
@@ -288,13 +370,54 @@ function CommentsPageContent() {
         ) : (
           <div className="divide-y divide-border">
             {reviews.map(review => (
-              <ReviewCard
-                key={review.id}
-                review={review}
-                currentUserId={user?.uid}
-                onDelete={handleDeleteReview}
-                onEdit={handleEditReview}
-              />
+              <div key={review.id}>
+                {/* Parent review */}
+                <ReviewCard
+                  review={review}
+                  currentUserId={user?.uid}
+                  onDelete={handleDeleteReview}
+                  onEdit={handleEditReview}
+                  onReply={handleStartReply}
+                />
+
+                {/* View replies button */}
+                {(review.replyCount || 0) > 0 && (
+                  <div className="pl-12 pb-2">
+                    <button
+                      onClick={() => handleToggleReplies(review)}
+                      disabled={loadingReplies[review.id]}
+                      className="flex items-center gap-1 text-sm text-primary hover:underline disabled:opacity-50"
+                    >
+                      {loadingReplies[review.id] ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : expandedReplies[review.id] ? (
+                        <ChevronUp className="h-3 w-3" />
+                      ) : (
+                        <ChevronDown className="h-3 w-3" />
+                      )}
+                      {expandedReplies[review.id]
+                        ? 'Hide replies'
+                        : `View ${review.replyCount} ${review.replyCount === 1 ? 'reply' : 'replies'}`
+                      }
+                    </button>
+                  </div>
+                )}
+
+                {/* Inline replies */}
+                {expandedReplies[review.id] && (
+                  <div className="pl-12 border-l-2 border-border/50 ml-5 mb-2">
+                    {expandedReplies[review.id].map(reply => (
+                      <ReviewCard
+                        key={reply.id}
+                        review={reply}
+                        currentUserId={user?.uid}
+                        onDelete={handleDeleteReview}
+                        isReply
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
             ))}
           </div>
         )}
@@ -303,13 +426,28 @@ function CommentsPageContent() {
       {/* Fixed Bottom Input */}
       {user && (
         <div
-          className="flex-shrink-0 border-t border-border bg-background px-4 py-3"
+          className="flex-shrink-0 border-t border-border bg-background"
           style={{
             paddingBottom: keyboardHeight > 0 ? Math.max(12, keyboardHeight - 20) : 12,
             transition: 'padding-bottom 0.1s ease-out',
           }}
         >
-          <div className="flex items-end gap-3">
+          {/* Reply indicator */}
+          {replyingTo && (
+            <div className="flex items-center justify-between px-4 py-2 bg-secondary/50 border-b border-border">
+              <span className="text-sm text-muted-foreground">
+                Replying to <span className="font-medium text-foreground">@{replyingTo.username || replyingTo.userDisplayName || 'user'}</span>
+              </span>
+              <button
+                onClick={handleCancelReply}
+                className="p-1 rounded-full hover:bg-secondary"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-end gap-3 px-4 py-3">
             <ProfileAvatar
               photoURL={userProfile?.photoURL}
               displayName={userProfile?.displayName}
@@ -322,7 +460,7 @@ function CommentsPageContent() {
                 ref={inputRef}
                 value={commentText}
                 onChange={handleTextareaChange}
-                placeholder="Add a comment..."
+                placeholder={replyingTo ? 'Write a reply...' : 'Add a comment...'}
                 rows={1}
                 maxLength={1000}
                 className="w-full px-4 py-2 pr-12 rounded-2xl border-2 border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"

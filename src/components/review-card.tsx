@@ -2,7 +2,7 @@
 
 import { useState, memo, useMemo } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Star, MessageCircle } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -22,9 +22,11 @@ interface ReviewCardProps {
   currentUserId?: string;
   onDelete?: (reviewId: string) => void;
   onEdit?: (review: Review) => void;
+  onReply?: (review: Review) => void;
+  isReply?: boolean; // If true, this is a reply (renders more compact, no reply button)
 }
 
-export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCardProps) {
+export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit, onReply, isReply = false }: ReviewCardProps) {
   const { toast } = useToast();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
@@ -36,6 +38,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   const isOwner = currentUserId === review.userId;
   const displayName = review.userDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
+  const replyCount = review.replyCount || 0;
 
   // Get styles for the rating badge (using inline styles for consistency)
   const ratingStyle = useMemo(() => getRatingStyle(review.ratingAtTime), [review.ratingAtTime]);
@@ -89,14 +92,14 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   };
 
   return (
-    <div className="flex gap-3 py-4">
+    <div className={`flex gap-3 ${isReply ? 'py-2' : 'py-4'}`}>
       {/* User avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
           photoURL={review.userPhotoUrl}
           displayName={review.userDisplayName}
           username={review.username}
-          size="md"
+          size={isReply ? 'sm' : 'md'}
         />
       </Link>
 
@@ -157,7 +160,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
           {review.text}
         </p>
 
-        {/* Actions: like, comment (future) */}
+        {/* Actions: like, reply */}
         <div className="flex items-center gap-4 mt-2">
           <button
             onClick={handleLikeToggle}
@@ -170,10 +173,17 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
             {likes > 0 && <span>{likes}</span>}
           </button>
 
-          {/* Comment button - placeholder for future */}
-          {/* <button className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <MessageCircle className="h-4 w-4" />
-          </button> */}
+          {/* Reply button - only for top-level reviews */}
+          {!isReply && onReply && (
+            <button
+              onClick={() => onReply(review)}
+              disabled={!currentUserId}
+              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              <MessageCircle className="h-4 w-4" />
+              {replyCount > 0 && <span>{replyCount}</span>}
+            </button>
+          )}
         </div>
       </div>
     </div>
