@@ -18,11 +18,10 @@ import {
   Tv,
   Info,
   MessageSquare,
-  Expand,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile, Review } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -30,11 +29,10 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateReview, updateMovieNote } from '@/app/actions';
+import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
-import { ReviewsList } from './reviews-list';
 import { RatingSlider } from './rating-slider';
 import { FullscreenTextInput } from './fullscreen-text-input';
 import { useToast } from '@/hooks/use-toast';
@@ -197,9 +195,6 @@ export function MovieDetailsModal({
   const [isSavingNote, setIsSavingNote] = useState(false);
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [showSocialLinkEditor, setShowSocialLinkEditor] = useState(false);
-  const [showCommentEditor, setShowCommentEditor] = useState(false);
-  const [editingComment, setEditingComment] = useState<{ id: string; text: string } | null>(null);
-  const [pendingNewComment, setPendingNewComment] = useState<Review | null>(null);
   const { toast } = useToast();
   const { user } = useUser();
   const firestore = useFirestore();
@@ -288,9 +283,6 @@ export function MovieDetailsModal({
       setShowRateOnWatchModal(false);
       setShowNoteEditor(false);
       setShowSocialLinkEditor(false);
-      setShowCommentEditor(false);
-      setEditingComment(null);
-      setPendingNewComment(null);
       // Initialize user's note from movie data
       setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     }
@@ -303,8 +295,6 @@ export function MovieDetailsModal({
       setShowNoteEditor(false);
       setShowSocialLinkEditor(false);
       setShowRateOnWatchModal(false);
-      setShowCommentEditor(false);
-      setEditingComment(null);
     }
   }, [isOpen]);
 
@@ -528,66 +518,6 @@ export function MovieDetailsModal({
     }
   };
 
-  // Handler for saving comments from fullscreen editor (create or edit)
-  const handleSaveComment = async (text: string) => {
-    if (!user?.uid || !tmdbId) return;
-
-    if (editingComment) {
-      // Update existing comment
-      const result = await updateReview(user.uid, editingComment.id, text);
-      if (result.success) {
-        // Optimistic update handled by ReviewsList via pendingNewComment
-        setPendingNewComment({
-          id: editingComment.id,
-          text: text.trim(),
-          userId: user.uid,
-          tmdbId,
-          mediaType: movie.mediaType || 'movie',
-          movieTitle: movie.title,
-          moviePosterUrl: movie.posterUrl,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-          likes: [],
-          likeCount: 0,
-          _isUpdate: true, // Signal this is an update
-        } as Review & { _isUpdate?: boolean });
-        toast({ title: 'Updated', description: 'Your comment has been updated.' });
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-        throw new Error(result.error);
-      }
-    } else {
-      // Create new comment
-      const result = await createReview(
-        user.uid,
-        tmdbId,
-        movie.mediaType || 'movie',
-        movie.title,
-        movie.posterUrl,
-        text
-      );
-      if (result.success && result.review) {
-        // Optimistic update - add to list immediately
-        setPendingNewComment(result.review as Review);
-        toast({ title: 'Posted', description: 'Your comment has been posted.' });
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-        throw new Error(result.error || 'Failed to post comment');
-      }
-    }
-  };
-
-  // Callbacks for ReviewsList
-  const handleRequestAddComment = () => {
-    setEditingComment(null);
-    setShowCommentEditor(true);
-  };
-
-  const handleRequestEditComment = (review: Review) => {
-    setEditingComment({ id: review.id, text: review.text });
-    setShowCommentEditor(true);
-  };
-
   // Navigate to full-screen comments page
   const handleOpenFullComments = () => {
     const params = new URLSearchParams({
@@ -606,8 +536,8 @@ export function MovieDetailsModal({
     <>
       {/* Main Movie Details Drawer - Close when any fullscreen editor is open to release focus trap */}
       <Drawer.Root
-        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor}
-        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && !showCommentEditor && onClose()}
+        open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal}
+        onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && onClose()}
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
@@ -914,32 +844,7 @@ export function MovieDetailsModal({
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="flex-1 flex flex-col min-h-0">
-                  {/* Expand button to open full-screen comments */}
-                  <div className="flex-shrink-0 px-4 py-2 border-b border-border flex items-center justify-between">
-                    <span className="text-sm font-medium text-muted-foreground">Comments</span>
-                    <button
-                      onClick={handleOpenFullComments}
-                      className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium"
-                    >
-                      <Expand className="h-3.5 w-3.5" />
-                      Open Full View
-                    </button>
-                  </div>
-                  <ReviewsList
-                    tmdbId={tmdbId}
-                    mediaType={movie.mediaType || 'movie'}
-                    movieTitle={movie.title}
-                    moviePosterUrl={movie.posterUrl}
-                    currentUserId={user.uid}
-                    onRequestAddComment={handleRequestAddComment}
-                    onRequestEditComment={handleRequestEditComment}
-                    pendingNewComment={pendingNewComment}
-                    onPendingCommentHandled={() => setPendingNewComment(null)}
-                  />
-                </div>
-              )}
+              ) : null}
             </div>
 
             {/* Sticky bottom bar with Info/Reviews toggle */}
@@ -957,12 +862,8 @@ export function MovieDetailsModal({
                   Info
                 </button>
                 <button
-                  onClick={() => setActiveTab('reviews')}
-                  className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
-                    activeTab === 'reviews'
-                      ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
+                  onClick={handleOpenFullComments}
+                  className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-secondary text-muted-foreground hover:text-foreground"
                 >
                   <MessageSquare className="h-4 w-4" />
                   Reviews
@@ -1016,21 +917,6 @@ export function MovieDetailsModal({
         maxLength={500}
         singleLine={true}
         inputType="url"
-      />
-
-      {/* Fullscreen Comment Editor for Reviews Tab */}
-      <FullscreenTextInput
-        isOpen={isOpen && showCommentEditor}
-        onClose={() => {
-          setShowCommentEditor(false);
-          setEditingComment(null);
-        }}
-        onSave={handleSaveComment}
-        initialValue={editingComment?.text || ''}
-        title={editingComment ? 'Edit Comment' : 'Add Comment'}
-        subtitle={movie.title}
-        placeholder="Share your thoughts..."
-        maxLength={500}
       />
     </>
   );
