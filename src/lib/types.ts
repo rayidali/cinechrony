@@ -13,6 +13,46 @@ export type UserProfile = {
   followersCount: number;
   followingCount: number;
   favoriteMovies?: FavoriteMovie[]; // Top 5 favorite movies
+  onboardingComplete?: boolean; // Whether user has completed onboarding
+};
+
+// Onboarding step types
+export type OnboardingStep =
+  | 'splash'
+  | 'signup'
+  | 'username'
+  | 'import-options'
+  | 'import-paste'
+  | 'import-paste-confirm'
+  | 'import-letterboxd'
+  | 'import-letterboxd-guide'
+  | 'import-letterboxd-upload'
+  | 'import-letterboxd-preview'
+  | 'find-friends'
+  | 'complete';
+
+// Parsed movie from paste input
+export type ParsedMovie = {
+  originalLine: string;
+  title: string;
+  year: number | null;
+};
+
+// Matched movie from TMDB
+export type MatchedMovie = {
+  parsed: ParsedMovie;
+  match: TMDBSearchResult | null;
+  status: 'exact_match' | 'best_guess' | 'not_found';
+  selected: boolean;
+};
+
+// Letterboxd CSV row
+export type LetterboxdMovie = {
+  Date?: string;
+  Name: string;
+  Year: string;
+  'Letterboxd URI'?: string;
+  Rating?: string;
 };
 
 // A favorite movie (for profile display)

@@ -692,7 +692,7 @@ export async function migrateMoviesToList(userId: string, listId: string) {
  * Search for users by username, email, or display name.
  * Also migrates users missing normalized fields on-the-fly.
  */
-export async function searchUsers(query: string, currentUserId: string) {
+export async function searchUsers(query: string, currentUserId?: string) {
   const db = getDb();
 
   try {
@@ -740,6 +740,7 @@ export async function searchUsers(query: string, currentUserId: string) {
           displayName: data.displayName || null,
           photoURL: data.photoURL || null,
           username: data.username || null,
+          bio: data.bio || null,
           createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           followersCount: data.followersCount || 0,
           followingCount: data.followingCount || 0,
@@ -1098,6 +1099,7 @@ export async function getFollowers(userId: string, limit: number = 50) {
           displayName: data?.displayName || null,
           photoURL: data?.photoURL || null,
           username: data?.username || null,
+          bio: data?.bio || null,
           createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           followersCount: data?.followersCount || 0,
           followingCount: data?.followingCount || 0,
@@ -1149,6 +1151,7 @@ export async function getFollowing(userId: string, limit: number = 50) {
           displayName: data?.displayName || null,
           photoURL: data?.photoURL || null,
           username: data?.username || null,
+          bio: data?.bio || null,
           createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
           followersCount: data?.followersCount || 0,
           followingCount: data?.followingCount || 0,
@@ -3009,6 +3012,694 @@ export async function getUserRatings(userId: string, limit: number = 100) {
  *
  * Run this once via an admin page or API route.
  */
+// ============================================
+// ONBOARDING ACTIONS
+// ============================================
+
+/**
+ * Check if a username is available.
+ * Uses Firestore for now - can be migrated to RTDB for faster lookups later.
+ */
+export async function checkUsernameAvailability(username: string) {
+  const db = getDb();
+
+  try {
+    const normalized = username.toLowerCase().trim();
+
+    // Validate format
+    if (!/^[a-z0-9_]{3,20}$/.test(normalized)) {
+      return { available: false, error: 'Invalid username format' };
+    }
+
+    // Check if username exists
+    const snapshot = await db
+      .collection('users')
+      .where('usernameLower', '==', normalized)
+      .limit(1)
+      .get();
+
+    const isAvailable = snapshot.empty;
+
+    // Generate suggestions if taken
+    let suggestions: string[] = [];
+    if (!isAvailable) {
+      suggestions = [
+        `${normalized}${Math.floor(Math.random() * 100)}`,
+        `${normalized}_films`,
+        `${normalized}${new Date().getFullYear() % 100}`,
+      ];
+    }
+
+    return { available: isAvailable, suggestions };
+  } catch (error) {
+    console.error('[checkUsernameAvailability] Failed:', error);
+    return { available: false, error: 'Failed to check username' };
+  }
+}
+
+/**
+ * Create user profile with a chosen username (during onboarding).
+ * This is called after the user picks their username.
+ */
+export async function createUserProfileWithUsername(
+  userId: string,
+  email: string,
+  username: string,
+  displayName: string | null
+) {
+  const db = getDb();
+
+  try {
+    const normalized = username.toLowerCase().trim();
+
+    // Validate format
+    if (!/^[a-z0-9_]{3,20}$/.test(normalized)) {
+      return { error: 'Invalid username format' };
+    }
+
+    // Double-check availability (race condition protection)
+    const existingSnapshot = await db
+      .collection('users')
+      .where('usernameLower', '==', normalized)
+      .limit(1)
+      .get();
+
+    if (!existingSnapshot.empty) {
+      return { error: 'Username is already taken' };
+    }
+
+    // Check if user already has a profile
+    const userRef = db.collection('users').doc(userId);
+    const existingUser = await userRef.get();
+
+    if (existingUser.exists) {
+      // Update existing profile with username
+      await userRef.update({
+        username: normalized,
+        usernameLower: normalized,
+        displayName: displayName,
+        displayNameLower: displayName?.toLowerCase() || null,
+        onboardingComplete: false, // Will be set to true after import/friends steps
+      });
+    } else {
+      // Create new profile
+      await userRef.set({
+        uid: userId,
+        email: email,
+        emailLower: email.toLowerCase(),
+        displayName: displayName,
+        displayNameLower: displayName?.toLowerCase() || null,
+        photoURL: null,
+        username: normalized,
+        usernameLower: normalized,
+        followersCount: 0,
+        followingCount: 0,
+        onboardingComplete: false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    }
+
+    // Create default list
+    const listsSnapshot = await userRef.collection('lists').limit(1).get();
+    let defaultListId: string | null = null;
+
+    if (listsSnapshot.empty) {
+      const listRef = userRef.collection('lists').doc();
+      await listRef.set({
+        id: listRef.id,
+        name: 'My Watchlist',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        isDefault: true,
+        isPublic: false,
+        ownerId: userId,
+        collaboratorIds: [],
+        movieCount: 0,
+      });
+      defaultListId = listRef.id;
+    } else {
+      defaultListId = listsSnapshot.docs[0].id;
+    }
+
+    return { success: true, defaultListId };
+  } catch (error) {
+    console.error('[createUserProfileWithUsername] Failed:', error);
+    return { error: 'Failed to create profile' };
+  }
+}
+
+/**
+ * Parse pasted movie list text and match with TMDB.
+ */
+export async function parseAndMatchMovies(text: string) {
+  try {
+    const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+    if (!TMDB_ACCESS_TOKEN) {
+      return { error: 'TMDB not configured' };
+    }
+
+    // Parse the text into movie entries
+    const lines = text
+      .split(/\n/)
+      .map(line => line.trim())
+      .filter(line => line.length > 0);
+
+    const parsed: Array<{ originalLine: string; title: string; year: number | null }> = [];
+
+    for (const line of lines) {
+      // Remove common prefixes: "1. ", "- ", "• ", "* ", "1) "
+      let cleaned = line
+        .replace(/^[\d]+[.\)]\s*/, '')
+        .replace(/^[-•*]\s*/, '')
+        .trim();
+
+      // Extract year: "Movie (2010)" or "Movie [2010]" or "Movie 2010"
+      const yearMatch = cleaned.match(/[\(\[]?(\d{4})[\)\]]?\s*$/);
+      const year = yearMatch ? parseInt(yearMatch[1]) : null;
+
+      // Remove year from title
+      const title = cleaned
+        .replace(/[\(\[]?\d{4}[\)\]]?\s*$/, '')
+        .trim();
+
+      if (title.length > 0) {
+        parsed.push({ originalLine: line, title, year });
+      }
+    }
+
+    if (parsed.length === 0) {
+      return { error: 'No movies found in text' };
+    }
+
+    // Match with TMDB (process in batches to avoid rate limiting)
+    const matches: Array<{
+      parsed: { originalLine: string; title: string; year: number | null };
+      match: any | null;
+      status: 'exact_match' | 'best_guess' | 'not_found';
+      selected: boolean;
+    }> = [];
+
+    for (const item of parsed) {
+      try {
+        const query = encodeURIComponent(item.title);
+        const yearParam = item.year ? `&year=${item.year}` : '';
+        const url = `https://api.themoviedb.org/3/search/movie?query=${query}${yearParam}&language=en-US&page=1`;
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) {
+          matches.push({ parsed: item, match: null, status: 'not_found', selected: false });
+          continue;
+        }
+
+        const data = await response.json();
+        const results = data.results || [];
+
+        if (results.length === 0) {
+          matches.push({ parsed: item, match: null, status: 'not_found', selected: false });
+          continue;
+        }
+
+        // Find exact year match if year was provided
+        let bestMatch = results[0];
+        let status: 'exact_match' | 'best_guess' = 'best_guess';
+
+        if (item.year) {
+          const exactMatch = results.find((r: any) =>
+            r.release_date?.startsWith(item.year!.toString())
+          );
+          if (exactMatch) {
+            bestMatch = exactMatch;
+            status = 'exact_match';
+          }
+        } else if (results[0].release_date) {
+          status = 'exact_match'; // Trust first result without year filter
+        }
+
+        matches.push({ parsed: item, match: bestMatch, status, selected: true });
+      } catch (err) {
+        matches.push({ parsed: item, match: null, status: 'not_found', selected: false });
+      }
+
+      // Small delay to avoid rate limiting
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+
+    return { matches };
+  } catch (error) {
+    console.error('[parseAndMatchMovies] Failed:', error);
+    return { error: 'Failed to parse movies' };
+  }
+}
+
+/**
+ * Import matched movies to user's default list.
+ */
+export async function importMatchedMovies(
+  userId: string,
+  matchedMovies: Array<{
+    parsed: { originalLine: string; title: string; year: number | null };
+    match: any | null;
+    status: string;
+    selected: boolean;
+  }>
+) {
+  const db = getDb();
+
+  try {
+    // Get user's default list
+    const listsSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .where('isDefault', '==', true)
+      .limit(1)
+      .get();
+
+    let listId: string;
+    if (listsSnapshot.empty) {
+      // Create default list if doesn't exist
+      const listRef = db.collection('users').doc(userId).collection('lists').doc();
+      await listRef.set({
+        id: listRef.id,
+        name: 'My Watchlist',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        isDefault: true,
+        isPublic: false,
+        ownerId: userId,
+        collaboratorIds: [],
+        movieCount: 0,
+      });
+      listId = listRef.id;
+    } else {
+      listId = listsSnapshot.docs[0].id;
+    }
+
+    // Get user data for denormalization
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    // Filter to selected movies with matches
+    const moviesToImport = matchedMovies.filter(m => m.selected && m.match);
+    let importedCount = 0;
+
+    // Import in batches of 500 (Firestore limit)
+    const batches: FirebaseFirestore.WriteBatch[] = [];
+    let currentBatch = db.batch();
+    let operationCount = 0;
+
+    for (const { match } of moviesToImport) {
+      const docId = `movie_${match.id}`;
+      const movieRef = db
+        .collection('users')
+        .doc(userId)
+        .collection('lists')
+        .doc(listId)
+        .collection('movies')
+        .doc(docId);
+
+      currentBatch.set(movieRef, {
+        id: docId,
+        title: match.title,
+        year: match.release_date?.slice(0, 4) || '',
+        posterUrl: match.poster_path
+          ? `https://image.tmdb.org/t/p/w500${match.poster_path}`
+          : null,
+        posterHint: match.title,
+        addedBy: userId,
+        status: 'To Watch',
+        createdAt: FieldValue.serverTimestamp(),
+        mediaType: 'movie',
+        tmdbId: match.id,
+        overview: match.overview || null,
+        rating: match.vote_average || null,
+        backdropUrl: match.backdrop_path
+          ? `https://image.tmdb.org/t/p/w1280${match.backdrop_path}`
+          : null,
+        addedByDisplayName: userData?.displayName || null,
+        addedByUsername: userData?.username || null,
+        addedByPhotoURL: userData?.photoURL || null,
+      }, { merge: true });
+
+      operationCount++;
+      importedCount++;
+
+      if (operationCount >= 500) {
+        batches.push(currentBatch);
+        currentBatch = db.batch();
+        operationCount = 0;
+      }
+    }
+
+    if (operationCount > 0) {
+      batches.push(currentBatch);
+    }
+
+    // Commit all batches
+    for (const batch of batches) {
+      await batch.commit();
+    }
+
+    // Update movie count on list
+    await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        movieCount: FieldValue.increment(importedCount),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    return { success: true, importedCount };
+  } catch (error) {
+    console.error('[importMatchedMovies] Failed:', error);
+    return { error: 'Failed to import movies' };
+  }
+}
+
+/**
+ * Parse Letterboxd export ZIP or CSV file.
+ */
+export async function parseLetterboxdExport(base64Data: string, fileName: string) {
+  try {
+    // Dynamic import for jszip and papaparse
+    const JSZip = (await import('jszip')).default;
+    const Papa = (await import('papaparse')).default;
+
+    const buffer = Buffer.from(base64Data, 'base64');
+
+    type LetterboxdRow = {
+      Date?: string;
+      Name: string;
+      Year: string;
+      'Letterboxd URI'?: string;
+      Rating?: string;
+    };
+
+    const parseCSV = (text: string): LetterboxdRow[] => {
+      const result = Papa.parse<LetterboxdRow>(text, { header: true });
+      return result.data.filter(row => row.Name && row.Name.trim());
+    };
+
+    let data: {
+      watched: LetterboxdRow[];
+      ratings: LetterboxdRow[];
+      watchlist: LetterboxdRow[];
+    } = {
+      watched: [],
+      ratings: [],
+      watchlist: [],
+    };
+
+    if (fileName.endsWith('.zip')) {
+      const zip = await JSZip.loadAsync(buffer);
+
+      // Try to find CSV files in the ZIP
+      const watchedFile = zip.file('watched.csv');
+      const ratingsFile = zip.file('ratings.csv');
+      const watchlistFile = zip.file('watchlist.csv');
+
+      if (watchedFile) {
+        const text = await watchedFile.async('text');
+        data.watched = parseCSV(text);
+      }
+
+      if (ratingsFile) {
+        const text = await ratingsFile.async('text');
+        data.ratings = parseCSV(text);
+      }
+
+      if (watchlistFile) {
+        const text = await watchlistFile.async('text');
+        data.watchlist = parseCSV(text);
+      }
+    } else if (fileName.endsWith('.csv')) {
+      // Single CSV file - determine type by name or content
+      const text = buffer.toString('utf-8');
+      const parsed = parseCSV(text);
+
+      if (fileName.includes('watched')) {
+        data.watched = parsed;
+      } else if (fileName.includes('rating')) {
+        data.ratings = parsed;
+      } else if (fileName.includes('watchlist')) {
+        data.watchlist = parsed;
+      } else {
+        // Default to watched
+        data.watched = parsed;
+      }
+    } else {
+      return { error: 'Invalid file type. Please upload a .zip or .csv file.' };
+    }
+
+    return { data };
+  } catch (error) {
+    console.error('[parseLetterboxdExport] Failed:', error);
+    return { error: 'Failed to parse export file' };
+  }
+}
+
+/**
+ * Import movies from Letterboxd data.
+ */
+export async function importLetterboxdMovies(
+  userId: string,
+  letterboxdData: {
+    watched: Array<{ Name: string; Year: string; Rating?: string }>;
+    ratings: Array<{ Name: string; Year: string; Rating?: string }>;
+    watchlist: Array<{ Name: string; Year: string }>;
+  },
+  options: {
+    importWatched: boolean;
+    importRatings: boolean;
+    importWatchlist: boolean;
+  }
+) {
+  const db = getDb();
+  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+
+  if (!TMDB_ACCESS_TOKEN) {
+    return { error: 'TMDB not configured' };
+  }
+
+  try {
+    // Get or create user's default list
+    const listsSnapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .where('isDefault', '==', true)
+      .limit(1)
+      .get();
+
+    let listId: string;
+    if (listsSnapshot.empty) {
+      const listRef = db.collection('users').doc(userId).collection('lists').doc();
+      await listRef.set({
+        id: listRef.id,
+        name: 'My Watchlist',
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+        isDefault: true,
+        isPublic: false,
+        ownerId: userId,
+        collaboratorIds: [],
+        movieCount: 0,
+      });
+      listId = listRef.id;
+    } else {
+      listId = listsSnapshot.docs[0].id;
+    }
+
+    // Get user data for denormalization
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    // Build ratings map for quick lookup
+    const ratingsMap = new Map<string, number>();
+    if (options.importRatings) {
+      for (const row of letterboxdData.ratings) {
+        if (row.Rating) {
+          const key = `${row.Name.toLowerCase()}_${row.Year}`;
+          ratingsMap.set(key, parseFloat(row.Rating) * 2); // Convert to /10
+        }
+      }
+    }
+
+    // Collect all movies to import
+    const moviesToProcess: Array<{
+      name: string;
+      year: string;
+      status: 'Watched' | 'To Watch';
+    }> = [];
+
+    if (options.importWatched) {
+      for (const row of letterboxdData.watched) {
+        moviesToProcess.push({
+          name: row.Name,
+          year: row.Year,
+          status: 'Watched',
+        });
+      }
+    }
+
+    if (options.importWatchlist) {
+      for (const row of letterboxdData.watchlist) {
+        // Skip if already in watched
+        const alreadyWatched = letterboxdData.watched.some(
+          w => w.Name === row.Name && w.Year === row.Year
+        );
+        if (!alreadyWatched) {
+          moviesToProcess.push({
+            name: row.Name,
+            year: row.Year,
+            status: 'To Watch',
+          });
+        }
+      }
+    }
+
+    let importedCount = 0;
+    const batches: FirebaseFirestore.WriteBatch[] = [];
+    let currentBatch = db.batch();
+    let operationCount = 0;
+
+    // Process movies and match with TMDB
+    for (const movie of moviesToProcess) {
+      try {
+        const query = encodeURIComponent(movie.name);
+        const url = `https://api.themoviedb.org/3/search/movie?query=${query}&year=${movie.year}&language=en-US&page=1`;
+
+        const response = await fetch(url, {
+          headers: {
+            Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!response.ok) continue;
+
+        const data = await response.json();
+        const results = data.results || [];
+        if (results.length === 0) continue;
+
+        // Find best match (prefer exact year)
+        const match = results.find((r: any) =>
+          r.release_date?.startsWith(movie.year)
+        ) || results[0];
+
+        const docId = `movie_${match.id}`;
+        const movieRef = db
+          .collection('users')
+          .doc(userId)
+          .collection('lists')
+          .doc(listId)
+          .collection('movies')
+          .doc(docId);
+
+        currentBatch.set(movieRef, {
+          id: docId,
+          title: match.title,
+          year: match.release_date?.slice(0, 4) || movie.year,
+          posterUrl: match.poster_path
+            ? `https://image.tmdb.org/t/p/w500${match.poster_path}`
+            : null,
+          posterHint: match.title,
+          addedBy: userId,
+          status: movie.status,
+          createdAt: FieldValue.serverTimestamp(),
+          mediaType: 'movie',
+          tmdbId: match.id,
+          overview: match.overview || null,
+          rating: match.vote_average || null,
+          backdropUrl: match.backdrop_path
+            ? `https://image.tmdb.org/t/p/w1280${match.backdrop_path}`
+            : null,
+          addedByDisplayName: userData?.displayName || null,
+          addedByUsername: userData?.username || null,
+          addedByPhotoURL: userData?.photoURL || null,
+        }, { merge: true });
+
+        operationCount++;
+        importedCount++;
+
+        // Also create rating if applicable
+        const ratingKey = `${movie.name.toLowerCase()}_${movie.year}`;
+        const userRating = ratingsMap.get(ratingKey);
+        if (userRating && options.importRatings) {
+          const ratingRef = db.collection('ratings').doc(`${userId}_${match.id}`);
+          currentBatch.set(ratingRef, {
+            userId,
+            tmdbId: match.id,
+            mediaType: 'movie',
+            movieTitle: match.title,
+            moviePosterUrl: match.poster_path
+              ? `https://image.tmdb.org/t/p/w500${match.poster_path}`
+              : null,
+            rating: userRating,
+            createdAt: FieldValue.serverTimestamp(),
+            updatedAt: FieldValue.serverTimestamp(),
+          }, { merge: true });
+          operationCount++;
+        }
+
+        if (operationCount >= 450) {
+          batches.push(currentBatch);
+          currentBatch = db.batch();
+          operationCount = 0;
+        }
+
+        // Rate limiting delay
+        await new Promise(resolve => setTimeout(resolve, 50));
+      } catch (err) {
+        console.error(`Failed to process movie: ${movie.name}`, err);
+        continue;
+      }
+    }
+
+    if (operationCount > 0) {
+      batches.push(currentBatch);
+    }
+
+    // Commit all batches
+    for (const batch of batches) {
+      await batch.commit();
+    }
+
+    // Update movie count on list
+    await db
+      .collection('users')
+      .doc(userId)
+      .collection('lists')
+      .doc(listId)
+      .update({
+        movieCount: FieldValue.increment(importedCount),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+
+    // Mark onboarding as complete
+    await db.collection('users').doc(userId).update({
+      onboardingComplete: true,
+    });
+
+    return { success: true, importedCount };
+  } catch (error) {
+    console.error('[importLetterboxdMovies] Failed:', error);
+    return { error: 'Failed to import movies' };
+  }
+}
+
+// ============================================
+// END ONBOARDING ACTIONS
+// ============================================
+
 export async function backfillMovieUserData(adminSecret: string) {
   // Simple protection against accidental runs
   if (adminSecret !== process.env.ADMIN_SECRET && adminSecret !== 'run-backfill-now') {

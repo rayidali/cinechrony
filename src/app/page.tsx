@@ -53,12 +53,12 @@ export default function LandingPage() {
 
         {/* CTA Buttons - stacked for mobile feel */}
         <div className="flex flex-col gap-4 w-full max-w-xs">
-          <Link href="/signup" className="w-full">
+          <Link href="/onboarding" className="w-full">
             <Button
               size="lg"
               className="w-full text-lg py-7 rounded-full border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200 bg-primary text-primary-foreground hover:bg-primary/90 font-bold"
             >
-              Create account
+              Get started
               <ArrowRight className="ml-2 h-5 w-5" />
             </Button>
           </Link>
