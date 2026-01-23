@@ -2,6 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useState, useTransition, useEffect, useMemo } from 'react';
 import {
   Eye,
@@ -17,6 +18,7 @@ import {
   Tv,
   Info,
   MessageSquare,
+  Expand,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -180,6 +182,7 @@ export function MovieDetailsModal({
   listOwnerId,
   canEdit = true,
 }: MovieDetailsModalProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
@@ -585,6 +588,17 @@ export function MovieDetailsModal({
     setShowCommentEditor(true);
   };
 
+  // Navigate to full-screen comments page
+  const handleOpenFullComments = () => {
+    const params = new URLSearchParams({
+      title: movie.title,
+      poster: movie.posterUrl || '',
+      type: movie.mediaType || 'movie',
+    });
+    onClose(); // Close the drawer first
+    router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+  };
+
   // Use addedByInfo computed above for display
   const displayName = addedByInfo?.displayName || 'Someone';
 
@@ -902,6 +916,17 @@ export function MovieDetailsModal({
                 </div>
               ) : (
                 <div className="flex-1 flex flex-col min-h-0">
+                  {/* Expand button to open full-screen comments */}
+                  <div className="flex-shrink-0 px-4 py-2 border-b border-border flex items-center justify-between">
+                    <span className="text-sm font-medium text-muted-foreground">Comments</span>
+                    <button
+                      onClick={handleOpenFullComments}
+                      className="flex items-center gap-1.5 text-xs text-primary hover:text-primary/80 font-medium"
+                    >
+                      <Expand className="h-3.5 w-3.5" />
+                      Open Full View
+                    </button>
+                  </div>
                   <ReviewsList
                     tmdbId={tmdbId}
                     mediaType={movie.mediaType || 'movie'}
