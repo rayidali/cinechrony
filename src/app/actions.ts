@@ -3547,35 +3547,56 @@ export async function parseLetterboxdExport(base64Data: string, fileName: string
       for (const listPath of listFiles) {
         const listFile = zip.file(listPath);
         if (listFile) {
-          // Extract list name from filename (e.g., "lists/My List Name.csv" -> "My List Name")
-          const listName = listPath.replace('lists/', '').replace('.csv', '');
-          const listNameLower = listName.toLowerCase();
-
           const text = await listFile.async('text');
-
-          // Letterboxd list CSVs may have a description in the first few lines before the header
-          // Format: The file might start with a description line, then "Date,Name,Year,..."
           const lines = text.split('\n');
-          let description = '';
-          let csvStartIndex = 0;
 
-          // Find where the actual CSV data starts (look for header row)
-          for (let i = 0; i < Math.min(lines.length, 5); i++) {
+          // Letterboxd list CSV format (v7):
+          // Line 1: "Letterboxd list export v7"
+          // Line 2: "Date,Name,Tags,URL,Description" (list metadata header)
+          // Line 3: List metadata with name and description
+          // Line 4: empty
+          // Line 5: "Position,Name,Year,URL,Description" (movie data header)
+          // Line 6+: Movie entries
+
+          let listName = listPath.replace('lists/', '').replace('.csv', '');
+          let description = '';
+          let movieStartIndex = 0;
+
+          // Find the list metadata section and movie section
+          for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
-            if (line.startsWith('Date,') || line.startsWith('Position,') || line.startsWith('Name,')) {
-              csvStartIndex = i;
+
+            // Found list metadata header - next line has list info
+            if (line.startsWith('Date,Name,Tags,') || line === 'Date,Name,Tags,URL,Description') {
+              // Parse the next line as list metadata
+              if (i + 1 < lines.length) {
+                const metadataLine = lines[i + 1];
+                // Parse this CSV line to extract Name and Description
+                // Format: Date,Name,Tags,URL,Description
+                const metaResult = Papa.parse<{ Name?: string; Description?: string }>(
+                  line + '\n' + metadataLine,
+                  { header: true }
+                );
+                if (metaResult.data.length > 0) {
+                  const meta = metaResult.data[0];
+                  if (meta.Name) listName = meta.Name.trim();
+                  if (meta.Description) description = meta.Description.trim();
+                }
+              }
+            }
+
+            // Found movie data header - movies start from next line
+            if (line.startsWith('Position,Name,Year,') || line.startsWith('Position,Name,Year')) {
+              movieStartIndex = i;
               break;
-            } else if (line && !line.includes(',')) {
-              // This might be a description line
-              description = line;
             }
           }
 
-          // Parse the CSV portion
-          const csvText = lines.slice(csvStartIndex).join('\n');
-          const parsed = parseCSV<LetterboxdRow>(csvText);
+          // Parse the movies section
+          const moviesCsvText = lines.slice(movieStartIndex).join('\n');
+          const parsed = parseCSV<LetterboxdRow>(moviesCsvText);
 
-          // Add all lists with movies to the lists array
+          // Add list with movies
           if (parsed.length > 0) {
             data.lists.push({
               name: listName,
