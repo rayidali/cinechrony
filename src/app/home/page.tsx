@@ -7,6 +7,7 @@ import { List, Users, Plus, ArrowRight } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
+import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -41,7 +42,8 @@ export default function HomePage() {
               <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10" />
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <NotificationBell />
               <ThemeToggle />
               <UserAvatar />
             </div>

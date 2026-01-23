@@ -2813,13 +2813,46 @@ export async function createReview(
 
     await reviewRef.set(reviewData);
 
-    // If this is a reply, increment the parent's replyCount
+    // If this is a reply, increment the parent's replyCount and notify parent author
     if (parentId) {
       const parentRef = db.collection('reviews').doc(parentId);
+      const parentDoc = await parentRef.get();
+
       await parentRef.update({
         replyCount: FieldValue.increment(1),
       });
+
+      // Create reply notification (fire-and-forget for speed)
+      if (parentDoc.exists) {
+        createReplyNotification(
+          db,
+          reviewRef.id,
+          text.trim(),
+          { userId: parentDoc.data()?.userId },
+          tmdbId,
+          mediaType,
+          movieTitle,
+          userId,
+          userData?.username || null,
+          userData?.displayName || null,
+          userData?.photoURL || null
+        ).catch(err => console.error('[createReview] Reply notification failed:', err));
+      }
     }
+
+    // Create @mention notifications (fire-and-forget for speed)
+    createMentionNotifications(
+      db,
+      reviewRef.id,
+      text.trim(),
+      tmdbId,
+      mediaType,
+      movieTitle,
+      userId,
+      userData?.username || null,
+      userData?.displayName || null,
+      userData?.photoURL || null
+    ).catch(err => console.error('[createReview] Mention notifications failed:', err));
 
     return {
       success: true,
@@ -4539,5 +4572,222 @@ export async function backfillReviewsThreading() {
       details: String(error),
       stats,
     };
+  }
+}
+
+// --- NOTIFICATIONS ---
+
+/**
+ * Extract @mentions from text. Returns array of usernames (without @).
+ */
+function extractMentions(text: string): string[] {
+  const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+  const mentions: string[] = [];
+  let match;
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const username = match[1].toLowerCase();
+    if (!mentions.includes(username)) {
+      mentions.push(username);
+    }
+  }
+  return mentions;
+}
+
+/**
+ * Create notifications for @mentions in a review.
+ * Called internally when creating a review.
+ */
+async function createMentionNotifications(
+  db: FirebaseFirestore.Firestore,
+  reviewId: string,
+  reviewText: string,
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  movieTitle: string,
+  fromUserId: string,
+  fromUsername: string | null,
+  fromDisplayName: string | null,
+  fromPhotoUrl: string | null
+) {
+  const mentions = extractMentions(reviewText);
+  if (mentions.length === 0) return;
+
+  // Look up user IDs for mentioned usernames (batch for efficiency)
+  const userLookups = mentions.map(username =>
+    db.collection('usernames').doc(username.toLowerCase()).get()
+  );
+  const userDocs = await Promise.all(userLookups);
+
+  const batch = db.batch();
+  const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
+
+  for (let i = 0; i < userDocs.length; i++) {
+    const userDoc = userDocs[i];
+    if (!userDoc.exists) continue;
+
+    const mentionedUserId = userDoc.data()?.uid;
+    // Don't notify yourself
+    if (!mentionedUserId || mentionedUserId === fromUserId) continue;
+
+    const notifRef = db.collection('notifications').doc();
+    batch.set(notifRef, {
+      id: notifRef.id,
+      userId: mentionedUserId,
+      type: 'mention',
+      fromUserId,
+      fromUsername,
+      fromDisplayName,
+      fromPhotoUrl,
+      reviewId,
+      tmdbId,
+      mediaType,
+      movieTitle,
+      previewText,
+      read: false,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  }
+
+  await batch.commit();
+}
+
+/**
+ * Create a reply notification.
+ */
+async function createReplyNotification(
+  db: FirebaseFirestore.Firestore,
+  reviewId: string,
+  reviewText: string,
+  parentReview: { userId: string },
+  tmdbId: number,
+  mediaType: 'movie' | 'tv',
+  movieTitle: string,
+  fromUserId: string,
+  fromUsername: string | null,
+  fromDisplayName: string | null,
+  fromPhotoUrl: string | null
+) {
+  // Don't notify yourself
+  if (parentReview.userId === fromUserId) return;
+
+  const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
+
+  await db.collection('notifications').add({
+    userId: parentReview.userId,
+    type: 'reply',
+    fromUserId,
+    fromUsername,
+    fromDisplayName,
+    fromPhotoUrl,
+    reviewId,
+    tmdbId,
+    mediaType,
+    movieTitle,
+    previewText,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
+/**
+ * Get notifications for a user.
+ */
+export async function getNotifications(userId: string, limit: number = 50) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('notifications')
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+
+    const notifications = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId,
+        type: data.type,
+        fromUserId: data.fromUserId,
+        fromUsername: data.fromUsername,
+        fromDisplayName: data.fromDisplayName,
+        fromPhotoUrl: data.fromPhotoUrl,
+        reviewId: data.reviewId,
+        tmdbId: data.tmdbId,
+        mediaType: data.mediaType,
+        movieTitle: data.movieTitle,
+        previewText: data.previewText,
+        read: data.read,
+        createdAt: data.createdAt?.toDate() || new Date(),
+      };
+    });
+
+    // Count unread
+    const unreadCount = notifications.filter(n => !n.read).length;
+
+    return { notifications, unreadCount };
+  } catch (error) {
+    console.error('[getNotifications] Failed:', error);
+    return { error: 'Failed to fetch notifications', notifications: [], unreadCount: 0 };
+  }
+}
+
+/**
+ * Mark notifications as read.
+ */
+export async function markNotificationsRead(userId: string, notificationIds?: string[]) {
+  const db = getDb();
+
+  try {
+    if (notificationIds && notificationIds.length > 0) {
+      // Mark specific notifications
+      const batch = db.batch();
+      for (const id of notificationIds) {
+        batch.update(db.collection('notifications').doc(id), { read: true });
+      }
+      await batch.commit();
+    } else {
+      // Mark all as read
+      const snapshot = await db
+        .collection('notifications')
+        .where('userId', '==', userId)
+        .where('read', '==', false)
+        .get();
+
+      if (snapshot.empty) return { success: true };
+
+      const batch = db.batch();
+      snapshot.docs.forEach(doc => {
+        batch.update(doc.ref, { read: true });
+      });
+      await batch.commit();
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[markNotificationsRead] Failed:', error);
+    return { error: 'Failed to mark notifications as read' };
+  }
+}
+
+/**
+ * Get unread notification count (lightweight).
+ */
+export async function getUnreadNotificationCount(userId: string) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('notifications')
+      .where('userId', '==', userId)
+      .where('read', '==', false)
+      .count()
+      .get();
+
+    return { count: snapshot.data().count };
+  } catch (error) {
+    console.error('[getUnreadNotificationCount] Failed:', error);
+    return { count: 0 };
   }
 }

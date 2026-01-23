@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, memo, useMemo } from 'react';
+import { useState, memo, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
@@ -16,6 +16,46 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
 import type { Review } from '@/lib/types';
+
+/**
+ * Render text with @mentions as clickable profile links.
+ * Zero network calls - just parses and renders.
+ */
+function renderTextWithMentions(text: string): React.ReactNode {
+  const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    // Add text before the mention
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    // Add the mention as a link
+    const username = match[1];
+    parts.push(
+      <Link
+        key={`${match.index}-${username}`}
+        href={`/profile/${username.toLowerCase()}`}
+        className="text-primary font-medium hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        @{username}
+      </Link>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last mention
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
 
 interface ReviewCardProps {
   review: Review;
@@ -155,9 +195,9 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
           )}
         </div>
 
-        {/* Review text */}
+        {/* Review text with @mentions as links */}
         <p className="text-sm mt-1 whitespace-pre-wrap break-words">
-          {review.text}
+          {renderTextWithMentions(review.text)}
         </p>
 
         {/* Actions: like, reply */}

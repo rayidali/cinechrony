@@ -285,3 +285,27 @@ export type UserRating = {
   createdAt: Date;
   updatedAt: Date;
 };
+
+// Notification types
+export type NotificationType = 'mention' | 'reply';
+
+// Notification (for @mentions and replies)
+export type Notification = {
+  id: string;
+  userId: string; // Recipient
+  type: NotificationType;
+  // Sender info (denormalized for zero-fetch display)
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+  // Context
+  reviewId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  previewText: string; // First ~100 chars of the comment
+  // State
+  read: boolean;
+  createdAt: Date;
+};
