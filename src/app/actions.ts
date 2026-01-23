@@ -4727,9 +4727,11 @@ export async function getNotifications(userId: string, limit: number = 50) {
     const unreadCount = notifications.filter(n => !n.read).length;
 
     return { notifications, unreadCount };
-  } catch (error) {
+  } catch (error: any) {
     console.error('[getNotifications] Failed:', error);
-    return { error: 'Failed to fetch notifications', notifications: [], unreadCount: 0 };
+    // Include actual error message - may contain Firestore index creation URL
+    const errorMessage = error?.message || error?.toString() || 'Unknown error';
+    return { error: `Failed to fetch notifications: ${errorMessage}`, notifications: [], unreadCount: 0 };
   }
 }
 

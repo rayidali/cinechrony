@@ -41,8 +41,9 @@ function CommentsPageContent() {
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [userProfile, setUserProfile] = useState<{ photoURL?: string; displayName?: string; username?: string } | null>(null);
 
-  // Reply state
+  // Reply state - track both the root parent and who we're directly replying to
   const [replyingTo, setReplyingTo] = useState<Review | null>(null);
+  const [rootParentId, setRootParentId] = useState<string | null>(null); // Always the top-level comment ID
   const [expandedReplies, setExpandedReplies] = useState<Record<string, Review[]>>({});
   const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({});
 
@@ -155,7 +156,8 @@ function CommentsPageContent() {
     if (!user || !commentText.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
-    const parentId = replyingTo?.id || null;
+    // Use rootParentId for replies (Instagram/TikTok style - all replies under root)
+    const parentId = rootParentId || null;
 
     try {
       const result = await createReview(
@@ -182,12 +184,13 @@ function CommentsPageContent() {
               [parentId]: [...prev[parentId], result.review as Review],
             }));
           }
-          // Update parent's reply count
+          // Update root parent's reply count
           setReviews(prev => prev.map(r =>
-            r.id === parentId ? { ...r, replyCount: (r.replyCount || 0) + 1 } : r
+            r.id === rootParentId ? { ...r, replyCount: (r.replyCount || 0) + 1 } : r
           ));
           // Clear replying state
           setReplyingTo(null);
+          setRootParentId(null);
         } else {
           // Add top-level comment to list
           setReviews(prev => [result.review as Review, ...prev]);
@@ -227,9 +230,12 @@ function CommentsPageContent() {
     });
   }, []);
 
-  // Handle starting a reply
-  const handleStartReply = useCallback((review: Review) => {
+  // Handle starting a reply - Instagram/TikTok style: all replies go under root parent
+  const handleStartReply = useCallback((review: Review, parentIdOverride?: string) => {
     setReplyingTo(review);
+    // If this review is already a reply, use its parentId as root. Otherwise, use this review's id.
+    const rootId = review.parentId || review.id;
+    setRootParentId(parentIdOverride || rootId);
     setCommentText(`@${review.username || review.userDisplayName || 'user'} `);
     inputRef.current?.focus();
   }, []);
@@ -237,6 +243,7 @@ function CommentsPageContent() {
   // Cancel replying
   const handleCancelReply = useCallback(() => {
     setReplyingTo(null);
+    setRootParentId(null);
     setCommentText('');
   }, []);
 
@@ -412,6 +419,7 @@ function CommentsPageContent() {
                         review={reply}
                         currentUserId={user?.uid}
                         onDelete={handleDeleteReview}
+                        onReply={(r) => handleStartReply(r, review.id)} // Pass root parent ID
                         isReply
                       />
                     ))}

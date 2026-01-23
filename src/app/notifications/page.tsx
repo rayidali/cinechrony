@@ -16,19 +16,25 @@ export default function NotificationsPage() {
   const { user, isUserLoading } = useUser();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   // Fetch notifications
   useEffect(() => {
     async function fetchNotifications() {
       if (!user?.uid) return;
       setIsLoading(true);
+      setError(null);
       try {
         const result = await getNotifications(user.uid);
-        if (result.notifications) {
+        if (result.error) {
+          console.error('Notifications error:', result.error);
+          setError(result.error);
+        } else if (result.notifications) {
           setNotifications(result.notifications as Notification[]);
         }
       } catch (err) {
         console.error('Failed to fetch notifications:', err);
+        setError('Failed to load notifications. Please try again.');
       } finally {
         setIsLoading(false);
       }
@@ -116,6 +122,20 @@ export default function NotificationsPage() {
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-8 w-8 animate-spin" />
+          </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center py-16 text-center">
+            <Bell className="h-12 w-12 text-destructive mb-4" />
+            <p className="text-destructive font-medium">Failed to load notifications</p>
+            <p className="text-sm text-muted-foreground mt-1 max-w-md">
+              {error}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
+            >
+              Try again
+            </button>
           </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">

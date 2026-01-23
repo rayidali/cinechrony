@@ -213,14 +213,14 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
             {likes > 0 && <span>{likes}</span>}
           </button>
 
-          {/* Reply button - only for top-level reviews */}
-          {!isReply && onReply && (
+          {/* Reply button - shows on all comments (Instagram/TikTok style) */}
+          {onReply && (
             <button
               onClick={() => onReply(review)}
               disabled={!currentUserId}
               className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              Reply{replyCount > 0 && ` (${replyCount})`}
+              Reply{!isReply && replyCount > 0 && ` (${replyCount})`}
             </button>
           )}
         </div>
