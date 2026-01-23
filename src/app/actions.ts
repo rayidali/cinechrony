@@ -3,6 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type { SearchResult, UserProfile, ListInvite, ListMember } from '@/lib/types';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp } from '@/firebase/admin';
 
 // --- HELPER ---
@@ -961,6 +962,185 @@ export async function updateUsername(userId: string, newUsername: string) {
   } catch (error) {
     console.error('Failed to update username:', error);
     return { error: 'Failed to update username.' };
+  }
+}
+
+/**
+ * Delete a user account and all associated data.
+ * This is a destructive operation that cannot be undone.
+ */
+export async function deleteUserAccount(userId: string, confirmUsername: string) {
+  const db = getDb();
+  const adminApp = getFirebaseAdminApp();
+  const auth = getAuth(adminApp);
+
+  try {
+    // First, verify the user exists and username matches
+    const userDoc = await db.collection('users').doc(userId).get();
+    if (!userDoc.exists) {
+      return { error: 'User not found.' };
+    }
+
+    const userData = userDoc.data();
+    const actualUsername = userData?.username?.toLowerCase();
+    const providedUsername = confirmUsername.toLowerCase().trim();
+
+    if (actualUsername !== providedUsername) {
+      return { error: 'Username does not match. Please enter your exact username to confirm deletion.' };
+    }
+
+    console.log(`[deleteUserAccount] Starting deletion for user: ${userId}`);
+
+    // 1. Delete all user's reviews
+    const reviewsSnapshot = await db.collection('reviews')
+      .where('userId', '==', userId)
+      .get();
+
+    const reviewBatch = db.batch();
+    let reviewCount = 0;
+    for (const doc of reviewsSnapshot.docs) {
+      reviewBatch.delete(doc.ref);
+      reviewCount++;
+      if (reviewCount >= 450) {
+        await reviewBatch.commit();
+        reviewCount = 0;
+      }
+    }
+    if (reviewCount > 0) {
+      await reviewBatch.commit();
+    }
+    console.log(`[deleteUserAccount] Deleted ${reviewsSnapshot.size} reviews`);
+
+    // 2. Delete all user's ratings
+    const ratingsSnapshot = await db.collection('ratings')
+      .where('userId', '==', userId)
+      .get();
+
+    const ratingBatch = db.batch();
+    let ratingCount = 0;
+    for (const doc of ratingsSnapshot.docs) {
+      ratingBatch.delete(doc.ref);
+      ratingCount++;
+      if (ratingCount >= 450) {
+        await ratingBatch.commit();
+        ratingCount = 0;
+      }
+    }
+    if (ratingCount > 0) {
+      await ratingBatch.commit();
+    }
+    console.log(`[deleteUserAccount] Deleted ${ratingsSnapshot.size} ratings`);
+
+    // 3. Delete all user's invites (sent and received)
+    const sentInvitesSnapshot = await db.collection('invites')
+      .where('inviterId', '==', userId)
+      .get();
+    const receivedInvitesSnapshot = await db.collection('invites')
+      .where('inviteeId', '==', userId)
+      .get();
+
+    const inviteBatch = db.batch();
+    for (const doc of sentInvitesSnapshot.docs) {
+      inviteBatch.delete(doc.ref);
+    }
+    for (const doc of receivedInvitesSnapshot.docs) {
+      inviteBatch.delete(doc.ref);
+    }
+    await inviteBatch.commit();
+    console.log(`[deleteUserAccount] Deleted invites`);
+
+    // 4. Remove user from any lists they collaborate on
+    const allUsersSnapshot = await db.collection('users').get();
+    for (const userDocSnapshot of allUsersSnapshot.docs) {
+      if (userDocSnapshot.id === userId) continue;
+
+      const listsSnapshot = await userDocSnapshot.ref.collection('lists')
+        .where('collaboratorIds', 'array-contains', userId)
+        .get();
+
+      for (const listDoc of listsSnapshot.docs) {
+        await listDoc.ref.update({
+          collaboratorIds: FieldValue.arrayRemove(userId),
+        });
+      }
+    }
+    console.log(`[deleteUserAccount] Removed from collaborations`);
+
+    // 5. Delete all user's lists and their movies (subcollections)
+    const userListsSnapshot = await db.collection('users').doc(userId).collection('lists').get();
+    for (const listDoc of userListsSnapshot.docs) {
+      // Delete movies in the list first
+      const moviesSnapshot = await listDoc.ref.collection('movies').get();
+      const movieBatch = db.batch();
+      let movieCount = 0;
+      for (const movieDoc of moviesSnapshot.docs) {
+        movieBatch.delete(movieDoc.ref);
+        movieCount++;
+        if (movieCount >= 450) {
+          await movieBatch.commit();
+          movieCount = 0;
+        }
+      }
+      if (movieCount > 0) {
+        await movieBatch.commit();
+      }
+      // Then delete the list
+      await listDoc.ref.delete();
+    }
+    console.log(`[deleteUserAccount] Deleted ${userListsSnapshot.size} lists`);
+
+    // 6. Delete follower/following relationships
+    // Delete user's followers subcollection
+    const followersSnapshot = await db.collection('users').doc(userId).collection('followers').get();
+    for (const followerDoc of followersSnapshot.docs) {
+      // Also remove from the other user's following list
+      const followerId = followerDoc.id;
+      await db.collection('users').doc(followerId).collection('following').doc(userId).delete();
+      // Update follower's count
+      await db.collection('users').doc(followerId).update({
+        followingCount: FieldValue.increment(-1),
+      });
+      await followerDoc.ref.delete();
+    }
+
+    // Delete user's following subcollection
+    const followingSnapshot = await db.collection('users').doc(userId).collection('following').get();
+    for (const followingDoc of followingSnapshot.docs) {
+      // Also remove from the other user's followers list
+      const followingId = followingDoc.id;
+      await db.collection('users').doc(followingId).collection('followers').doc(userId).delete();
+      // Update following's count
+      await db.collection('users').doc(followingId).update({
+        followersCount: FieldValue.increment(-1),
+      });
+      await followingDoc.ref.delete();
+    }
+    console.log(`[deleteUserAccount] Deleted follow relationships`);
+
+    // 7. Delete username reservation
+    if (userData?.username) {
+      await db.collection('usernames').doc(userData.username).delete();
+    }
+    console.log(`[deleteUserAccount] Deleted username reservation`);
+
+    // 8. Delete the user document
+    await db.collection('users').doc(userId).delete();
+    console.log(`[deleteUserAccount] Deleted user document`);
+
+    // 9. Delete Firebase Auth user
+    try {
+      await auth.deleteUser(userId);
+      console.log(`[deleteUserAccount] Deleted Firebase Auth user`);
+    } catch (authError: any) {
+      // Auth user might not exist or already deleted
+      console.error(`[deleteUserAccount] Auth deletion error (non-fatal):`, authError.message);
+    }
+
+    console.log(`[deleteUserAccount] Successfully deleted account for user: ${userId}`);
+    return { success: true };
+  } catch (error: any) {
+    console.error('[deleteUserAccount] Failed:', error);
+    return { error: error.message || 'Failed to delete account. Please try again.' };
   }
 }
 

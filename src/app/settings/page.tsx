@@ -3,11 +3,14 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List } from 'lucide-react';
+import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport, importLetterboxdMovies } from '@/app/actions';
+import { parseLetterboxdExport, importLetterboxdMovies, deleteUserAccount } from '@/app/actions';
+import { signOut } from 'firebase/auth';
+import { useFirestore } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { BottomNav } from '@/components/bottom-nav';
 import type { LetterboxdMovie } from '@/lib/types';
 
@@ -39,11 +42,77 @@ export default function SettingsPage() {
   const [importReviews, setImportReviews] = useState(true);
   const [importLists, setImportLists] = useState(true);
 
+  // Delete account states
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmUsername, setDeleteConfirmUsername] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [userUsername, setUserUsername] = useState<string | null>(null);
+  const firestore = useFirestore();
+
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  // Fetch user's username for delete confirmation
+  useEffect(() => {
+    async function fetchUsername() {
+      if (!user || !firestore) return;
+      try {
+        const userDoc = await getDoc(doc(firestore, 'users', user.uid));
+        if (userDoc.exists()) {
+          setUserUsername(userDoc.data()?.username || null);
+        }
+      } catch (err) {
+        console.error('Failed to fetch username:', err);
+      }
+    }
+    fetchUsername();
+  }, [user, firestore]);
+
+  const handleDeleteAccount = async () => {
+    if (!user || !userUsername) return;
+
+    if (deleteConfirmUsername.toLowerCase().trim() !== userUsername.toLowerCase()) {
+      toast({
+        variant: "destructive",
+        title: "Username doesn't match",
+        description: "Please enter your exact username to confirm deletion.",
+      });
+      return;
+    }
+
+    setIsDeleting(true);
+    try {
+      const result = await deleteUserAccount(user.uid, deleteConfirmUsername);
+
+      if (result.error) {
+        throw new Error(result.error);
+      }
+
+      toast({
+        title: "Account deleted",
+        description: "Your account has been permanently deleted.",
+      });
+
+      // Sign out and redirect to home
+      const { getAuth } = await import('firebase/auth');
+      const auth = getAuth();
+      await auth.signOut();
+      router.push('/');
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: "Failed to delete account",
+        description: error.message || "Please try again later.",
+      });
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteModal(false);
+      setDeleteConfirmUsername('');
+    }
+  };
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -396,7 +465,109 @@ export default function SettingsPage() {
             </div>
           )}
         </section>
+
+        {/* Danger Zone */}
+        <section className="mt-12 pt-8 border-t border-destructive/30">
+          <div className="flex items-center gap-3 mb-4">
+            <AlertTriangle className="h-6 w-6 text-destructive" />
+            <h2 className="text-xl font-headline font-bold text-destructive">Danger Zone</h2>
+          </div>
+
+          <div className="p-4 rounded-xl border-2 border-destructive/30 bg-destructive/5">
+            <h3 className="font-semibold text-destructive mb-2">Delete Account</h3>
+            <p className="text-sm text-muted-foreground mb-4">
+              Permanently delete your account and all associated data. This action cannot be undone.
+              All your lists, movies, ratings, reviews, and followers will be permanently removed.
+            </p>
+            <Button
+              variant="destructive"
+              onClick={() => setShowDeleteModal(true)}
+              className="gap-2"
+            >
+              <Trash2 className="h-4 w-4" />
+              Delete My Account
+            </Button>
+          </div>
+        </section>
       </div>
+
+      {/* Delete Account Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
+          <div className="w-full max-w-md bg-background rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))] p-6">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2 rounded-full bg-destructive/10">
+                <AlertTriangle className="h-6 w-6 text-destructive" />
+              </div>
+              <h3 className="text-xl font-headline font-bold">Delete Account?</h3>
+            </div>
+
+            <div className="space-y-4">
+              <p className="text-sm text-muted-foreground">
+                This will permanently delete:
+              </p>
+              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
+                <li>All your movie lists and saved movies</li>
+                <li>All your ratings and reviews</li>
+                <li>Your profile and username</li>
+                <li>All follower/following connections</li>
+              </ul>
+
+              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
+                <p className="text-sm font-medium text-destructive">
+                  This action is permanent and cannot be undone.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Type <span className="font-mono bg-secondary px-1 rounded">{userUsername}</span> to confirm:
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmUsername}
+                  onChange={(e) => setDeleteConfirmUsername(e.target.value)}
+                  placeholder="Enter your username"
+                  className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background focus:outline-none focus:border-destructive"
+                  style={{ fontSize: '16px' }}
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="off"
+                />
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setDeleteConfirmUsername('');
+                  }}
+                  className={`${retroButtonClass} flex-1`}
+                  disabled={isDeleting}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={handleDeleteAccount}
+                  className="flex-1"
+                  disabled={isDeleting || deleteConfirmUsername.toLowerCase().trim() !== userUsername?.toLowerCase()}
+                >
+                  {isDeleting ? (
+                    <>
+                      <Loader2 className="animate-spin mr-2 h-4 w-4" />
+                      Deleting...
+                    </>
+                  ) : (
+                    'Delete Forever'
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <BottomNav />
     </main>
