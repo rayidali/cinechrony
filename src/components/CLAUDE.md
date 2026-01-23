@@ -21,10 +21,13 @@ src/components/
 │
 ├── Reviews & Ratings
 │   ├── reviews-list.tsx        # Movie reviews with like/edit
-│   ├── review-card.tsx         # Single review display
+│   ├── review-card.tsx         # Single review with threading & @mentions
 │   ├── rating-slider.tsx       # 1-10 slider with HSL colors
 │   ├── rate-on-watch-modal.tsx # Prompt to rate after watching
 │   └── write-review-input.tsx  # Review composer
+│
+├── Notifications (Deferred to Phase 3)
+│   └── notification-bell.tsx   # Header bell icon with unread count badge
 │
 ├── Lists & Collaboration
 │   ├── list-card.tsx           # List preview card
@@ -315,6 +318,36 @@ const handleRevokeInvite = async (inviteId: string) => {
   }
 };
 ```
+
+---
+
+## Review Card with Threading (review-card.tsx)
+
+The review card supports Instagram/TikTok style 1-level threading:
+
+```typescript
+<ReviewCard
+  review={review}
+  currentUserId={user?.uid}
+  onDelete={handleDelete}
+  onReply={handleStartReply}  // Opens reply input
+  isReply={false}             // Set true for nested replies
+/>
+```
+
+**@Mentions**: Text is parsed for `@username` patterns and rendered as clickable profile links:
+```typescript
+function renderTextWithMentions(text: string): React.ReactNode {
+  const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+  // Returns mix of text spans and Link components
+}
+```
+
+**Reply Threading**:
+- Top-level comments have `parentId: null`
+- Replies have `parentId: rootCommentId`
+- All replies go under the root parent (1-level deep, like Instagram)
+- When replying to a reply, the text auto-fills with `@username`
 
 ---
 

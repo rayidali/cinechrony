@@ -7,7 +7,7 @@ src/app/
 ├── page.tsx              # Landing page (redirects to /home or /login)
 ├── layout.tsx            # Root layout (ThemeProvider, FirebaseProvider, etc.)
 ├── globals.css           # Global styles + Tailwind
-├── actions.ts            # ⭐ ALL Server Actions (see below)
+├── actions.ts            # ⭐ ALL Server Actions (~4800 lines)
 │
 ├── (auth)/               # Auth route group (no layout nesting)
 │   ├── login/page.tsx
@@ -24,17 +24,32 @@ src/app/
 │       ├── page.tsx      # Single list view (protected)
 │       └── settings/page.tsx  # List settings (owner only)
 │
+├── movie/
+│   └── [tmdbId]/
+│       └── comments/page.tsx  # Full-screen comments page
+│
 ├── profile/
 │   ├── page.tsx          # Current user profile (protected)
 │   └── [username]/
 │       ├── page.tsx      # Public profile view
 │       └── lists/[listId]/page.tsx  # Public list view
 │
+├── notifications/page.tsx  # Notifications page (deferred to Phase 3)
+│
+├── onboarding/
+│   ├── page.tsx          # Onboarding flow controller
+│   └── components/
+│       ├── import-letterboxd-guide-screen.tsx  # 5-step screenshot tutorial
+│       ├── import-letterboxd-upload-screen.tsx
+│       ├── import-letterboxd-preview-screen.tsx
+│       └── ...           # Other onboarding screens
+│
 ├── invite/[code]/page.tsx  # Invite acceptance (protected)
 │
 └── api/admin/
     ├── backfill/route.ts         # User search fields backfill
-    └── backfill-movies/route.ts  # Movie denormalization backfill
+    ├── backfill-movies/route.ts  # Movie denormalization backfill
+    └── backfill-reviews/route.ts # Review threading fields backfill
 ```
 
 ---
@@ -146,10 +161,11 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 ### Reviews & Ratings
 | Function | Purpose |
 |----------|---------|
-| `createReview()` | Create movie review |
+| `createReview()` | Create movie review (supports parentId for replies) |
 | `updateReview()` | Edit review text |
 | `deleteReview()` | Delete review |
-| `getMovieReviews()` | Get reviews for movie |
+| `getMovieReviews()` | Get top-level reviews for movie (parentId: null) |
+| `getReviewReplies()` | Get replies to a review |
 | `getUserReviewForMovie()` | Get user's review |
 | `likeReview()` | Like a review |
 | `unlikeReview()` | Unlike a review |
@@ -157,6 +173,15 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 | `deleteRating()` | Remove rating |
 | `getUserRating()` | Get user's rating |
 | `getUserRatings()` | Get all user's ratings |
+
+### Notifications (Deferred to Phase 3)
+| Function | Purpose |
+|----------|---------|
+| `getNotifications()` | Get user's notifications |
+| `markNotificationsRead()` | Mark notifications as read |
+| `getUnreadNotificationCount()` | Get count for badge |
+| `createMentionNotifications()` | Internal: create @mention notifications |
+| `createReplyNotification()` | Internal: create reply notification |
 
 ### Admin / Backfill
 | Function | Purpose |
@@ -207,6 +232,25 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 - Top 5 Films picker with tap-to-add placeholders
 - Find Friends search
 - Shared With Me section for collaborative lists
+
+### `/movie/[tmdbId]/comments` Page
+- Full-screen comments/reviews page
+- Instagram/TikTok style 1-level threading
+- Reply to any comment (replies go under root parent)
+- @mentions render as clickable profile links
+- Sort by recent or top
+- iOS swipe-back gesture returns to movie modal via popstate listener
+- URL params: `title`, `poster`, `type`, `returnListId`, `returnListOwnerId`, `returnMovieId`
+
+### `/notifications` Page (Deferred)
+- Shows user's notifications (mentions, replies)
+- Mark as read on view
+- Currently disabled pending Firestore index deployment
+
+### `/onboarding` Flow
+- Multi-step onboarding for new users
+- Letterboxd import with 5-step screenshot guide
+- File upload for ZIP export from Letterboxd
 
 ### `/invite/[code]` Page
 - Validates invite code

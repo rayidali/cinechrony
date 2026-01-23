@@ -31,14 +31,18 @@
 
 ## Features
 
-- **Collaborative Watchlists** — Invite friends to curate lists together (up to 3 members per list)
+- **Collaborative Watchlists** — Invite friends to curate lists together (up to 10 members per list)
 - **Social Links** — Attach TikTok, Instagram Reels, or YouTube links to any movie
 - **Video Embeds** — Auto-play attached social videos directly in the app
+- **Comments & Reviews** — Instagram/TikTok style threaded comments with @mentions
 - **Movie & TV Search** — Search millions of titles via TMDB with ratings, cast, and posters
 - **Watch Status** — Toggle between "To Watch" and "Watched" states
+- **Letterboxd Import** — Import your watched movies, ratings, and lists from Letterboxd
+- **Top 5 Films** — Showcase your favorite movies on your profile (Letterboxd style)
 - **Follow System** — Follow users and view their public lists
 - **Dark Mode** — System-aware theme toggle
 - **Neo-Brutalist UI** — Bold, chunky design with hard shadows and vibrant colors
+- **iOS PWA** — Optimized for iOS Safari with proper keyboard handling
 
 ## Tech Stack
 
@@ -115,8 +119,10 @@ src/
 │   ├── (auth)/           # Login & signup pages
 │   ├── home/             # Main dashboard
 │   ├── lists/            # Watchlist pages
+│   ├── movie/[tmdbId]/   # Movie pages (comments)
 │   ├── profile/          # User profile
-│   └── [username]/       # Public profile pages
+│   ├── [username]/       # Public profile pages
+│   └── onboarding/       # New user onboarding + Letterboxd import
 ├── components/
 │   ├── ui/               # shadcn components
 │   └── ...               # Feature components
