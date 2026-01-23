@@ -56,6 +56,13 @@ export type LetterboxdMovie = {
   Review?: string; // Review text (from reviews.csv)
 };
 
+// Letterboxd list (from lists/ folder in export)
+export type LetterboxdList = {
+  name: string; // List name (from filename)
+  description?: string; // List description (from first row or notes)
+  movies: LetterboxdMovie[];
+};
+
 // A favorite movie (for profile display)
 export type FavoriteMovie = {
   id: string;

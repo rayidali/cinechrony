@@ -130,13 +130,6 @@ export function ListCard({
             </h3>
           </div>
 
-          {/* List description if present */}
-          {list.description && (
-            <p className="mt-1 text-white/70 text-xs italic line-clamp-2">
-              {list.description}
-            </p>
-          )}
-
           {/* Info row: movie count and optionally owner name */}
           <p className="mt-1 text-white/80 text-xs truncate">
             {movieCount} {movieCount === 1 ? 'movie' : 'movies'}

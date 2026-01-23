@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, Film, Star, Clock, MessageSquare } from 'lucide-react';
+import { ArrowLeft, Loader2, Film, Star, Clock, MessageSquare, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { importLetterboxdMovies } from '@/app/actions';
-import type { LetterboxdMovie } from '@/lib/types';
+import type { LetterboxdMovie, LetterboxdList } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
@@ -17,6 +17,7 @@ type ImportLetterboxdPreviewScreenProps = {
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
     favorites: LetterboxdMovie[];
+    lists: LetterboxdList[]; // User's custom lists
   };
   onImport: (count: number) => void;
   onBack: () => void;
@@ -36,12 +37,18 @@ export function ImportLetterboxdPreviewScreen({
   const [importRatings, setImportRatings] = useState(true);
   const [importWatchlist, setImportWatchlist] = useState(true);
   const [importReviews, setImportReviews] = useState(true);
+  const [importLists, setImportLists] = useState(true);
 
   const watchedCount = letterboxdData.watched.length;
   const ratingsCount = letterboxdData.ratings.length;
   const watchlistCount = letterboxdData.watchlist.length;
   const reviewsCount = letterboxdData.reviews.filter(r => r.Review && r.Review.trim()).length;
   const favoritesCount = letterboxdData.favorites?.length || 0;
+  // Filter out favorites from lists count (they're handled separately)
+  const listsCount = letterboxdData.lists?.filter(l => {
+    const nameLower = l.name.toLowerCase();
+    return !nameLower.includes('favorite') && !nameLower.includes('fav') && nameLower !== 'top 4' && nameLower !== 'top 5';
+  }).length || 0;
 
   const handleImport = async () => {
     if (!user) return;
@@ -56,6 +63,7 @@ export function ImportLetterboxdPreviewScreen({
           importRatings,
           importWatchlist,
           importReviews,
+          importLists,
         }
       );
 
@@ -63,9 +71,10 @@ export function ImportLetterboxdPreviewScreen({
         throw new Error(result.error);
       }
 
+      const listsMsg = result.listsCreated ? ` and ${result.listsCreated} lists` : '';
       toast({
         title: "Import complete!",
-        description: `Successfully imported ${result.importedCount} movies.`,
+        description: `Successfully imported ${result.importedCount} movies${listsMsg}.`,
       });
 
       onImport(result.importedCount || 0);
@@ -152,6 +161,14 @@ export function ImportLetterboxdPreviewScreen({
               </div>
             </div>
           )}
+          {listsCount > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <List className="h-5 w-5 text-purple-500" />
+                <span>{listsCount} custom lists</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Import options */}
@@ -203,6 +220,18 @@ export function ImportLetterboxdPreviewScreen({
                 className="w-5 h-5 rounded"
               />
               <span>Reviews → imported as reviews</span>
+            </label>
+          )}
+
+          {listsCount > 0 && (
+            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+              <input
+                type="checkbox"
+                checked={importLists}
+                onChange={(e) => setImportLists(e.target.checked)}
+                className="w-5 h-5 rounded"
+              />
+              <span>Custom lists → new lists with movies</span>
             </label>
           )}
         </div>

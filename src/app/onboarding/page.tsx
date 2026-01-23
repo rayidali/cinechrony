@@ -43,6 +43,7 @@ function OnboardingContent() {
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
     favorites: LetterboxdMovie[];
+    lists: Array<{ name: string; description?: string; movies: LetterboxdMovie[] }>;
   } | null>(null);
 
   // Track imported movies count

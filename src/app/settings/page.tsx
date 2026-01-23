@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare } from 'lucide-react';
+import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
@@ -29,6 +29,7 @@ export default function SettingsPage() {
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
     favorites: LetterboxdMovie[];
+    lists: Array<{ name: string; description?: string; movies: LetterboxdMovie[] }>;
   } | null>(null);
 
   // Import options
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   const [importRatings, setImportRatings] = useState(true);
   const [importWatchlist, setImportWatchlist] = useState(true);
   const [importReviews, setImportReviews] = useState(true);
+  const [importLists, setImportLists] = useState(true);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -80,6 +82,7 @@ export default function SettingsPage() {
               watchlist: result.data.watchlist || [],
               reviews: result.data.reviews || [],
               favorites: result.data.favorites || [],
+              lists: result.data.lists || [],
             });
           }
         } catch (err: any) {
@@ -114,6 +117,7 @@ export default function SettingsPage() {
           importRatings,
           importWatchlist,
           importReviews,
+          importLists,
         }
       );
 
@@ -121,9 +125,10 @@ export default function SettingsPage() {
         throw new Error(result.error);
       }
 
+      const listsMsg = result.listsCreated ? ` and ${result.listsCreated} lists` : '';
       toast({
         title: "Import complete!",
-        description: `Successfully imported ${result.importedCount} movies.`,
+        description: `Successfully imported ${result.importedCount} movies${listsMsg}.`,
       });
 
       // Reset state
@@ -155,6 +160,11 @@ export default function SettingsPage() {
   const watchlistCount = letterboxdData?.watchlist.length || 0;
   const reviewsCount = letterboxdData?.reviews.filter(r => r.Review && r.Review.trim()).length || 0;
   const favoritesCount = letterboxdData?.favorites?.length || 0;
+  // Filter out favorites from lists count (they're handled separately)
+  const listsCount = letterboxdData?.lists?.filter(l => {
+    const nameLower = l.name.toLowerCase();
+    return !nameLower.includes('favorite') && !nameLower.includes('fav') && nameLower !== 'top 4' && nameLower !== 'top 5';
+  }).length || 0;
   const totalSelected =
     (importWatched ? watchedCount : 0) +
     (importWatchlist ? watchlistCount : 0);
@@ -280,6 +290,12 @@ export default function SettingsPage() {
                     <span>{favoritesCount} favorites → Top 5</span>
                   </div>
                 )}
+                {listsCount > 0 && (
+                  <div className="flex items-center gap-3">
+                    <List className="h-5 w-5 text-purple-500" />
+                    <span>{listsCount} custom lists</span>
+                  </div>
+                )}
               </div>
 
               {/* Import options */}
@@ -331,6 +347,18 @@ export default function SettingsPage() {
                       className="w-5 h-5 rounded"
                     />
                     <span>Reviews</span>
+                  </label>
+                )}
+
+                {listsCount > 0 && (
+                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={importLists}
+                      onChange={(e) => setImportLists(e.target.checked)}
+                      className="w-5 h-5 rounded"
+                    />
+                    <span>Custom lists (with movies)</span>
                   </label>
                 )}
               </div>
