@@ -334,7 +334,8 @@ export default function ListSettingsPage() {
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               placeholder="describe this list..."
-              className="w-full mt-2 text-sm text-muted-foreground bg-transparent border-none resize-none p-0 focus:outline-none focus:text-foreground placeholder:text-muted-foreground/70"
+              className="w-full mt-2 text-muted-foreground bg-transparent border-none resize-none p-0 focus:outline-none focus:text-foreground placeholder:text-muted-foreground/70"
+              style={{ fontSize: '16px' }}
               rows={2}
               maxLength={200}
             />
