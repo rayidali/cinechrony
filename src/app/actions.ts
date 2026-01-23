@@ -3496,6 +3496,48 @@ export async function parseLetterboxdExport(base64Data: string, fileName: string
         data.reviews = parseCSV<LetterboxdReviewRow>(text);
       }
 
+      // Parse profile.csv to get favorite films (stored as Letterboxd URIs)
+      const profileFile = zip.file('profile.csv');
+      if (profileFile) {
+        const text = await profileFile.async('text');
+        type ProfileRow = {
+          'Date Joined'?: string;
+          Username?: string;
+          Bio?: string;
+          'Favorite Films'?: string;
+        };
+        const profileData = parseCSV<ProfileRow>(text);
+        if (profileData.length > 0 && profileData[0]['Favorite Films']) {
+          // Favorite Films is comma-separated Letterboxd URIs like "https://boxd.it/eDGs, https://boxd.it/4VZ8"
+          const favoriteUris = profileData[0]['Favorite Films']
+            .split(',')
+            .map(uri => uri.trim())
+            .filter(uri => uri.length > 0);
+
+          // Build a lookup map from watched.csv to match URIs to movie names
+          const uriToMovie = new Map<string, LetterboxdRow>();
+          for (const movie of data.watched) {
+            if (movie['Letterboxd URI']) {
+              uriToMovie.set(movie['Letterboxd URI'], movie);
+            }
+          }
+          // Also check ratings if not in watched
+          for (const movie of data.ratings) {
+            if (movie['Letterboxd URI'] && !uriToMovie.has(movie['Letterboxd URI'])) {
+              uriToMovie.set(movie['Letterboxd URI'], movie);
+            }
+          }
+
+          // Match favorite URIs to movies
+          for (const uri of favoriteUris) {
+            const movie = uriToMovie.get(uri);
+            if (movie && data.favorites.length < 5) {
+              data.favorites.push(movie);
+            }
+          }
+        }
+      }
+
       // Look for lists in the lists/ folder
       // Letterboxd exports user lists as lists/*.csv
       const listFiles = Object.keys(zip.files).filter(name =>
@@ -3532,13 +3574,6 @@ export async function parseLetterboxdExport(base64Data: string, fileName: string
           // Parse the CSV portion
           const csvText = lines.slice(csvStartIndex).join('\n');
           const parsed = parseCSV<LetterboxdRow>(csvText);
-
-          // Check for favorites list (for profile Top 5)
-          if (listNameLower.includes('favorite') || listNameLower.includes('fav') || listNameLower === 'top 4' || listNameLower === 'top 5') {
-            if (parsed.length > 0 && data.favorites.length === 0) {
-              data.favorites = parsed.slice(0, 5);
-            }
-          }
 
           // Add all lists with movies to the lists array
           if (parsed.length > 0) {
@@ -3864,12 +3899,6 @@ export async function importLetterboxdMovies(
     if (options.importLists && letterboxdData.lists && letterboxdData.lists.length > 0) {
       for (const lbList of letterboxdData.lists) {
         try {
-          // Skip favorites list (already handled separately)
-          const listNameLower = lbList.name.toLowerCase();
-          if (listNameLower.includes('favorite') || listNameLower.includes('fav') || listNameLower === 'top 4' || listNameLower === 'top 5') {
-            continue;
-          }
-
           // Create the list
           const newListRef = db.collection('users').doc(userId).collection('lists').doc();
           await newListRef.set({

@@ -160,11 +160,7 @@ export default function SettingsPage() {
   const watchlistCount = letterboxdData?.watchlist.length || 0;
   const reviewsCount = letterboxdData?.reviews.filter(r => r.Review && r.Review.trim()).length || 0;
   const favoritesCount = letterboxdData?.favorites?.length || 0;
-  // Filter out favorites from lists count (they're handled separately)
-  const listsCount = letterboxdData?.lists?.filter(l => {
-    const nameLower = l.name.toLowerCase();
-    return !nameLower.includes('favorite') && !nameLower.includes('fav') && nameLower !== 'top 4' && nameLower !== 'top 5';
-  }).length || 0;
+  const listsCount = letterboxdData?.lists?.length || 0;
   const totalSelected =
     (importWatched ? watchedCount : 0) +
     (importWatchlist ? watchlistCount : 0);
