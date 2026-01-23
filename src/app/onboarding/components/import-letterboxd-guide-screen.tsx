@@ -11,13 +11,13 @@ type ImportLetterboxdGuideScreenProps = {
   onBack: () => void;
 };
 
-// Image URLs for each step - will be replaced with actual hosted images
+// Image URLs for each step
 const STEP_IMAGES = {
-  1: '', // Homepage
-  2: '', // Login
-  3: '', // Menu with Settings
-  4: '', // Settings page with Export
-  5: '', // Export dialog
+  1: 'https://i.postimg.cc/C164rMwd/IMG-0535.jpg', // Homepage
+  2: 'https://i.postimg.cc/XqRk32Zh/IMG-0536.jpg', // Login
+  3: 'https://i.postimg.cc/PfCGXPp6/IMG-0537.jpg', // Menu with Settings
+  4: 'https://i.postimg.cc/sfqkvs5r/IMG-0538.jpg', // Settings page with Export
+  5: 'https://i.postimg.cc/BnGRBph2/IMG-0540.jpg', // Export dialog
 };
 
 // Placeholder for images - shows until real images are added
