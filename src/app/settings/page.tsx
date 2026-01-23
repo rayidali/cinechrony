@@ -28,6 +28,7 @@ export default function SettingsPage() {
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
+    favorites: LetterboxdMovie[];
   } | null>(null);
 
   // Import options
@@ -78,6 +79,7 @@ export default function SettingsPage() {
               ratings: result.data.ratings || [],
               watchlist: result.data.watchlist || [],
               reviews: result.data.reviews || [],
+              favorites: result.data.favorites || [],
             });
           }
         } catch (err: any) {
@@ -152,6 +154,7 @@ export default function SettingsPage() {
   const ratingsCount = letterboxdData?.ratings.length || 0;
   const watchlistCount = letterboxdData?.watchlist.length || 0;
   const reviewsCount = letterboxdData?.reviews.filter(r => r.Review && r.Review.trim()).length || 0;
+  const favoritesCount = letterboxdData?.favorites?.length || 0;
   const totalSelected =
     (importWatched ? watchedCount : 0) +
     (importWatchlist ? watchlistCount : 0);
@@ -181,7 +184,7 @@ export default function SettingsPage() {
           </div>
 
           <p className="text-muted-foreground mb-6">
-            Import your watched movies, ratings, watchlist, and reviews from Letterboxd.
+            Import your watched movies, ratings, watchlist, reviews, and favorites from Letterboxd.
           </p>
 
           <input
@@ -271,6 +274,12 @@ export default function SettingsPage() {
                     <span>{reviewsCount} reviews</span>
                   </div>
                 )}
+                {favoritesCount > 0 && (
+                  <div className="flex items-center gap-3">
+                    <Star className="h-5 w-5 text-pink-500 fill-pink-500" />
+                    <span>{favoritesCount} favorites → Top 5</span>
+                  </div>
+                )}
               </div>
 
               {/* Import options */}
@@ -297,7 +306,7 @@ export default function SettingsPage() {
                       onChange={(e) => setImportRatings(e.target.checked)}
                       className="w-5 h-5 rounded"
                     />
-                    <span>Ratings (converted to /10) + updates Top 5</span>
+                    <span>Ratings (converted to /10)</span>
                   </label>
                 )}
 

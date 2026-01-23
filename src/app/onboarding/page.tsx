@@ -40,6 +40,7 @@ export default function OnboardingPage() {
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
+    favorites: LetterboxdMovie[];
   } | null>(null);
 
   // Track imported movies count
@@ -235,7 +236,7 @@ export default function OnboardingPage() {
   };
 
   return (
-    <main className="min-h-screen font-body text-foreground bg-background">
+    <main className="min-h-screen font-body text-foreground">
       {renderStep()}
     </main>
   );

@@ -16,6 +16,7 @@ type ImportLetterboxdPreviewScreenProps = {
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
+    favorites: LetterboxdMovie[];
   };
   onImport: (count: number) => void;
   onBack: () => void;
@@ -40,6 +41,7 @@ export function ImportLetterboxdPreviewScreen({
   const ratingsCount = letterboxdData.ratings.length;
   const watchlistCount = letterboxdData.watchlist.length;
   const reviewsCount = letterboxdData.reviews.filter(r => r.Review && r.Review.trim()).length;
+  const favoritesCount = letterboxdData.favorites?.length || 0;
 
   const handleImport = async () => {
     if (!user) return;
@@ -142,6 +144,14 @@ export function ImportLetterboxdPreviewScreen({
               </div>
             </div>
           )}
+          {favoritesCount > 0 && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <Star className="h-5 w-5 text-pink-500 fill-pink-500" />
+                <span>{favoritesCount} favorites → Top 5</span>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Import options */}
@@ -168,7 +178,7 @@ export function ImportLetterboxdPreviewScreen({
                 onChange={(e) => setImportRatings(e.target.checked)}
                 className="w-5 h-5 rounded"
               />
-              <span>Ratings → converted to /10 + Top 5</span>
+              <span>Ratings → converted to /10</span>
             </label>
           )}
 

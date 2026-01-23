@@ -12,6 +12,7 @@ type ImportLetterboxdUploadScreenProps = {
     ratings: LetterboxdMovie[];
     watchlist: LetterboxdMovie[];
     reviews: LetterboxdMovie[];
+    favorites: LetterboxdMovie[];
   }) => void;
   onBack: () => void;
   onNeedHelp: () => void;
@@ -63,6 +64,7 @@ export function ImportLetterboxdUploadScreen({
               ratings: result.data.ratings || [],
               watchlist: result.data.watchlist || [],
               reviews: result.data.reviews || [],
+              favorites: result.data.favorites || [],
             });
           }
         } catch (err: any) {
