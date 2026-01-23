@@ -46,16 +46,35 @@ function CommentsPageContent() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Handle back navigation - return to movie modal if context available
-  const handleBack = () => {
+  const handleBack = useCallback(() => {
     if (returnListId && returnMovieId) {
       // Navigate to list with openMovie param to reopen the modal
       const params = new URLSearchParams({ openMovie: returnMovieId });
       if (returnListOwnerId) params.set('owner', returnListOwnerId);
-      router.push(`/lists/${returnListId}?${params.toString()}`);
+      router.replace(`/lists/${returnListId}?${params.toString()}`);
     } else {
       router.back();
     }
-  };
+  }, [returnListId, returnMovieId, returnListOwnerId, router]);
+
+  // Intercept browser back navigation (swipe gesture on iOS) to redirect properly
+  useEffect(() => {
+    if (!returnListId || !returnMovieId) return;
+
+    // Push a state so we can intercept the back navigation
+    window.history.pushState({ commentsPage: true }, '');
+
+    const handlePopState = (e: PopStateEvent) => {
+      // User swiped back or pressed browser back - redirect to list with modal open
+      e.preventDefault();
+      const params = new URLSearchParams({ openMovie: returnMovieId });
+      if (returnListOwnerId) params.set('owner', returnListOwnerId);
+      router.replace(`/lists/${returnListId}?${params.toString()}`);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, [returnListId, returnMovieId, returnListOwnerId, router]);
 
   // Fetch reviews
   useEffect(() => {
