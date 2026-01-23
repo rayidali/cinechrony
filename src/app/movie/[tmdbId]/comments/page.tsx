@@ -27,6 +27,11 @@ function CommentsPageContent() {
   const moviePoster = searchParams.get('poster') || '';
   const mediaType = (searchParams.get('type') || 'movie') as 'movie' | 'tv';
 
+  // Return context for proper back navigation
+  const returnListId = searchParams.get('returnListId');
+  const returnListOwnerId = searchParams.get('returnListOwnerId');
+  const returnMovieId = searchParams.get('returnMovieId');
+
   // State
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -39,6 +44,18 @@ function CommentsPageContent() {
   // Refs
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  // Handle back navigation - return to movie modal if context available
+  const handleBack = () => {
+    if (returnListId && returnMovieId) {
+      // Navigate to list with openMovie param to reopen the modal
+      const params = new URLSearchParams({ openMovie: returnMovieId });
+      if (returnListOwnerId) params.set('owner', returnListOwnerId);
+      router.push(`/lists/${returnListId}?${params.toString()}`);
+    } else {
+      router.back();
+    }
+  };
 
   // Fetch reviews
   useEffect(() => {
@@ -180,7 +197,7 @@ function CommentsPageContent() {
       <header className="flex-shrink-0 border-b border-border bg-background z-10">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
-            onClick={() => router.back()}
+            onClick={handleBack}
             className="p-2 -ml-2 rounded-full hover:bg-secondary transition-colors"
           >
             <ArrowLeft className="h-5 w-5" />

@@ -525,6 +525,10 @@ export function MovieDetailsModal({
       poster: movie.posterUrl || '',
       type: movie.mediaType || 'movie',
     });
+    // Pass return context so back navigation can reopen the modal
+    if (listId) params.set('returnListId', listId);
+    if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
+    if (movie.id) params.set('returnMovieId', movie.id);
     onClose(); // Close the drawer first
     router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
   };
