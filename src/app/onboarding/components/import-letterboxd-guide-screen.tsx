@@ -11,12 +11,35 @@ type ImportLetterboxdGuideScreenProps = {
   onBack: () => void;
 };
 
-// Placeholder for images - will be replaced with actual images later
-const ImagePlaceholder = ({ step }: { step: number }) => (
-  <div className="w-full aspect-video rounded-xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
-    <span className="text-muted-foreground text-sm">Image for Step {step}</span>
-  </div>
-);
+// Image URLs for each step - will be replaced with actual hosted images
+const STEP_IMAGES = {
+  1: '', // Homepage
+  2: '', // Login
+  3: '', // Menu with Settings
+  4: '', // Settings page with Export
+  5: '', // Export dialog
+};
+
+// Placeholder for images - shows until real images are added
+const StepImage = ({ step, alt }: { step: number; alt: string }) => {
+  const imageUrl = STEP_IMAGES[step as keyof typeof STEP_IMAGES];
+
+  if (imageUrl) {
+    return (
+      <img
+        src={imageUrl}
+        alt={alt}
+        className="w-full max-w-[200px] mx-auto rounded-xl border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+      />
+    );
+  }
+
+  return (
+    <div className="w-full max-w-[200px] mx-auto aspect-[9/16] rounded-xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
+      <span className="text-muted-foreground text-sm">Step {step}</span>
+    </div>
+  );
+};
 
 export function ImportLetterboxdGuideScreen({
   onOpenLetterboxd,
@@ -34,58 +57,55 @@ export function ImportLetterboxdGuideScreen({
 
       <div className="flex-1 w-full max-w-md mx-auto pt-16 pb-32 overflow-y-auto">
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">
-          Step-by-step Guide
+          How to Export from Letterboxd
         </h1>
         <p className="text-muted-foreground text-center mb-8">
-          The Letterboxd app&apos;s export can be unreliable. We recommend using Safari instead.
+          Use Safari for the most reliable export (the app can be buggy)
         </p>
 
         <div className="space-y-8">
           {/* Step 1 */}
           <div className="space-y-3">
-            <h3 className="font-headline font-bold">Step 1: Open Letterboxd</h3>
-            <ImagePlaceholder step={1} />
-            <p className="text-sm text-muted-foreground">
-              Go to letterboxd.com in Safari (not the app)
+            <h3 className="font-headline font-bold">1. Open letterboxd.com in Safari</h3>
+            <StepImage step={1} alt="Letterboxd homepage" />
+            <p className="text-sm text-muted-foreground text-center">
+              Go to letterboxd.com (not the app)
             </p>
           </div>
 
           {/* Step 2 */}
           <div className="space-y-3">
-            <h3 className="font-headline font-bold">Step 2: Log in</h3>
-            <ImagePlaceholder step={2} />
-            <p className="text-sm text-muted-foreground">
-              Log in to your Letterboxd account
+            <h3 className="font-headline font-bold">2. Sign in to your account</h3>
+            <StepImage step={2} alt="Letterboxd login" />
+            <p className="text-sm text-muted-foreground text-center">
+              Enter your username and password
             </p>
           </div>
 
           {/* Step 3 */}
           <div className="space-y-3">
-            <h3 className="font-headline font-bold">Step 3: Go to Settings</h3>
-            <ImagePlaceholder step={3} />
-            <p className="text-sm text-muted-foreground">
-              Tap the menu (☰) and select &quot;Settings&quot;
+            <h3 className="font-headline font-bold">3. Open Menu → Settings</h3>
+            <StepImage step={3} alt="Menu with Settings highlighted" />
+            <p className="text-sm text-muted-foreground text-center">
+              Tap the menu and find <span className="font-medium text-foreground">Settings</span>
             </p>
           </div>
 
           {/* Step 4 */}
           <div className="space-y-3">
-            <h3 className="font-headline font-bold">Step 4: Find Export</h3>
-            <ImagePlaceholder step={4} />
-            <p className="text-sm text-muted-foreground">
-              Scroll down to find &quot;Export Your Data&quot;
-            </p>
-            <p className="text-xs text-muted-foreground bg-secondary/50 p-2 rounded-lg">
-              On the app: Settings → Advanced Settings → Export
+            <h3 className="font-headline font-bold">4. Find &quot;Export Your Data&quot;</h3>
+            <StepImage step={4} alt="Settings page with Export button" />
+            <p className="text-sm text-muted-foreground text-center">
+              Scroll down to the <span className="font-medium text-foreground">Account Data</span> section
             </p>
           </div>
 
           {/* Step 5 */}
           <div className="space-y-3">
-            <h3 className="font-headline font-bold">Step 5: Download</h3>
-            <ImagePlaceholder step={5} />
-            <p className="text-sm text-muted-foreground">
-              Tap &quot;Export Your Data&quot; and wait for the ZIP file to download.
+            <h3 className="font-headline font-bold">5. Tap &quot;Export Data&quot;</h3>
+            <StepImage step={5} alt="Export data dialog" />
+            <p className="text-sm text-muted-foreground text-center">
+              Tap the green button and wait for the ZIP to download
             </p>
           </div>
         </div>
@@ -105,7 +125,7 @@ export function ImportLetterboxdGuideScreen({
             onClick={onHaveFile}
             className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors py-2"
           >
-            I have my file
+            I already have my ZIP file
           </button>
         </div>
       </div>
