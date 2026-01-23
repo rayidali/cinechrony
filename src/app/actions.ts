@@ -226,6 +226,34 @@ export async function renameList(userId: string, listOwnerId: string, listId: st
 }
 
 /**
+ * Update list description.
+ * Only the list owner can update the description.
+ */
+export async function updateListDescription(userId: string, listOwnerId: string, listId: string, description: string) {
+  const db = getDb();
+
+  try {
+    // Only owner can update description
+    if (userId !== listOwnerId) {
+      return { error: 'Only the list owner can update the description.' };
+    }
+
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+    await listRef.update({
+      description: description.trim(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    revalidatePath('/lists');
+    revalidatePath(`/lists/${listId}`);
+    return { success: true };
+  } catch (error) {
+    console.error('Failed to update list description:', error);
+    return { error: 'Failed to update description.' };
+  }
+}
+
+/**
  * Update list visibility (public/private).
  * Only the list owner can update visibility.
  */

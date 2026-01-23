@@ -76,6 +76,7 @@ export type Follow = {
 export type MovieList = {
   id: string;
   name: string;
+  description?: string; // Optional description/bio for the list
   createdAt: Date;
   updatedAt: Date;
   isDefault: boolean; // The first list created for a user

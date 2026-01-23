@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useUser } from '@/firebase';
 import type { OnboardingStep, MatchedMovie, LetterboxdMovie } from '@/lib/types';
 
@@ -19,12 +19,14 @@ import { ImportLetterboxdPreviewScreen } from './components/import-letterboxd-pr
 import { FindFriendsScreen } from './components/find-friends-screen';
 import { CompleteScreen } from './components/complete-screen';
 
-export default function OnboardingPage() {
+function OnboardingContent() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const skipSplash = searchParams.get('skip_splash') === 'true';
 
-  // Onboarding state machine
-  const [step, setStep] = useState<OnboardingStep>('splash');
+  // Onboarding state machine - start at signup if coming from landing page
+  const [step, setStep] = useState<OnboardingStep>(skipSplash ? 'signup' : 'splash');
 
   // Data collected during onboarding
   const [username, setUsername] = useState('');
@@ -239,5 +241,17 @@ export default function OnboardingPage() {
     <main className="min-h-screen font-body text-foreground">
       {renderStep()}
     </main>
+  );
+}
+
+export default function OnboardingPage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      </div>
+    }>
+      <OnboardingContent />
+    </Suspense>
   );
 }

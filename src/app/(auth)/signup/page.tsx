@@ -7,8 +7,8 @@ export default function SignUpPage() {
   const router = useRouter();
 
   useEffect(() => {
-    // Redirect to the new onboarding flow
-    router.replace('/onboarding');
+    // Redirect to the new onboarding flow, skipping splash screen
+    router.replace('/onboarding?skip_splash=true');
   }, [router]);
 
   return (
