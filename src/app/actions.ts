@@ -4483,3 +4483,61 @@ export async function backfillMovieUserData(adminSecret: string) {
     };
   }
 }
+
+
+/**
+ * Backfill reviews with threading fields (parentId, replyCount).
+ * Run this once after adding threading support to fix existing reviews.
+ */
+export async function backfillReviewsThreading() {
+  const db = getDb();
+  const stats = { updated: 0, skipped: 0, total: 0 };
+
+  try {
+    const reviewsSnapshot = await db.collection('reviews').get();
+    stats.total = reviewsSnapshot.size;
+
+    const batch = db.batch();
+    let batchCount = 0;
+
+    for (const doc of reviewsSnapshot.docs) {
+      const data = doc.data();
+
+      // Only update if parentId is missing (not just null)
+      if (data.parentId === undefined) {
+        batch.update(doc.ref, {
+          parentId: null,
+          replyCount: data.replyCount ?? 0,
+        });
+        stats.updated++;
+        batchCount++;
+      } else {
+        stats.skipped++;
+      }
+
+      // Firestore batches are limited to 500 operations
+      if (batchCount >= 450) {
+        await batch.commit();
+        batchCount = 0;
+      }
+    }
+
+    // Commit any remaining
+    if (batchCount > 0) {
+      await batch.commit();
+    }
+
+    return {
+      success: true,
+      message: `Backfill complete: ${stats.updated} reviews updated, ${stats.skipped} already had parentId`,
+      stats,
+    };
+  } catch (error) {
+    console.error('[backfillReviewsThreading] Failed:', error);
+    return {
+      error: 'Backfill failed',
+      details: String(error),
+      stats,
+    };
+  }
+}

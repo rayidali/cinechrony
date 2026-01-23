@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb } from '@/firebase/admin';
+import { backfillReviewsThreading } from '@/app/actions';
 
 const ADMIN_TOKEN = process.env.ADMIN_SECRET_TOKEN;
 
@@ -26,62 +26,32 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    console.log('[API] Starting reviews backfill...');
-    const db = getDb();
+    console.log('[API] Starting reviews threading backfill...');
+    const result = await backfillReviewsThreading();
 
-    // Get all reviews that don't have parentId field
-    const reviewsSnapshot = await db.collection('reviews').get();
-
-    let updated = 0;
-    let skipped = 0;
-    const batch = db.batch();
-
-    for (const doc of reviewsSnapshot.docs) {
-      const data = doc.data();
-
-      // Only update if parentId is missing (not just null)
-      if (data.parentId === undefined) {
-        batch.update(doc.ref, {
-          parentId: null,
-          replyCount: data.replyCount ?? 0,
-        });
-        updated++;
-      } else {
-        skipped++;
-      }
-
-      // Firestore batches are limited to 500 operations
-      if (updated > 0 && updated % 450 === 0) {
-        await batch.commit();
-        console.log(`[API] Committed batch of ${updated} reviews`);
-      }
+    if (result.error) {
+      return NextResponse.json({
+        error: result.error,
+        details: 'details' in result ? result.details : undefined,
+        stats: result.stats
+      }, { status: 500 });
     }
-
-    // Commit any remaining
-    if (updated % 450 !== 0) {
-      await batch.commit();
-    }
-
-    console.log(`[API] Reviews backfill complete: ${updated} updated, ${skipped} skipped`);
 
     return NextResponse.json({
       success: true,
-      message: `Backfill complete: ${updated} reviews updated, ${skipped} already had parentId`,
-      stats: { updated, skipped, total: reviewsSnapshot.size },
+      message: result.message,
+      stats: result.stats,
     });
   } catch (error) {
-    console.error('[API] Backfill failed:', error);
-    return NextResponse.json(
-      { error: 'Backfill failed', details: String(error) },
-      { status: 500 }
-    );
+    console.error('[API] Reviews backfill failed:', error);
+    return NextResponse.json({ error: 'Backfill failed', details: String(error) }, { status: 500 });
   }
 }
 
-// Allow GET in development for convenience
-export async function GET(request: NextRequest) {
-  if (process.env.NODE_ENV !== 'development') {
-    return NextResponse.json({ error: 'Use POST in production' }, { status: 405 });
+// GET allowed in development for convenience
+export async function GET() {
+  if (process.env.NODE_ENV === 'development') {
+    return POST(new NextRequest('http://localhost/api/admin/backfill-reviews', { method: 'POST' }));
   }
-  return POST(request);
+  return NextResponse.json({ error: 'Method not allowed. Use POST with x-admin-token header.' }, { status: 405 });
 }
