@@ -301,6 +301,8 @@ export default function PublicListPage() {
           movie={selectedMovie}
           isOpen={isModalOpen}
           onClose={handleCloseModal}
+          listId={listId}
+          listOwnerId={owner?.uid}
         />
 
         {/* One-time hint for grid view on mobile */}

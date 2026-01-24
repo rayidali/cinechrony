@@ -3,6 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import { Loader2, ExternalLink, Users, Instagram, Youtube, X, Film, Tv, Info, MessageSquare } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -11,8 +12,6 @@ import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
-import { ReviewsList } from './reviews-list';
-import { useUser } from '@/firebase';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
@@ -31,8 +30,6 @@ type ExtendedTVDetails = TMDBTVDetails & {
 };
 
 type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
-
-type ViewTab = 'info' | 'reviews';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -136,18 +133,21 @@ type PublicMovieDetailsModalProps = {
   movie: Movie | null;
   isOpen: boolean;
   onClose: () => void;
+  listId?: string;
+  listOwnerId?: string;
 };
 
 export function PublicMovieDetailsModal({
   movie,
   isOpen,
   onClose,
+  listId,
+  listOwnerId,
 }: PublicMovieDetailsModalProps) {
+  const router = useRouter();
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
-  const [activeTab, setActiveTab] = useState<ViewTab>('info');
-  const { user } = useUser();
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
   const drawerHeight = useViewportHeight(85);
@@ -163,9 +163,24 @@ export function PublicMovieDetailsModal({
         setMediaDetails(null);
         setMediaDetailsForId(null);
       }
-      setActiveTab('info');
     }
   }, [movie?.id, mediaDetailsForId]);
+
+  // Navigate to full-screen comments page
+  const handleOpenFullComments = () => {
+    if (!movie) return;
+    const params = new URLSearchParams({
+      title: movie.title,
+      poster: movie.posterUrl || '',
+      type: movie.mediaType || 'movie',
+    });
+    // Pass return context so back navigation can return to the list
+    if (listId) params.set('returnListId', listId);
+    if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
+    if (movie.id) params.set('returnMovieId', movie.id);
+    onClose(); // Close the drawer first
+    router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+  };
 
   // Fetch movie/TV details when modal opens
   useEffect(() => {
@@ -233,10 +248,9 @@ export function PublicMovieDetailsModal({
             </Drawer.Close>
           </div>
 
-          {/* Scrollable content area - use explicit height calc to leave room for tabs */}
-          <div className={`flex-1 min-h-0 ${activeTab === 'info' ? 'overflow-y-auto' : 'flex flex-col overflow-hidden'}`}>
-            {activeTab === 'info' ? (
-              <div className="p-6">
+          {/* Scrollable content area */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="p-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   {/* Left: Poster + Video */}
                   <div className="space-y-4">
@@ -397,38 +411,20 @@ export function PublicMovieDetailsModal({
                   </div>
                 </div>
               </div>
-            ) : (
-              <ReviewsList
-                tmdbId={tmdbId}
-                mediaType={movie.mediaType || 'movie'}
-                movieTitle={movie.title}
-                moviePosterUrl={movie.posterUrl}
-                currentUserId={user?.uid || ''}
-              />
-            )}
           </div>
 
-          {/* Bottom bar with Info/Reviews toggle - always visible */}
+          {/* Bottom bar with Info/Reviews - Reviews navigates to full page */}
           <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
             <div className="flex gap-2 justify-center">
               <button
-                onClick={() => setActiveTab('info')}
-                className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
-                  activeTab === 'info'
-                    ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground'
-                }`}
+                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]"
               >
                 <Info className="h-4 w-4" />
                 Info
               </button>
               <button
-                onClick={() => setActiveTab('reviews')}
-                className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
-                  activeTab === 'reviews'
-                    ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
-                    : 'bg-secondary text-muted-foreground hover:text-foreground'
-                }`}
+                onClick={handleOpenFullComments}
+                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-secondary text-muted-foreground hover:text-foreground"
               >
                 <MessageSquare className="h-4 w-4" />
                 Reviews
