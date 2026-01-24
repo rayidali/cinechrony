@@ -2822,37 +2822,45 @@ export async function createReview(
         replyCount: FieldValue.increment(1),
       });
 
-      // Create reply notification (fire-and-forget for speed)
+      // Create reply notification (must await in serverless - fire-and-forget gets killed)
       if (parentDoc.exists) {
-        createReplyNotification(
-          db,
-          reviewRef.id,
-          text.trim(),
-          { userId: parentDoc.data()?.userId },
-          tmdbId,
-          mediaType,
-          movieTitle,
-          userId,
-          userData?.username || null,
-          userData?.displayName || null,
-          userData?.photoURL || null
-        ).catch(err => console.error('[createReview] Reply notification failed:', err));
+        try {
+          await createReplyNotification(
+            db,
+            reviewRef.id,
+            text.trim(),
+            { userId: parentDoc.data()?.userId },
+            tmdbId,
+            mediaType,
+            movieTitle,
+            userId,
+            userData?.username || null,
+            userData?.displayName || null,
+            userData?.photoURL || null
+          );
+        } catch (err) {
+          console.error('[createReview] Reply notification failed:', err);
+        }
       }
     }
 
-    // Create @mention notifications (fire-and-forget for speed)
-    createMentionNotifications(
-      db,
-      reviewRef.id,
-      text.trim(),
-      tmdbId,
-      mediaType,
-      movieTitle,
-      userId,
-      userData?.username || null,
-      userData?.displayName || null,
-      userData?.photoURL || null
-    ).catch(err => console.error('[createReview] Mention notifications failed:', err));
+    // Create @mention notifications (must await in serverless - fire-and-forget gets killed)
+    try {
+      await createMentionNotifications(
+        db,
+        reviewRef.id,
+        text.trim(),
+        tmdbId,
+        mediaType,
+        movieTitle,
+        userId,
+        userData?.username || null,
+        userData?.displayName || null,
+        userData?.photoURL || null
+      );
+    } catch (err) {
+      console.error('[createReview] Mention notifications failed:', err);
+    }
 
     return {
       success: true,
