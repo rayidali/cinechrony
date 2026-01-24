@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut, Eye, EyeOff, ImageIcon } from 'lucide-react';
+import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut, Eye, EyeOff, ImageIcon, Settings } from 'lucide-react';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
@@ -323,6 +323,15 @@ export default function MyProfilePage() {
             </Link>
             <div className="flex items-center gap-2">
               <ThemeToggle />
+              <Link href="/settings">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className={`${retroButtonClass}`}
+                >
+                  <Settings className="h-4 w-4" />
+                </Button>
+              </Link>
               <Button
                 variant="outline"
                 size="sm"

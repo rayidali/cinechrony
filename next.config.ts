@@ -15,6 +15,11 @@ const nextConfig: NextConfig = {
     },
   },
   images: {
+    // Disable Vercel image optimization to stay within free tier
+    // TMDB already serves optimized images at various sizes (w92, w185, w342, w500, w780)
+    // R2 images are already on Cloudflare CDN
+    // This prevents burning through Vercel's 1000 free transformations/month
+    unoptimized: true,
     remotePatterns: [
       {
         protocol: 'https',

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import type { Movie } from '@/lib/types';
 import { MovieCard } from './movie-card';
 import { MovieCardGrid } from './movie-card-grid';
@@ -25,6 +26,8 @@ type MovieListProps = {
 const VIEW_MODE_KEY = 'cinechrony-view-mode';
 
 export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEdit = true }: MovieListProps) {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
@@ -37,6 +40,24 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
       setViewMode(saved as ViewMode);
     }
   }, []);
+
+  // Handle openMovie query param - reopen modal when returning from comments page
+  useEffect(() => {
+    const openMovieId = searchParams.get('openMovie');
+    if (openMovieId && initialMovies.length > 0 && !isLoading) {
+      const movieToOpen = initialMovies.find(m => m.id === openMovieId);
+      if (movieToOpen) {
+        // Switch to the correct filter tab based on movie status
+        setFilter(movieToOpen.status);
+        setSelectedMovie(movieToOpen);
+        setIsModalOpen(true);
+        // Clear the query param to avoid reopening on refresh
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('openMovie');
+        router.replace(newUrl.pathname + newUrl.search, { scroll: false });
+      }
+    }
+  }, [searchParams, initialMovies, isLoading, router]);
 
   // Save view mode to localStorage when it changes
   const handleViewModeChange = (mode: ViewMode) => {

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, memo, useMemo } from 'react';
+import { useState, memo, useMemo, Fragment } from 'react';
 import Link from 'next/link';
 import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
@@ -17,14 +17,56 @@ import { useToast } from '@/hooks/use-toast';
 import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
 import type { Review } from '@/lib/types';
 
+/**
+ * Render text with @mentions as clickable profile links.
+ * Zero network calls - just parses and renders.
+ */
+function renderTextWithMentions(text: string): React.ReactNode {
+  const mentionRegex = /@([a-zA-Z0-9_]+)/g;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    // Add text before the mention
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+
+    // Add the mention as a link
+    const username = match[1];
+    parts.push(
+      <Link
+        key={`${match.index}-${username}`}
+        href={`/profile/${username.toLowerCase()}`}
+        className="text-primary font-medium hover:underline"
+        onClick={(e) => e.stopPropagation()}
+      >
+        @{username}
+      </Link>
+    );
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  // Add remaining text after last mention
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+}
+
 interface ReviewCardProps {
   review: Review;
   currentUserId?: string;
   onDelete?: (reviewId: string) => void;
   onEdit?: (review: Review) => void;
+  onReply?: (review: Review) => void;
+  isReply?: boolean; // If true, this is a reply (renders more compact, no reply button)
 }
 
-export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit }: ReviewCardProps) {
+export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit, onReply, isReply = false }: ReviewCardProps) {
   const { toast } = useToast();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
@@ -36,6 +78,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   const isOwner = currentUserId === review.userId;
   const displayName = review.userDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
+  const replyCount = review.replyCount || 0;
 
   // Get styles for the rating badge (using inline styles for consistency)
   const ratingStyle = useMemo(() => getRatingStyle(review.ratingAtTime), [review.ratingAtTime]);
@@ -89,14 +132,14 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   };
 
   return (
-    <div className="flex gap-3 py-4">
+    <div className={`flex gap-3 ${isReply ? 'py-2' : 'py-4'}`}>
       {/* User avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
           photoURL={review.userPhotoUrl}
           displayName={review.userDisplayName}
           username={review.username}
-          size="md"
+          size={isReply ? 'sm' : 'md'}
         />
       </Link>
 
@@ -152,12 +195,12 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
           )}
         </div>
 
-        {/* Review text */}
+        {/* Review text with @mentions as links */}
         <p className="text-sm mt-1 whitespace-pre-wrap break-words">
-          {review.text}
+          {renderTextWithMentions(review.text)}
         </p>
 
-        {/* Actions: like, comment (future) */}
+        {/* Actions: like, reply */}
         <div className="flex items-center gap-4 mt-2">
           <button
             onClick={handleLikeToggle}
@@ -170,10 +213,16 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
             {likes > 0 && <span>{likes}</span>}
           </button>
 
-          {/* Comment button - placeholder for future */}
-          {/* <button className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-            <MessageCircle className="h-4 w-4" />
-          </button> */}
+          {/* Reply button - shows on all comments (Instagram/TikTok style) */}
+          {onReply && (
+            <button
+              onClick={() => onReply(review)}
+              disabled={!currentUserId}
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            >
+              Reply{!isReply && replyCount > 0 && ` (${replyCount})`}
+            </button>
+          )}
         </div>
       </div>
     </div>

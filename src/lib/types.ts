@@ -13,6 +13,54 @@ export type UserProfile = {
   followersCount: number;
   followingCount: number;
   favoriteMovies?: FavoriteMovie[]; // Top 5 favorite movies
+  onboardingComplete?: boolean; // Whether user has completed onboarding
+};
+
+// Onboarding step types
+export type OnboardingStep =
+  | 'splash'
+  | 'signup'
+  | 'username'
+  | 'import-options'
+  | 'import-paste'
+  | 'import-paste-confirm'
+  | 'import-letterboxd'
+  | 'import-letterboxd-guide'
+  | 'import-letterboxd-upload'
+  | 'import-letterboxd-preview'
+  | 'find-friends'
+  | 'complete';
+
+// Parsed movie from paste input
+export type ParsedMovie = {
+  originalLine: string;
+  title: string;
+  year: number | null;
+};
+
+// Matched movie from TMDB
+export type MatchedMovie = {
+  parsed: ParsedMovie;
+  match: TMDBSearchResult | null;
+  status: 'exact_match' | 'best_guess' | 'not_found';
+  selected: boolean;
+};
+
+// Letterboxd CSV row
+export type LetterboxdMovie = {
+  Date?: string;
+  Name: string;
+  Year: string;
+  'Letterboxd URI'?: string;
+  Rating?: string;
+  Review?: string; // Review text (from reviews.csv)
+};
+
+// Letterboxd list (from lists/ folder in export)
+export type LetterboxdList = {
+  name: string; // List name (from filename)
+  description?: string; // List description (from first row or notes)
+  movies: LetterboxdMovie[];
 };
 
 // A favorite movie (for profile display)
@@ -35,6 +83,7 @@ export type Follow = {
 export type MovieList = {
   id: string;
   name: string;
+  description?: string; // Optional description/bio for the list
   createdAt: Date;
   updatedAt: Date;
   isDefault: boolean; // The first list created for a user
@@ -217,6 +266,9 @@ export type Review = {
   ratingAtTime: number | null; // User's rating snapshot when this comment was posted (immutable)
   likes: number;
   likedBy: string[]; // Array of user IDs who liked this review
+  // Threading support (1-level, like Instagram)
+  parentId: string | null; // If this is a reply, the parent review's ID
+  replyCount: number; // Number of replies to this review
   createdAt: Date;
   updatedAt: Date;
 };
@@ -232,4 +284,28 @@ export type UserRating = {
   rating: number; // 1.0 - 10.0 with one decimal
   createdAt: Date;
   updatedAt: Date;
+};
+
+// Notification types
+export type NotificationType = 'mention' | 'reply';
+
+// Notification (for @mentions and replies)
+export type Notification = {
+  id: string;
+  userId: string; // Recipient
+  type: NotificationType;
+  // Sender info (denormalized for zero-fetch display)
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+  // Context
+  reviewId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  previewText: string; // First ~100 chars of the comment
+  // State
+  read: boolean;
+  createdAt: Date;
 };

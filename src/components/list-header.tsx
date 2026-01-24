@@ -68,7 +68,7 @@ export function ListHeader({
   return (
     <div className="flex flex-col items-center">
       {/* List name */}
-      <div className="flex items-center gap-3 mb-3">
+      <div className="flex items-center gap-3 mb-1">
         <img
           src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
           alt="Cinechrony"
@@ -88,6 +88,15 @@ export function ListHeader({
           </Link>
         )}
       </div>
+
+      {/* List description if present */}
+      {listData?.description ? (
+        <p className="text-sm text-muted-foreground italic text-center mb-3 max-w-md">
+          {listData.description}
+        </p>
+      ) : (
+        <div className="mb-2" />
+      )}
 
       {/* Tappable Collaborator Bar */}
       {isOwner ? (

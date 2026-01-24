@@ -112,6 +112,8 @@ Target: iOS PWA + Desktop
   ├── userId, username, userDisplayName
   ├── text, ratingAtTime
   ├── likes, likedBy[]
+  ├── parentId (null for top-level, reviewId for replies)  # Threading
+  ├── replyCount (number of replies)                        # Threading
   └── createdAt, updatedAt
 
 /ratings/{ratingId}  (format: {userId}_{tmdbId})
@@ -119,6 +121,15 @@ Target: iOS PWA + Desktop
   ├── movieTitle, moviePosterUrl
   ├── rating (1.0-10.0)
   └── createdAt, updatedAt
+
+/notifications/{notificationId}  # Deferred to Phase 3
+  ├── userId (recipient)
+  ├── type ('mention' | 'reply')
+  ├── fromUserId, fromUsername, fromDisplayName, fromPhotoUrl
+  ├── reviewId, tmdbId, mediaType, movieTitle
+  ├── previewText
+  ├── read (boolean)
+  └── createdAt
 
 /usernames/{username}
   └── uid (for uniqueness enforcement)
@@ -136,11 +147,16 @@ src/
 │   ├── add/               # Add movie page
 │   ├── lists/             # User's lists
 │   │   └── [listId]/      # Single list view + settings
+│   ├── movie/[tmdbId]/    # Movie-specific pages
+│   │   └── comments/      # Full-screen comments/reviews page
 │   ├── profile/           # User profile
 │   │   └── [username]/    # Public profiles + lists
+│   ├── notifications/     # Notifications page (deferred to Phase 3)
+│   ├── onboarding/        # New user onboarding flow
+│   │   └── components/    # Letterboxd import guide, etc.
 │   ├── invite/[code]/     # Invite acceptance
 │   ├── api/               # API routes (admin backfill only)
-│   ├── actions.ts         # ⭐ ALL server actions (~3000 lines)
+│   ├── actions.ts         # ⭐ ALL server actions (~4800 lines)
 │   └── layout.tsx         # Root layout (providers)
 │
 ├── components/
@@ -149,6 +165,8 @@ src/
 │   ├── video-embed.tsx    # TikTok/IG/YouTube embeds
 │   ├── rating-slider.tsx  # 1-10 rating with HSL colors
 │   ├── reviews-list.tsx   # Movie reviews display
+│   ├── review-card.tsx    # Single review with threading, @mentions
+│   ├── notification-bell.tsx  # Header notification icon (deferred)
 │   └── ...                # See src/components/CLAUDE.md
 │
 ├── firebase/
@@ -393,7 +411,7 @@ See `firestore.rules` for complete rules. Key principles:
 - **After**: 1-2 network calls total (real-time movie subscription + ratings cache)
 - Components use `React.memo` to prevent re-renders
 - `useMemoFirebase` ensures stable query references
-- Images use Next.js `<Image>` with proper `sizes`
+- **Image Optimization Disabled**: `unoptimized: true` in next.config.ts to stay within Vercel free tier. TMDB already serves pre-optimized images at various sizes (w92, w185, w342, w500, w780), and R2 images are already on Cloudflare CDN.
 - No virtualization needed (typical list < 50 items)
 
 ---
@@ -403,12 +421,16 @@ See `firestore.rules` for complete rules. Key principles:
 - [ ] Activity feed (Coming Soon placeholder)
 - [ ] OMDB API key exposed in client (should move to server)
 - [ ] Some TypeScript errors suppressed in `next.config.ts`
+- [ ] Notifications UI deferred to Phase 3 (backend ready, needs Firestore index deployment)
 - [x] ~~N+1 fetch problem~~ (Fixed: denormalization + ratings cache)
 - [x] ~~"Added by Someone" / "@user" for existing data~~ (Fixed: backfill script)
 - [x] ~~Bio/Top 5 not showing on public profiles~~ (Fixed: getUserByUsername now returns bio + favoriteMovies)
 - [x] ~~Collaborator limit too low~~ (Increased from 3 to 10)
 - [x] ~~No way to revoke pending invites~~ (Added revoke button in invite modal)
 - [x] ~~FAB buttons unclear for first-time users~~ (Added labels: "+ Add", "+ New List")
+- [x] ~~Vercel image optimization quota exceeded~~ (Disabled: TMDB/R2 already CDN-optimized)
+- [x] ~~Comments threading~~ (Added: Instagram/TikTok style 1-level threading)
+- [x] ~~Letterboxd import guide missing images~~ (Added: 5-step screenshot tutorial)
 
 ## Admin Scripts
 
@@ -420,6 +442,29 @@ See `firestore.rules` for complete rules. Key principles:
 *Last updated: January 2025*
 
 ## Recent Changes (January 2025)
+
+### Comments & Reviews System (Phase 1 & 2)
+- Full-screen comments page at `/movie/[tmdbId]/comments`
+- Instagram/TikTok style 1-level threading (reply to any comment)
+- @mentions render as clickable profile links
+- Swipe-back gesture returns to movie modal (iOS PWA)
+- Like/unlike comments, sort by recent or top
+
+### Notifications (Phase 3 - Deferred)
+- Backend ready: notifications created for @mentions and replies
+- UI components built but disabled (NotificationBell commented out)
+- Requires Firestore index deployment before enabling
+- Will revisit in dedicated phase
+
+### Letterboxd Import
+- Step-by-step guide with 5 screenshot images
+- Portrait layout optimized for mobile viewing
+
+### Image Optimization
+- Disabled Vercel image optimization (`unoptimized: true`)
+- TMDB already serves pre-optimized images at multiple sizes
+- R2 images served via Cloudflare CDN
+- Prevents burning through Vercel's free tier quota
 
 ### Profile Page Redesign
 - Stats displayed as styled boxes (followers, following, lists) with neo-brutalist shadows

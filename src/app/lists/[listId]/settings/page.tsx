@@ -34,6 +34,7 @@ import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import {
   renameList,
+  updateListDescription,
   updateListVisibility,
   uploadListCover,
   deleteList,
@@ -62,6 +63,7 @@ export default function ListSettingsPage() {
 
   // State
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [isPublic, setIsPublic] = useState(false);
   const [coverPreview, setCoverPreview] = useState<string | null>(null);
   const [coverFile, setCoverFile] = useState<File | null>(null);
@@ -79,6 +81,7 @@ export default function ListSettingsPage() {
   useEffect(() => {
     if (listData) {
       setName(listData.name);
+      setDescription(listData.description || '');
       setIsPublic(listData.isPublic);
       setCoverPreview(listData.coverImageUrl || null);
     }
@@ -123,6 +126,7 @@ export default function ListSettingsPage() {
 
   const hasChanges = listData && (
     name !== listData.name ||
+    description !== (listData.description || '') ||
     isPublic !== listData.isPublic ||
     coverFile !== null
   );
@@ -176,6 +180,15 @@ export default function ListSettingsPage() {
         const nameResult = await renameList(user.uid, user.uid, listId, name);
         if (nameResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: nameResult.error });
+          setIsSaving(false);
+          return;
+        }
+      }
+
+      if (description !== (listData.description || '')) {
+        const descResult = await updateListDescription(user.uid, user.uid, listId, description);
+        if (descResult.error) {
+          toast({ variant: 'destructive', title: 'Error', description: descResult.error });
           setIsSaving(false);
           return;
         }
@@ -307,7 +320,7 @@ export default function ListSettingsPage() {
             className="hidden"
           />
 
-          {/* Name Input */}
+          {/* Name + Description Input */}
           <div className="flex-1 pt-2">
             <Input
               value={name}
@@ -317,7 +330,15 @@ export default function ListSettingsPage() {
               style={{ fontSize: '24px' }}
               maxLength={50}
             />
-            <p className="text-sm text-muted-foreground mt-1">describe this list...</p>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="describe this list..."
+              className="w-full mt-2 text-muted-foreground bg-transparent border-none resize-none p-0 focus:outline-none focus:text-foreground placeholder:text-muted-foreground/70"
+              style={{ fontSize: '16px' }}
+              rows={2}
+              maxLength={200}
+            />
           </div>
         </div>
 

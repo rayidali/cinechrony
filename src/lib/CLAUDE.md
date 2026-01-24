@@ -130,6 +130,8 @@ type Review = {
   ratingAtTime: number | null;  // Snapshot when posted
   likes: number;
   likedBy: string[];
+  parentId: string | null;      // null for top-level, reviewId for replies
+  replyCount: number;           // Number of replies
   createdAt: Date;
   updatedAt: Date;
 };
@@ -144,6 +146,28 @@ type UserRating = {
   rating: number;               // 1.0 - 10.0
   createdAt: Date;
   updatedAt: Date;
+};
+```
+
+### Notifications (Deferred to Phase 3)
+```typescript
+type NotificationType = 'mention' | 'reply';
+
+type Notification = {
+  id: string;
+  userId: string;               // Recipient
+  type: NotificationType;
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+  reviewId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  previewText: string;
+  read: boolean;
+  createdAt: Date;
 };
 ```
 
