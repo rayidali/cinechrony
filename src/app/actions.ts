@@ -4617,52 +4617,32 @@ async function createMentionNotifications(
   fromDisplayName: string | null,
   fromPhotoUrl: string | null
 ) {
-  console.log('[createMentionNotifications] START - reviewText:', reviewText);
-
   const mentions = extractMentions(reviewText);
-  console.log('[createMentionNotifications] Extracted mentions:', mentions);
+  if (mentions.length === 0) return;
 
-  if (mentions.length === 0) {
-    console.log('[createMentionNotifications] No mentions found, returning early');
-    return;
-  }
-
-  // Look up user IDs for mentioned usernames (batch for efficiency)
+  // Look up users by username (query users collection directly)
   const userLookups = mentions.map(username =>
-    db.collection('usernames').doc(username.toLowerCase()).get()
+    db.collection('users')
+      .where('usernameLower', '==', username.toLowerCase())
+      .limit(1)
+      .get()
   );
-  const userDocs = await Promise.all(userLookups);
-  console.log('[createMentionNotifications] User lookups completed, count:', userDocs.length);
+  const userSnapshots = await Promise.all(userLookups);
 
   const batch = db.batch();
   const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
-  let notificationsAdded = 0;
 
-  for (let i = 0; i < userDocs.length; i++) {
-    const userDoc = userDocs[i];
-    const mentionedUsername = mentions[i];
+  for (let i = 0; i < userSnapshots.length; i++) {
+    const snapshot = userSnapshots[i];
+    if (snapshot.empty) continue;
 
-    console.log(`[createMentionNotifications] Processing @${mentionedUsername}: exists=${userDoc.exists}`);
-
-    if (!userDoc.exists) {
-      console.log(`[createMentionNotifications] Username "${mentionedUsername}" not found in usernames collection`);
-      continue;
-    }
-
-    const mentionedUserId = userDoc.data()?.uid;
-    console.log(`[createMentionNotifications] Found uid for @${mentionedUsername}:`, mentionedUserId);
-    console.log(`[createMentionNotifications] fromUserId:`, fromUserId);
-    console.log(`[createMentionNotifications] Same user?`, mentionedUserId === fromUserId);
+    const userDoc = snapshot.docs[0];
+    const mentionedUserId = userDoc.id; // Document ID is the user's uid
 
     // Don't notify yourself
-    if (!mentionedUserId || mentionedUserId === fromUserId) {
-      console.log(`[createMentionNotifications] Skipping - no uid or self-mention`);
-      continue;
-    }
+    if (mentionedUserId === fromUserId) continue;
 
     const notifRef = db.collection('notifications').doc();
-    console.log(`[createMentionNotifications] Creating notification with id:`, notifRef.id);
-
     batch.set(notifRef, {
       id: notifRef.id,
       userId: mentionedUserId,
@@ -4679,12 +4659,9 @@ async function createMentionNotifications(
       read: false,
       createdAt: FieldValue.serverTimestamp(),
     });
-    notificationsAdded++;
   }
 
-  console.log(`[createMentionNotifications] Committing batch with ${notificationsAdded} notifications`);
   await batch.commit();
-  console.log('[createMentionNotifications] Batch committed successfully');
 }
 
 /**
