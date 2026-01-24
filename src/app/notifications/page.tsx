@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Bell, MessageSquare, AtSign, Check } from 'lucide-react';
+import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
@@ -60,7 +60,7 @@ export default function NotificationsPage() {
     }
   };
 
-  // Navigate to the movie comments page
+  // Handle notification click - navigate to appropriate page
   const handleNotificationClick = (notification: Notification) => {
     // Mark as read
     if (!notification.read && user?.uid) {
@@ -70,12 +70,31 @@ export default function NotificationsPage() {
       );
     }
 
-    // Navigate to the movie comments
-    const params = new URLSearchParams({
-      title: notification.movieTitle,
-      type: notification.mediaType,
-    });
-    router.push(`/movie/${notification.tmdbId}/comments?${params.toString()}`);
+    // Navigate based on notification type
+    switch (notification.type) {
+      case 'follow':
+        // Go to the follower's profile
+        if (notification.fromUsername) {
+          router.push(`/profile/${notification.fromUsername}`);
+        }
+        break;
+      case 'list_invite':
+        // Go to pending invites (lists page will show pending invites)
+        router.push('/lists');
+        break;
+      case 'mention':
+      case 'reply':
+      case 'like':
+        // Go to movie comments
+        if (notification.tmdbId && notification.movieTitle && notification.mediaType) {
+          const params = new URLSearchParams({
+            title: notification.movieTitle,
+            type: notification.mediaType,
+          });
+          router.push(`/movie/${notification.tmdbId}/comments?${params.toString()}`);
+        }
+        break;
+    }
   };
 
   if (isUserLoading || !user) {
@@ -142,7 +161,7 @@ export default function NotificationsPage() {
             <Bell className="h-12 w-12 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">No notifications yet</p>
             <p className="text-sm text-muted-foreground mt-1">
-              When someone mentions you or replies to your comments, you&apos;ll see it here.
+              When someone follows you, likes your comments, or invites you to a list, you&apos;ll see it here.
             </p>
           </div>
         ) : (
@@ -172,15 +191,27 @@ export default function NotificationsPage() {
                       {notification.fromDisplayName || notification.fromUsername || 'Someone'}
                     </span>
                     {' '}
-                    {notification.type === 'mention' ? (
+                    {notification.type === 'mention' && (
                       <>mentioned you in a comment on <span className="font-medium">{notification.movieTitle}</span></>
-                    ) : (
+                    )}
+                    {notification.type === 'reply' && (
                       <>replied to your comment on <span className="font-medium">{notification.movieTitle}</span></>
                     )}
+                    {notification.type === 'like' && (
+                      <>liked your comment on <span className="font-medium">{notification.movieTitle}</span></>
+                    )}
+                    {notification.type === 'follow' && (
+                      <>started following you</>
+                    )}
+                    {notification.type === 'list_invite' && (
+                      <>invited you to join <span className="font-medium">{notification.listName}</span></>
+                    )}
                   </p>
-                  <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
-                    &ldquo;{notification.previewText}&rdquo;
-                  </p>
+                  {notification.previewText && (
+                    <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
+                      &ldquo;{notification.previewText}&rdquo;
+                    </p>
+                  )}
                   <p className="text-xs text-muted-foreground mt-1">
                     {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                   </p>
@@ -188,11 +219,11 @@ export default function NotificationsPage() {
 
                 {/* Type indicator */}
                 <div className="flex-shrink-0 mt-1">
-                  {notification.type === 'mention' ? (
-                    <AtSign className="h-4 w-4 text-primary" />
-                  ) : (
-                    <MessageSquare className="h-4 w-4 text-primary" />
-                  )}
+                  {notification.type === 'mention' && <AtSign className="h-4 w-4 text-primary" />}
+                  {notification.type === 'reply' && <MessageSquare className="h-4 w-4 text-primary" />}
+                  {notification.type === 'like' && <Heart className="h-4 w-4 text-red-500" />}
+                  {notification.type === 'follow' && <UserPlus className="h-4 w-4 text-green-500" />}
+                  {notification.type === 'list_invite' && <Users className="h-4 w-4 text-blue-500" />}
                 </div>
 
                 {/* Unread dot */}

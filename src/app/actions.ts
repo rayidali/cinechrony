@@ -1202,6 +1202,25 @@ export async function followUser(followerId: string, followingId: string) {
 
     await batch.commit();
 
+    // Create follow notification
+    try {
+      const followerDoc = await db.collection('users').doc(followerId).get();
+      const followerData = followerDoc.data();
+
+      await db.collection('notifications').add({
+        userId: followingId, // Recipient (the person being followed)
+        type: 'follow',
+        fromUserId: followerId,
+        fromUsername: followerData?.username || null,
+        fromDisplayName: followerData?.displayName || null,
+        fromPhotoUrl: followerData?.photoURL || null,
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('[followUser] Failed to create notification:', err);
+    }
+
     revalidatePath('/profile');
     revalidatePath(`/profile/${followingId}`);
     return { success: true };
@@ -1752,6 +1771,25 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
       status: 'pending',
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    // Create list invite notification for the invitee
+    try {
+      await db.collection('notifications').add({
+        userId: inviteeId, // The person being invited
+        type: 'list_invite',
+        fromUserId: inviterId,
+        fromUsername: inviterData?.username || null,
+        fromDisplayName: inviterData?.displayName || null,
+        fromPhotoUrl: inviterData?.photoURL || null,
+        listId,
+        listOwnerId,
+        listName: listData?.name || 'Untitled List',
+        read: false,
+        createdAt: FieldValue.serverTimestamp(),
+      });
+    } catch (err) {
+      console.error('[inviteToList] Failed to create notification:', err);
+    }
 
     return { success: true, inviteId: inviteRef.id };
   } catch (error) {
@@ -2998,6 +3036,32 @@ export async function likeReview(userId: string, reviewId: string) {
       likes: FieldValue.increment(1),
       likedBy: FieldValue.arrayUnion(userId),
     });
+
+    // Create like notification (don't notify yourself)
+    if (reviewData?.userId && reviewData.userId !== userId) {
+      try {
+        const likerDoc = await db.collection('users').doc(userId).get();
+        const likerData = likerDoc.data();
+
+        await db.collection('notifications').add({
+          userId: reviewData.userId, // Review author
+          type: 'like',
+          fromUserId: userId,
+          fromUsername: likerData?.username || null,
+          fromDisplayName: likerData?.displayName || null,
+          fromPhotoUrl: likerData?.photoURL || null,
+          reviewId,
+          tmdbId: reviewData.tmdbId,
+          mediaType: reviewData.mediaType,
+          movieTitle: reviewData.movieTitle,
+          previewText: reviewData.text?.slice(0, 100) + (reviewData.text?.length > 100 ? '...' : ''),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('[likeReview] Failed to create notification:', err);
+      }
+    }
 
     return { success: true, likes: (reviewData?.likes || 0) + 1 };
   } catch (error) {
@@ -4726,11 +4790,17 @@ export async function getNotifications(userId: string, limit: number = 50) {
         fromUsername: data.fromUsername,
         fromDisplayName: data.fromDisplayName,
         fromPhotoUrl: data.fromPhotoUrl,
+        // Review context (optional)
         reviewId: data.reviewId,
         tmdbId: data.tmdbId,
         mediaType: data.mediaType,
         movieTitle: data.movieTitle,
         previewText: data.previewText,
+        // List context (optional)
+        listId: data.listId,
+        listOwnerId: data.listOwnerId,
+        listName: data.listName,
+        // State
         read: data.read,
         createdAt: data.createdAt?.toDate() || new Date(),
       };
