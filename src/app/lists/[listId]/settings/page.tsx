@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -47,17 +47,23 @@ export default function ListSettingsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listId = params.listId as string;
   const firestore = useFirestore();
   const { getMembers: getCachedMembers, setMembers: cacheMembers } = useListMembersCache();
 
-  // Get list data
+  // Determine if viewing own list or collaborative list
+  const ownerFromParams = searchParams.get('owner');
+  const effectiveOwnerId = ownerFromParams || user?.uid;
+  const isOwner = !ownerFromParams || ownerFromParams === user?.uid;
+
+  // Get list data from the correct owner's path
   const listDocRef = useMemoFirebase(() => {
-    if (!user || !listId) return null;
-    return doc(firestore, 'users', user.uid, 'lists', listId);
-  }, [firestore, user, listId]);
+    if (!effectiveOwnerId || !listId) return null;
+    return doc(firestore, 'users', effectiveOwnerId, 'lists', listId);
+  }, [firestore, effectiveOwnerId, listId]);
 
   const { data: listData, isLoading: isLoadingList } = useDoc<MovieList>(listDocRef);
 
@@ -90,10 +96,10 @@ export default function ListSettingsPage() {
   // Load members (check cache first for instant display)
   useEffect(() => {
     async function loadMembers() {
-      if (!user || !listId) return;
+      if (!effectiveOwnerId || !listId) return;
 
       // Check cache first - if cached, show instantly
-      const cachedMembers = getCachedMembers(user.uid, listId);
+      const cachedMembers = getCachedMembers(effectiveOwnerId, listId);
       if (cachedMembers) {
         setMembers(cachedMembers);
         setIsLoadingMembers(false);
@@ -103,10 +109,10 @@ export default function ListSettingsPage() {
       // Not cached, fetch from server
       setIsLoadingMembers(true);
       try {
-        const result = await getListMembers(user.uid, listId);
+        const result = await getListMembers(effectiveOwnerId, listId);
         const loadedMembers = result.members || [];
         setMembers(loadedMembers);
-        cacheMembers(user.uid, listId, loadedMembers);
+        cacheMembers(effectiveOwnerId, listId, loadedMembers);
       } catch (error) {
         console.error('Failed to load members:', error);
       } finally {
@@ -115,7 +121,7 @@ export default function ListSettingsPage() {
     }
 
     loadMembers();
-  }, [user, listId, getCachedMembers, cacheMembers]);
+  }, [effectiveOwnerId, listId, getCachedMembers, cacheMembers]);
 
   // Redirect if not authenticated or not owner
   useEffect(() => {
@@ -162,13 +168,13 @@ export default function ListSettingsPage() {
   };
 
   const handleSave = async () => {
-    if (!user || !listData) return;
+    if (!user || !listData || !effectiveOwnerId) return;
 
     setIsSaving(true);
     try {
       if (coverFile) {
         const base64Data = await fileToBase64(coverFile);
-        const coverResult = await uploadListCover(user.uid, listId, base64Data, coverFile.name, coverFile.type);
+        const coverResult = await uploadListCover(effectiveOwnerId, listId, base64Data, coverFile.name, coverFile.type);
         if (coverResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: coverResult.error });
           setIsSaving(false);
@@ -177,7 +183,7 @@ export default function ListSettingsPage() {
       }
 
       if (name !== listData.name) {
-        const nameResult = await renameList(user.uid, user.uid, listId, name);
+        const nameResult = await renameList(user.uid, effectiveOwnerId, listId, name);
         if (nameResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: nameResult.error });
           setIsSaving(false);
@@ -186,7 +192,7 @@ export default function ListSettingsPage() {
       }
 
       if (description !== (listData.description || '')) {
-        const descResult = await updateListDescription(user.uid, user.uid, listId, description);
+        const descResult = await updateListDescription(user.uid, effectiveOwnerId, listId, description);
         if (descResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: descResult.error });
           setIsSaving(false);
@@ -194,8 +200,9 @@ export default function ListSettingsPage() {
         }
       }
 
-      if (isPublic !== listData.isPublic) {
-        const visibilityResult = await updateListVisibility(user.uid, user.uid, listId, isPublic);
+      // Visibility can only be changed by owner
+      if (isOwner && isPublic !== listData.isPublic) {
+        const visibilityResult = await updateListVisibility(user.uid, effectiveOwnerId, listId, isPublic);
         if (visibilityResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: visibilityResult.error });
           setIsSaving(false);
@@ -215,11 +222,12 @@ export default function ListSettingsPage() {
   };
 
   const handleDelete = async () => {
-    if (!user) return;
+    // Only owners can delete
+    if (!user || !isOwner || !effectiveOwnerId) return;
 
     setIsDeleting(true);
     try {
-      const result = await deleteList(user.uid, user.uid, listId);
+      const result = await deleteList(user.uid, effectiveOwnerId, listId);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
@@ -236,10 +244,11 @@ export default function ListSettingsPage() {
   };
 
   const handleRemoveCollaborator = async () => {
-    if (!user || !memberToRemove) return;
+    // Only owners can remove collaborators
+    if (!user || !memberToRemove || !isOwner || !effectiveOwnerId) return;
 
     try {
-      const result = await removeCollaborator(user.uid, listId, memberToRemove.uid);
+      const result = await removeCollaborator(effectiveOwnerId, listId, memberToRemove.uid);
       if (result.error) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
@@ -374,7 +383,7 @@ export default function ListSettingsPage() {
 
                   {member.role === 'owner' ? (
                     <span className="text-sm text-muted-foreground">Owner</span>
-                  ) : (
+                  ) : isOwner ? (
                     <Button
                       variant="outline"
                       size="sm"
@@ -386,7 +395,7 @@ export default function ListSettingsPage() {
                     >
                       Remove
                     </Button>
-                  )}
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -402,24 +411,26 @@ export default function ListSettingsPage() {
           </Button>
         </div>
 
-        {/* Visibility Toggle */}
-        <div className="bg-secondary/50 rounded-2xl p-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="font-semibold">{isPublic ? 'Public List' : 'Private List'}</p>
-              <p className="text-sm text-muted-foreground">
-                {isPublic ? 'Visible to everyone' : 'Only you and collaborators can see'}
-              </p>
+        {/* Visibility Toggle - Owner only */}
+        {isOwner && (
+          <div className="bg-secondary/50 rounded-2xl p-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-semibold">{isPublic ? 'Public List' : 'Private List'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {isPublic ? 'Visible to everyone' : 'Only you and collaborators can see'}
+                </p>
+              </div>
+              <Switch
+                checked={isPublic}
+                onCheckedChange={setIsPublic}
+              />
             </div>
-            <Switch
-              checked={isPublic}
-              onCheckedChange={setIsPublic}
-            />
           </div>
-        </div>
+        )}
 
-        {/* Delete Button */}
-        {listData && !listData.isDefault && (
+        {/* Delete Button - Owner only */}
+        {isOwner && listData && !listData.isDefault && (
           <button
             onClick={() => setIsDeleteOpen(true)}
             className="w-full flex items-center justify-center gap-2 text-destructive py-3 hover:bg-destructive/10 rounded-xl transition-colors"
@@ -447,7 +458,7 @@ export default function ListSettingsPage() {
         isOpen={isInviteOpen}
         onClose={() => setIsInviteOpen(false)}
         listId={listId}
-        listOwnerId={user?.uid || ''}
+        listOwnerId={effectiveOwnerId || ''}
         listName={listData?.name || ''}
         members={members}
         onMembersUpdate={handleMembersUpdate}
