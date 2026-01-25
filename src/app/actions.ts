@@ -5097,3 +5097,57 @@ export async function updateNotificationPreferences(
     return { error: 'Failed to update notification preferences' };
   }
 }
+
+// ============================================
+// TRENDING MOVIES
+// ============================================
+
+export type TrendingMovie = {
+  id: number;
+  title: string;
+  posterPath: string | null;
+  releaseDate: string;
+  voteAverage: number;
+  mediaType: 'movie' | 'tv';
+};
+
+export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; error?: string }> {
+  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+
+  if (!TMDB_ACCESS_TOKEN) {
+    return { movies: [], error: 'TMDB not configured' };
+  }
+
+  try {
+    const response = await fetch(
+      'https://api.themoviedb.org/3/trending/movie/day?language=en-US',
+      {
+        headers: {
+          Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
+          'Content-Type': 'application/json',
+        },
+        next: { revalidate: 3600 }, // Cache for 1 hour
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error(`TMDB API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    const movies: TrendingMovie[] = data.results.slice(0, 10).map((movie: any) => ({
+      id: movie.id,
+      title: movie.title || movie.name,
+      posterPath: movie.poster_path,
+      releaseDate: movie.release_date || movie.first_air_date || '',
+      voteAverage: movie.vote_average,
+      mediaType: 'movie' as const,
+    }));
+
+    return { movies };
+  } catch (error) {
+    console.error('[getTrendingMovies] Failed:', error);
+    return { movies: [], error: 'Failed to fetch trending movies' };
+  }
+}

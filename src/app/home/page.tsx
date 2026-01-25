@@ -2,27 +2,13 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Flame, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
-
-// Placeholder skeleton for trending movies
-function TrendingSkeleton() {
-  return (
-    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
-      {[1, 2, 3, 4, 5].map((i) => (
-        <div key={i} className="flex-shrink-0 w-28">
-          <div className="aspect-[2/3] rounded-xl bg-muted animate-pulse border-2 border-border" />
-          <div className="mt-2 h-3 bg-muted rounded animate-pulse w-3/4" />
-          <div className="mt-1 h-2 bg-muted rounded animate-pulse w-1/2" />
-        </div>
-      ))}
-    </div>
-  );
-}
+import { TrendingMovies } from '@/components/trending-movies';
 
 // Placeholder skeleton for activity cards
 function ActivitySkeleton() {
@@ -61,26 +47,7 @@ function ActivitySkeleton() {
   );
 }
 
-// Trending section placeholder
-function TrendingSection() {
-  return (
-    <section className="mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Flame className="h-5 w-5 text-orange-500" />
-          <h2 className="text-lg font-headline font-bold">Trending Today</h2>
-        </div>
-        <button className="text-sm text-primary font-medium hover:underline">
-          See all
-        </button>
-      </div>
-
-      <TrendingSkeleton />
-    </section>
-  );
-}
-
-// Activity section placeholder
+// Activity section placeholder (will be replaced in Phase 4C/4D)
 function ActivitySection() {
   return (
     <section>
@@ -131,7 +98,7 @@ export default function HomePage() {
         </header>
 
         {/* Trending Section */}
-        <TrendingSection />
+        <TrendingMovies />
 
         {/* Activity Feed */}
         <ActivitySection />
