@@ -9,6 +9,7 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
+import { PullToRefresh } from '@/components/pull-to-refresh';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -279,6 +280,30 @@ export default function ListsPage() {
     }
   }, [router]);
 
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      // Refresh collaborative lists
+      const collabResult = await getCollaborativeLists(user.uid);
+      if (collabResult.lists) {
+        setCollaborativeLists(collabResult.lists as CollaborativeList[]);
+      }
+
+      // Refresh own list previews
+      if (lists && lists.length > 0) {
+        const listIds = lists.map((list) => list.id);
+        const previewResult = await getListsPreviews(user.uid, listIds);
+        if (previewResult.previews) {
+          setListPreviews(previewResult.previews);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to refresh lists:', error);
+    }
+  }, [user, lists]);
+
   if (isUserLoading || !user || isInitializing) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -288,8 +313,10 @@ export default function ListsPage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8">
+    <>
+      <PullToRefresh onRefresh={handleRefresh} disabled={isCreateOpen}>
+        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
+          <div className="container mx-auto p-4 md:p-8">
         {/* Header */}
         <header className="mb-8">
           <div className="flex justify-between items-center mb-6">
@@ -453,7 +480,10 @@ export default function ListsPage() {
         </Dialog>
       </div>
 
-      {/* Floating Action Button */}
+        </main>
+      </PullToRefresh>
+
+      {/* Floating Action Button - outside PullToRefresh to keep fixed positioning */}
       <button
         onClick={() => setIsCreateOpen(true)}
         className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-5 rounded-full bg-yellow-400 text-black border-[3px] border-black dark:border-2 dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none flex items-center justify-center gap-2 hover:shadow-[2px_2px_0px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all font-headline font-bold"
@@ -462,7 +492,8 @@ export default function ListsPage() {
         <span>New List</span>
       </button>
 
+      {/* BottomNav outside PullToRefresh to keep fixed positioning */}
       <BottomNav />
-    </main>
+    </>
   );
 }

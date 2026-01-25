@@ -217,6 +217,8 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 - View modes: Grid / List / Cards
 - Extended FAB button: `[+ Add]` for adding movies (pill shape with label)
 - Add movie modal uses fullscreen text input for social links (iOS fix)
+- Pull-to-refresh support (disabled when add movie modal is open)
+- **Security**: Permission check verifies user's UID is actually in `collaboratorIds` array, not just that the list data is readable
 
 ### `/profile/[username]` Page
 - Public profile view (no auth required)
@@ -240,12 +242,15 @@ This is the **single source of truth** for all mutations. ~3000 lines organized 
 - @mentions render as clickable profile links
 - Sort by recent or top
 - iOS swipe-back gesture returns to movie modal via popstate listener
-- URL params: `title`, `poster`, `type`, `returnListId`, `returnListOwnerId`, `returnMovieId`
+- **Security**: Uses `returnPath` param to preserve original route context (e.g., `/profile/username/lists/listId`)
+- URL params: `title`, `poster`, `type`, `returnPath`, `returnListId`, `returnListOwnerId`, `returnMovieId`
 
-### `/notifications` Page (Deferred)
-- Shows user's notifications (mentions, replies)
+### `/notifications` Page
+- Shows user's notifications (mentions, replies, list invites, likes, follows)
+- **Accept/Decline buttons** for `list_invite` notifications with loading states
 - Mark as read on view
-- Currently disabled pending Firestore index deployment
+- Pull-to-refresh support
+- Notifications auto-deleted when invite is accepted/declined
 
 ### `/onboarding` Flow
 - Multi-step onboarding for new users

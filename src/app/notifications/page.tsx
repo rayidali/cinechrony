@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users } from 'lucide-react';
@@ -12,6 +12,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
 import type { Notification } from '@/lib/types';
 import { PushNotificationPrompt } from '@/components/push-notification-prompt';
+import { PullToRefresh } from '@/components/pull-to-refresh';
 import { useToast } from '@/hooks/use-toast';
 
 export default function NotificationsPage() {
@@ -46,6 +47,19 @@ export default function NotificationsPage() {
       }
     }
     fetchNotifications();
+  }, [user?.uid]);
+
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    if (!user?.uid) return;
+    try {
+      const result = await getNotifications(user.uid);
+      if (result.notifications) {
+        setNotifications(result.notifications as Notification[]);
+      }
+    } catch (err) {
+      console.error('Failed to refresh notifications:', err);
+    }
   }, [user?.uid]);
 
   // Redirect if not logged in
@@ -177,9 +191,10 @@ export default function NotificationsPage() {
   const unreadCount = notifications.filter(n => !n.read).length;
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-8">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-background border-b border-border">
+    <PullToRefresh onRefresh={handleRefresh}>
+      <main className="min-h-screen font-body text-foreground pb-8">
+        {/* Header */}
+        <header className="sticky top-0 z-10 bg-background border-b border-border">
         <div className="container mx-auto px-4 py-4 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <button
@@ -337,6 +352,7 @@ export default function NotificationsPage() {
           </div>
         )}
       </div>
-    </main>
+      </main>
+    </PullToRefresh>
   );
 }
