@@ -432,7 +432,7 @@ See `firestore.rules` for complete rules. Key principles:
 
 ## Known Issues & TODOs
 
-- [ ] OMDB API key exposed in client (should move to server)
+- [x] ~~OMDB API key exposed in client~~ (Fixed: moved to server via `getImdbRating` server action)
 - [ ] Some TypeScript errors suppressed in `next.config.ts`
 - [x] ~~Activity feed~~ (Implemented: global feed with infinite scroll, pull-to-refresh)
 - [x] ~~N+1 fetch problem~~ (Fixed: denormalization + ratings cache)

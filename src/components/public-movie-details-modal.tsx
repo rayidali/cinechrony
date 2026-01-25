@@ -13,9 +13,9 @@ import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
+import { getImdbRating } from '@/app/actions';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
-const OMDB_API_KEY = 'fc5ca6d0';
 
 type ExtendedMovieDetails = TMDBMovieDetails & {
   imdbId?: string;
@@ -84,9 +84,9 @@ async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails |
     const imdbId = data.external_ids?.imdb_id;
 
     if (imdbId) {
-      const omdbResponse = await fetch(`https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}`);
-      const omdbData = await omdbResponse.json();
-      if (omdbData.Response === 'True') {
+      // Use server action to fetch IMDB rating (keeps API key server-side)
+      const omdbData = await getImdbRating(imdbId);
+      if (omdbData.imdbRating) {
         return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
       }
     }
@@ -116,9 +116,9 @@ async function fetchTVDetails(tmdbId: number): Promise<ExtendedTVDetails | null>
     const imdbId = data.external_ids?.imdb_id;
 
     if (imdbId) {
-      const omdbResponse = await fetch(`https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}`);
-      const omdbData = await omdbResponse.json();
-      if (omdbData.Response === 'True') {
+      // Use server action to fetch IMDB rating (keeps API key server-side)
+      const omdbData = await getImdbRating(imdbId);
+      if (omdbData.imdbRating) {
         return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
       }
     }

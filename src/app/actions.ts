@@ -5193,9 +5193,20 @@ export type TrendingMovie = {
   imdbRating?: string;
 };
 
-const OMDB_API_KEY_TRENDING = 'fc5ca6d0';
+// OMDB API key from environment variable (server-side only)
+function getOmdbApiKey(): string {
+  const key = process.env.OMDB_API_KEY;
+  if (!key) {
+    console.warn('[OMDB] API key not configured');
+    return '';
+  }
+  return key;
+}
 
 async function fetchImdbRating(tmdbId: number, tmdbAccessToken: string): Promise<{ imdbId?: string; imdbRating?: string }> {
+  const OMDB_API_KEY = getOmdbApiKey();
+  if (!OMDB_API_KEY) return {};
+
   try {
     // First get IMDB ID from TMDB
     const externalIdsResponse = await fetch(
@@ -5217,7 +5228,7 @@ async function fetchImdbRating(tmdbId: number, tmdbAccessToken: string): Promise
 
     // Fetch OMDB data
     const omdbResponse = await fetch(
-      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY_TRENDING}`
+      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`
     );
 
     if (!omdbResponse.ok) return { imdbId };
@@ -5230,6 +5241,51 @@ async function fetchImdbRating(tmdbId: number, tmdbAccessToken: string): Promise
     };
   } catch {
     return {};
+  }
+}
+
+/**
+ * Get IMDB rating for a movie by IMDB ID.
+ * This is a server action so the OMDB API key stays server-side.
+ */
+export async function getImdbRating(imdbId: string): Promise<{
+  imdbRating?: string;
+  metascore?: string;
+  imdbVotes?: string;
+  rated?: string;
+  runtime?: string;
+  error?: string;
+}> {
+  const OMDB_API_KEY = getOmdbApiKey();
+  if (!OMDB_API_KEY) {
+    return { error: 'OMDB API key not configured' };
+  }
+
+  try {
+    const response = await fetch(
+      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`
+    );
+
+    if (!response.ok) {
+      return { error: 'Failed to fetch OMDB data' };
+    }
+
+    const data = await response.json();
+
+    if (data.Response === 'False') {
+      return { error: data.Error || 'Movie not found' };
+    }
+
+    return {
+      imdbRating: data.imdbRating !== 'N/A' ? data.imdbRating : undefined,
+      metascore: data.Metascore !== 'N/A' ? data.Metascore : undefined,
+      imdbVotes: data.imdbVotes !== 'N/A' ? data.imdbVotes : undefined,
+      rated: data.Rated !== 'N/A' ? data.Rated : undefined,
+      runtime: data.Runtime !== 'N/A' ? data.Runtime : undefined,
+    };
+  } catch (error) {
+    console.error('[getImdbRating] Failed:', error);
+    return { error: 'Failed to fetch IMDB rating' };
   }
 }
 
