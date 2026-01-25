@@ -28,6 +28,10 @@ function CommentsPageContent() {
   const mediaType = (searchParams.get('type') || 'movie') as 'movie' | 'tv';
 
   // Return context for proper back navigation
+  // SECURITY: returnPath takes precedence - it preserves the original route context
+  // (e.g., /profile/username/lists/listId for public profile views)
+  // This prevents redirecting to /lists/{id} which could expose edit controls
+  const returnPath = searchParams.get('returnPath');
   const returnListId = searchParams.get('returnListId');
   const returnListOwnerId = searchParams.get('returnListOwnerId');
   const returnMovieId = searchParams.get('returnMovieId');
@@ -52,35 +56,50 @@ function CommentsPageContent() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   // Handle back navigation - return to movie modal if context available
+  // SECURITY: Use returnPath if available to preserve original route context
+  // This ensures we return to public profile views correctly instead of /lists/{id}
   const handleBack = useCallback(() => {
-    if (returnListId && returnMovieId) {
-      // Navigate to list with openMovie param to reopen the modal
+    if (returnPath && returnMovieId) {
+      // Use the explicit return path (preserves public profile context)
+      const params = new URLSearchParams({ openMovie: returnMovieId });
+      router.replace(`${returnPath}?${params.toString()}`);
+    } else if (returnListId && returnMovieId) {
+      // Fallback to legacy behavior for backwards compatibility
       const params = new URLSearchParams({ openMovie: returnMovieId });
       if (returnListOwnerId) params.set('owner', returnListOwnerId);
       router.replace(`/lists/${returnListId}?${params.toString()}`);
     } else {
       router.back();
     }
-  }, [returnListId, returnMovieId, returnListOwnerId, router]);
+  }, [returnPath, returnListId, returnMovieId, returnListOwnerId, router]);
 
   // Intercept browser back navigation (swipe gesture on iOS) to redirect properly
+  // SECURITY: Use returnPath if available to preserve original route context
   useEffect(() => {
-    if (!returnListId || !returnMovieId) return;
+    // Need either returnPath or returnListId to handle back navigation
+    if ((!returnPath && !returnListId) || !returnMovieId) return;
 
     // Push a state so we can intercept the back navigation
     window.history.pushState({ commentsPage: true }, '');
 
     const handlePopState = (e: PopStateEvent) => {
-      // User swiped back or pressed browser back - redirect to list with modal open
+      // User swiped back or pressed browser back - redirect to correct page with modal open
       e.preventDefault();
       const params = new URLSearchParams({ openMovie: returnMovieId });
-      if (returnListOwnerId) params.set('owner', returnListOwnerId);
-      router.replace(`/lists/${returnListId}?${params.toString()}`);
+
+      if (returnPath) {
+        // Use explicit return path (preserves public profile context)
+        router.replace(`${returnPath}?${params.toString()}`);
+      } else if (returnListId) {
+        // Fallback to legacy behavior
+        if (returnListOwnerId) params.set('owner', returnListOwnerId);
+        router.replace(`/lists/${returnListId}?${params.toString()}`);
+      }
     };
 
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [returnListId, returnMovieId, returnListOwnerId, router]);
+  }, [returnPath, returnListId, returnMovieId, returnListOwnerId, router]);
 
   // Fetch reviews
   useEffect(() => {

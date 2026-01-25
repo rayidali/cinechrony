@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
   User,
@@ -33,6 +33,7 @@ export default function PublicListPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const params = useParams();
+  const searchParams = useSearchParams();
   const username = params.username as string;
   const listId = params.listId as string;
 
@@ -53,6 +54,24 @@ export default function PublicListPage() {
       setViewMode(saved as ViewMode);
     }
   }, []);
+
+  // Handle openMovie query param - reopen modal when returning from comments page
+  useEffect(() => {
+    const openMovieId = searchParams.get('openMovie');
+    if (openMovieId && movies.length > 0 && !isLoading) {
+      const movieToOpen = movies.find(m => m.id === openMovieId);
+      if (movieToOpen) {
+        // Switch to the correct filter tab based on movie status
+        setFilter(movieToOpen.status);
+        setSelectedMovie(movieToOpen);
+        setIsModalOpen(true);
+        // Clear the query param to avoid reopening on refresh
+        const newUrl = new URL(window.location.href);
+        newUrl.searchParams.delete('openMovie');
+        router.replace(newUrl.pathname + newUrl.search, { scroll: false });
+      }
+    }
+  }, [searchParams, movies, isLoading, router]);
 
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
@@ -303,6 +322,7 @@ export default function PublicListPage() {
           onClose={handleCloseModal}
           listId={listId}
           listOwnerId={owner?.uid}
+          returnPath={`/profile/${username}/lists/${listId}`}
         />
 
         {/* One-time hint for grid view on mobile */}
