@@ -1204,19 +1204,27 @@ export async function followUser(followerId: string, followingId: string) {
 
     // Create follow notification
     try {
-      const followerDoc = await db.collection('users').doc(followerId).get();
-      const followerData = followerDoc.data();
+      // Check if user has follows notifications enabled
+      const followedUserDoc = await db.collection('users').doc(followingId).get();
+      const followedUserData = followedUserDoc.data();
+      const prefs = followedUserData?.notificationPreferences;
 
-      await db.collection('notifications').add({
-        userId: followingId, // Recipient (the person being followed)
-        type: 'follow',
-        fromUserId: followerId,
-        fromUsername: followerData?.username || null,
-        fromDisplayName: followerData?.displayName || null,
-        fromPhotoUrl: followerData?.photoURL || null,
-        read: false,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      // Only create notification if follows are enabled (default true)
+      if (!prefs || prefs.follows !== false) {
+        const followerDoc = await db.collection('users').doc(followerId).get();
+        const followerData = followerDoc.data();
+
+        await db.collection('notifications').add({
+          userId: followingId, // Recipient (the person being followed)
+          type: 'follow',
+          fromUserId: followerId,
+          fromUsername: followerData?.username || null,
+          fromDisplayName: followerData?.displayName || null,
+          fromPhotoUrl: followerData?.photoURL || null,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
     } catch (err) {
       console.error('[followUser] Failed to create notification:', err);
     }
@@ -1774,19 +1782,25 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
 
     // Create list invite notification for the invitee
     try {
-      await db.collection('notifications').add({
-        userId: inviteeId, // The person being invited
-        type: 'list_invite',
-        fromUserId: inviterId,
-        fromUsername: inviterData?.username || null,
-        fromDisplayName: inviterData?.displayName || null,
-        fromPhotoUrl: inviterData?.photoURL || null,
-        listId,
-        listOwnerId,
-        listName: listData?.name || 'Untitled List',
-        read: false,
-        createdAt: FieldValue.serverTimestamp(),
-      });
+      // Check if user has list invite notifications enabled
+      const prefs = inviteeData?.notificationPreferences;
+
+      // Only create notification if list invites are enabled (default true)
+      if (!prefs || prefs.listInvites !== false) {
+        await db.collection('notifications').add({
+          userId: inviteeId, // The person being invited
+          type: 'list_invite',
+          fromUserId: inviterId,
+          fromUsername: inviterData?.username || null,
+          fromDisplayName: inviterData?.displayName || null,
+          fromPhotoUrl: inviterData?.photoURL || null,
+          listId,
+          listOwnerId,
+          listName: listData?.name || 'Untitled List',
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
     } catch (err) {
       console.error('[inviteToList] Failed to create notification:', err);
     }
@@ -3040,24 +3054,32 @@ export async function likeReview(userId: string, reviewId: string) {
     // Create like notification (don't notify yourself)
     if (reviewData?.userId && reviewData.userId !== userId) {
       try {
-        const likerDoc = await db.collection('users').doc(userId).get();
-        const likerData = likerDoc.data();
+        // Check if review author has likes notifications enabled
+        const authorDoc = await db.collection('users').doc(reviewData.userId).get();
+        const authorData = authorDoc.data();
+        const prefs = authorData?.notificationPreferences;
 
-        await db.collection('notifications').add({
-          userId: reviewData.userId, // Review author
-          type: 'like',
-          fromUserId: userId,
-          fromUsername: likerData?.username || null,
-          fromDisplayName: likerData?.displayName || null,
-          fromPhotoUrl: likerData?.photoURL || null,
-          reviewId,
-          tmdbId: reviewData.tmdbId,
-          mediaType: reviewData.mediaType,
-          movieTitle: reviewData.movieTitle,
-          previewText: reviewData.text?.slice(0, 100) + (reviewData.text?.length > 100 ? '...' : ''),
-          read: false,
-          createdAt: FieldValue.serverTimestamp(),
-        });
+        // Only create notification if likes are enabled (default true)
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const likerData = likerDoc.data();
+
+          await db.collection('notifications').add({
+            userId: reviewData.userId, // Review author
+            type: 'like',
+            fromUserId: userId,
+            fromUsername: likerData?.username || null,
+            fromDisplayName: likerData?.displayName || null,
+            fromPhotoUrl: likerData?.photoURL || null,
+            reviewId,
+            tmdbId: reviewData.tmdbId,
+            mediaType: reviewData.mediaType,
+            movieTitle: reviewData.movieTitle,
+            previewText: reviewData.text?.slice(0, 100) + (reviewData.text?.length > 100 ? '...' : ''),
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
       } catch (err) {
         console.error('[likeReview] Failed to create notification:', err);
       }
@@ -4702,9 +4724,14 @@ async function createMentionNotifications(
 
     const userDoc = snapshot.docs[0];
     const mentionedUserId = userDoc.id; // Document ID is the user's uid
+    const userData = userDoc.data();
 
     // Don't notify yourself
     if (mentionedUserId === fromUserId) continue;
+
+    // Check if user has mentions notifications enabled
+    const prefs = userData?.notificationPreferences;
+    if (prefs && prefs.mentions === false) continue;
 
     const notifRef = db.collection('notifications').doc();
     batch.set(notifRef, {
@@ -4746,6 +4773,11 @@ async function createReplyNotification(
 ) {
   // Don't notify yourself
   if (parentReview.userId === fromUserId) return;
+
+  // Check if user has replies notifications enabled
+  const userDoc = await db.collection('users').doc(parentReview.userId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.replies === false) return;
 
   const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
 
@@ -4990,5 +5022,78 @@ export async function getPushStatus(userId: string) {
   } catch (error) {
     console.error('[getPushStatus] Failed:', error);
     return { enabled: false };
+  }
+}
+
+// ============================================
+// NOTIFICATION PREFERENCES
+// ============================================
+
+export async function getNotificationPreferences(userId: string) {
+  const db = getDb();
+
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    // Return preferences or defaults
+    return {
+      preferences: userData?.notificationPreferences || {
+        mentions: true,
+        replies: true,
+        likes: true,
+        follows: true,
+        listInvites: true,
+        weeklyDigest: true,
+      },
+    };
+  } catch (error) {
+    console.error('[getNotificationPreferences] Failed:', error);
+    return {
+      preferences: {
+        mentions: true,
+        replies: true,
+        likes: true,
+        follows: true,
+        listInvites: true,
+        weeklyDigest: true,
+      },
+    };
+  }
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  preferences: {
+    mentions?: boolean;
+    replies?: boolean;
+    likes?: boolean;
+    follows?: boolean;
+    listInvites?: boolean;
+    weeklyDigest?: boolean;
+  }
+) {
+  const db = getDb();
+
+  try {
+    // Get current preferences first
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    const currentPrefs = userData?.notificationPreferences || {};
+
+    // Merge with new preferences
+    const updatedPrefs = {
+      ...currentPrefs,
+      ...preferences,
+    };
+
+    await db.collection('users').doc(userId).update({
+      notificationPreferences: updatedPrefs,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[updateNotificationPreferences] Failed:', error);
+    return { error: 'Failed to update notification preferences' };
   }
 }

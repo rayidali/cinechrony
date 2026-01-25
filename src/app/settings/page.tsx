@@ -3,16 +3,18 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle, Bell, AtSign, Heart, UserPlus, Users } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport, importLetterboxdMovies, deleteUserAccount } from '@/app/actions';
+import { parseLetterboxdExport, importLetterboxdMovies, deleteUserAccount, getNotificationPreferences, updateNotificationPreferences } from '@/app/actions';
 import { signOut } from 'firebase/auth';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { BottomNav } from '@/components/bottom-nav';
-import type { LetterboxdMovie } from '@/lib/types';
+import { PushNotificationToggle } from '@/components/push-notification-prompt';
+import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
+import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
 
 const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
 
@@ -49,6 +51,10 @@ export default function SettingsPage() {
   const [userUsername, setUserUsername] = useState<string | null>(null);
   const firestore = useFirestore();
 
+  // Notification preferences
+  const [notifPrefs, setNotifPrefs] = useState<NotificationPreferences>(DEFAULT_NOTIFICATION_PREFERENCES);
+  const [isLoadingPrefs, setIsLoadingPrefs] = useState(true);
+
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login');
@@ -70,6 +76,43 @@ export default function SettingsPage() {
     }
     fetchUsername();
   }, [user, firestore]);
+
+  // Fetch notification preferences
+  useEffect(() => {
+    async function fetchNotificationPrefs() {
+      if (!user?.uid) return;
+      try {
+        const result = await getNotificationPreferences(user.uid);
+        setNotifPrefs(result.preferences);
+      } catch (err) {
+        console.error('Failed to fetch notification preferences:', err);
+      } finally {
+        setIsLoadingPrefs(false);
+      }
+    }
+    fetchNotificationPrefs();
+  }, [user?.uid]);
+
+  // Handle notification preference toggle
+  const handleToggleNotifPref = async (key: keyof NotificationPreferences) => {
+    if (!user?.uid) return;
+
+    const newValue = !notifPrefs[key];
+    // Optimistic update
+    setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
+
+    try {
+      await updateNotificationPreferences(user.uid, { [key]: newValue });
+    } catch (err) {
+      // Revert on error
+      setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
+      toast({
+        variant: "destructive",
+        title: "Failed to update",
+        description: "Could not save your preference. Please try again.",
+      });
+    }
+  };
 
   const handleDeleteAccount = async () => {
     if (!user || !userUsername) return;
@@ -464,6 +507,151 @@ export default function SettingsPage() {
               )}
             </div>
           )}
+        </section>
+
+        {/* Notifications Section */}
+        <section className="mb-8 pt-8 border-t border-border">
+          <div className="flex items-center gap-3 mb-4">
+            <Bell className="h-6 w-6 text-primary" />
+            <h2 className="text-xl font-headline font-bold">Notifications</h2>
+          </div>
+
+          <p className="text-muted-foreground mb-6">
+            Choose which notifications you want to receive.
+          </p>
+
+          {/* Push Notifications Toggle */}
+          <div className="p-4 rounded-xl border-2 border-border mb-4">
+            <PushNotificationToggle />
+          </div>
+
+          {/* In-app notification preferences */}
+          <div className="space-y-3">
+            <p className="text-sm font-medium text-muted-foreground">In-app notifications:</p>
+
+            {isLoadingPrefs ? (
+              <div className="flex items-center justify-center py-4">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : (
+              <>
+                {/* Mentions */}
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                  <div className="flex items-center gap-3">
+                    <AtSign className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="font-medium">@Mentions</p>
+                      <p className="text-sm text-muted-foreground">When someone mentions you in a comment</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotifPref('mentions')}
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      notifPrefs.mentions ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        notifPrefs.mentions ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Replies */}
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                  <div className="flex items-center gap-3">
+                    <MessageSquare className="h-5 w-5 text-primary" />
+                    <div>
+                      <p className="font-medium">Replies</p>
+                      <p className="text-sm text-muted-foreground">When someone replies to your comment</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotifPref('replies')}
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      notifPrefs.replies ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        notifPrefs.replies ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* Likes */}
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                  <div className="flex items-center gap-3">
+                    <Heart className="h-5 w-5 text-red-500" />
+                    <div>
+                      <p className="font-medium">Likes</p>
+                      <p className="text-sm text-muted-foreground">When someone likes your comment</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotifPref('likes')}
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      notifPrefs.likes ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        notifPrefs.likes ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* New Followers */}
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                  <div className="flex items-center gap-3">
+                    <UserPlus className="h-5 w-5 text-green-500" />
+                    <div>
+                      <p className="font-medium">New Followers</p>
+                      <p className="text-sm text-muted-foreground">When someone starts following you</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotifPref('follows')}
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      notifPrefs.follows ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        notifPrefs.follows ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+
+                {/* List Invites */}
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                  <div className="flex items-center gap-3">
+                    <Users className="h-5 w-5 text-blue-500" />
+                    <div>
+                      <p className="font-medium">List Invites</p>
+                      <p className="text-sm text-muted-foreground">When someone invites you to a list</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleToggleNotifPref('listInvites')}
+                    className={`relative w-12 h-7 rounded-full transition-colors ${
+                      notifPrefs.listInvites ? 'bg-primary' : 'bg-muted'
+                    }`}
+                  >
+                    <div
+                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
+                        notifPrefs.listInvites ? 'translate-x-6' : 'translate-x-1'
+                      }`}
+                    />
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </section>
 
         {/* Danger Zone */}

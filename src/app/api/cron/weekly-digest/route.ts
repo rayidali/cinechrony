@@ -101,8 +101,13 @@ export async function GET(request: NextRequest) {
 
     for (const userDoc of usersSnapshot.docs) {
       const userId = userDoc.id;
+      const userData = userDoc.data();
 
       try {
+        // Check if user has weekly digest enabled (default true)
+        const prefs = userData?.notificationPreferences;
+        if (prefs && prefs.weeklyDigest === false) continue;
+
         // Get user's push subscriptions
         const subscriptionsSnapshot = await db
           .collection('users')

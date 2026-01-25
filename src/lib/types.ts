@@ -313,3 +313,25 @@ export type Notification = {
   read: boolean;
   createdAt: Date;
 };
+
+// Notification preferences (stored on user document)
+export type NotificationPreferences = {
+  // In-app notification types
+  mentions: boolean;
+  replies: boolean;
+  likes: boolean;
+  follows: boolean;
+  listInvites: boolean;
+  // Push notifications
+  weeklyDigest: boolean;
+};
+
+// Default notification preferences
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  mentions: true,
+  replies: true,
+  likes: true,
+  follows: true,
+  listInvites: true,
+  weeklyDigest: true,
+};
