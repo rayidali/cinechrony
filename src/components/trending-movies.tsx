@@ -24,6 +24,29 @@ function TrendingSkeleton() {
   );
 }
 
+// IMDb logo component
+function IMDbBadge({ rating }: { rating: string }) {
+  return (
+    <div className="absolute bottom-1 left-1 flex items-center gap-1 bg-black/80 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
+      <svg viewBox="0 0 64 32" className="h-3 w-auto" fill="currentColor">
+        <rect width="64" height="32" rx="4" fill="#F5C518" />
+        <text
+          x="32"
+          y="23"
+          textAnchor="middle"
+          fill="black"
+          fontSize="18"
+          fontWeight="bold"
+          fontFamily="Arial, sans-serif"
+        >
+          IMDb
+        </text>
+      </svg>
+      <span className="text-[10px] font-bold text-white">{rating}</span>
+    </div>
+  );
+}
+
 // Individual trending movie card
 function TrendingMovieCard({
   movie,
@@ -51,15 +74,17 @@ function TrendingMovieCard({
           className="object-cover"
           sizes="112px"
         />
-        {/* Rating badge */}
-        {movie.voteAverage > 0 && (
+        {/* Rating badge - prefer IMDB, fallback to TMDB */}
+        {movie.imdbRating ? (
+          <IMDbBadge rating={movie.imdbRating} />
+        ) : movie.voteAverage > 0 ? (
           <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
             <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
             <span className="text-[10px] font-bold text-white">
               {movie.voteAverage.toFixed(1)}
             </span>
           </div>
-        )}
+        ) : null}
       </div>
       <p className="mt-2 text-sm font-medium line-clamp-1">{movie.title}</p>
       <p className="text-xs text-muted-foreground">{year}</p>

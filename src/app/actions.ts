@@ -5109,7 +5109,49 @@ export type TrendingMovie = {
   releaseDate: string;
   voteAverage: number;
   mediaType: 'movie' | 'tv';
+  imdbId?: string;
+  imdbRating?: string;
 };
+
+const OMDB_API_KEY_TRENDING = 'fc5ca6d0';
+
+async function fetchImdbRating(tmdbId: number, tmdbAccessToken: string): Promise<{ imdbId?: string; imdbRating?: string }> {
+  try {
+    // First get IMDB ID from TMDB
+    const externalIdsResponse = await fetch(
+      `https://api.themoviedb.org/3/movie/${tmdbId}/external_ids`,
+      {
+        headers: {
+          Authorization: `Bearer ${tmdbAccessToken}`,
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+
+    if (!externalIdsResponse.ok) return {};
+
+    const externalIds = await externalIdsResponse.json();
+    const imdbId = externalIds.imdb_id;
+
+    if (!imdbId) return {};
+
+    // Fetch OMDB data
+    const omdbResponse = await fetch(
+      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY_TRENDING}`
+    );
+
+    if (!omdbResponse.ok) return { imdbId };
+
+    const omdbData = await omdbResponse.json();
+
+    return {
+      imdbId,
+      imdbRating: omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : undefined,
+    };
+  } catch {
+    return {};
+  }
+}
 
 export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; error?: string }> {
   const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
@@ -5135,14 +5177,23 @@ export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; er
     }
 
     const data = await response.json();
+    const trendingResults = data.results.slice(0, 10);
 
-    const movies: TrendingMovie[] = data.results.slice(0, 10).map((movie: any) => ({
+    // Fetch IMDB ratings in parallel for all movies
+    const imdbDataPromises = trendingResults.map((movie: any) =>
+      fetchImdbRating(movie.id, TMDB_ACCESS_TOKEN)
+    );
+    const imdbDataResults = await Promise.all(imdbDataPromises);
+
+    const movies: TrendingMovie[] = trendingResults.map((movie: any, index: number) => ({
       id: movie.id,
       title: movie.title || movie.name,
       posterPath: movie.poster_path,
       releaseDate: movie.release_date || movie.first_air_date || '',
       voteAverage: movie.vote_average,
       mediaType: 'movie' as const,
+      imdbId: imdbDataResults[index].imdbId,
+      imdbRating: imdbDataResults[index].imdbRating,
     }));
 
     return { movies };
