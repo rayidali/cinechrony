@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, Pencil, Check, X, Loader2, List, Globe, Lock, MoreVertical, Mail, Users, Camera, Star, LogOut, Eye, EyeOff, ImageIcon, Settings } from 'lucide-react';
+import { PullToRefresh } from '@/components/pull-to-refresh';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
@@ -302,6 +303,44 @@ export default function MyProfilePage() {
     }
   };
 
+  // Pull-to-refresh handler
+  const handleRefresh = useCallback(async () => {
+    if (!user) return;
+
+    // Refresh pending invites and collaborative lists
+    const [invitesResult, collabResult] = await Promise.all([
+      getMyPendingInvites(user.uid),
+      getCollaborativeLists(user.uid),
+    ]);
+
+    setPendingInvites(invitesResult.invites || []);
+    setCollaborativeLists(collabResult.lists || []);
+
+    // Refresh own list previews
+    if (lists && lists.length > 0) {
+      const listIds = lists.map((list) => list.id);
+      const previewsResult = await getListsPreviews(user.uid, listIds);
+      if (previewsResult.previews) {
+        setListPreviews(previewsResult.previews);
+      }
+    }
+
+    // Refresh collaborative list previews
+    if (collabResult.lists && collabResult.lists.length > 0) {
+      const collabPreviews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
+      await Promise.all(
+        collabResult.lists.map(async (list) => {
+          const result = await getListPreview(list.ownerId, list.id);
+          collabPreviews[list.id] = {
+            previewPosters: result.previewPosters || [],
+            movieCount: result.movieCount || 0,
+          };
+        })
+      );
+      setCollabListPreviews(collabPreviews);
+    }
+  }, [user, lists]);
+
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -311,8 +350,13 @@ export default function MyProfilePage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8">
+    <>
+      <PullToRefresh
+        onRefresh={handleRefresh}
+        disabled={showFollowers || showFollowing || isAvatarPickerOpen || isFavoritePickerOpen || isCoverPickerOpen}
+      >
+        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
+          <div className="container mx-auto p-4 md:p-8">
         <header className="mb-8">
           <div className="w-full flex justify-between items-center mb-6">
             <Link href="/lists">
@@ -828,9 +872,11 @@ export default function MyProfilePage() {
             }}
           />
         )}
-      </div>
+        </div>
+      </main>
+    </PullToRefresh>
 
-      <BottomNav />
-    </main>
+    <BottomNav />
+  </>
   );
 }
