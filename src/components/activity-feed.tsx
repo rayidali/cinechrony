@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { Sparkles, Loader2 } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { Sparkles, Loader2, Film, Plus } from 'lucide-react';
+import Link from 'next/link';
 import { getActivityFeed } from '@/app/actions';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
@@ -9,9 +10,10 @@ import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 type ActivityFeedProps = {
   currentUserId: string | null;
+  refreshKey?: number; // Increment to trigger refresh
 };
 
-// Skeleton loader
+// Skeleton loader for initial load
 function ActivitySkeleton() {
   return (
     <div className="space-y-4">
@@ -49,20 +51,47 @@ function ActivitySkeleton() {
   );
 }
 
-// Empty state
-function EmptyState() {
+// Loading indicator for infinite scroll
+function LoadingMore() {
   return (
-    <div className="text-center py-12">
-      <Sparkles className="h-12 w-12 mx-auto text-muted-foreground/50 mb-4" />
-      <h3 className="font-semibold text-lg mb-2">No activity yet</h3>
-      <p className="text-sm text-muted-foreground max-w-xs mx-auto">
-        When people add movies, rate them, or write reviews, you'll see it here.
-      </p>
+    <div className="flex justify-center py-6">
+      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
     </div>
   );
 }
 
-export function ActivityFeed({ currentUserId }: ActivityFeedProps) {
+// Enhanced empty state
+function EmptyState() {
+  return (
+    <div className="text-center py-16 px-4">
+      <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-primary/10 flex items-center justify-center">
+        <Film className="h-10 w-10 text-primary" />
+      </div>
+      <h3 className="font-headline font-bold text-xl mb-2">No activity yet</h3>
+      <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-6">
+        Be the first to add a movie, rate something, or write a review. Your activity will show up here!
+      </p>
+      <Link
+        href="/add"
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-full font-medium text-sm shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_0px_hsl(var(--border))] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all"
+      >
+        <Plus className="h-4 w-4" />
+        Add your first movie
+      </Link>
+    </div>
+  );
+}
+
+// End of feed indicator
+function EndOfFeed() {
+  return (
+    <div className="text-center py-6 text-sm text-muted-foreground">
+      You're all caught up!
+    </div>
+  );
+}
+
+export function ActivityFeed({ currentUserId, refreshKey = 0 }: ActivityFeedProps) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -74,11 +103,15 @@ export function ActivityFeed({ currentUserId }: ActivityFeedProps) {
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Load initial feed
+  // Ref for infinite scroll sentinel
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Load initial feed (and refresh when refreshKey changes)
   useEffect(() => {
     async function loadFeed() {
       try {
         setIsLoading(true);
+        setError(null);
         const result = await getActivityFeed();
         if (result.error) {
           setError(result.error);
@@ -95,9 +128,9 @@ export function ActivityFeed({ currentUserId }: ActivityFeedProps) {
     }
 
     loadFeed();
-  }, []);
+  }, [refreshKey]);
 
-  // Load more
+  // Load more function
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;
 
@@ -117,6 +150,32 @@ export function ActivityFeed({ currentUserId }: ActivityFeedProps) {
       setIsLoadingMore(false);
     }
   }, [cursor, hasMore, isLoadingMore]);
+
+  // Infinite scroll with Intersection Observer
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (entry.isIntersecting && hasMore && !isLoadingMore && !isLoading) {
+          loadMore();
+        }
+      },
+      {
+        root: null, // viewport
+        rootMargin: '100px', // trigger 100px before reaching bottom
+        threshold: 0,
+      }
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMore, isLoadingMore, isLoading, loadMore]);
 
   // Handle movie click - open modal
   const handleMovieClick = useCallback((activity: Activity) => {
@@ -167,25 +226,14 @@ export function ActivityFeed({ currentUserId }: ActivityFeedProps) {
             ))}
           </div>
 
-          {/* Load more button */}
-          {hasMore && (
-            <div className="mt-6 text-center">
-              <button
-                onClick={loadMore}
-                disabled={isLoadingMore}
-                className="inline-flex items-center gap-2 px-4 py-2 bg-muted hover:bg-muted/80 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                {isLoadingMore ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Loading...
-                  </>
-                ) : (
-                  'Load more'
-                )}
-              </button>
-            </div>
-          )}
+          {/* Infinite scroll sentinel */}
+          <div ref={sentinelRef} className="h-1" />
+
+          {/* Loading indicator */}
+          {isLoadingMore && <LoadingMore />}
+
+          {/* End of feed */}
+          {!hasMore && activities.length > 0 && <EndOfFeed />}
         </>
       )}
 
