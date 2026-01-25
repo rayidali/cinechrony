@@ -146,7 +146,7 @@ export function PullToRefresh({
   return (
     <div
       ref={containerRef}
-      className={cn('relative touch-pan-x', className)}
+      className={cn('relative', className)}
       style={{
         // Prevent browser's native pull-to-refresh
         overscrollBehaviorY: 'contain',
