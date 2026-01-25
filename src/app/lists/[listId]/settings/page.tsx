@@ -53,7 +53,7 @@ export default function ListSettingsPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const listId = params.listId as string;
   const firestore = useFirestore();
-  const { getMembers: getCachedMembers, setMembers: cacheMembers } = useListMembersCache();
+  const { getMembers: getCachedMembers, setMembers: cacheMembers, invalidate: invalidateCache } = useListMembersCache();
 
   // Determine if viewing own list or collaborative list
   const ownerFromParams = searchParams.get('owner');
@@ -95,20 +95,37 @@ export default function ListSettingsPage() {
     }
   }, [listData]);
 
-  // Load members (check cache first for instant display)
+  // Track collaboratorIds to detect changes (for real-time updates when someone accepts an invite)
+  const collaboratorIdsRef = useRef<string[] | undefined>(listData?.collaboratorIds);
+  const collaboratorIdsKey = listData?.collaboratorIds?.sort().join(',') || '';
+
+  // Load members (check cache first for instant display, but refetch if collaboratorIds changed)
   useEffect(() => {
     async function loadMembers() {
       if (!effectiveOwnerId || !listId) return;
 
-      // Check cache first - if cached, show instantly
-      const cachedMembers = getCachedMembers(effectiveOwnerId, listId);
-      if (cachedMembers) {
-        setMembers(cachedMembers);
-        setIsLoadingMembers(false);
-        return;
+      // Check if collaboratorIds changed (someone joined/left)
+      const prevIds = collaboratorIdsRef.current?.sort().join(',') || '';
+      const currentIds = listData?.collaboratorIds?.sort().join(',') || '';
+      const collaboratorIdsChanged = prevIds !== currentIds;
+
+      if (collaboratorIdsChanged) {
+        // Invalidate cache when members change
+        invalidateCache(effectiveOwnerId, listId);
+        collaboratorIdsRef.current = listData?.collaboratorIds;
       }
 
-      // Not cached, fetch from server
+      // Check cache first - if cached and collaboratorIds didn't change, show instantly
+      if (!collaboratorIdsChanged) {
+        const cachedMembers = getCachedMembers(effectiveOwnerId, listId);
+        if (cachedMembers) {
+          setMembers(cachedMembers);
+          setIsLoadingMembers(false);
+          return;
+        }
+      }
+
+      // Not cached or collaboratorIds changed, fetch from server
       setIsLoadingMembers(true);
       try {
         const result = await getListMembers(effectiveOwnerId, listId);
@@ -123,7 +140,8 @@ export default function ListSettingsPage() {
     }
 
     loadMembers();
-  }, [effectiveOwnerId, listId, getCachedMembers, cacheMembers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveOwnerId, listId, collaboratorIdsKey, getCachedMembers, cacheMembers, invalidateCache]);
 
   // Redirect if not authenticated or not owner
   useEffect(() => {
