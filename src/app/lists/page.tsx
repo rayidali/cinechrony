@@ -6,8 +6,7 @@ import { Plus, Loader2, Film, Users, ImageIcon, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
-// TODO: Re-enable in Phase 3 (Notifications)
-// import { NotificationBell } from '@/components/notification-bell';
+import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
 import { collection, orderBy, query } from 'firebase/firestore';
@@ -299,8 +298,7 @@ export default function ListsPage() {
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
             </div>
             <div className="flex items-center gap-2">
-              {/* TODO: Re-enable in Phase 3 (Notifications) */}
-              {/* <NotificationBell /> */}
+              <NotificationBell />
               <ThemeToggle />
               <UserAvatar />
             </div>

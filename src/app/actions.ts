@@ -1202,6 +1202,33 @@ export async function followUser(followerId: string, followingId: string) {
 
     await batch.commit();
 
+    // Create follow notification
+    try {
+      // Check if user has follows notifications enabled
+      const followedUserDoc = await db.collection('users').doc(followingId).get();
+      const followedUserData = followedUserDoc.data();
+      const prefs = followedUserData?.notificationPreferences;
+
+      // Only create notification if follows are enabled (default true)
+      if (!prefs || prefs.follows !== false) {
+        const followerDoc = await db.collection('users').doc(followerId).get();
+        const followerData = followerDoc.data();
+
+        await db.collection('notifications').add({
+          userId: followingId, // Recipient (the person being followed)
+          type: 'follow',
+          fromUserId: followerId,
+          fromUsername: followerData?.username || null,
+          fromDisplayName: followerData?.displayName || null,
+          fromPhotoUrl: followerData?.photoURL || null,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.error('[followUser] Failed to create notification:', err);
+    }
+
     revalidatePath('/profile');
     revalidatePath(`/profile/${followingId}`);
     return { success: true };
@@ -1752,6 +1779,31 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
       status: 'pending',
       createdAt: FieldValue.serverTimestamp(),
     });
+
+    // Create list invite notification for the invitee
+    try {
+      // Check if user has list invite notifications enabled
+      const prefs = inviteeData?.notificationPreferences;
+
+      // Only create notification if list invites are enabled (default true)
+      if (!prefs || prefs.listInvites !== false) {
+        await db.collection('notifications').add({
+          userId: inviteeId, // The person being invited
+          type: 'list_invite',
+          fromUserId: inviterId,
+          fromUsername: inviterData?.username || null,
+          fromDisplayName: inviterData?.displayName || null,
+          fromPhotoUrl: inviterData?.photoURL || null,
+          listId,
+          listOwnerId,
+          listName: listData?.name || 'Untitled List',
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.error('[inviteToList] Failed to create notification:', err);
+    }
 
     return { success: true, inviteId: inviteRef.id };
   } catch (error) {
@@ -2822,37 +2874,45 @@ export async function createReview(
         replyCount: FieldValue.increment(1),
       });
 
-      // Create reply notification (fire-and-forget for speed)
+      // Create reply notification (must await in serverless - fire-and-forget gets killed)
       if (parentDoc.exists) {
-        createReplyNotification(
-          db,
-          reviewRef.id,
-          text.trim(),
-          { userId: parentDoc.data()?.userId },
-          tmdbId,
-          mediaType,
-          movieTitle,
-          userId,
-          userData?.username || null,
-          userData?.displayName || null,
-          userData?.photoURL || null
-        ).catch(err => console.error('[createReview] Reply notification failed:', err));
+        try {
+          await createReplyNotification(
+            db,
+            reviewRef.id,
+            text.trim(),
+            { userId: parentDoc.data()?.userId },
+            tmdbId,
+            mediaType,
+            movieTitle,
+            userId,
+            userData?.username || null,
+            userData?.displayName || null,
+            userData?.photoURL || null
+          );
+        } catch (err) {
+          console.error('[createReview] Reply notification failed:', err);
+        }
       }
     }
 
-    // Create @mention notifications (fire-and-forget for speed)
-    createMentionNotifications(
-      db,
-      reviewRef.id,
-      text.trim(),
-      tmdbId,
-      mediaType,
-      movieTitle,
-      userId,
-      userData?.username || null,
-      userData?.displayName || null,
-      userData?.photoURL || null
-    ).catch(err => console.error('[createReview] Mention notifications failed:', err));
+    // Create @mention notifications (must await in serverless - fire-and-forget gets killed)
+    try {
+      await createMentionNotifications(
+        db,
+        reviewRef.id,
+        text.trim(),
+        tmdbId,
+        mediaType,
+        movieTitle,
+        userId,
+        userData?.username || null,
+        userData?.displayName || null,
+        userData?.photoURL || null
+      );
+    } catch (err) {
+      console.error('[createReview] Mention notifications failed:', err);
+    }
 
     return {
       success: true,
@@ -2990,6 +3050,40 @@ export async function likeReview(userId: string, reviewId: string) {
       likes: FieldValue.increment(1),
       likedBy: FieldValue.arrayUnion(userId),
     });
+
+    // Create like notification (don't notify yourself)
+    if (reviewData?.userId && reviewData.userId !== userId) {
+      try {
+        // Check if review author has likes notifications enabled
+        const authorDoc = await db.collection('users').doc(reviewData.userId).get();
+        const authorData = authorDoc.data();
+        const prefs = authorData?.notificationPreferences;
+
+        // Only create notification if likes are enabled (default true)
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const likerData = likerDoc.data();
+
+          await db.collection('notifications').add({
+            userId: reviewData.userId, // Review author
+            type: 'like',
+            fromUserId: userId,
+            fromUsername: likerData?.username || null,
+            fromDisplayName: likerData?.displayName || null,
+            fromPhotoUrl: likerData?.photoURL || null,
+            reviewId,
+            tmdbId: reviewData.tmdbId,
+            mediaType: reviewData.mediaType,
+            movieTitle: reviewData.movieTitle,
+            previewText: reviewData.text?.slice(0, 100) + (reviewData.text?.length > 100 ? '...' : ''),
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[likeReview] Failed to create notification:', err);
+      }
+    }
 
     return { success: true, likes: (reviewData?.likes || 0) + 1 };
   } catch (error) {
@@ -4612,22 +4706,32 @@ async function createMentionNotifications(
   const mentions = extractMentions(reviewText);
   if (mentions.length === 0) return;
 
-  // Look up user IDs for mentioned usernames (batch for efficiency)
+  // Look up users by username (query users collection directly)
   const userLookups = mentions.map(username =>
-    db.collection('usernames').doc(username.toLowerCase()).get()
+    db.collection('users')
+      .where('usernameLower', '==', username.toLowerCase())
+      .limit(1)
+      .get()
   );
-  const userDocs = await Promise.all(userLookups);
+  const userSnapshots = await Promise.all(userLookups);
 
   const batch = db.batch();
   const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
 
-  for (let i = 0; i < userDocs.length; i++) {
-    const userDoc = userDocs[i];
-    if (!userDoc.exists) continue;
+  for (let i = 0; i < userSnapshots.length; i++) {
+    const snapshot = userSnapshots[i];
+    if (snapshot.empty) continue;
 
-    const mentionedUserId = userDoc.data()?.uid;
+    const userDoc = snapshot.docs[0];
+    const mentionedUserId = userDoc.id; // Document ID is the user's uid
+    const userData = userDoc.data();
+
     // Don't notify yourself
-    if (!mentionedUserId || mentionedUserId === fromUserId) continue;
+    if (mentionedUserId === fromUserId) continue;
+
+    // Check if user has mentions notifications enabled
+    const prefs = userData?.notificationPreferences;
+    if (prefs && prefs.mentions === false) continue;
 
     const notifRef = db.collection('notifications').doc();
     batch.set(notifRef, {
@@ -4669,6 +4773,11 @@ async function createReplyNotification(
 ) {
   // Don't notify yourself
   if (parentReview.userId === fromUserId) return;
+
+  // Check if user has replies notifications enabled
+  const userDoc = await db.collection('users').doc(parentReview.userId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.replies === false) return;
 
   const previewText = reviewText.slice(0, 100) + (reviewText.length > 100 ? '...' : '');
 
@@ -4713,11 +4822,17 @@ export async function getNotifications(userId: string, limit: number = 50) {
         fromUsername: data.fromUsername,
         fromDisplayName: data.fromDisplayName,
         fromPhotoUrl: data.fromPhotoUrl,
+        // Review context (optional)
         reviewId: data.reviewId,
         tmdbId: data.tmdbId,
         mediaType: data.mediaType,
         movieTitle: data.movieTitle,
         previewText: data.previewText,
+        // List context (optional)
+        listId: data.listId,
+        listOwnerId: data.listOwnerId,
+        listName: data.listName,
+        // State
         read: data.read,
         createdAt: data.createdAt?.toDate() || new Date(),
       };
@@ -4791,5 +4906,194 @@ export async function getUnreadNotificationCount(userId: string) {
   } catch (error) {
     console.error('[getUnreadNotificationCount] Failed:', error);
     return { count: 0 };
+  }
+}
+
+// --- PUSH SUBSCRIPTIONS ---
+
+/**
+ * Save a push subscription for a user.
+ */
+export async function savePushSubscription(
+  userId: string,
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }
+) {
+  const db = getDb();
+
+  try {
+    // Check if this endpoint already exists for this user
+    const existing = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .where('endpoint', '==', subscription.endpoint)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      // Update existing subscription
+      await existing.docs[0].ref.update({
+        keys: subscription.keys,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Create new subscription
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('pushSubscriptions')
+        .add({
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    }
+
+    // Also mark user as having push enabled
+    await db.collection('users').doc(userId).update({
+      pushEnabled: true,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[savePushSubscription] Failed:', error);
+    return { error: 'Failed to save push subscription' };
+  }
+}
+
+/**
+ * Remove a push subscription for a user.
+ */
+export async function removePushSubscription(userId: string, endpoint: string) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .where('endpoint', '==', endpoint)
+      .get();
+
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
+    // Check if user has any remaining subscriptions
+    const remaining = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .limit(1)
+      .get();
+
+    if (remaining.empty) {
+      await db.collection('users').doc(userId).update({
+        pushEnabled: false,
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[removePushSubscription] Failed:', error);
+    return { error: 'Failed to remove push subscription' };
+  }
+}
+
+/**
+ * Check if user has push notifications enabled.
+ */
+export async function getPushStatus(userId: string) {
+  const db = getDb();
+
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    return {
+      enabled: userData?.pushEnabled || false,
+    };
+  } catch (error) {
+    console.error('[getPushStatus] Failed:', error);
+    return { enabled: false };
+  }
+}
+
+// ============================================
+// NOTIFICATION PREFERENCES
+// ============================================
+
+export async function getNotificationPreferences(userId: string) {
+  const db = getDb();
+
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    // Return preferences or defaults
+    return {
+      preferences: userData?.notificationPreferences || {
+        mentions: true,
+        replies: true,
+        likes: true,
+        follows: true,
+        listInvites: true,
+        weeklyDigest: true,
+      },
+    };
+  } catch (error) {
+    console.error('[getNotificationPreferences] Failed:', error);
+    return {
+      preferences: {
+        mentions: true,
+        replies: true,
+        likes: true,
+        follows: true,
+        listInvites: true,
+        weeklyDigest: true,
+      },
+    };
+  }
+}
+
+export async function updateNotificationPreferences(
+  userId: string,
+  preferences: {
+    mentions?: boolean;
+    replies?: boolean;
+    likes?: boolean;
+    follows?: boolean;
+    listInvites?: boolean;
+    weeklyDigest?: boolean;
+  }
+) {
+  const db = getDb();
+
+  try {
+    // Get current preferences first
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+    const currentPrefs = userData?.notificationPreferences || {};
+
+    // Merge with new preferences
+    const updatedPrefs = {
+      ...currentPrefs,
+      ...preferences,
+    };
+
+    await db.collection('users').doc(userId).update({
+      notificationPreferences: updatedPrefs,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[updateNotificationPreferences] Failed:', error);
+    return { error: 'Failed to update notification preferences' };
   }
 }

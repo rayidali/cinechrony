@@ -7,6 +7,7 @@ import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -265,6 +266,7 @@ export default function ListDetailPage() {
               </Button>
             </Link>
             <div className="flex items-center gap-3">
+              <NotificationBell />
               <ThemeToggle />
               <UserAvatar />
             </div>

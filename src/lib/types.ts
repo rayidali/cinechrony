@@ -287,9 +287,9 @@ export type UserRating = {
 };
 
 // Notification types
-export type NotificationType = 'mention' | 'reply';
+export type NotificationType = 'mention' | 'reply' | 'follow' | 'like' | 'list_invite';
 
-// Notification (for @mentions and replies)
+// Notification
 export type Notification = {
   id: string;
   userId: string; // Recipient
@@ -299,13 +299,39 @@ export type Notification = {
   fromUsername: string | null;
   fromDisplayName: string | null;
   fromPhotoUrl: string | null;
-  // Context
-  reviewId: string;
-  tmdbId: number;
-  mediaType: 'movie' | 'tv';
-  movieTitle: string;
-  previewText: string; // First ~100 chars of the comment
+  // Review context (for mention, reply, like)
+  reviewId?: string;
+  tmdbId?: number;
+  mediaType?: 'movie' | 'tv';
+  movieTitle?: string;
+  previewText?: string; // First ~100 chars of the comment
+  // List context (for list_invite)
+  listId?: string;
+  listOwnerId?: string;
+  listName?: string;
   // State
   read: boolean;
   createdAt: Date;
+};
+
+// Notification preferences (stored on user document)
+export type NotificationPreferences = {
+  // In-app notification types
+  mentions: boolean;
+  replies: boolean;
+  likes: boolean;
+  follows: boolean;
+  listInvites: boolean;
+  // Push notifications
+  weeklyDigest: boolean;
+};
+
+// Default notification preferences
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  mentions: true,
+  replies: true,
+  likes: true,
+  follows: true,
+  listInvites: true,
+  weeklyDigest: true,
 };
