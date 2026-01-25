@@ -42,6 +42,7 @@ import {
   removeCollaborator,
 } from '@/app/actions';
 import type { MovieList, ListMember } from '@/lib/types';
+import { processImage, fileToBase64, isImageFile } from '@/lib/image-utils';
 
 export default function ListSettingsPage() {
   const { user, isUserLoading } = useUser();
@@ -77,6 +78,7 @@ export default function ListSettingsPage() {
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
 
   const [isSaving, setIsSaving] = useState(false);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
@@ -137,34 +139,54 @@ export default function ListSettingsPage() {
     coverFile !== null
   );
 
-  const handleCoverSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith('image/')) {
+    // Validate it's an image (checks both MIME type and extension for iOS compatibility)
+    if (!isImageFile(file)) {
       toast({ variant: 'destructive', title: 'Invalid file', description: 'Please select an image file.' });
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
-      toast({ variant: 'destructive', title: 'File too large', description: 'Please select an image under 10MB.' });
+    // Check raw file size before processing (generous limit since we'll compress)
+    if (file.size > 50 * 1024 * 1024) {
+      toast({ variant: 'destructive', title: 'File too large', description: 'Please select an image under 50MB.' });
       return;
     }
 
-    setCoverFile(file);
-    setCoverPreview(URL.createObjectURL(file));
-  };
+    // Process the image: convert HEIC to JPEG, resize, and compress
+    setIsProcessingImage(true);
+    try {
+      const processed = await processImage(file, {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.85,
+        outputType: 'image/jpeg',
+      });
 
-  const fileToBase64 = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => {
-        const base64 = (reader.result as string).split(',')[1];
-        resolve(base64);
-      };
-      reader.onerror = reject;
-    });
+      setCoverFile(processed.file);
+      setCoverPreview(processed.previewUrl);
+
+      // Show success for large files that got compressed significantly
+      if (file.size > 5 * 1024 * 1024) {
+        const originalMB = (file.size / (1024 * 1024)).toFixed(1);
+        const newMB = (processed.file.size / (1024 * 1024)).toFixed(1);
+        toast({
+          title: 'Image optimized',
+          description: `Compressed from ${originalMB}MB to ${newMB}MB`,
+        });
+      }
+    } catch (error) {
+      console.error('Failed to process image:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Failed to process image',
+        description: error instanceof Error ? error.message : 'Please try a different image.',
+      });
+    } finally {
+      setIsProcessingImage(false);
+    }
   };
 
   const handleSave = async () => {
@@ -307,10 +329,15 @@ export default function ListSettingsPage() {
         <div className="flex gap-4 items-start">
           {/* Cover Image */}
           <div
-            onClick={() => fileInputRef.current?.click()}
-            className="relative w-28 h-28 rounded-xl border-2 border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0"
+            onClick={() => !isProcessingImage && fileInputRef.current?.click()}
+            className={`relative w-28 h-28 rounded-xl border-2 border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 ${isProcessingImage ? 'opacity-70 cursor-wait' : ''}`}
           >
-            {coverPreview ? (
+            {isProcessingImage ? (
+              <div className="flex flex-col items-center gap-1">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                <span className="text-xs text-muted-foreground">Processing...</span>
+              </div>
+            ) : coverPreview ? (
               <>
                 <Image src={coverPreview} alt="Cover" fill className="object-cover" />
                 <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
@@ -445,11 +472,11 @@ export default function ListSettingsPage() {
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
         <Button
           onClick={handleSave}
-          disabled={isSaving || !hasChanges}
+          disabled={isSaving || isProcessingImage || !hasChanges}
           className="w-full h-14 text-lg font-semibold rounded-full bg-foreground text-background hover:bg-foreground/90"
           size="lg"
         >
-          {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : 'save'}
+          {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : isProcessingImage ? 'Processing...' : 'save'}
         </Button>
       </div>
 
