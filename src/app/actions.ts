@@ -2134,6 +2134,23 @@ export async function acceptInvite(userId: string, inviteId?: string, inviteCode
       inviteeId: userId, // Set for link invites
     });
 
+    // Delete the associated notification (so Accept/Decline buttons don't show anymore)
+    try {
+      const notificationSnapshot = await db.collection('notifications')
+        .where('userId', '==', userId)
+        .where('type', '==', 'list_invite')
+        .where('inviteId', '==', inviteRef.id)
+        .limit(1)
+        .get();
+
+      if (!notificationSnapshot.empty) {
+        await notificationSnapshot.docs[0].ref.delete();
+      }
+    } catch (err) {
+      // Non-critical - just log and continue
+      console.error('[acceptInvite] Failed to delete notification:', err);
+    }
+
     revalidatePath('/lists');
     return { success: true, listId: inviteData.listId, listOwnerId: inviteData.listOwnerId };
   } catch (error) {
@@ -2164,6 +2181,23 @@ export async function declineInvite(userId: string, inviteId: string) {
     }
 
     await inviteRef.update({ status: 'declined' });
+
+    // Delete the associated notification (so Accept/Decline buttons don't show anymore)
+    try {
+      const notificationSnapshot = await db.collection('notifications')
+        .where('userId', '==', userId)
+        .where('type', '==', 'list_invite')
+        .where('inviteId', '==', inviteId)
+        .limit(1)
+        .get();
+
+      if (!notificationSnapshot.empty) {
+        await notificationSnapshot.docs[0].ref.delete();
+      }
+    } catch (err) {
+      // Non-critical - just log and continue
+      console.error('[declineInvite] Failed to delete notification:', err);
+    }
 
     return { success: true };
   } catch (error) {
