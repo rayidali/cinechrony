@@ -174,8 +174,16 @@ export default function ListDetailPage() {
   // Determine if user can edit this list
   // User is owner if they have their own list data (not accessed via collaborator lookup)
   const isOwner = !!ownListData;
-  // User is collaborator if they're accessing via collab list data (and don't own it)
-  const isCollaborator = !!collabListData && !ownListData;
+  // SECURITY FIX: Must verify user's UID is actually in collaboratorIds array
+  // Previously, this was checking if collabListData was truthy, but public lists
+  // allow reads by anyone (isPublic == true), so collabListData being truthy
+  // does NOT mean the user is a collaborator - only that they can read the list.
+  // This was a critical security bug that allowed any user to edit public lists.
+  const isCollaborator = !isOwner &&
+    !!user &&
+    !!listData?.collaboratorIds &&
+    Array.isArray(listData.collaboratorIds) &&
+    listData.collaboratorIds.includes(user.uid);
   const canEdit = isOwner || isCollaborator;
 
   // Check if this is a collaborative list (has collaborators)

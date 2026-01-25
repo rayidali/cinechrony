@@ -135,6 +135,8 @@ type PublicMovieDetailsModalProps = {
   onClose: () => void;
   listId?: string;
   listOwnerId?: string;
+  /** Full path to return to (e.g., /profile/username/lists/listId) - used by comments page back navigation */
+  returnPath?: string;
 };
 
 export function PublicMovieDetailsModal({
@@ -143,6 +145,7 @@ export function PublicMovieDetailsModal({
   onClose,
   listId,
   listOwnerId,
+  returnPath,
 }: PublicMovieDetailsModalProps) {
   const router = useRouter();
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
@@ -174,7 +177,13 @@ export function PublicMovieDetailsModal({
       poster: movie.posterUrl || '',
       type: movie.mediaType || 'movie',
     });
-    // Pass return context so back navigation can return to the list
+    // Pass return context so back navigation can return to the correct page
+    // SECURITY: Use returnPath to preserve original route (e.g., public profile view)
+    // This prevents the comments page from redirecting to /lists/{id} which could
+    // give unintended edit access through broken permission checks
+    if (returnPath) {
+      params.set('returnPath', returnPath);
+    }
     if (listId) params.set('returnListId', listId);
     if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
     if (movie.id) params.set('returnMovieId', movie.id);
