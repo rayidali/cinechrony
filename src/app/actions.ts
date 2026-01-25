@@ -2135,11 +2135,12 @@ export async function acceptInvite(userId: string, inviteId?: string, inviteCode
     });
 
     // Delete the associated notification (so Accept/Decline buttons don't show anymore)
+    // Query by listId for backwards compatibility (older notifications may not have inviteId)
     try {
       const notificationSnapshot = await db.collection('notifications')
         .where('userId', '==', userId)
         .where('type', '==', 'list_invite')
-        .where('inviteId', '==', inviteRef.id)
+        .where('listId', '==', inviteData.listId)
         .limit(1)
         .get();
 
@@ -2183,11 +2184,12 @@ export async function declineInvite(userId: string, inviteId: string) {
     await inviteRef.update({ status: 'declined' });
 
     // Delete the associated notification (so Accept/Decline buttons don't show anymore)
+    // Query by listId for backwards compatibility (older notifications may not have inviteId)
     try {
       const notificationSnapshot = await db.collection('notifications')
         .where('userId', '==', userId)
         .where('type', '==', 'list_invite')
-        .where('inviteId', '==', inviteId)
+        .where('listId', '==', inviteData?.listId)
         .limit(1)
         .get();
 
