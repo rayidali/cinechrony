@@ -22,7 +22,12 @@ export function ListHeader({
   listOwnerId,
   listData,
   isOwner,
+  isCollaborator,
 }: ListHeaderProps) {
+  // Build settings URL with owner param for collaborators
+  const settingsUrl = isOwner
+    ? `/lists/${listId}/settings`
+    : `/lists/${listId}/settings?owner=${listOwnerId}`;
   const { user } = useUser();
   const { getMembers, setMembers: cacheMembers } = useListMembersCache();
   const [members, setMembers] = useState<ListMember[]>([]);
@@ -77,9 +82,9 @@ export function ListHeader({
         <h1 className="text-3xl md:text-5xl font-headline font-bold text-center tracking-tighter">
           {listData?.name || 'List'}
         </h1>
-        {isOwner && (
+        {(isOwner || isCollaborator) && (
           <Link
-            href={`/lists/${listId}/settings`}
+            href={settingsUrl}
             prefetch={true}
             className="p-2 rounded-full hover:bg-secondary transition-colors"
             title="Edit list settings"
@@ -99,9 +104,9 @@ export function ListHeader({
       )}
 
       {/* Tappable Collaborator Bar */}
-      {isOwner ? (
+      {(isOwner || isCollaborator) ? (
         <Link
-          href={`/lists/${listId}/settings`}
+          href={settingsUrl}
           prefetch={true}
           className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50 transition-colors hover:bg-secondary"
         >
