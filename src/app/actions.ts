@@ -4876,3 +4876,119 @@ export async function getUnreadNotificationCount(userId: string) {
     return { count: 0 };
   }
 }
+
+// --- PUSH SUBSCRIPTIONS ---
+
+/**
+ * Save a push subscription for a user.
+ */
+export async function savePushSubscription(
+  userId: string,
+  subscription: {
+    endpoint: string;
+    keys: { p256dh: string; auth: string };
+  }
+) {
+  const db = getDb();
+
+  try {
+    // Check if this endpoint already exists for this user
+    const existing = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .where('endpoint', '==', subscription.endpoint)
+      .limit(1)
+      .get();
+
+    if (!existing.empty) {
+      // Update existing subscription
+      await existing.docs[0].ref.update({
+        keys: subscription.keys,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      // Create new subscription
+      await db
+        .collection('users')
+        .doc(userId)
+        .collection('pushSubscriptions')
+        .add({
+          endpoint: subscription.endpoint,
+          keys: subscription.keys,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        });
+    }
+
+    // Also mark user as having push enabled
+    await db.collection('users').doc(userId).update({
+      pushEnabled: true,
+    });
+
+    return { success: true };
+  } catch (error) {
+    console.error('[savePushSubscription] Failed:', error);
+    return { error: 'Failed to save push subscription' };
+  }
+}
+
+/**
+ * Remove a push subscription for a user.
+ */
+export async function removePushSubscription(userId: string, endpoint: string) {
+  const db = getDb();
+
+  try {
+    const snapshot = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .where('endpoint', '==', endpoint)
+      .get();
+
+    const batch = db.batch();
+    snapshot.docs.forEach((doc) => {
+      batch.delete(doc.ref);
+    });
+    await batch.commit();
+
+    // Check if user has any remaining subscriptions
+    const remaining = await db
+      .collection('users')
+      .doc(userId)
+      .collection('pushSubscriptions')
+      .limit(1)
+      .get();
+
+    if (remaining.empty) {
+      await db.collection('users').doc(userId).update({
+        pushEnabled: false,
+      });
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[removePushSubscription] Failed:', error);
+    return { error: 'Failed to remove push subscription' };
+  }
+}
+
+/**
+ * Check if user has push notifications enabled.
+ */
+export async function getPushStatus(userId: string) {
+  const db = getDb();
+
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const userData = userDoc.data();
+
+    return {
+      enabled: userData?.pushEnabled || false,
+    };
+  } catch (error) {
+    console.error('[getPushStatus] Failed:', error);
+    return { enabled: false };
+  }
+}
