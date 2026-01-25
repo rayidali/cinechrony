@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
@@ -9,6 +9,7 @@ import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
+import { PullToRefresh } from '@/components/pull-to-refresh';
 import { collection, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
@@ -189,6 +190,28 @@ export default function ListDetailPage() {
   // Check if this is a collaborative list (has collaborators)
   const hasCollaborators = (listData?.collaboratorIds?.length ?? 0) > 0;
 
+  // Pull-to-refresh handler - movies are already real-time via useCollection,
+  // but this gives a satisfying gesture and can re-check collaborative status
+  const handleRefresh = useCallback(async () => {
+    if (!user) return;
+
+    // Re-check collaborative lists in case permissions changed
+    if (!ownListData && !collaborativeListOwner) {
+      try {
+        const result = await getCollaborativeLists(user.uid);
+        const collabList = result.lists?.find(l => l.id === listId);
+        if (collabList) {
+          setCollaborativeListOwner(collabList.ownerId);
+        }
+      } catch (error) {
+        console.error('Failed to refresh collaborative lists:', error);
+      }
+    }
+
+    // Small delay for visual feedback since movies are already real-time
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }, [user, ownListData, collaborativeListOwner, listId]);
+
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -262,47 +285,51 @@ export default function ListDetailPage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8">
-        <header className="mb-8">
-          {/* Top bar with back button */}
-          <div className="w-full flex justify-between items-center mb-6">
-            <Link href="/lists">
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                All Lists
-              </Button>
-            </Link>
-            <div className="flex items-center gap-3">
-              <NotificationBell />
-              <ThemeToggle />
-              <UserAvatar />
+    <>
+      <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen}>
+        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
+          <div className="container mx-auto p-4 md:p-8">
+            <header className="mb-8">
+              {/* Top bar with back button */}
+              <div className="w-full flex justify-between items-center mb-6">
+                <Link href="/lists">
+                  <Button variant="ghost" className="gap-2">
+                    <ArrowLeft className="h-4 w-4" />
+                    All Lists
+                  </Button>
+                </Link>
+                <div className="flex items-center gap-3">
+                  <NotificationBell />
+                  <ThemeToggle />
+                  <UserAvatar />
+                </div>
+              </div>
+
+              {/* New List Header with avatar bar */}
+              {effectiveOwnerId && listData && (
+                <ListHeader
+                  listId={listId}
+                  listOwnerId={effectiveOwnerId}
+                  listData={listData}
+                  isOwner={isOwner}
+                  isCollaborator={isCollaborator}
+                />
+              )}
+            </header>
+
+            {/* Movie list - full width now */}
+            <div className="w-full">
+              <MovieList
+                initialMovies={movies || []}
+                isLoading={isLoadingMovies}
+                listId={listId}
+                listOwnerId={effectiveOwnerId}
+                canEdit={canEdit}
+              />
             </div>
           </div>
-
-          {/* New List Header with avatar bar */}
-          {effectiveOwnerId && listData && (
-            <ListHeader
-              listId={listId}
-              listOwnerId={effectiveOwnerId}
-              listData={listData}
-              isOwner={isOwner}
-              isCollaborator={isCollaborator}
-            />
-          )}
-        </header>
-
-        {/* Movie list - full width now */}
-        <div className="w-full">
-          <MovieList
-            initialMovies={movies || []}
-            isLoading={isLoadingMovies}
-            listId={listId}
-            listOwnerId={effectiveOwnerId}
-            canEdit={canEdit}
-          />
-        </div>
-      </div>
+        </main>
+      </PullToRefresh>
 
       <BottomNav />
 
@@ -328,6 +355,6 @@ export default function ListDetailPage() {
           listName={listData?.name}
         />
       )}
-    </main>
+    </>
   );
 }
