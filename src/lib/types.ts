@@ -309,6 +309,7 @@ export type Notification = {
   listId?: string;
   listOwnerId?: string;
   listName?: string;
+  inviteId?: string; // For accepting/declining invites from notification
   // State
   read: boolean;
   createdAt: Date;

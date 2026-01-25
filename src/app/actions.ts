@@ -1838,6 +1838,7 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
           listId,
           listOwnerId,
           listName: listData?.name || 'Untitled List',
+          inviteId: inviteRef.id, // For accepting/declining from notification
           read: false,
           createdAt: FieldValue.serverTimestamp(),
         });
@@ -4912,6 +4913,7 @@ export async function getNotifications(userId: string, limit: number = 50) {
         listId: data.listId,
         listOwnerId: data.listOwnerId,
         listName: data.listName,
+        inviteId: data.inviteId, // For accepting/declining list invites from notification
         // State
         read: data.read,
         createdAt: data.createdAt?.toDate() || new Date(),
