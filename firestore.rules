@@ -256,6 +256,22 @@ service cloud.firestore {
     }
 
     // ------------------------------------------------------------------------
+    // Activities Collection (Global Activity Feed)
+    // ------------------------------------------------------------------------
+
+    /**
+     * @path /activities/{activityId}
+     * Global activity feed. Created by server actions, readable by anyone.
+     */
+    match /activities/{activityId} {
+      // Anyone can read the activity feed
+      allow read: if true;
+
+      // Only server (admin SDK) can write - no client writes
+      allow write: if false;
+    }
+
+    // ------------------------------------------------------------------------
     // Usernames Collection
     // ------------------------------------------------------------------------
 

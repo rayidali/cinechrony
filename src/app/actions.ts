@@ -1,7 +1,7 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { SearchResult, UserProfile, ListInvite, ListMember } from '@/lib/types';
+import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType } from '@/lib/types';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp } from '@/firebase/admin';
@@ -5287,8 +5287,6 @@ export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; er
 // ACTIVITY FEED
 // ============================================
 
-import type { Activity, ActivityType } from '@/lib/types';
-
 /**
  * Create an activity entry (internal helper - not exported as server action)
  */
@@ -5350,7 +5348,7 @@ async function createActivity(
 export async function getActivityFeed(
   cursor?: string,
   limit: number = 20
-): Promise<{ activities: Activity[]; nextCursor?: string; error?: string }> {
+): Promise<{ activities: Activity[]; hasMore: boolean; nextCursor?: string; error?: string }> {
   const db = getDb();
 
   try {
@@ -5401,11 +5399,12 @@ export async function getActivityFeed(
 
     return {
       activities,
+      hasMore,
       nextCursor: hasMore ? activitiesData[activitiesData.length - 1].id : undefined,
     };
   } catch (error) {
     console.error('[getActivityFeed] Failed:', error);
-    return { activities: [], error: 'Failed to fetch activity feed' };
+    return { activities: [], hasMore: false, error: 'Failed to fetch activity feed' };
   }
 }
 
