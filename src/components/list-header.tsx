@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Loader2, Pencil } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -29,21 +29,38 @@ export function ListHeader({
     ? `/lists/${listId}/settings`
     : `/lists/${listId}/settings?owner=${listOwnerId}`;
   const { user } = useUser();
-  const { getMembers, setMembers: cacheMembers } = useListMembersCache();
+  const { getMembers, setMembers: cacheMembers, invalidate } = useListMembersCache();
   const [members, setMembers] = useState<ListMember[]>([]);
   const [isLoadingMembers, setIsLoadingMembers] = useState(true);
 
-  // Load members for avatar bar (check cache first)
+  // Track collaboratorIds to detect changes (for real-time updates when someone accepts an invite)
+  const collaboratorIdsRef = useRef<string[] | undefined>(listData?.collaboratorIds);
+  const collaboratorIdsKey = listData?.collaboratorIds?.sort().join(',') || '';
+
+  // Load members for avatar bar (check cache first, but refetch if collaboratorIds changed)
   useEffect(() => {
     async function loadMembers() {
       if (!user) return;
 
-      // Check cache first
-      const cachedMembers = getMembers(listOwnerId, listId);
-      if (cachedMembers) {
-        setMembers(cachedMembers);
-        setIsLoadingMembers(false);
-        return;
+      // Check if collaboratorIds changed (someone joined/left)
+      const prevIds = collaboratorIdsRef.current?.sort().join(',') || '';
+      const currentIds = listData?.collaboratorIds?.sort().join(',') || '';
+      const collaboratorIdsChanged = prevIds !== currentIds;
+
+      if (collaboratorIdsChanged) {
+        // Invalidate cache when members change
+        invalidate(listOwnerId, listId);
+        collaboratorIdsRef.current = listData?.collaboratorIds;
+      }
+
+      // Check cache first (only if collaboratorIds didn't change)
+      if (!collaboratorIdsChanged) {
+        const cachedMembers = getMembers(listOwnerId, listId);
+        if (cachedMembers) {
+          setMembers(cachedMembers);
+          setIsLoadingMembers(false);
+          return;
+        }
       }
 
       setIsLoadingMembers(true);
@@ -61,7 +78,8 @@ export function ListHeader({
     }
 
     loadMembers();
-  }, [user, listId, listOwnerId, getMembers, cacheMembers]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, listId, listOwnerId, collaboratorIdsKey, getMembers, cacheMembers, invalidate]);
 
   // Sort members: owner first, then collaborators
   const sortedMembers = [...members].sort((a, b) => {

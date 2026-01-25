@@ -7,17 +7,22 @@ import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users }
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
-import { getNotifications, markNotificationsRead } from '@/app/actions';
+import { getNotifications, markNotificationsRead, acceptInvite, declineInvite } from '@/app/actions';
 import { formatDistanceToNow } from 'date-fns';
+import { Loader2 } from 'lucide-react';
 import type { Notification } from '@/lib/types';
 import { PushNotificationPrompt } from '@/components/push-notification-prompt';
+import { useToast } from '@/hooks/use-toast';
 
 export default function NotificationsPage() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
+  const { toast } = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Track which invites are being processed (accepting or declining)
+  const [processingInvites, setProcessingInvites] = useState<Record<string, 'accepting' | 'declining'>>({});
 
   // Fetch notifications
   useEffect(() => {
@@ -58,6 +63,69 @@ export default function NotificationsPage() {
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (err) {
       console.error('Failed to mark as read:', err);
+    }
+  };
+
+  // Handle accepting a list invite from notification
+  const handleAcceptInvite = async (notification: Notification, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation
+    if (!user?.uid || !notification.inviteId) return;
+
+    setProcessingInvites(prev => ({ ...prev, [notification.id]: 'accepting' }));
+    try {
+      const result = await acceptInvite(user.uid, notification.inviteId);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({
+          title: 'Invite Accepted!',
+          description: `You are now a collaborator on "${notification.listName}"`,
+        });
+        // Remove this notification from the list
+        setNotifications(prev => prev.filter(n => n.id !== notification.id));
+        // Navigate to the list
+        const ownerId = result.listOwnerId || notification.listOwnerId;
+        router.push(`/lists/${notification.listId}?owner=${ownerId}`);
+      }
+    } catch (err) {
+      console.error('Failed to accept invite:', err);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to accept invite' });
+    } finally {
+      setProcessingInvites(prev => {
+        const updated = { ...prev };
+        delete updated[notification.id];
+        return updated;
+      });
+    }
+  };
+
+  // Handle declining a list invite from notification
+  const handleDeclineInvite = async (notification: Notification, e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevent navigation
+    if (!user?.uid || !notification.inviteId) return;
+
+    setProcessingInvites(prev => ({ ...prev, [notification.id]: 'declining' }));
+    try {
+      const result = await declineInvite(user.uid, notification.inviteId);
+      if (result.error) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
+        toast({
+          title: 'Invite Declined',
+          description: 'The invitation has been declined.',
+        });
+        // Remove this notification from the list
+        setNotifications(prev => prev.filter(n => n.id !== notification.id));
+      }
+    } catch (err) {
+      console.error('Failed to decline invite:', err);
+      toast({ variant: 'destructive', title: 'Error', description: 'Failed to decline invite' });
+    } finally {
+      setProcessingInvites(prev => {
+        const updated = { ...prev };
+        delete updated[notification.id];
+        return updated;
+      });
     }
   };
 
@@ -219,6 +287,34 @@ export default function NotificationsPage() {
                   <p className="text-xs text-muted-foreground mt-1">
                     {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
                   </p>
+
+                  {/* Accept/Decline buttons for list invites */}
+                  {notification.type === 'list_invite' && notification.inviteId && (
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={(e) => handleDeclineInvite(notification, e)}
+                        disabled={!!processingInvites[notification.id]}
+                        className="px-3 py-1.5 text-xs font-medium rounded-full border-2 border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
+                      >
+                        {processingInvites[notification.id] === 'declining' ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          'Decline'
+                        )}
+                      </button>
+                      <button
+                        onClick={(e) => handleAcceptInvite(notification, e)}
+                        disabled={!!processingInvites[notification.id]}
+                        className="px-3 py-1.5 text-xs font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                      >
+                        {processingInvites[notification.id] === 'accepting' ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : (
+                          'Accept'
+                        )}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 {/* Type indicator */}
