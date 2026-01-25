@@ -2,17 +2,97 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { List, Users, Plus, ArrowRight } from 'lucide-react';
+import { Flame, Sparkles } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+// Placeholder skeleton for trending movies
+function TrendingSkeleton() {
+  return (
+    <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <div key={i} className="flex-shrink-0 w-28">
+          <div className="aspect-[2/3] rounded-xl bg-muted animate-pulse border-2 border-border" />
+          <div className="mt-2 h-3 bg-muted rounded animate-pulse w-3/4" />
+          <div className="mt-1 h-2 bg-muted rounded animate-pulse w-1/2" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Placeholder skeleton for activity cards
+function ActivitySkeleton() {
+  return (
+    <div className="space-y-4">
+      {[1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="bg-card rounded-2xl border-[3px] dark:border-2 border-border p-4 shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none"
+        >
+          {/* Header */}
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
+            <div className="flex-1">
+              <div className="h-4 bg-muted rounded animate-pulse w-24 mb-1" />
+              <div className="h-3 bg-muted rounded animate-pulse w-16" />
+            </div>
+            <div className="h-6 w-16 bg-muted rounded-full animate-pulse" />
+          </div>
+
+          {/* Content */}
+          <div className="h-5 bg-muted rounded animate-pulse w-3/4 mb-2" />
+          <div className="h-3 bg-muted rounded animate-pulse w-1/2 mb-3" />
+
+          {/* Poster placeholder */}
+          <div className="aspect-video rounded-xl bg-muted animate-pulse mb-3" />
+
+          {/* Footer */}
+          <div className="flex items-center gap-4">
+            <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+            <div className="h-4 w-12 bg-muted rounded animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// Trending section placeholder
+function TrendingSection() {
+  return (
+    <section className="mb-6">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Flame className="h-5 w-5 text-orange-500" />
+          <h2 className="text-lg font-headline font-bold">Trending Today</h2>
+        </div>
+        <button className="text-sm text-primary font-medium hover:underline">
+          See all
+        </button>
+      </div>
+
+      <TrendingSkeleton />
+    </section>
+  );
+}
+
+// Activity section placeholder
+function ActivitySection() {
+  return (
+    <section>
+      <div className="flex items-center gap-2 mb-4">
+        <Sparkles className="h-5 w-5 text-primary" />
+        <h2 className="text-lg font-headline font-bold">Activity</h2>
+      </div>
+
+      <ActivitySkeleton />
+    </section>
+  );
+}
 
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
@@ -34,13 +114,13 @@ export default function HomePage() {
 
   return (
     <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8">
+      <div className="container mx-auto px-4 md:px-8 max-w-2xl">
         {/* Header */}
-        <header className="mb-8">
-          <div className="flex justify-between items-center mb-6">
+        <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-border/50 mb-6">
+          <div className="flex justify-between items-center">
             <div className="flex items-center gap-3">
-              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10" />
-              <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
+              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-9 w-9" />
+              <h1 className="text-xl font-headline font-bold">Cinechrony</h1>
             </div>
             <div className="flex items-center gap-2">
               <NotificationBell />
@@ -48,79 +128,13 @@ export default function HomePage() {
               <UserAvatar />
             </div>
           </div>
-          <p className="text-muted-foreground">
-            Welcome back! Here&apos;s what&apos;s happening.
-          </p>
         </header>
 
-        {/* Quick Actions */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
-          <Link href="/add">
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="h-12 w-12 bg-primary rounded-full flex items-center justify-center border-[3px] border-border">
-                  <Plus className="h-6 w-6 text-primary-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">Add Movie</h3>
-                  <p className="text-sm text-muted-foreground">Search and add to your list</p>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
+        {/* Trending Section */}
+        <TrendingSection />
 
-          <Link href="/lists">
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="h-12 w-12 bg-success rounded-full flex items-center justify-center border-[3px] border-border">
-                  <List className="h-6 w-6 text-success-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">My Lists</h3>
-                  <p className="text-sm text-muted-foreground">View your watchlists</p>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-
-          <Link href="/profile">
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:hover:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 dark:hover:translate-x-0 dark:hover:translate-y-0 transition-all duration-200 cursor-pointer h-full">
-              <CardContent className="flex items-center gap-4 p-6">
-                <div className="h-12 w-12 bg-secondary rounded-full flex items-center justify-center border-[3px] border-border">
-                  <Users className="h-6 w-6 text-foreground" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-lg">Find Friends</h3>
-                  <p className="text-sm text-muted-foreground">Connect with others</p>
-                </div>
-              </CardContent>
-            </Card>
-          </Link>
-        </div>
-
-        {/* Activity Feed Placeholder */}
-        <section>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-headline font-bold">Activity</h2>
-          </div>
-
-          <Card className="border-[3px] border-dashed border-border rounded-2xl bg-card">
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Coming Soon" className="h-16 w-16 opacity-50 mb-4" />
-              <h3 className="font-headline text-xl font-bold mb-2">Coming Soon!</h3>
-              <p className="text-muted-foreground max-w-md mb-6">
-                Activity feed will show what you and your friends are watching.
-                For now, head to your lists to add movies!
-              </p>
-              <Link href="/lists">
-                <Button className={`${retroButtonClass} bg-primary text-primary-foreground font-bold`}>
-                  Go to My Lists
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </Link>
-            </CardContent>
-          </Card>
-        </section>
+        {/* Activity Feed */}
+        <ActivitySection />
       </div>
 
       <BottomNav />
