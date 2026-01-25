@@ -335,3 +335,37 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   listInvites: true,
   weeklyDigest: true,
 };
+
+// ============================================
+// ACTIVITY FEED
+// ============================================
+
+export type ActivityType = 'added' | 'rated' | 'watched' | 'reviewed';
+
+export type Activity = {
+  id: string;
+  // Who performed the action
+  userId: string;
+  username: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+  // What action was performed
+  type: ActivityType;
+  // Movie context (denormalized for zero-fetch display)
+  tmdbId: number;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieYear: string;
+  mediaType: 'movie' | 'tv';
+  // Action-specific data
+  rating?: number; // For 'rated' type (1-10)
+  reviewText?: string; // For 'reviewed' type (preview)
+  reviewId?: string; // For 'reviewed' type
+  listId?: string; // For 'added' type
+  listName?: string; // For 'added' type
+  // Engagement
+  likes: number;
+  likedBy: string[];
+  // Timestamp
+  createdAt: Date;
+};

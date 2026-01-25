@@ -21,6 +21,7 @@ import {
 
 import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
+import { getImdbRating } from '@/app/actions';
 import {
   updateDocumentNonBlocking,
   deleteDocumentNonBlocking,
@@ -58,17 +59,6 @@ type MovieCardProps = {
   canEdit?: boolean; // Whether user can edit this movie
 };
 
-// OMDB API response type
-type OMDBResponse = {
-  Title: string;
-  Year: string;
-  imdbRating: string;
-  imdbVotes: string;
-  imdbID: string;
-  Response: string;
-  Error?: string;
-};
-
 // Extended movie details with IMDB data
 type ExtendedMovieDetails = TMDBMovieDetails & {
   imdbId?: string;
@@ -83,7 +73,6 @@ const retroInputClass =
   'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
-const OMDB_API_KEY = 'fc5ca6d0';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -166,18 +155,15 @@ async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails |
   }
 }
 
-// Fetch IMDB rating from OMDB API
-async function fetchOMDBRating(imdbId: string): Promise<OMDBResponse | null> {
+// Fetch IMDB rating from server action
+async function fetchOMDBRating(imdbId: string): Promise<{ imdbRating?: string; imdbVotes?: string } | null> {
   try {
-    const response = await fetch(
-      `https://www.omdbapi.com/?apikey=${OMDB_API_KEY}&i=${imdbId}`
-    );
-    if (!response.ok) return null;
-    const data: OMDBResponse = await response.json();
-    if (data.Response === 'True') {
-      return data;
-    }
-    return null;
+    const result = await getImdbRating(imdbId);
+    if (result.error) return null;
+    return {
+      imdbRating: result.imdbRating,
+      imdbVotes: result.imdbVotes,
+    };
   } catch {
     return null;
   }

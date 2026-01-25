@@ -131,6 +131,16 @@ Target: iOS PWA + Desktop
   ├── read (boolean)
   └── createdAt
 
+/activities/{activityId}
+  ├── userId, username, displayName, photoURL  # Denormalized
+  ├── type ('added' | 'rated' | 'watched' | 'reviewed')
+  ├── tmdbId, movieTitle, moviePosterUrl, movieYear, mediaType
+  ├── rating (for 'rated' type)
+  ├── reviewText, reviewId (for 'reviewed' type)
+  ├── listId, listName (for 'added' type)
+  ├── likes, likedBy[]
+  └── createdAt
+
 /usernames/{username}
   └── uid (for uniqueness enforcement)
 ```
@@ -166,7 +176,11 @@ src/
 │   ├── rating-slider.tsx  # 1-10 rating with HSL colors
 │   ├── reviews-list.tsx   # Movie reviews display
 │   ├── review-card.tsx    # Single review with threading, @mentions
-│   ├── notification-bell.tsx  # Header notification icon (deferred)
+│   ├── notification-bell.tsx  # Header notification icon
+│   ├── activity-feed.tsx  # Global activity feed with infinite scroll
+│   ├── activity-card.tsx  # Individual activity card
+│   ├── trending-movies.tsx # Trending movies carousel with IMDB ratings
+│   ├── pull-to-refresh.tsx # Pull-to-refresh gesture for mobile
 │   └── ...                # See src/components/CLAUDE.md
 │
 ├── firebase/
@@ -418,10 +432,9 @@ See `firestore.rules` for complete rules. Key principles:
 
 ## Known Issues & TODOs
 
-- [ ] Activity feed (Coming Soon placeholder)
-- [ ] OMDB API key exposed in client (should move to server)
+- [x] ~~OMDB API key exposed in client~~ (Fixed: moved to server via `getImdbRating` server action)
 - [ ] Some TypeScript errors suppressed in `next.config.ts`
-- [ ] Notifications UI deferred to Phase 3 (backend ready, needs Firestore index deployment)
+- [x] ~~Activity feed~~ (Implemented: global feed with infinite scroll, pull-to-refresh)
 - [x] ~~N+1 fetch problem~~ (Fixed: denormalization + ratings cache)
 - [x] ~~"Added by Someone" / "@user" for existing data~~ (Fixed: backfill script)
 - [x] ~~Bio/Top 5 not showing on public profiles~~ (Fixed: getUserByUsername now returns bio + favoriteMovies)
@@ -431,6 +444,7 @@ See `firestore.rules` for complete rules. Key principles:
 - [x] ~~Vercel image optimization quota exceeded~~ (Disabled: TMDB/R2 already CDN-optimized)
 - [x] ~~Comments threading~~ (Added: Instagram/TikTok style 1-level threading)
 - [x] ~~Letterboxd import guide missing images~~ (Added: 5-step screenshot tutorial)
+- [x] ~~Notifications UI~~ (Enabled: NotificationBell in header, real-time badge)
 
 ## Admin Scripts
 
@@ -484,3 +498,20 @@ See `firestore.rules` for complete rules. Key principles:
 ### UX Improvements
 - FAB buttons now show labels ("+ Add", "+ New List") for discoverability
 - Extended pill-shaped FABs instead of icon-only circles
+
+### Activity Feed (Phase 4)
+- Global activity feed on home page showing all user actions
+- Activity types: added (movie to list), rated, watched, reviewed
+- Trending movies carousel with TMDB trending/day + IMDB ratings
+- ActivityCard component with user avatar, action badge, movie poster
+- Like/unlike activities with optimistic updates
+- Infinite scroll using Intersection Observer (replaces "Load more" button)
+- Pull-to-refresh gesture for mobile (iOS PWA native feel)
+- Enhanced empty state with call-to-action
+- "You're all caught up!" end-of-feed indicator
+
+### Activity Feed Data Model
+- `/activities` collection stores denormalized activity documents
+- Activities created automatically when users: add movies, rate, mark watched, write reviews
+- Cursor-based pagination for efficient loading
+- Server actions: `getActivityFeed`, `likeActivity`, `unlikeActivity`, `createActivity` (internal)

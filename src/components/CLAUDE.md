@@ -26,8 +26,14 @@ src/components/
 │   ├── rate-on-watch-modal.tsx # Prompt to rate after watching
 │   └── write-review-input.tsx  # Review composer
 │
-├── Notifications (Deferred to Phase 3)
+├── Notifications
 │   └── notification-bell.tsx   # Header bell icon with unread count badge
+│
+├── Activity Feed (Home Page)
+│   ├── activity-feed.tsx       # Global feed with infinite scroll + pull-to-refresh
+│   ├── activity-card.tsx       # Individual activity card (added, rated, watched, reviewed)
+│   ├── trending-movies.tsx     # TMDB trending carousel with IMDB ratings
+│   └── pull-to-refresh.tsx     # Pull-to-refresh gesture component
 │
 ├── Lists & Collaboration
 │   ├── list-card.tsx           # List preview card
@@ -348,6 +354,71 @@ function renderTextWithMentions(text: string): React.ReactNode {
 - Replies have `parentId: rootCommentId`
 - All replies go under the root parent (1-level deep, like Instagram)
 - When replying to a reply, the text auto-fills with `@username`
+
+---
+
+## Activity Feed Components
+
+### activity-feed.tsx
+Global activity feed with infinite scroll and pull-to-refresh support:
+
+```typescript
+<ActivityFeed
+  currentUserId={user.uid}
+  refreshKey={refreshKey}  // Increment to trigger refresh
+/>
+```
+
+Features:
+- Infinite scroll via Intersection Observer (100px trigger margin)
+- Loading skeleton for initial load
+- Enhanced empty state with call-to-action
+- "You're all caught up!" end-of-feed indicator
+- Cursor-based pagination via `getActivityFeed(cursor)`
+
+### activity-card.tsx
+Individual activity card with user info, movie poster, and actions:
+
+```
+┌───────────────────────────────────────────────┐
+│ [Avatar] Username  [RATED badge]     ★ 8.5    │
+│          rated · 2 hours ago                  │
+├───────────────────────────────────────────────┤
+│ [Poster]  Movie Title                         │
+│           2024                                │
+│           "Review text preview..."            │
+├───────────────────────────────────────────────┤
+│ ♡ 12                          ⏰ 2 hours ago  │
+└───────────────────────────────────────────────┘
+```
+
+Activity types with color-coded badges:
+- **added** (blue): User added movie to a list
+- **rated** (yellow): User rated a movie
+- **watched** (green): User marked movie as watched
+- **reviewed** (purple): User wrote a review
+
+### trending-movies.tsx
+Horizontal scroll carousel of TMDB trending movies:
+- Fetches via `getTrendingMovies()` server action
+- IMDB ratings displayed with yellow IMDb badge
+- Falls back to TMDB rating if IMDB unavailable
+- Click opens `PublicMovieDetailsModal`
+
+### pull-to-refresh.tsx
+Touch gesture component for mobile pull-to-refresh:
+
+```typescript
+<PullToRefresh onRefresh={handleRefresh}>
+  {/* Content */}
+</PullToRefresh>
+```
+
+Features:
+- 80px pull threshold to trigger refresh
+- Visual indicator with arrow rotation
+- "Pull to refresh" → "Release to refresh" → "Refreshing..." states
+- Content transforms during pull for native feel
 
 ---
 
