@@ -10,6 +10,7 @@ import { useUser } from '@/firebase';
 import { getNotifications, markNotificationsRead } from '@/app/actions';
 import { formatDistanceToNow } from 'date-fns';
 import type { Notification } from '@/lib/types';
+import { PushNotificationPrompt } from '@/components/push-notification-prompt';
 
 export default function NotificationsPage() {
   const router = useRouter();
@@ -138,6 +139,9 @@ export default function NotificationsPage() {
 
       {/* Content */}
       <div className="container mx-auto px-4 py-4">
+        {/* Push notification prompt - shows only if not enabled */}
+        <PushNotificationPrompt variant="banner" />
+
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-8 w-8 animate-spin" />
