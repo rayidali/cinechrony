@@ -434,6 +434,26 @@ export async function addMovieToList(formData: FormData) {
         updatedAt: FieldValue.serverTimestamp(),
         movieCount: FieldValue.increment(1),
       });
+
+      // Create activity for new movie additions
+      try {
+        const listDoc = await listRef.get();
+        const listData = listDoc.data();
+        await createActivity(db, {
+          userId,
+          type: 'added',
+          tmdbId: movieData.tmdbId || parseInt(movieData.id, 10) || 0,
+          movieTitle: movieData.title,
+          moviePosterUrl: movieData.posterUrl || null,
+          movieYear: movieData.year,
+          mediaType: mediaType,
+          listId,
+          listName: listData?.name || 'Watchlist',
+        });
+      } catch (activityError) {
+        console.error('[addMovieToList] Failed to create activity:', activityError);
+        // Don't fail the whole operation if activity creation fails
+      }
     } else {
       await listRef.update({
         updatedAt: FieldValue.serverTimestamp(),
@@ -524,6 +544,10 @@ export async function updateMovieStatus(
       .collection('movies')
       .doc(movieId);
 
+    // Get movie data before update for activity creation
+    const movieDoc = await movieRef.get();
+    const movieData = movieDoc.data();
+
     await movieRef.update({
       status,
     });
@@ -537,6 +561,23 @@ export async function updateMovieStatus(
       .update({
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+    // Create 'watched' activity when marking as Watched
+    if (status === 'Watched' && movieData) {
+      try {
+        await createActivity(db, {
+          userId,
+          type: 'watched',
+          tmdbId: movieData.tmdbId || 0,
+          movieTitle: movieData.title || 'Unknown',
+          moviePosterUrl: movieData.posterUrl || null,
+          movieYear: movieData.year || '',
+          mediaType: movieData.mediaType || 'movie',
+        });
+      } catch (activityError) {
+        console.error('[updateMovieStatus] Failed to create activity:', activityError);
+      }
+    }
 
     revalidatePath(`/lists/${listId}`);
     return { success: true };
@@ -2914,6 +2955,25 @@ export async function createReview(
       console.error('[createReview] Mention notifications failed:', err);
     }
 
+    // Create 'reviewed' activity for top-level reviews only (not replies)
+    if (!parentId) {
+      try {
+        await createActivity(db, {
+          userId,
+          type: 'reviewed',
+          tmdbId,
+          movieTitle,
+          moviePosterUrl: moviePosterUrl || null,
+          movieYear: '', // Not available in review context
+          mediaType,
+          reviewText: text.trim().substring(0, 200), // Preview text
+          reviewId: reviewRef.id,
+        });
+      } catch (activityError) {
+        console.error('[createReview] Failed to create activity:', activityError);
+      }
+    }
+
     return {
       success: true,
       review: {
@@ -3271,6 +3331,8 @@ export async function createOrUpdateRating(
       updatedAt: FieldValue.serverTimestamp(),
     };
 
+    const isNewRating = !existingDoc.exists;
+
     if (existingDoc.exists) {
       // Update existing rating
       await ratingRef.update(ratingData);
@@ -3280,6 +3342,24 @@ export async function createOrUpdateRating(
         ...ratingData,
         createdAt: FieldValue.serverTimestamp(),
       });
+    }
+
+    // Create activity for new ratings
+    if (isNewRating) {
+      try {
+        await createActivity(db, {
+          userId,
+          type: 'rated',
+          tmdbId,
+          movieTitle,
+          moviePosterUrl: moviePosterUrl || null,
+          movieYear: '', // Year not available in rating context
+          mediaType,
+          rating: roundedRating,
+        });
+      } catch (activityError) {
+        console.error('[createOrUpdateRating] Failed to create activity:', activityError);
+      }
     }
 
     return {
@@ -5200,5 +5280,197 @@ export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; er
   } catch (error) {
     console.error('[getTrendingMovies] Failed:', error);
     return { movies: [], error: 'Failed to fetch trending movies' };
+  }
+}
+
+// ============================================
+// ACTIVITY FEED
+// ============================================
+
+import type { Activity, ActivityType } from '@/lib/types';
+
+/**
+ * Create an activity entry (internal helper - not exported as server action)
+ */
+async function createActivity(
+  db: FirebaseFirestore.Firestore,
+  data: {
+    userId: string;
+    type: ActivityType;
+    tmdbId: number;
+    movieTitle: string;
+    moviePosterUrl: string | null;
+    movieYear: string;
+    mediaType: 'movie' | 'tv';
+    rating?: number;
+    reviewText?: string;
+    reviewId?: string;
+    listId?: string;
+    listName?: string;
+  }
+) {
+  try {
+    // Get user data for denormalization
+    const userDoc = await db.collection('users').doc(data.userId).get();
+    const userData = userDoc.data();
+
+    const activityRef = db.collection('activities').doc();
+    await activityRef.set({
+      id: activityRef.id,
+      userId: data.userId,
+      username: userData?.username || null,
+      displayName: userData?.displayName || null,
+      photoURL: userData?.photoURL || null,
+      type: data.type,
+      tmdbId: data.tmdbId,
+      movieTitle: data.movieTitle,
+      moviePosterUrl: data.moviePosterUrl,
+      movieYear: data.movieYear,
+      mediaType: data.mediaType,
+      rating: data.rating,
+      reviewText: data.reviewText,
+      reviewId: data.reviewId,
+      listId: data.listId,
+      listName: data.listName,
+      likes: 0,
+      likedBy: [],
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    return { success: true, activityId: activityRef.id };
+  } catch (error) {
+    console.error('[createActivity] Failed:', error);
+    return { error: 'Failed to create activity' };
+  }
+}
+
+/**
+ * Get global activity feed with pagination.
+ */
+export async function getActivityFeed(
+  cursor?: string,
+  limit: number = 20
+): Promise<{ activities: Activity[]; nextCursor?: string; error?: string }> {
+  const db = getDb();
+
+  try {
+    let query = db
+      .collection('activities')
+      .orderBy('createdAt', 'desc')
+      .limit(limit + 1); // Fetch one extra to determine if there's more
+
+    // If cursor provided, start after that document
+    if (cursor) {
+      const cursorDoc = await db.collection('activities').doc(cursor).get();
+      if (cursorDoc.exists) {
+        query = query.startAfter(cursorDoc);
+      }
+    }
+
+    const snapshot = await query.get();
+    const docs = snapshot.docs;
+
+    // Check if there are more results
+    const hasMore = docs.length > limit;
+    const activitiesData = hasMore ? docs.slice(0, limit) : docs;
+
+    const activities: Activity[] = activitiesData.map(doc => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        userId: data.userId,
+        username: data.username,
+        displayName: data.displayName,
+        photoURL: data.photoURL,
+        type: data.type,
+        tmdbId: data.tmdbId,
+        movieTitle: data.movieTitle,
+        moviePosterUrl: data.moviePosterUrl,
+        movieYear: data.movieYear,
+        mediaType: data.mediaType,
+        rating: data.rating,
+        reviewText: data.reviewText,
+        reviewId: data.reviewId,
+        listId: data.listId,
+        listName: data.listName,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
+        createdAt: data.createdAt?.toDate() || new Date(),
+      };
+    });
+
+    return {
+      activities,
+      nextCursor: hasMore ? activitiesData[activitiesData.length - 1].id : undefined,
+    };
+  } catch (error) {
+    console.error('[getActivityFeed] Failed:', error);
+    return { activities: [], error: 'Failed to fetch activity feed' };
+  }
+}
+
+/**
+ * Like an activity.
+ */
+export async function likeActivity(userId: string, activityId: string) {
+  const db = getDb();
+
+  try {
+    const activityRef = db.collection('activities').doc(activityId);
+    const activityDoc = await activityRef.get();
+
+    if (!activityDoc.exists) {
+      return { error: 'Activity not found.' };
+    }
+
+    const activityData = activityDoc.data();
+    const likedBy = activityData?.likedBy || [];
+
+    if (likedBy.includes(userId)) {
+      return { error: 'Already liked.' };
+    }
+
+    await activityRef.update({
+      likes: FieldValue.increment(1),
+      likedBy: FieldValue.arrayUnion(userId),
+    });
+
+    return { success: true, likes: (activityData?.likes || 0) + 1 };
+  } catch (error) {
+    console.error('[likeActivity] Failed:', error);
+    return { error: 'Failed to like activity.' };
+  }
+}
+
+/**
+ * Unlike an activity.
+ */
+export async function unlikeActivity(userId: string, activityId: string) {
+  const db = getDb();
+
+  try {
+    const activityRef = db.collection('activities').doc(activityId);
+    const activityDoc = await activityRef.get();
+
+    if (!activityDoc.exists) {
+      return { error: 'Activity not found.' };
+    }
+
+    const activityData = activityDoc.data();
+    const likedBy = activityData?.likedBy || [];
+
+    if (!likedBy.includes(userId)) {
+      return { error: 'Not liked.' };
+    }
+
+    await activityRef.update({
+      likes: FieldValue.increment(-1),
+      likedBy: FieldValue.arrayRemove(userId),
+    });
+
+    return { success: true, likes: Math.max(0, (activityData?.likes || 0) - 1) };
+  } catch (error) {
+    console.error('[unlikeActivity] Failed:', error);
+    return { error: 'Failed to unlike activity.' };
   }
 }
