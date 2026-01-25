@@ -149,9 +149,9 @@ type UserRating = {
 };
 ```
 
-### Notifications (Deferred to Phase 3)
+### Notifications
 ```typescript
-type NotificationType = 'mention' | 'reply';
+type NotificationType = 'mention' | 'reply' | 'like' | 'follow' | 'list_invite';
 
 type Notification = {
   id: string;
@@ -161,13 +161,18 @@ type Notification = {
   fromUsername: string | null;
   fromDisplayName: string | null;
   fromPhotoUrl: string | null;
-  reviewId: string;
-  tmdbId: number;
-  mediaType: 'movie' | 'tv';
-  movieTitle: string;
-  previewText: string;
+  reviewId?: string;
+  tmdbId?: number;
+  mediaType?: 'movie' | 'tv';
+  movieTitle?: string;
+  previewText?: string;
   read: boolean;
   createdAt: Date;
+  // For list_invite notifications
+  inviteId?: string;            // To accept/decline from notification
+  listId?: string;
+  listName?: string;
+  listOwnerId?: string;
 };
 ```
 

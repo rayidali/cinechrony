@@ -409,16 +409,26 @@ Horizontal scroll carousel of TMDB trending movies:
 Touch gesture component for mobile pull-to-refresh:
 
 ```typescript
-<PullToRefresh onRefresh={handleRefresh}>
+<PullToRefresh
+  onRefresh={handleRefresh}
+  disabled={isModalOpen}  // Disable when modals are open
+>
   {/* Content */}
 </PullToRefresh>
 ```
 
 Features:
-- 80px pull threshold to trigger refresh
-- Visual indicator with arrow rotation
+- 70px pull threshold to trigger refresh
+- **Direction locking**: Tracks both X and Y movement, only triggers for primarily vertical swipes (fixes diagonal swipe issue)
+- Non-passive touch event listeners to allow `preventDefault()` during pull
+- `disabled` prop to prevent refresh when modals/drawers are open
+- Visual indicator with spinner rotation
 - "Pull to refresh" → "Release to refresh" → "Refreshing..." states
 - Content transforms during pull for native feel
+- Haptic feedback via `navigator.vibrate()` if available
+- `overscrollBehaviorY: 'contain'` prevents browser's native pull-to-refresh
+
+**Used on pages**: Home, Lists, Individual List, Profile, Notifications
 
 ---
 

@@ -122,11 +122,12 @@ Target: iOS PWA + Desktop
   ├── rating (1.0-10.0)
   └── createdAt, updatedAt
 
-/notifications/{notificationId}  # Deferred to Phase 3
+/notifications/{notificationId}
   ├── userId (recipient)
-  ├── type ('mention' | 'reply')
+  ├── type ('mention' | 'reply' | 'like' | 'follow' | 'list_invite')
   ├── fromUserId, fromUsername, fromDisplayName, fromPhotoUrl
-  ├── reviewId, tmdbId, mediaType, movieTitle
+  ├── reviewId, tmdbId, mediaType, movieTitle (for review notifications)
+  ├── inviteId, listId, listName, listOwnerId (for list_invite notifications)
   ├── previewText
   ├── read (boolean)
   └── createdAt
@@ -161,7 +162,7 @@ src/
 │   │   └── comments/      # Full-screen comments/reviews page
 │   ├── profile/           # User profile
 │   │   └── [username]/    # Public profiles + lists
-│   ├── notifications/     # Notifications page (deferred to Phase 3)
+│   ├── notifications/     # Notifications page (mentions, replies, invites)
 │   ├── onboarding/        # New user onboarding flow
 │   │   └── components/    # Letterboxd import guide, etc.
 │   ├── invite/[code]/     # Invite acceptance
@@ -464,11 +465,11 @@ See `firestore.rules` for complete rules. Key principles:
 - Swipe-back gesture returns to movie modal (iOS PWA)
 - Like/unlike comments, sort by recent or top
 
-### Notifications (Phase 3 - Deferred)
-- Backend ready: notifications created for @mentions and replies
-- UI components built but disabled (NotificationBell commented out)
-- Requires Firestore index deployment before enabling
-- Will revisit in dedicated phase
+### Notifications (Phase 3 - Complete)
+- Full notifications system: @mentions, replies, likes, follows, list invites
+- NotificationBell in header with real-time unread count badge
+- Accept/Decline buttons for list invites directly in notifications page
+- Notifications auto-deleted when invites are accepted/declined
 
 ### Letterboxd Import
 - Step-by-step guide with 5 screenshot images
@@ -515,3 +516,23 @@ See `firestore.rules` for complete rules. Key principles:
 - Activities created automatically when users: add movies, rate, mark watched, write reviews
 - Cursor-based pagination for efficient loading
 - Server actions: `getActivityFeed`, `likeActivity`, `unlikeActivity`, `createActivity` (internal)
+
+### Security Fixes
+- **Critical**: Fixed unauthorized list editing vulnerability where users could gain edit access to public lists by navigating from comments page back to list view
+- Root cause: Permission check was based on `collabListData` being truthy (any public list), instead of verifying user's UID is in `collaboratorIds` array
+- Added `returnPath` parameter to comments page to preserve original route context (e.g., `/profile/username/lists/listId`)
+
+### Notifications Improvements
+- Accept/Decline buttons for `list_invite` notifications directly in notification page
+- `inviteId` field added to Notification type for handling invites
+- Notifications auto-deleted when invite is accepted or declined (queries by `listId` for backwards compatibility with older invites)
+
+### Collaboration System Improvements
+- Real-time collaborator updates: `ListHeader` and settings page now track `collaboratorIds` changes and invalidate cache immediately
+- No more 5-minute delay when someone accepts an invite - collaborator appears instantly via Firestore real-time subscription
+
+### Pull-to-Refresh Universal Support
+- Improved `PullToRefresh` component with direction locking (fixes diagonal swipe triggering refresh)
+- Uses non-passive touch event listeners to allow `preventDefault()`
+- Added `disabled` prop for when modals are open
+- Now available on all main pages: Home, Lists, Individual List, Profile, Notifications
