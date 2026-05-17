@@ -57,8 +57,8 @@ export function FollowButton({
     setIsLoading(true);
     try {
       if (following) {
-        const result = await unfollowUser(user.uid, targetUserId);
-        if (result.error) {
+        const result = await unfollowUser(await user.getIdToken(), targetUserId);
+        if ('error' in result) {
           toast({ variant: 'destructive', title: 'Error', description: result.error });
         } else {
           setFollowing(false);
@@ -66,8 +66,8 @@ export function FollowButton({
           toast({ title: 'Unfollowed', description: `You unfollowed @${targetUsername}` });
         }
       } else {
-        const result = await followUser(user.uid, targetUserId);
-        if (result.error) {
+        const result = await followUser(await user.getIdToken(), targetUserId);
+        if ('error' in result) {
           toast({ variant: 'destructive', title: 'Error', description: result.error });
         } else {
           setFollowing(true);

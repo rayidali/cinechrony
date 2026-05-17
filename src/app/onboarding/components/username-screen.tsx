@@ -125,13 +125,13 @@ export function UsernameScreen({
     setIsSubmitting(true);
     try {
       const result = await createUserProfileWithUsername(
-        user.uid,
+        await user.getIdToken(),
         user.email || '',
         username.toLowerCase(),
         displayName || null
       );
 
-      if (result.error) {
+      if ('error' in result) {
         if (result.error.includes('taken')) {
           setStatus('taken');
           toast({
@@ -174,8 +174,13 @@ export function UsernameScreen({
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">
           What should we call you?
         </h1>
-        <p className="text-muted-foreground text-center mb-8">
+        <p className="text-muted-foreground text-center mb-1">
           Choose a unique username
+        </p>
+        {/* AUDIT.md 2.3 (Option A): set expectations at the moment of choice. */}
+        <p className="text-xs text-muted-foreground text-center mb-8">
+          Your <span className="font-semibold">@handle is permanent</span> — pick
+          carefully. You can change your display name and photo anytime.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

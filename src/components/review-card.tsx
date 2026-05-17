@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
 import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
+import { useAuth } from '@/firebase';
 import type { Review } from '@/lib/types';
 
 /**
@@ -68,6 +69,7 @@ interface ReviewCardProps {
 
 export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit, onReply, isReply = false }: ReviewCardProps) {
   const { toast } = useToast();
+  const auth = useAuth();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
     currentUserId ? review.likedBy.includes(currentUserId) : false
@@ -89,20 +91,20 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
     setIsLiking(true);
     try {
       if (isLiked) {
-        const result = await unlikeReview(currentUserId, review.id);
-        if (result.success) {
+        const result = await unlikeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        if ('error' in result) {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        } else {
           setLikes(result.likes ?? likes - 1);
           setIsLiked(false);
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
         }
       } else {
-        const result = await likeReview(currentUserId, review.id);
-        if (result.success) {
+        const result = await likeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        if ('error' in result) {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        } else {
           setLikes(result.likes ?? likes + 1);
           setIsLiked(true);
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
         }
       }
     } catch {
@@ -117,12 +119,12 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
 
     setIsDeleting(true);
     try {
-      const result = await deleteReview(currentUserId, review.id);
-      if (result.success) {
+      const result = await deleteReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+      if ('error' in result) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
         toast({ title: 'Deleted', description: 'Your review has been deleted.' });
         onDelete?.(review.id);
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete review.' });

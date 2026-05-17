@@ -56,8 +56,8 @@ export default function InvitePage() {
 
     setIsAccepting(true);
     try {
-      const result = await acceptInvite(user.uid, undefined, inviteCode);
-      if (result.error) {
+      const result = await acceptInvite(await user.getIdToken(), undefined, inviteCode);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({

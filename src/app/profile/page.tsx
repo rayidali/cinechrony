@@ -9,7 +9,6 @@ import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
@@ -22,7 +21,7 @@ import { UserSearch } from '@/components/user-search';
 import { ListCard } from '@/components/list-card';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { updateUsername, getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio, getListsPreviews, getListPreview } from '@/app/actions';
+import { getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio, getListsPreviews, getListPreview } from '@/app/actions';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
@@ -40,9 +39,7 @@ export default function MyProfilePage() {
   const auth = useAuth();
   const { toast } = useToast();
 
-  const [isEditingUsername, setIsEditingUsername] = useState(false);
-  const [newUsername, setNewUsername] = useState('');
-  const [isSavingUsername, setIsSavingUsername] = useState(false);
+  // AUDIT.md 2.3 (Option A): usernames are permanent — no edit state needed.
   const [followers, setFollowers] = useState<UserProfile[]>([]);
   const [following, setFollowing] = useState<UserProfile[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
@@ -87,11 +84,6 @@ export default function MyProfilePage() {
     }
   }, [user, isUserLoading, router]);
 
-  useEffect(() => {
-    if (userProfile?.username) {
-      setNewUsername(userProfile.username);
-    }
-  }, [userProfile?.username]);
 
   useEffect(() => {
     if (userProfile?.bio !== undefined) {
@@ -139,7 +131,7 @@ export default function MyProfilePage() {
 
       try {
         const listIds = lists.map((list) => list.id);
-        const result = await getListsPreviews(user.uid, listIds);
+        const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
         if (result.previews) {
           setListPreviews(result.previews);
         }
@@ -160,7 +152,7 @@ export default function MyProfilePage() {
         const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
         await Promise.all(
           collaborativeLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id);
+            const result = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -176,30 +168,13 @@ export default function MyProfilePage() {
     fetchCollabPreviews();
   }, [collaborativeLists]);
 
-  const handleSaveUsername = async () => {
-    if (!user || !newUsername.trim()) return;
-
-    setIsSavingUsername(true);
-    try {
-      const result = await updateUsername(user.uid, newUsername);
-      if (result.error) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'Username Updated', description: `Your username is now @${result.username}` });
-        setIsEditingUsername(false);
-      }
-    } finally {
-      setIsSavingUsername(false);
-    }
-  };
-
   const handleSaveBio = async () => {
     if (!user) return;
 
     setIsSavingBio(true);
     try {
-      const result = await updateBio(user.uid, newBio);
-      if (result.error) {
+      const result = await updateBio(await user.getIdToken(), newBio);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Bio Updated', description: 'Your bio has been saved.' });
@@ -246,9 +221,9 @@ export default function MyProfilePage() {
 
   const handleToggleVisibility = async (listId: string, currentlyPublic: boolean) => {
     if (!user) return;
-    // For user's own lists, userId and listOwnerId are the same
-    const result = await toggleListVisibility(user.uid, user.uid, listId);
-    if (result.error) {
+    // For user's own lists, the caller (token) and listOwnerId are the same.
+    const result = await toggleListVisibility(await user.getIdToken(), user.uid, listId);
+    if ('error' in result) {
       toast({ variant: 'destructive', title: 'Error', description: result.error });
     } else {
       toast({
@@ -263,8 +238,8 @@ export default function MyProfilePage() {
   const handleAcceptInvite = async (invite: ListInvite) => {
     if (!user) return;
     try {
-      const result = await acceptInvite(user.uid, invite.id);
-      if (result.error) {
+      const result = await acceptInvite(await user.getIdToken(), invite.id);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Invite Accepted', description: `You are now a collaborator on "${invite.listName}"` });
@@ -282,8 +257,8 @@ export default function MyProfilePage() {
   const handleDeclineInvite = async (invite: ListInvite) => {
     if (!user) return;
     try {
-      const result = await declineInvite(user.uid, invite.id);
-      if (result.error) {
+      const result = await declineInvite(await user.getIdToken(), invite.id);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Invite Declined', description: 'The invite has been declined.' });
@@ -297,8 +272,8 @@ export default function MyProfilePage() {
 
   const handleAvatarChange = async (newPhotoURL: string) => {
     if (!user) return;
-    const result = await updateProfilePhoto(user.uid, newPhotoURL);
-    if (result.error) {
+    const result = await updateProfilePhoto(await user.getIdToken(), newPhotoURL);
+    if ('error' in result) {
       throw new Error(result.error);
     }
   };
@@ -319,7 +294,7 @@ export default function MyProfilePage() {
     // Refresh own list previews
     if (lists && lists.length > 0) {
       const listIds = lists.map((list) => list.id);
-      const previewsResult = await getListsPreviews(user.uid, listIds);
+      const previewsResult = await getListsPreviews(user.uid, listIds, await user.getIdToken());
       if (previewsResult.previews) {
         setListPreviews(previewsResult.previews);
       }
@@ -330,7 +305,7 @@ export default function MyProfilePage() {
       const collabPreviews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
       await Promise.all(
         collabResult.lists.map(async (list) => {
-          const result = await getListPreview(list.ownerId, list.id);
+          const result = await getListPreview(list.ownerId, list.id, await user.getIdToken());
           collabPreviews[list.id] = {
             previewPosters: result.previewPosters || [],
             movieCount: result.movieCount || 0,
@@ -413,53 +388,16 @@ export default function MyProfilePage() {
               {userProfile?.displayName || user.displayName || 'User'}
             </h1>
 
-            {/* Username */}
+            {/* Username — permanent (AUDIT.md 2.3 Option A). Display name &
+                photo remain editable; the @handle is fixed at signup. */}
             <div className="flex items-center gap-2 mt-2">
-              {isEditingUsername ? (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">@</span>
-                  <Input
-                    value={newUsername}
-                    onChange={(e) => setNewUsername(e.target.value.toLowerCase().replace(/[^a-z0-9]/g, ''))}
-                    className={`${retroInputClass} w-40`}
-                    maxLength={20}
-                  />
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={handleSaveUsername}
-                    disabled={isSavingUsername}
-                  >
-                    {isSavingUsername ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Check className="h-4 w-4 text-green-600" />
-                    )}
-                  </Button>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => {
-                      setIsEditingUsername(false);
-                      setNewUsername(userProfile?.username || '');
-                    }}
-                  >
-                    <X className="h-4 w-4 text-red-600" />
-                  </Button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="text-muted-foreground">@{userProfile?.username || 'loading...'}</span>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    onClick={() => setIsEditingUsername(true)}
-                    className="h-8 w-8"
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                </div>
-              )}
+              <span className="text-muted-foreground">@{userProfile?.username || 'loading...'}</span>
+              <span
+                className="text-[10px] uppercase tracking-wide text-muted-foreground/70 border border-border rounded px-1.5 py-0.5"
+                title="Your @handle is permanent. You can still change your display name and photo anytime."
+              >
+                Permanent
+              </span>
             </div>
 
             {/* Bio */}
@@ -864,7 +802,7 @@ export default function MyProfilePage() {
               // Refresh list previews
               if (user && lists) {
                 const listIds = lists.map((list) => list.id);
-                const result = await getListsPreviews(user.uid, listIds);
+                const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
                 if (result.previews) {
                   setListPreviews(result.previews);
                 }

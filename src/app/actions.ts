@@ -5,6 +5,8 @@ import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, Activ
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp } from '@/firebase/admin';
+import { verifyCaller, isAuthError } from '@/lib/auth-server';
+import { randomInt } from 'node:crypto';
 
 // --- HELPER ---
 function getDb() {
@@ -54,19 +56,24 @@ async function generateUniqueUsername(db: FirebaseFirestore.Firestore, email: st
 /**
  * Creates a user profile and default list when a user signs up.
  */
-export async function createUserProfile(userId: string, email: string, displayName: string | null) {
+// Private: actual profile + default-list creation, keyed by an ALREADY-TRUSTED
+// uid. Reached only via the token-gated createUserProfile() wrapper below, or
+// server-to-server from ensureUserProfile() (which has already verified the
+// caller). Never export this — it does no auth of its own.
+async function createProfileAndDefaultList(userId: string, email: string, displayName: string | null) {
   const db = getDb();
 
   try {
     // Generate unique username
     const username = await generateUniqueUsername(db, email, displayName);
 
-    // Create user profile document
+    // Create user profile document.
+    // AUDIT.md 1.9: /users/{uid} is PUBLICLY readable (firestore.rules) and
+    // Firestore can't field-mask, so email must NOT live here. Private fields
+    // go to /users_private/{uid} (server-only; client read denied in rules).
     const userRef = db.collection('users').doc(userId);
     await userRef.set({
       uid: userId,
-      email: email,
-      emailLower: email.toLowerCase(),
       displayName: displayName,
       displayNameLower: displayName?.toLowerCase() || null,
       photoURL: null,
@@ -75,6 +82,12 @@ export async function createUserProfile(userId: string, email: string, displayNa
       followersCount: 0,
       followingCount: 0,
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    await db.collection('users_private').doc(userId).set({
+      uid: userId,
+      email: email,
+      emailLower: email.toLowerCase(),
     });
 
     // Create default list
@@ -97,10 +110,25 @@ export async function createUserProfile(userId: string, email: string, displayNa
 }
 
 /**
+ * Public, token-gated entry point. Called right after Firebase signup — the
+ * client is authenticated by then, so getIdToken() yields a valid token whose
+ * uid is the new user. We create the profile for THAT uid, never a client param.
+ */
+export async function createUserProfile(idToken: string, email: string, displayName: string | null) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  return createProfileAndDefaultList(auth.uid, email, displayName);
+}
+
+/**
  * Ensures a user has a profile and default list (for existing users).
  * Also migrates existing users to have social fields.
  */
-export async function ensureUserProfile(userId: string, email: string, displayName: string | null) {
+export async function ensureUserProfile(idToken: string, email: string, displayName: string | null) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -108,8 +136,9 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-      // Create profile if it doesn't exist
-      return await createUserProfile(userId, email, displayName);
+      // Create profile if it doesn't exist. ensureUserProfile already verified
+      // the caller, so call the private uid-keyed helper (not the token wrapper).
+      return await createProfileAndDefaultList(userId, email, displayName);
     }
 
     // Check if user needs social fields migration
@@ -122,14 +151,19 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
 
     if (needsMigration) {
       const username = userData?.username || await generateUniqueUsername(db, email, displayName);
+      // AUDIT.md 1.9: emailLower no longer written to the public doc.
       await userRef.update({
         username: username,
         usernameLower: username.toLowerCase(),
-        emailLower: (userData?.email || email).toLowerCase(),
         displayNameLower: (userData?.displayName || displayName)?.toLowerCase() || null,
         followersCount: userData?.followersCount ?? 0,
         followingCount: userData?.followingCount ?? 0,
       });
+      await db.collection('users_private').doc(userId).set({
+        uid: userId,
+        email: userData?.email || email,
+        emailLower: (userData?.email || email).toLowerCase(),
+      }, { merge: true });
       console.log(`[ensureUserProfile] Migrated user ${userId} with username: ${username}`);
     }
 
@@ -175,7 +209,11 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
 /**
  * Creates a new list for a user.
  */
-export async function createList(userId: string, name: string, isPublic: boolean = true) {
+export async function createList(idToken: string, name: string, isPublic: boolean = true) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -202,7 +240,11 @@ export async function createList(userId: string, name: string, isPublic: boolean
  * Renames a list.
  * Only the list owner can rename.
  */
-export async function renameList(userId: string, listOwnerId: string, listId: string, newName: string) {
+export async function renameList(idToken: string, listOwnerId: string, listId: string, newName: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -230,7 +272,11 @@ export async function renameList(userId: string, listOwnerId: string, listId: st
  * Update list description.
  * Only the list owner can update the description.
  */
-export async function updateListDescription(userId: string, listOwnerId: string, listId: string, description: string) {
+export async function updateListDescription(idToken: string, listOwnerId: string, listId: string, description: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -258,7 +304,11 @@ export async function updateListDescription(userId: string, listOwnerId: string,
  * Update list visibility (public/private).
  * Only the list owner can update visibility.
  */
-export async function updateListVisibility(userId: string, listOwnerId: string, listId: string, isPublic: boolean) {
+export async function updateListVisibility(idToken: string, listOwnerId: string, listId: string, isPublic: boolean) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -287,7 +337,11 @@ export async function updateListVisibility(userId: string, listOwnerId: string, 
  * Cannot delete the default list.
  * Only the list owner can delete.
  */
-export async function deleteList(userId: string, listOwnerId: string, listId: string) {
+export async function deleteList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -351,8 +405,13 @@ export async function addMovieToList(formData: FormData) {
   const db = getDb();
 
   try {
+    // AUDIT.md Phase 1 (FormData variant): identity comes from a verified token
+    // carried in the FormData, NOT a client-supplied 'userId' field.
+    const auth = await verifyCaller(formData.get('idToken'));
+    if (isAuthError(auth)) return auth;
+    const userId = auth.uid;
+
     const movieData = JSON.parse(formData.get('movieData') as string) as SearchResult;
-    const userId = formData.get('userId') as string;
     const listId = formData.get('listId') as string;
     const socialLink = formData.get('socialLink') as string;
     const note = formData.get('note') as string;
@@ -473,11 +532,15 @@ export async function addMovieToList(formData: FormData) {
  * Supports collaborative lists - user can be owner or collaborator.
  */
 export async function removeMovieFromList(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -521,12 +584,16 @@ export async function removeMovieFromList(
  * Supports collaborative lists - user can be owner or collaborator.
  */
 export async function updateMovieStatus(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string,
   status: 'To Watch' | 'Watched'
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -592,12 +659,19 @@ export async function updateMovieStatus(
  * Notes are stored per-user in the movie document.
  */
 export async function updateMovieNote(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string,
   note: string
 ) {
+  // AUDIT.md 1.6: note was keyed `notes.${userId}` with a client-supplied
+  // userId — a collaborator could spoof or delete ANOTHER member's note.
+  // Keyed to the verified caller now: you can only ever touch your own note.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -659,64 +733,18 @@ export async function updateMovieNote(
   }
 }
 
-/**
- * Legacy addMovie function for backward compatibility.
- * Adds movie to user's default list.
- */
-export async function addMovie(formData: FormData) {
-  const db = getDb();
-
-  try {
-    const movieData = JSON.parse(formData.get('movieData') as string) as SearchResult;
-    const addedBy = formData.get('addedBy') as string;
-    const socialLink = formData.get('socialLink') as string;
-
-    if (!movieData || !addedBy) {
-      throw new Error('Missing movie data or user ID.');
-    }
-
-    // Find user's default list
-    const listsSnapshot = await db
-      .collection('users')
-      .doc(addedBy)
-      .collection('lists')
-      .where('isDefault', '==', true)
-      .limit(1)
-      .get();
-
-    let listId: string;
-
-    if (listsSnapshot.empty) {
-      // Create default list if none exists
-      const result = await ensureUserProfile(addedBy, '', null);
-      if ('error' in result || !result.defaultListId) {
-        throw new Error('Could not find or create default list.');
-      }
-      listId = result.defaultListId;
-    } else {
-      listId = listsSnapshot.docs[0].id;
-    }
-
-    // Add movie to the default list
-    const newFormData = new FormData();
-    newFormData.append('movieData', JSON.stringify(movieData));
-    newFormData.append('userId', addedBy);
-    newFormData.append('listId', listId);
-    newFormData.append('socialLink', socialLink || '');
-
-    return await addMovieToList(newFormData);
-  } catch (error) {
-    console.error('Failed to add movie:', error);
-    return { error: 'Failed to add movie.' };
-  }
-}
-
+// Legacy addMovie() removed (AUDIT.md 4.3 / Phase 1): dead code, no callers,
+// and was a reachable POST endpoint that trusted a client-supplied addedBy.
 /**
  * Migrates movies from the old structure to a list.
  * Old: users/{userId}/movies/{movieId}
  * New: users/{userId}/lists/{listId}/movies/{movieId}
  */
-export async function migrateMoviesToList(userId: string, listId: string) {
+export async function migrateMoviesToList(idToken: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -970,7 +998,21 @@ export async function getUserByUsername(username: string) {
 /**
  * Update a user's username.
  */
-export async function updateUsername(userId: string, newUsername: string) {
+/**
+ * AUDIT.md 2.3 (Option A): usernames are IMMUTABLE for users — frozen at
+ * signup. This eliminates the worst denormalization-staleness class (stale
+ * @handles breaking profile URLs / @mentions / search). It is intentionally
+ * NOT user-callable: it is an ADMIN escape hatch (trademark/abuse/typo support
+ * tickets) gated by ADMIN_SECRET, same hardened pattern as backfill actions
+ * (1.8). The transactional username/usernameLower/reservation logic from 1.10
+ * is preserved — it just runs on an admin-supplied target uid now.
+ */
+export async function updateUsername(adminSecret: string, userId: string, newUsername: string) {
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
+  }
+
   const db = getDb();
 
   try {
@@ -984,22 +1026,44 @@ export async function updateUsername(userId: string, newUsername: string) {
       return { error: 'Username must be 20 characters or less.' };
     }
 
-    // Check if username is taken
-    const existing = await db.collection('users')
-      .where('username', '==', username)
-      .limit(1)
-      .get();
+    const result = await db.runTransaction(async (tx) => {
+      const newResRef = db.collection('usernames').doc(username);
+      const userRef = db.collection('users').doc(userId);
 
-    if (!existing.empty && existing.docs[0].id !== userId) {
-      return { error: 'Username is already taken.' };
-    }
+      const [newResSnap, userSnap] = await Promise.all([tx.get(newResRef), tx.get(userRef)]);
 
-    await db.collection('users').doc(userId).update({
-      username: username,
+      // Reservation owned by someone else → taken. (If unreserved, the
+      // collection-group query below is the correctness backstop for legacy
+      // users created before reservations were maintained.)
+      if (newResSnap.exists && newResSnap.data()?.uid !== userId) {
+        return { error: 'Username is already taken.' };
+      }
+      if (!userSnap.exists) {
+        return { error: 'User not found.' };
+      }
+
+      // Backstop for legacy users without a reservation doc.
+      const clash = await tx.get(
+        db.collection('users').where('usernameLower', '==', username).limit(1)
+      );
+      if (!clash.empty && clash.docs[0].id !== userId) {
+        return { error: 'Username is already taken.' };
+      }
+
+      const oldLower: string | undefined = userSnap.data()?.usernameLower;
+
+      tx.update(userRef, { username, usernameLower: username });
+      tx.set(newResRef, { uid: userId });
+      if (oldLower && oldLower !== username) {
+        tx.delete(db.collection('usernames').doc(oldLower));
+      }
+      return { success: true as const, username };
     });
 
+    if ('error' in result) return result;
+
     revalidatePath('/profile');
-    return { success: true, username };
+    return result;
   } catch (error) {
     console.error('Failed to update username:', error);
     return { error: 'Failed to update username.' };
@@ -1010,13 +1074,22 @@ export async function updateUsername(userId: string, newUsername: string) {
  * Delete a user account and all associated data.
  * This is a destructive operation that cannot be undone.
  */
-export async function deleteUserAccount(userId: string, confirmUsername: string) {
+export async function deleteUserAccount(idToken: string, confirmUsername: string) {
+  // AUDIT.md 1.2 (CRITICAL): the old auth was "username matches userId's stored
+  // username" — but usernames are PUBLIC, so anyone could delete anyone by
+  // passing (victimUid, victimUsername). Identity now comes from the verified
+  // token (checkRevoked for this highest-stakes op); the username check is
+  // demoted to a typed "are you sure" confirmation against the caller's OWN name.
+  const authRes = await verifyCaller(idToken, { checkRevoked: true });
+  if (isAuthError(authRes)) return authRes;
+  const userId = authRes.uid;
+
   const db = getDb();
   const adminApp = getFirebaseAdminApp();
   const auth = getAuth(adminApp);
 
   try {
-    // First, verify the user exists and username matches
+    // Verify the user exists and the typed confirmation matches THEIR own name.
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       return { error: 'User not found.' };
@@ -1188,7 +1261,12 @@ export async function deleteUserAccount(userId: string, confirmUsername: string)
 /**
  * Follow a user.
  */
-export async function followUser(followerId: string, followingId: string) {
+export async function followUser(idToken: string, followingId: string) {
+  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const followerId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1282,7 +1360,12 @@ export async function followUser(followerId: string, followingId: string) {
 /**
  * Unfollow a user.
  */
-export async function unfollowUser(followerId: string, followingId: string) {
+export async function unfollowUser(idToken: string, followingId: string) {
+  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const followerId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1577,7 +1660,11 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
  * Toggle a list's public/private status.
  * Only the list owner can change visibility.
  */
-export async function toggleListVisibility(userId: string, listOwnerId: string, listId: string) {
+export async function toggleListVisibility(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1605,6 +1692,50 @@ export async function toggleListVisibility(userId: string, listOwnerId: string, 
   } catch (error) {
     console.error('Failed to toggle list visibility:', error);
     return { error: 'Failed to toggle list visibility.' };
+  }
+}
+
+/**
+ * AUDIT.md 1.9 migration: move email/emailLower OFF the publicly-readable
+ * /users docs of EXISTING users into /users_private, then strip them from the
+ * public doc. New users are already split at creation; this closes the leak
+ * for legacy data. Admin-gated (same hardened secret check as 1.8). Idempotent.
+ */
+export async function backfillEmailPrivacy(adminSecret: string) {
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
+  }
+
+  const db = getDb();
+  try {
+    const usersSnapshot = await db.collection('users').get();
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const doc of usersSnapshot.docs) {
+      const data = doc.data();
+      const hasEmail = data.email !== undefined || data.emailLower !== undefined;
+      if (!hasEmail) { skipped++; continue; }
+
+      const email: string = data.email || '';
+      await db.collection('users_private').doc(doc.id).set({
+        uid: doc.id,
+        email,
+        emailLower: (data.email || data.emailLower || '').toLowerCase(),
+      }, { merge: true });
+
+      await doc.ref.update({
+        email: FieldValue.delete(),
+        emailLower: FieldValue.delete(),
+      });
+      migrated++;
+    }
+
+    return { success: true, migrated, skipped };
+  } catch (error) {
+    console.error('[backfillEmailPrivacy] Failed:', error);
+    return { error: 'Failed to backfill email privacy.' };
   }
 }
 
@@ -1682,10 +1813,12 @@ const MAX_LIST_MEMBERS = 10; // Owner + 9 collaborators
  * Generate a random invite code for link-based invites.
  */
 function generateInviteCode(): string {
+  // AUDIT.md 2.9: Math.random() is not a CSPRNG (predictable). randomInt() is
+  // cryptographically secure AND rejection-samples internally (no modulo bias).
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   let code = '';
   for (let i = 0; i < 12; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(randomInt(chars.length));
   }
   return code;
 }
@@ -1751,7 +1884,11 @@ export async function getListMembers(listOwnerId: string, listId: string) {
 /**
  * Invite a user to collaborate on a list (in-app invite).
  */
-export async function inviteToList(inviterId: string, listOwnerId: string, listId: string, inviteeId: string) {
+export async function inviteToList(idToken: string, listOwnerId: string, listId: string, inviteeId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const inviterId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1857,7 +1994,11 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
 /**
  * Create an invite link for a list.
  */
-export async function createInviteLink(inviterId: string, listOwnerId: string, listId: string) {
+export async function createInviteLink(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const inviterId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1998,7 +2139,15 @@ export async function getMyPendingInvites(userId: string) {
 /**
  * Get pending invites for a list (for owner or collaborators to see).
  */
-export async function getListPendingInvites(userId: string, listOwnerId: string, listId: string) {
+export async function getListPendingInvites(idToken: string, listOwnerId: string, listId: string) {
+  // AUDIT.md 1.14: was IDOR/tautological (trusted client userId; passing
+  // userId===listOwnerId satisfied isOwner). Now membership is decided by the
+  // verified caller. Also: inviteCode is owner-only — a collaborator who is
+  // later removed must not walk away with a working join code.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2035,7 +2184,8 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
         inviterUsername: data.inviterUsername,
         inviteeId: data.inviteeId,
         inviteeUsername: data.inviteeUsername,
-        inviteCode: data.inviteCode,
+        // 1.14: only the owner gets the join code.
+        inviteCode: isOwner ? data.inviteCode : undefined,
         status: data.status,
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         expiresAt: data.expiresAt?.toDate?.()?.toISOString?.() || undefined,
@@ -2052,87 +2202,81 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
 /**
  * Accept an invite (either by inviteId or inviteCode).
  */
-export async function acceptInvite(userId: string, inviteId?: string, inviteCode?: string) {
+export async function acceptInvite(idToken: string, inviteId?: string, inviteCode?: string) {
+  // AUDIT.md 1.11: was IDOR (trusted client userId) + a read-check-write RACE
+  // (two concurrent accepts could blow past MAX_LIST_MEMBERS; a concurrent
+  // revoke could be ignored). Now: verified token + a single transaction that
+  // re-reads invite status and the member count atomically.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
-    let inviteDoc;
+    // Resolve the invite ref (a code lookup is a query; the transaction below
+    // re-reads this exact ref, so a stale status here is harmless).
     let inviteRef;
-
     if (inviteId) {
       inviteRef = db.collection('invites').doc(inviteId);
-      inviteDoc = await inviteRef.get();
     } else if (inviteCode) {
       const inviteSnapshot = await db.collection('invites')
         .where('inviteCode', '==', inviteCode)
         .where('status', '==', 'pending')
         .limit(1)
         .get();
-
       if (inviteSnapshot.empty) {
         return { error: 'Invite not found or has expired.' };
       }
-
-      inviteDoc = inviteSnapshot.docs[0];
-      inviteRef = inviteDoc.ref;
+      inviteRef = inviteSnapshot.docs[0].ref;
     } else {
       return { error: 'No invite specified.' };
     }
 
-    if (!inviteDoc.exists) {
-      return { error: 'Invite not found.' };
-    }
+    const txResult = await db.runTransaction(async (tx) => {
+      const inviteSnap = await tx.get(inviteRef);
+      if (!inviteSnap.exists) return { error: 'Invite not found.' };
+      const inviteData = inviteSnap.data()!;
 
-    const inviteData = inviteDoc.data();
+      if (inviteData.inviteeId && inviteData.inviteeId !== userId) {
+        return { error: 'This invite is for another user.' };
+      }
+      // Re-checked INSIDE the tx — closes the revoke↔accept race.
+      if (inviteData.status !== 'pending') {
+        return { error: 'This invite is no longer valid.' };
+      }
+      if (inviteData.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
+        return { error: 'This invite has expired.' };
+      }
 
-    // Check if invite is for this user (for in-app invites)
-    if (inviteData?.inviteeId && inviteData.inviteeId !== userId) {
-      return { error: 'This invite is for another user.' };
-    }
+      const listRef = db.collection('users').doc(inviteData.listOwnerId)
+        .collection('lists').doc(inviteData.listId);
+      const listSnap = await tx.get(listRef);
+      if (!listSnap.exists) return { error: 'List no longer exists.' };
 
-    // Check if invite is pending
-    if (inviteData?.status !== 'pending') {
-      return { error: 'This invite is no longer valid.' };
-    }
+      const collaboratorIds: string[] = listSnap.data()?.collaboratorIds || [];
 
-    // Check expiration for link invites
-    if (inviteData?.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
-      return { error: 'This invite has expired.' };
-    }
+      if (collaboratorIds.includes(userId) || userId === inviteData.listOwnerId) {
+        tx.update(inviteRef, { status: 'accepted' });
+        return { error: 'You are already a member of this list.' };
+      }
 
-    // Get list and check max members
-    const listRef = db.collection('users').doc(inviteData.listOwnerId).collection('lists').doc(inviteData.listId);
-    const listDoc = await listRef.get();
+      // Member-cap check now atomic with the write below.
+      if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
+        return { error: 'This list has reached the maximum number of members.' };
+      }
 
-    if (!listDoc.exists) {
-      return { error: 'List no longer exists.' };
-    }
+      tx.update(listRef, {
+        collaboratorIds: FieldValue.arrayUnion(userId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(inviteRef, { status: 'accepted', inviteeId: userId });
 
-    const listData = listDoc.data();
-    const collaboratorIds: string[] = listData?.collaboratorIds || [];
-
-    // Check if already a collaborator
-    if (collaboratorIds.includes(userId) || userId === inviteData.listOwnerId) {
-      await inviteRef.update({ status: 'accepted' });
-      return { error: 'You are already a member of this list.' };
-    }
-
-    // Check max members
-    if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
-      return { error: 'This list has reached the maximum number of members.' };
-    }
-
-    // Add user as collaborator
-    await listRef.update({
-      collaboratorIds: FieldValue.arrayUnion(userId),
-      updatedAt: FieldValue.serverTimestamp(),
+      return { success: true as const, listId: inviteData.listId, listOwnerId: inviteData.listOwnerId };
     });
 
-    // Update invite status
-    await inviteRef.update({
-      status: 'accepted',
-      inviteeId: userId, // Set for link invites
-    });
+    if ('error' in txResult) return txResult;
+    const inviteData = { listId: txResult.listId, listOwnerId: txResult.listOwnerId };
 
     // Delete the associated notification (so Accept/Decline buttons don't show anymore)
     // Query by listId for backwards compatibility (older notifications may not have inviteId)
@@ -2163,7 +2307,11 @@ export async function acceptInvite(userId: string, inviteId?: string, inviteCode
 /**
  * Decline an invite.
  */
-export async function declineInvite(userId: string, inviteId: string) {
+export async function declineInvite(idToken: string, inviteId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2211,27 +2359,39 @@ export async function declineInvite(userId: string, inviteId: string) {
 /**
  * Revoke an invite (owner only).
  */
-export async function revokeInvite(userId: string, inviteId: string) {
+export async function revokeInvite(idToken: string, inviteId: string) {
+  // AUDIT.md 1.12: was IDOR (trusted client userId) + too narrow (only the
+  // inviter could revoke; the list owner couldn't revoke a collaborator's
+  // invite) + racy vs acceptInvite. Now: verified token, owner-OR-inviter,
+  // and the status check + write happen in one transaction.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
     const inviteRef = db.collection('invites').doc(inviteId);
-    const inviteDoc = await inviteRef.get();
 
-    if (!inviteDoc.exists) {
-      return { error: 'Invite not found.' };
-    }
+    const result = await db.runTransaction(async (tx) => {
+      const inviteSnap = await tx.get(inviteRef);
+      if (!inviteSnap.exists) return { error: 'Invite not found.' };
+      const inviteData = inviteSnap.data()!;
 
-    const inviteData = inviteDoc.data();
+      // The inviter OR the list owner may revoke.
+      if (inviteData.inviterId !== userId && inviteData.listOwnerId !== userId) {
+        return { error: 'Only the list owner or the inviter can revoke this invite.' };
+      }
+      // Re-checked in-tx: don't revoke an invite that was just accepted.
+      if (inviteData.status !== 'pending') {
+        return { error: 'This invite is no longer pending.' };
+      }
 
-    // Only inviter (owner) can revoke
-    if (inviteData?.inviterId !== userId) {
-      return { error: 'Only the list owner can revoke invites.' };
-    }
+      tx.update(inviteRef, { status: 'revoked' });
+      return { success: true as const };
+    });
 
-    await inviteRef.update({ status: 'revoked' });
-
-    return { success: true };
+    return result;
   } catch (error) {
     console.error('[revokeInvite] Failed:', error);
     return { error: 'Failed to revoke invite.' };
@@ -2241,7 +2401,14 @@ export async function revokeInvite(userId: string, inviteId: string) {
 /**
  * Remove a collaborator from a list (owner only).
  */
-export async function removeCollaborator(ownerId: string, listId: string, collaboratorId: string) {
+export async function removeCollaborator(idToken: string, ownerId: string, listId: string, collaboratorId: string) {
+  // AUDIT.md 1.4: the old check `listData.ownerId !== ownerId` was tautological
+  // (ownerId was both the path AND the comparison target — always passed).
+  // Now we compare the stored owner against the cryptographically-verified
+  // caller, so only the real owner can remove collaborators.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
@@ -2254,8 +2421,8 @@ export async function removeCollaborator(ownerId: string, listId: string, collab
 
     const listData = listDoc.data();
 
-    // Check if user is owner
-    if (listData?.ownerId !== ownerId) {
+    // Only the verified list owner may remove collaborators.
+    if (listData?.ownerId !== auth.uid) {
       return { error: 'Only the list owner can remove collaborators.' };
     }
 
@@ -2277,7 +2444,11 @@ export async function removeCollaborator(ownerId: string, listId: string, collab
 /**
  * Leave a list (collaborator only - owner must transfer ownership first).
  */
-export async function leaveList(userId: string, listOwnerId: string, listId: string) {
+export async function leaveList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2318,7 +2489,19 @@ export async function leaveList(userId: string, listOwnerId: string, listId: str
 /**
  * Transfer list ownership to a collaborator.
  */
-export async function transferOwnership(currentOwnerId: string, listId: string, newOwnerId: string) {
+export async function transferOwnership(idToken: string, listId: string, newOwnerId: string) {
+  // AUDIT.md 1.3: previously NO permission check — anyone could transfer any
+  // list. Now the current owner IS the verified caller; the list path is the
+  // caller's own subtree, and we additionally assert stored ownerId === caller.
+  //
+  // AUDIT.md 2.1 (Phase 2, STILL OPEN): the copy-then-delete below is NOT
+  // transactional — a mid-operation failure can duplicate or orphan movies,
+  // and the `invites` collection's listOwnerId is not updated. Do NOT consider
+  // transferOwnership fully fixed until 2.1 lands.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const currentOwnerId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2331,6 +2514,11 @@ export async function transferOwnership(currentOwnerId: string, listId: string, 
 
     const listData = listDoc.data();
     const collaboratorIds: string[] = listData?.collaboratorIds || [];
+
+    // Defense in depth: stored owner must equal the verified caller.
+    if (listData?.ownerId !== currentOwnerId) {
+      return { error: 'Only the list owner can transfer ownership.' };
+    }
 
     // Check if new owner is a collaborator
     if (!collaboratorIds.includes(newOwnerId)) {
@@ -2484,11 +2672,15 @@ export async function getCollaborativeLists(userId: string) {
  * - R2_PUBLIC_BASE_URL: Public URL for the bucket (e.g., https://pub-xxx.r2.dev)
  */
 export async function uploadAvatar(
-  userId: string,
+  idToken: string,
   base64Data: string,
   fileName: string,
   mimeType: string
 ): Promise<{ url?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   try {
     // Validate inputs
     if (!userId || !base64Data) {
@@ -2578,7 +2770,11 @@ export async function uploadAvatar(
 /**
  * Update user's profile photo URL.
  */
-export async function updateProfilePhoto(userId: string, photoURL: string) {
+export async function updateProfilePhoto(idToken: string, photoURL: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2603,14 +2799,20 @@ export async function updateProfilePhoto(userId: string, photoURL: string) {
 /**
  * Update user's bio.
  */
-export async function updateBio(userId: string, bio: string) {
+export async function updateBio(idToken: string, bio: string) {
+  // AUDIT.md Phase 1: caller identity comes from the verified token, never a
+  // client-supplied userId. Writing to auth.uid makes the old IDOR (editing
+  // another user's bio) structurally impossible.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
     // Limit bio length
     const trimmedBio = bio.trim().slice(0, 160);
 
-    await db.collection('users').doc(userId).update({
+    await db.collection('users').doc(auth.uid).update({
       bio: trimmedBio || null,
     });
 
@@ -2627,9 +2829,13 @@ export async function updateBio(userId: string, bio: string) {
  * Update user's favorite movies (top 5).
  */
 export async function updateFavoriteMovies(
-  userId: string,
+  idToken: string,
   favoriteMovies: Array<{ id: string; title: string; posterUrl: string; tmdbId: number }>
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2652,14 +2858,37 @@ export async function updateFavoriteMovies(
 /**
  * Get preview posters and movie count for a list.
  */
-export async function getListPreview(userId: string, listId: string) {
+export async function getListPreview(listOwnerId: string, listId: string, viewerIdToken?: string) {
+  // AUDIT.md 1.13: previously NO privacy gate — anyone with ownerId+listId
+  // could fetch poster previews + count from a PRIVATE list. Now: public lists
+  // are open; private lists require a verified owner/collaborator token,
+  // otherwise an empty preview is returned (no leak, no error).
   const db = getDb();
 
   try {
+    const listSnap = await db
+      .collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+    if (!listSnap.exists) {
+      return { previewPosters: [], movieCount: 0 };
+    }
+    const listInfo = listSnap.data();
+    if (listInfo?.isPublic !== true) {
+      // Private: only the owner or a collaborator (by verified token) may see it.
+      const viewer = await verifyCaller(viewerIdToken);
+      const viewerUid = isAuthError(viewer) ? null : viewer.uid;
+      const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
+      const allowed =
+        viewerUid != null &&
+        (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
+      if (!allowed) {
+        return { previewPosters: [], movieCount: 0 };
+      }
+    }
+
     // Get the first 4 movies from the list for preview posters
     const moviesSnapshot = await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
@@ -2678,7 +2907,7 @@ export async function getListPreview(userId: string, listId: string) {
     // Get total movie count
     const allMoviesSnapshot = await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
@@ -2697,15 +2926,16 @@ export async function getListPreview(userId: string, listId: string) {
 /**
  * Get preview posters for multiple lists at once (batch operation).
  */
-export async function getListsPreviews(userId: string, listIds: string[]) {
+export async function getListsPreviews(listOwnerId: string, listIds: string[], viewerIdToken?: string) {
   const db = getDb();
   const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
 
   try {
-    // Fetch previews for all lists in parallel
+    // Fetch previews for all lists in parallel (privacy enforced per-list in
+    // getListPreview via the optional viewer token).
     const results = await Promise.all(
       listIds.map(async (listId) => {
-        const result = await getListPreview(userId, listId);
+        const result = await getListPreview(listOwnerId, listId, viewerIdToken);
         return { listId, ...result };
       })
     );
@@ -2722,19 +2952,31 @@ export async function getListsPreviews(userId: string, listIds: string[]) {
 }
 
 /**
- * Upload list cover image to R2.
+ * Upload list cover image to R2. (AUDIT.md 1.5 sibling)
+ * First param is the LIST OWNER — the R2 key and Firestore path live under the
+ * owner, so a collaborator's uid differs from it. Verify the caller, then
+ * require owner-or-collaborator edit rights on that list.
  */
 export async function uploadListCover(
-  userId: string,
+  idToken: string,
+  listOwnerId: string,
   listId: string,
   base64Data: string,
   fileName: string,
   mimeType: string
 ): Promise<{ url?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   try {
     // Validate inputs
-    if (!userId || !listId || !base64Data) {
+    if (!listOwnerId || !listId || !base64Data) {
       return { error: 'Missing required fields.' };
+    }
+
+    const canEdit = await canEditList(auth.uid, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to update this list.' };
     }
 
     // Validate mime type - accept any image type (iOS sends various formats)
@@ -2770,7 +3012,7 @@ export async function uploadListCover(
       return { error: `Missing env vars: ${missing.join(', ')}` };
     }
 
-    console.log('[uploadListCover] Starting upload for user:', userId, 'list:', listId);
+    console.log('[uploadListCover] Starting upload for owner:', listOwnerId, 'list:', listId);
 
     // Import S3 client
     const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
@@ -2802,7 +3044,7 @@ export async function uploadListCover(
     const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
 
     // Use consistent filename per list (overwrites previous cover)
-    const fileKey = `covers/${userId}/${listId}/cover.${ext}`;
+    const fileKey = `covers/${listOwnerId}/${listId}/cover.${ext}`;
 
     // Upload to R2
     console.log('[uploadListCover] Uploading to R2:', fileKey);
@@ -2831,7 +3073,7 @@ export async function uploadListCover(
     try {
       await db
         .collection('users')
-        .doc(userId)
+        .doc(listOwnerId)
         .collection('lists')
         .doc(listId)
         .update({
@@ -2858,13 +3100,24 @@ export async function uploadListCover(
 /**
  * Update list cover image.
  */
-export async function updateListCover(userId: string, listId: string, coverImageUrl: string | null) {
+export async function updateListCover(idToken: string, listOwnerId: string, listId: string, coverImageUrl: string | null) {
+  // AUDIT.md 1.5: previously NO permission check — anyone could swap any list's
+  // cover. First param is the list OWNER (path), not the caller. Verify the
+  // caller, then require owner-or-collaborator edit rights on that list.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
+    const canEdit = await canEditList(auth.uid, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to update this list.' };
+    }
+
     await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .update({
@@ -2888,7 +3141,7 @@ export async function updateListCover(userId: string, listId: string, coverImage
  * Optionally pass the user's rating to snapshot with the comment.
  */
 export async function createReview(
-  userId: string,
+  idToken: string,
   tmdbId: number,
   mediaType: 'movie' | 'tv',
   movieTitle: string,
@@ -2897,6 +3150,10 @@ export async function createReview(
   ratingAtTime?: number | null, // Optional: pass the current user rating to snapshot
   parentId?: string | null // Optional: if replying to another review
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3125,7 +3382,11 @@ export async function getReviewReplies(parentId: string, limit: number = 50) {
 /**
  * Like a review.
  */
-export async function likeReview(userId: string, reviewId: string) {
+export async function likeReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3192,7 +3453,11 @@ export async function likeReview(userId: string, reviewId: string) {
 /**
  * Unlike a review.
  */
-export async function unlikeReview(userId: string, reviewId: string) {
+export async function unlikeReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3225,7 +3490,11 @@ export async function unlikeReview(userId: string, reviewId: string) {
 /**
  * Delete a review (only by owner).
  */
-export async function deleteReview(userId: string, reviewId: string) {
+export async function deleteReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3253,7 +3522,11 @@ export async function deleteReview(userId: string, reviewId: string) {
 /**
  * Update a review (only by owner).
  */
-export async function updateReview(userId: string, reviewId: string, text: string) {
+export async function updateReview(idToken: string, reviewId: string, text: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3334,13 +3607,17 @@ export async function getUserReviewForMovie(userId: string, tmdbId: number) {
  * Rating is 1.0-10.0 with one decimal place.
  */
 export async function createOrUpdateRating(
-  userId: string,
+  idToken: string,
   tmdbId: number,
   mediaType: 'movie' | 'tv',
   movieTitle: string,
   moviePosterUrl: string | undefined,
   rating: number
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3452,7 +3729,11 @@ export async function getUserRating(userId: string, tmdbId: number) {
 /**
  * Delete a user's rating for a movie/TV show.
  */
-export async function deleteRating(userId: string, tmdbId: number) {
+export async function deleteRating(idToken: string, tmdbId: number) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3573,11 +3854,15 @@ export async function checkUsernameAvailability(username: string) {
  * This is called after the user picks their username.
  */
 export async function createUserProfileWithUsername(
-  userId: string,
+  idToken: string,
   email: string,
   username: string,
   displayName: string | null
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3613,11 +3898,10 @@ export async function createUserProfileWithUsername(
         onboardingComplete: false, // Will be set to true after import/friends steps
       });
     } else {
-      // Create new profile
+      // Create new profile. AUDIT.md 1.9: email goes to /users_private, never
+      // the publicly-readable /users doc.
       await userRef.set({
         uid: userId,
-        email: email,
-        emailLower: email.toLowerCase(),
         displayName: displayName,
         displayNameLower: displayName?.toLowerCase() || null,
         photoURL: null,
@@ -3627,6 +3911,11 @@ export async function createUserProfileWithUsername(
         followingCount: 0,
         onboardingComplete: false,
         createdAt: FieldValue.serverTimestamp(),
+      });
+      await db.collection('users_private').doc(userId).set({
+        uid: userId,
+        email: email,
+        emailLower: email.toLowerCase(),
       });
     }
 
@@ -4600,9 +4889,12 @@ export async function importLetterboxdMovies(
 // ============================================
 
 export async function backfillMovieUserData(adminSecret: string) {
-  // Simple protection against accidental runs
-  if (adminSecret !== process.env.ADMIN_SECRET && adminSecret !== 'run-backfill-now') {
-    return { error: 'Invalid admin secret. Pass "run-backfill-now" to confirm.' };
+  // AUDIT.md 1.8: this is a reachable server-action endpoint. The old code
+  // accepted the literal "run-backfill-now" as a valid secret — anyone could
+  // run it. Require strict equality with ADMIN_SECRET; fail closed if unset.
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
   }
 
   const db = getDb();
@@ -4971,7 +5263,11 @@ export async function getNotifications(userId: string, limit: number = 50) {
 /**
  * Mark notifications as read.
  */
-export async function markNotificationsRead(userId: string, notificationIds?: string[]) {
+export async function markNotificationsRead(idToken: string, notificationIds?: string[]) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5033,12 +5329,16 @@ export async function getUnreadNotificationCount(userId: string) {
  * Save a push subscription for a user.
  */
 export async function savePushSubscription(
-  userId: string,
+  idToken: string,
   subscription: {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   }
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5086,7 +5386,11 @@ export async function savePushSubscription(
 /**
  * Remove a push subscription for a user.
  */
-export async function removePushSubscription(userId: string, endpoint: string) {
+export async function removePushSubscription(idToken: string, endpoint: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5181,7 +5485,7 @@ export async function getNotificationPreferences(userId: string) {
 }
 
 export async function updateNotificationPreferences(
-  userId: string,
+  idToken: string,
   preferences: {
     mentions?: boolean;
     replies?: boolean;
@@ -5191,6 +5495,10 @@ export async function updateNotificationPreferences(
     weeklyDigest?: boolean;
   }
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5506,7 +5814,11 @@ export async function getActivityFeed(
 /**
  * Like an activity.
  */
-export async function likeActivity(userId: string, activityId: string) {
+export async function likeActivity(idToken: string, activityId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5539,7 +5851,11 @@ export async function likeActivity(userId: string, activityId: string) {
 /**
  * Unlike an activity.
  */
-export async function unlikeActivity(userId: string, activityId: string) {
+export async function unlikeActivity(idToken: string, activityId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {

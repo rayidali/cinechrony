@@ -75,15 +75,15 @@ export default function ListsPage() {
 
       try {
         const result = await ensureUserProfile(
-          user.uid,
+          await user.getIdToken(),
           user.email || '',
           user.displayName
         );
 
-        if (result.defaultListId) {
+        if (!('error' in result) && result.defaultListId) {
           // Check for old movies to migrate
-          const migrateResult = await migrateMoviesToList(user.uid, result.defaultListId);
-          if (migrateResult.migratedCount && migrateResult.migratedCount > 0) {
+          const migrateResult = await migrateMoviesToList(await user.getIdToken(), result.defaultListId);
+          if (!('error' in migrateResult) && migrateResult.migratedCount && migrateResult.migratedCount > 0) {
             toast({
               title: 'Movies Migrated',
               description: `${migrateResult.migratedCount} movies moved to your default list.`,
@@ -135,7 +135,7 @@ export default function ListsPage() {
 
       try {
         const listIds = lists.map((list) => list.id);
-        const result = await getListsPreviews(user.uid, listIds);
+        const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
         if (result.previews) {
           setListPreviews(result.previews);
         }
@@ -157,7 +157,7 @@ export default function ListsPage() {
         // Fetch previews in parallel - each list has its own owner
         await Promise.all(
           collaborativeLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id);
+            const result = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -179,8 +179,8 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      const result = await createList(user.uid, newListName);
-      if (result.error) {
+      const result = await createList(await user.getIdToken(), newListName);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
         return;
       }
@@ -193,7 +193,9 @@ export default function ListsPage() {
           const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
           const ext = mimeType.split('/')[1] || 'jpg';
 
+          const idToken = await user.getIdToken();
           const uploadResult = await uploadListCover(
+            idToken,
             user.uid,
             result.listId,
             base64Data,
@@ -205,7 +207,7 @@ export default function ListsPage() {
             console.error('Cover upload failed:', uploadResult.error);
             toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
           } else if (uploadResult.url) {
-            await updateListCover(user.uid, result.listId, uploadResult.url);
+            await updateListCover(idToken, user.uid, result.listId, uploadResult.url);
           }
         } catch (coverError) {
           console.error('Cover upload error:', coverError);
@@ -294,7 +296,7 @@ export default function ListsPage() {
       // Refresh own list previews
       if (lists && lists.length > 0) {
         const listIds = lists.map((list) => list.id);
-        const previewResult = await getListsPreviews(user.uid, listIds);
+        const previewResult = await getListsPreviews(user.uid, listIds, await user.getIdToken());
         if (previewResult.previews) {
           setListPreviews(previewResult.previews);
         }

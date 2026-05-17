@@ -83,9 +83,9 @@ export function FindFriendsScreen({
     setFollowingInProgress(prev => new Set(prev).add(targetUser.uid));
 
     try {
-      const result = await followUser(user.uid, targetUser.uid);
+      const result = await followUser(await user.getIdToken(), targetUser.uid);
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 

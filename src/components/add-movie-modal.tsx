@@ -205,7 +205,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         const listsWithPreviews = await Promise.all(
           combined.map(async (list) => {
             try {
-              const preview = await getListPreview(list.ownerId, list.id);
+              const preview = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
               return {
                 ...list,
                 previewPosters: preview.previewPosters || [],
@@ -302,7 +302,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       for (const selection of selectedLists.values()) {
         const formData = new FormData();
         formData.append('movieData', JSON.stringify(selectedMovie));
-        formData.append('userId', user.uid);
+        formData.append('idToken', await user.getIdToken());
         formData.append('listId', selection.listId);
         formData.append('listOwnerId', selection.listOwnerId);
         formData.append('status', 'To Watch');
@@ -310,7 +310,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         if (selection.note) formData.append('note', selection.note);
 
         const result = await addMovieToList(formData);
-        if (result?.error) {
+        if (result && 'error' in result) {
           errorCount++;
         } else {
           successCount++;

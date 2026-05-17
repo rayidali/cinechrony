@@ -82,7 +82,7 @@ export function AvatarPicker({
       });
 
       // Upload via server action
-      const result = await uploadAvatar(user.uid, base64, file.name, file.type);
+      const result = await uploadAvatar(await user.getIdToken(), base64, file.name, file.type);
 
       if (result.error) {
         toast({

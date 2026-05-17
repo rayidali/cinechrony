@@ -1,4 +1,5 @@
 import { initializeApp, getApp, getApps, App, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 /**
  * Gets the Firebase Admin SDK App instance.
@@ -35,4 +36,13 @@ export function getFirebaseAdminApp(): App {
     }),
     storageBucket,
   });
+}
+
+/**
+ * Admin Firestore instance. (AUDIT.md 5.1)
+ * The weekly-digest cron route imported this but it never existed — a latent
+ * runtime crash hidden by ignoreBuildErrors. Now a real shared export.
+ */
+export function getDb() {
+  return getFirestore(getFirebaseAdminApp());
 }

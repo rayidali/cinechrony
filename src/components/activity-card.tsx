@@ -7,6 +7,7 @@ import { Heart, MessageCircle, Clock, Star, Eye, Plus } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
 import { likeActivity, unlikeActivity } from '@/app/actions';
+import { useAuth } from '@/firebase';
 import { cn, getRatingStyle } from '@/lib/utils';
 
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w342';
@@ -74,6 +75,7 @@ export const ActivityCard = memo(function ActivityCard({
   currentUserId,
   onMovieClick,
 }: ActivityCardProps) {
+  const auth = useAuth();
   const [isLiked, setIsLiked] = useState(
     currentUserId ? activity.likedBy?.includes(currentUserId) : false
   );
@@ -94,10 +96,11 @@ export const ActivityCard = memo(function ActivityCard({
 
     startTransition(async () => {
       try {
+        const idToken = await auth.currentUser?.getIdToken() ?? '';
         if (newIsLiked) {
-          await likeActivity(currentUserId, activity.id);
+          await likeActivity(idToken, activity.id);
         } else {
-          await unlikeActivity(currentUserId, activity.id);
+          await unlikeActivity(idToken, activity.id);
         }
       } catch (error) {
         // Revert on error
@@ -161,7 +164,7 @@ export const ActivityCard = memo(function ActivityCard({
             className="flex-shrink-0 px-2.5 py-1 rounded-lg font-bold text-sm"
             style={getRatingStyle(activity.rating).background}
           >
-            <span style={getRatingStyle(activity.rating).text}>
+            <span style={getRatingStyle(activity.rating).textOnBg}>
               {activity.rating.toFixed(1)}
             </span>
           </div>

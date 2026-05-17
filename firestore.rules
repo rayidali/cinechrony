@@ -87,8 +87,17 @@ service cloud.firestore {
      * User profile documents are publicly readable for search and profile views.
      * Only the user can write to their own profile.
      */
+    // AUDIT.md 1.9: private user fields (email) live here, NOT on the publicly
+    // readable /users doc. Server-only via Admin SDK (which bypasses rules);
+    // all direct client access denied.
+    match /users_private/{userId} {
+      allow read, write: if false;
+    }
+
     match /users/{userId} {
-      // Allow public read for search, profiles, followers/following display
+      // Allow public read for search, profiles, followers/following display.
+      // (Email is no longer stored here — see /users_private — so this
+      // public read no longer leaks PII.)
       allow read: if true;
 
       // Only owner can create/update/delete their profile

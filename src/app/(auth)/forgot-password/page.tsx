@@ -33,17 +33,24 @@ export default function ForgotPasswordPage() {
         description: "Check your inbox for password reset instructions.",
       });
     } catch (error: any) {
-      let message = "An unexpected error occurred.";
+      // AUDIT.md 2.10: never reveal whether an account exists. A non-existent
+      // account must be indistinguishable from a successful request.
       if (error.code === 'auth/user-not-found') {
-        message = "No account found with this email address.";
-      } else if (error.code === 'auth/invalid-email') {
-        message = "Please enter a valid email address.";
+        setEmailSent(true);
+        toast({
+          title: "Email Sent",
+          description: "Check your inbox for password reset instructions.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Reset Failed",
+          description:
+            error.code === 'auth/invalid-email'
+              ? "Please enter a valid email address."
+              : "An unexpected error occurred.",
+        });
       }
-      toast({
-        variant: "destructive",
-        title: "Reset Failed",
-        description: message,
-      });
     } finally {
       setIsLoading(false);
     }

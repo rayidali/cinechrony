@@ -214,7 +214,7 @@ export default function ListSettingsPage() {
     try {
       if (coverFile) {
         const base64Data = await fileToBase64(coverFile);
-        const coverResult = await uploadListCover(effectiveOwnerId, listId, base64Data, coverFile.name, coverFile.type);
+        const coverResult = await uploadListCover(await user.getIdToken(), effectiveOwnerId, listId, base64Data, coverFile.name, coverFile.type);
         if (coverResult.error) {
           toast({ variant: 'destructive', title: 'Error', description: coverResult.error });
           setIsSaving(false);
@@ -223,8 +223,8 @@ export default function ListSettingsPage() {
       }
 
       if (name !== listData.name) {
-        const nameResult = await renameList(user.uid, effectiveOwnerId, listId, name);
-        if (nameResult.error) {
+        const nameResult = await renameList(await user.getIdToken(), effectiveOwnerId, listId, name);
+        if ('error' in nameResult) {
           toast({ variant: 'destructive', title: 'Error', description: nameResult.error });
           setIsSaving(false);
           return;
@@ -232,8 +232,8 @@ export default function ListSettingsPage() {
       }
 
       if (description !== (listData.description || '')) {
-        const descResult = await updateListDescription(user.uid, effectiveOwnerId, listId, description);
-        if (descResult.error) {
+        const descResult = await updateListDescription(await user.getIdToken(), effectiveOwnerId, listId, description);
+        if ('error' in descResult) {
           toast({ variant: 'destructive', title: 'Error', description: descResult.error });
           setIsSaving(false);
           return;
@@ -242,8 +242,8 @@ export default function ListSettingsPage() {
 
       // Visibility can only be changed by owner
       if (isOwner && isPublic !== listData.isPublic) {
-        const visibilityResult = await updateListVisibility(user.uid, effectiveOwnerId, listId, isPublic);
-        if (visibilityResult.error) {
+        const visibilityResult = await updateListVisibility(await user.getIdToken(), effectiveOwnerId, listId, isPublic);
+        if ('error' in visibilityResult) {
           toast({ variant: 'destructive', title: 'Error', description: visibilityResult.error });
           setIsSaving(false);
           return;
@@ -267,8 +267,8 @@ export default function ListSettingsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await deleteList(user.uid, effectiveOwnerId, listId);
-      if (result.error) {
+      const result = await deleteList(await user.getIdToken(), effectiveOwnerId, listId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'List deleted', description: 'The list has been permanently deleted.' });
@@ -288,8 +288,8 @@ export default function ListSettingsPage() {
     if (!user || !memberToRemove || !isOwner || !effectiveOwnerId) return;
 
     try {
-      const result = await removeCollaborator(effectiveOwnerId, listId, memberToRemove.uid);
-      if (result.error) {
+      const result = await removeCollaborator(await user.getIdToken(), effectiveOwnerId, listId, memberToRemove.uid);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Collaborator removed', description: `@${memberToRemove.username} has been removed.` });

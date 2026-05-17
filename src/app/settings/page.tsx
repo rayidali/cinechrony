@@ -102,7 +102,7 @@ export default function SettingsPage() {
     setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
 
     try {
-      await updateNotificationPreferences(user.uid, { [key]: newValue });
+      await updateNotificationPreferences(await user.getIdToken(), { [key]: newValue });
     } catch (err) {
       // Revert on error
       setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
@@ -128,9 +128,9 @@ export default function SettingsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await deleteUserAccount(user.uid, deleteConfirmUsername);
+      const result = await deleteUserAccount(await user.getIdToken(), deleteConfirmUsername);
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 

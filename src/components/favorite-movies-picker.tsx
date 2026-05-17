@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { updateFavoriteMovies } from '@/app/actions';
+import { useAuth } from '@/firebase';
 import type { FavoriteMovie } from '@/lib/types';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
@@ -44,6 +45,7 @@ export function FavoriteMoviesPicker({
   currentFavorites,
   onUpdate,
 }: FavoriteMoviesPickerProps) {
+  const auth = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -138,8 +140,8 @@ export function FavoriteMoviesPicker({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const result = await updateFavoriteMovies(userId, selectedMovies);
-      if (result.error) {
+      const result = await updateFavoriteMovies(await auth.currentUser?.getIdToken() ?? '', selectedMovies);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Favorites Updated', description: 'Your favorite movies have been saved.' });

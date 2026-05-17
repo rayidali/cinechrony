@@ -134,6 +134,7 @@ export function CoverPicker({
 
     try {
       const result = await uploadListCover(
+        await user.getIdToken(),
         ownerId,
         listId,
         selectedFile.base64,
@@ -178,9 +179,9 @@ export function CoverPicker({
     const ownerId = listOwnerId || user.uid;
 
     try {
-      const result = await updateListCover(ownerId, listId, null);
+      const result = await updateListCover(await user.getIdToken(), ownerId, listId, null);
 
-      if (result.error) {
+      if ('error' in result) {
         toast({
           variant: 'destructive',
           title: 'Failed to remove cover',

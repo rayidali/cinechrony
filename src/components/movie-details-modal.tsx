@@ -384,7 +384,7 @@ export function MovieDetailsModal({
     const finalRating = rating ?? 7;
 
     await createOrUpdateRating(
-      user.uid,
+      await user.getIdToken(),
       tmdbId,
       movie.mediaType || 'movie',
       movie.title,
@@ -395,7 +395,7 @@ export function MovieDetailsModal({
 
     if (comment.trim()) {
       await createReview(
-        user.uid,
+        await user.getIdToken(),
         tmdbId,
         movie.mediaType || 'movie',
         movie.title,
@@ -454,18 +454,18 @@ export function MovieDetailsModal({
     setIsSavingRating(true);
     try {
       const result = await createOrUpdateRating(
-        user.uid,
+        await user.getIdToken(),
         tmdbId,
         movie.mediaType || 'movie',
         movie.title,
         movie.posterUrl,
         rating
       );
-      if (result.success) {
+      if ('error' in result) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
         setUserRating(rating);
         toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to save rating.' });
@@ -479,12 +479,12 @@ export function MovieDetailsModal({
 
     setIsSavingRating(true);
     try {
-      const result = await deleteRating(user.uid, tmdbId);
-      if (result.success) {
+      const result = await deleteRating(await user.getIdToken(), tmdbId);
+      if ('error' in result) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
         setUserRating(null);
         toast({ title: 'Rating removed' });
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove rating.' });
@@ -498,16 +498,16 @@ export function MovieDetailsModal({
 
     setIsSavingNote(true);
     try {
-      const result = await updateMovieNote(user.uid, listOwnerId, listId, movie.id, noteToSave);
-      if (result.success) {
+      const result = await updateMovieNote(await user.getIdToken(), listOwnerId, listId, movie.id, noteToSave);
+      if ('error' in result) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+        throw new Error(result.error);
+      } else {
         // Update local state with the saved note
         setUserNote(noteToSave);
         toast({
           title: noteToSave.trim() ? 'Note saved' : 'Note removed',
         });
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-        throw new Error(result.error);
       }
     } catch (error) {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to save note.' });

@@ -180,7 +180,7 @@ function CommentsPageContent() {
 
     try {
       const result = await createReview(
-        user.uid,
+        await user.getIdToken(),
         tmdbId,
         mediaType,
         movieTitle,
@@ -190,7 +190,7 @@ function CommentsPageContent() {
         parentId // parentId for replies
       );
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 

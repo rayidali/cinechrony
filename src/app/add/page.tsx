@@ -276,7 +276,7 @@ export default function AddPage() {
     if (!selectedMovie || !user || !selectedListId || !selectedListOwnerId) return;
 
     formData.append('movieData', JSON.stringify(selectedMovie));
-    formData.append('userId', user.uid);
+    formData.append('idToken', await user.getIdToken());
     formData.append('listId', selectedListId);
     formData.append('listOwnerId', selectedListOwnerId);
     if (socialLink) {
@@ -286,7 +286,7 @@ export default function AddPage() {
     startAddingTransition(async () => {
       const result = await addMovieToList(formData);
       const itemType = selectedMovie.mediaType === 'tv' ? 'TV Show' : 'Movie';
-      if (result?.error) {
+      if (result && 'error' in result) {
         toast({
           variant: 'destructive',
           title: `Error adding ${itemType.toLowerCase()}`,
