@@ -446,12 +446,17 @@ export async function addMovieToList(formData: FormData) {
       .doc(docId);
 
     // Build the movie document with denormalized user data
+    // AUDIT.md 2.2 (found via the movieCount race test): Firestore Admin
+    // REJECTS undefined field values — a TMDB result missing posterHint (or any
+    // raw string field) made `addMovieToList` hard-fail with "Failed to add
+    // movie" for real users. Coalesce every raw field to a Firestore-safe value;
+    // when present this is a no-op, when absent it stores null instead of crashing.
     const movieDoc: Record<string, unknown> = {
       id: docId,
-      title: movieData.title,
-      year: movieData.year,
-      posterUrl: movieData.posterUrl,
-      posterHint: movieData.posterHint,
+      title: movieData.title ?? null,
+      year: movieData.year ?? null,
+      posterUrl: movieData.posterUrl ?? null,
+      posterHint: movieData.posterHint ?? null,
       mediaType: mediaType,
       addedBy: userId,
       // Denormalized user data to avoid N+1 fetches
@@ -475,26 +480,32 @@ export async function addMovieToList(formData: FormData) {
       };
     }
 
-    // Check if movie already exists (to avoid double-counting)
-    const existingDoc = await movieRef.get();
-    const isNewMovie = !existingDoc.exists;
-
-    await movieRef.set(movieDoc, { merge: true });
-
-    // Update list's updatedAt and increment movieCount if new
     const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
       .doc(listId);
 
-    if (isNewMovie) {
-      await listRef.update({
+    // AUDIT.md 2.2: the movie write and the movieCount increment must be
+    // atomic. They used to be separate ops — a mid-operation failure drifted
+    // the count, and two concurrent adds of the SAME movie both read
+    // "not exists" and double-incremented. One transaction makes the
+    // existence-check + set + count-change a single unit; Firestore's
+    // contention retry collapses the concurrent-add race to one increment.
+    const isNewMovie = await db.runTransaction(async (tx) => {
+      const existing = await tx.get(movieRef);
+      const isNew = !existing.exists;
+      tx.set(movieRef, movieDoc, { merge: true });
+      tx.update(listRef, {
         updatedAt: FieldValue.serverTimestamp(),
-        movieCount: FieldValue.increment(1),
+        ...(isNew ? { movieCount: FieldValue.increment(1) } : {}),
       });
+      return isNew;
+    });
 
-      // Create activity for new movie additions
+    // Best-effort activity for genuinely new additions — post-commit so its
+    // failure can neither roll back nor fail the add.
+    if (isNewMovie) {
       try {
         const listDoc = await listRef.get();
         const listData = listDoc.data();
@@ -513,10 +524,6 @@ export async function addMovieToList(formData: FormData) {
         console.error('[addMovieToList] Failed to create activity:', activityError);
         // Don't fail the whole operation if activity creation fails
       }
-    } else {
-      await listRef.update({
-        updatedAt: FieldValue.serverTimestamp(),
-      });
     }
 
     revalidatePath(`/lists/${listId}`);
@@ -550,26 +557,27 @@ export async function removeMovieFromList(
       return { error: 'You do not have permission to remove movies from this list.' };
     }
 
-    const movieRef = db
+    const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
-      .doc(listId)
-      .collection('movies')
-      .doc(movieId);
+      .doc(listId);
+    const movieRef = listRef.collection('movies').doc(movieId);
 
-    await movieRef.delete();
-
-    // Update list's updatedAt and decrement movieCount
-    await db
-      .collection('users')
-      .doc(listOwnerId)
-      .collection('lists')
-      .doc(listId)
-      .update({
+    // AUDIT.md 2.2: only decrement when an actual delete happens, atomically.
+    // The old code always `increment(-1)` even if the movie was already gone
+    // (double-tap remove / stale UI) → movieCount drifted negative. The
+    // transaction makes "the doc existed → delete it AND decrement" one unit;
+    // if it's already gone, it's a clean no-op.
+    await db.runTransaction(async (tx) => {
+      const existing = await tx.get(movieRef);
+      if (!existing.exists) return; // nothing to remove — do not decrement
+      tx.delete(movieRef);
+      tx.update(listRef, {
         updatedAt: FieldValue.serverTimestamp(),
         movieCount: FieldValue.increment(-1),
       });
+    });
 
     revalidatePath(`/lists/${listId}`);
     return { success: true };
@@ -4166,16 +4174,21 @@ export async function importMatchedMovies(
       await batch.commit();
     }
 
-    // Update movie count on list
-    await db
+    // AUDIT.md 2.2: bulk imports can't be one transaction (500-op limit), so
+    // instead of `increment(importedCount)` — which over-counts on re-import /
+    // overlapping movies and drifts on partial failure — recount the
+    // subcollection and SET the authoritative value. Idempotent + self-healing:
+    // re-running an import converges movieCount to reality.
+    const importedListRef = db
       .collection('users')
       .doc(userId)
       .collection('lists')
-      .doc(listId)
-      .update({
-        movieCount: FieldValue.increment(importedCount),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      .doc(listId);
+    const importedCountSnap = await importedListRef.collection('movies').count().get();
+    await importedListRef.update({
+      movieCount: importedCountSnap.data().count,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
     return { success: true, importedCount };
   } catch (error) {
@@ -4676,16 +4689,21 @@ export async function importLetterboxdMovies(
       await batch.commit();
     }
 
-    // Update movie count on list
-    await db
+    // AUDIT.md 2.2: bulk imports can't be one transaction (500-op limit), so
+    // instead of `increment(importedCount)` — which over-counts on re-import /
+    // overlapping movies and drifts on partial failure — recount the
+    // subcollection and SET the authoritative value. Idempotent + self-healing:
+    // re-running an import converges movieCount to reality.
+    const importedListRef = db
       .collection('users')
       .doc(userId)
       .collection('lists')
-      .doc(listId)
-      .update({
-        movieCount: FieldValue.increment(importedCount),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      .doc(listId);
+    const importedCountSnap = await importedListRef.collection('movies').count().get();
+    await importedListRef.update({
+      movieCount: importedCountSnap.data().count,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
     // Import Letterboxd lists (create new lists with descriptions and movies)
     let listsCreated = 0;
