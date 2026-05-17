@@ -1,39 +1,40 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useEffect } from 'react';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { useToast } from '@/hooks/use-toast';
 
 /**
- * An invisible component that listens for globally emitted 'permission-error' events.
- * It throws any received error to be caught by Next.js's global-error.tsx.
+ * Listens for globally emitted 'permission-error' events.
+ *
+ * AUDIT.md 2.4: this used to `throw` the error during render, which crashed
+ * the ENTIRE React tree into global-error.tsx. On a mobile PWA that means a
+ * routine transient blip — logging out while a listener is still attached, a
+ * Firestore rule change racing a write, momentary offline — took the whole app
+ * down. We now surface it non-fatally: a console error for developer
+ * diagnostics + a toast for the user. The app keeps running.
  */
 export function FirebaseErrorListener() {
-  // Use the specific error type for the state for type safety.
-  const [error, setError] = useState<FirestorePermissionError | null>(null);
+  const { toast } = useToast();
 
   useEffect(() => {
-    // The callback now expects a strongly-typed error, matching the event payload.
     const handleError = (error: FirestorePermissionError) => {
-      // Set error in state to trigger a re-render.
-      setError(error);
+      console.error('[FirebaseErrorListener] Firestore permission error:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Action blocked',
+        description:
+          "That didn't go through. If it keeps happening, try refreshing or signing in again.",
+      });
     };
 
-    // The typed emitter will enforce that the callback for 'permission-error'
-    // matches the expected payload type (FirestorePermissionError).
     errorEmitter.on('permission-error', handleError);
-
-    // Unsubscribe on unmount to prevent memory leaks.
     return () => {
       errorEmitter.off('permission-error', handleError);
     };
-  }, []);
+  }, [toast]);
 
-  // On re-render, if an error exists in state, throw it.
-  if (error) {
-    throw error;
-  }
-
-  // This component renders nothing.
+  // Renders nothing — never throws.
   return null;
 }
