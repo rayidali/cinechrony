@@ -1,7 +1,7 @@
 # Cinechrony Pre-Launch Audit & Fix Tracker
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-17
-> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests green) · Phase 5.1 ✅ (deploy unblocked, `npm run build` passes) · Phase 2 🚧 partial (2.3a/2.9/2.10 done; 2.1/2.2/2.4/2.5/2.6/2.7/2.8/2.3b open). App is **secure + deployable**; remaining Phase 2 = data-integrity/transactional rewrites.
+> **Started:** 2026-05-15 · **Updated:** 2026-05-20
+> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests green) · Phase 5.1 ✅ (deploy unblocked, `npm run build` passes) · Phase 2 🚧 in flight (done: 2.2/2.3a/2.4/2.7/2.9/2.10 — 46/46 incl. emulator race tests; open: 2.1/2.5/2.6/2.8/2.3b). App is **secure + deployable + scales for delete**; remaining = data-integrity/transactional & cache items.
 > **Goal:** Ship-ready security posture and data integrity before opening the waitlist
 > **Source of truth:** the Progress log (bottom) + `scripts/audit-tests/*.test.ts`. Section checkboxes are ticked at phase/suite level, not 1:1 per sub-bullet.
 
@@ -170,9 +170,9 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 2.7 — `deleteUserAccount` full-collection scan (`actions.ts:1094`)
 
-- [ ] **2.7.1** Replace `db.collection('users').get()` with `db.collectionGroup('lists').where('collaboratorIds', 'array-contains', userId)`. Add the required composite index.
-- [ ] **2.7.2** Wrap multi-step delete in a way that's at least observable — record a "deletion in progress" doc, finalize at end, so partial deletes are recoverable.
-- [ ] **2.7.3** **Test (emulator):** seed a user with collaboration on 50 lists. Delete → completes in <5s, all collaboratorIds entries removed, Auth user gone, profile gone.
+- [x] **2.7.1** Done — `db.collection('users').get()` (O(N users)) replaced with `db.collectionGroup('lists').where('collaboratorIds','array-contains', userId)` (O(collaborator-lists)). Removals batched (450/batch). Skips the deletee's own lists (step 5 deletes them). `firestore.indexes.json` fieldOverride added (`lists`/`collaboratorIds` COLLECTION_GROUP / CONTAINS) — required in prod; emulator runs without.
+- [~] **2.7.2** Not done — observability/resumability ("deletion in progress" doc + finalize) is a separate concern. The primary scaling fix is in; resumability tracked as a follow-up if needed. Won't block launch (delete is a rare op).
+- [x] **2.7.3** Done — `10-delete-collab.test.ts` (3 tests, green): removal across multiple owners; control list untouched; own-list still deleted in step 5.
 
 ### 2.8 — `searchUsers` reads entire collection per keystroke (`actions.ts:779`)
 
@@ -383,3 +383,4 @@ Every fix in this document includes a **Test** field describing how we verify it
 | 2026-05-16 | 2 | 2.3a/2.9/2.10 | **2.3a** usernames frozen (Option A): updateUsername now ADMIN_SECRET-gated (true immutability + escape hatch; 1.10 transactional logic preserved); profile UI shows locked @handle; onboarding microcopy ("@handle permanent, display name/photo changeable"); dead `Input` import removed. **2.9** invite codes now CSPRNG (`crypto.randomInt`, bias-free) not Math.random. **2.10** forgot-password no longer reveals account existence (user-not-found mirrors success exactly). tsc 0, build-safe, 37/37 (08 1.10 test rewritten for admin-only contract). REMAIN in Phase 2: 2.1 transferOwnership transactional, 2.2 movieCount transactional, 2.4 FirebaseErrorListener, 2.5 ratings-cache cap, 2.6 comment-edit dup, 2.7 deleteUserAccount collectionGroup, 2.8 searchUsers prefix, 2.3b UserProfileCache.
 | 2026-05-17 | 2 | 2.4 | FirebaseErrorListener no longer throws (whole-app crash on transient blips, high mobile impact) → console + non-fatal toast. non-blocking-updates only routes real `permission-denied` to the permission channel; offline/network/quota logged not misclassified. tsc 0, 37/37, build passes. Pushed to preview branch (f33516d). Also: AUDIT.md checkbox tidy-up (Phase 0/1 fully ticked w/ verification banners; Phase 2 done/partial/open split honest). |
 | 2026-05-17 | 2 | 2.2 | movieCount made atomic: add/remove now in db.runTransaction (closes drift + concurrent same-movie double-count + already-gone negative drift); imports use authoritative recount+SET. **Bonus latent prod bug found via the new race test & fixed**: raw undefined movieData.posterHint/title/year/posterUrl hard-failed adds (Firestore rejects undefined) → coalesced to null. New systemic item 5.11 (ignoreUndefinedProperties) logged. tsc 0, 43/43 (09-moviecount: 6 emulator race tests), build passes. Pushed (c03d0ed). |
+| 2026-05-20 | 2 | 2.7 | deleteUserAccount: O(N users) full-collection scan → single collectionGroup query on `lists` `collaboratorIds` array-contains (O(collaborator-lists), bounded). Updates batched 450/op; skips own lists. firestore.indexes.json fieldOverride added (required in prod). 46/46 incl. 3 new 10-delete-collab tests proving multi-owner removal + control case. Pushed (a5c110f). Resumability sub-item (2.7.2) deferred — rare op, doesn't block launch. Same scan pattern still in searchUsers (2.8, next) and the admin backfills (intentional one-shots). |

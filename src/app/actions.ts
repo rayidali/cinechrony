@@ -799,6 +799,16 @@ export async function migrateMoviesToList(idToken: string, listId: string) {
  * Also migrates users missing normalized fields on-the-fly.
  */
 export async function searchUsers(query: string, currentUserId?: string) {
+  // AUDIT.md 2.8: this used to fetch EVERY user doc on every keystroke and
+  // filter client-side — at 5k users that's ~5MB per character typed. Now: two
+  // parallel single-field prefix-range queries (Firestore auto-indexes
+  // single fields, so no composite index needed), each limited. Per-keystroke
+  // cost goes from O(total users) to at most ~40 reads.
+  // 1.9 note: email is no longer on the public /users doc, so we don't search
+  // it (intentional privacy decision — you can't find people by email).
+  // Legacy users without usernameLower/displayNameLower won't appear in
+  // search until `backfillUserSearchFields` is run — same pre-launch
+  // operational task as backfillEmailPrivacy.
   const db = getDb();
 
   try {
@@ -806,88 +816,56 @@ export async function searchUsers(query: string, currentUserId?: string) {
       return { users: [] };
     }
 
-    const queryLower = query.toLowerCase().trim();
+    const q = query.toLowerCase().trim();
+    // Classic Firestore prefix-range pattern: [q, q + '') matches every
+    // string starting with q ( is a high-codepoint sentinel).
+    const upper = q + '';
+    const PER_FIELD_LIMIT = 20;
+
+    const [byUsername, byDisplayName] = await Promise.all([
+      db.collection('users')
+        .where('usernameLower', '>=', q)
+        .where('usernameLower', '<', upper)
+        .limit(PER_FIELD_LIMIT)
+        .get(),
+      db.collection('users')
+        .where('displayNameLower', '>=', q)
+        .where('displayNameLower', '<', upper)
+        .limit(PER_FIELD_LIMIT)
+        .get(),
+    ]);
+
     const usersMap = new Map<string, UserProfile>();
-    const usersToMigrate: Array<{ ref: FirebaseFirestore.DocumentReference; data: FirebaseFirestore.DocumentData }> = [];
-
-    // Fetch all users and filter client-side
-    // For apps with <1000 users, this is pragmatic and reliable
-    const allUsersSnapshot = await db.collection('users').get();
-
-    console.log(`[searchUsers] Query: "${queryLower}", Total users in DB: ${allUsersSnapshot.size}`);
-
-    allUsersSnapshot.docs.forEach((doc) => {
+    const collect = (doc: FirebaseFirestore.QueryDocumentSnapshot) => {
       const data = doc.data();
-
-      // Skip current user
       const docUid = data.uid || doc.id;
       if (docUid === currentUserId) return;
+      if (usersMap.has(docUid)) return;
+      usersMap.set(docUid, {
+        uid: docUid,
+        email: '', // 1.9: email lives in /users_private, never returned here
+        displayName: data.displayName || null,
+        photoURL: data.photoURL || null,
+        username: data.username || null,
+        bio: data.bio || null,
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        followersCount: data.followersCount || 0,
+        followingCount: data.followingCount || 0,
+      });
+    };
+    byUsername.docs.forEach(collect);
+    byDisplayName.docs.forEach(collect);
 
-      // Track users needing migration
-      if (!data.usernameLower && data.username) {
-        usersToMigrate.push({ ref: doc.ref, data });
-      }
-
-      // Use pre-normalized fields if available, otherwise normalize on the fly
-      const username = data.usernameLower || (data.username || '').toLowerCase();
-      const email = data.emailLower || (data.email || '').toLowerCase();
-      const displayName = data.displayNameLower || (data.displayName || '').toLowerCase();
-
-      // Check if any field contains or starts with the query
-      const matchesUsername = username && (username.includes(queryLower) || username.startsWith(queryLower));
-      const matchesEmail = email && (email.includes(queryLower) || email.split('@')[0].includes(queryLower));
-      const matchesDisplayName = displayName && displayName.includes(queryLower);
-
-      if (matchesUsername || matchesEmail || matchesDisplayName) {
-        // Convert Firestore Timestamp to ISO string for serialization
-        const userProfile: UserProfile = {
-          uid: docUid,
-          email: data.email || '',
-          displayName: data.displayName || null,
-          photoURL: data.photoURL || null,
-          username: data.username || null,
-          bio: data.bio || null,
-          createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          followersCount: data.followersCount || 0,
-          followingCount: data.followingCount || 0,
-        };
-        usersMap.set(docUid, userProfile);
-      }
-    });
-
-    // Migrate users missing normalized fields (fire and forget, capped at 10)
-    const MAX_MIGRATIONS_PER_SEARCH = 10;
-    if (usersToMigrate.length > 0) {
-      const toMigrate = usersToMigrate.slice(0, MAX_MIGRATIONS_PER_SEARCH);
-      console.log(`[searchUsers] Migrating ${toMigrate.length} of ${usersToMigrate.length} users with missing normalized fields`);
-      Promise.all(
-        toMigrate.map(({ ref, data }) =>
-          ref.update({
-            usernameLower: data.username.toLowerCase(),
-            emailLower: (data.email || '').toLowerCase(),
-            displayNameLower: data.displayName?.toLowerCase() || null,
-          }).catch((err) => console.error(`[searchUsers] Migration failed for ${ref.id}:`, err))
-        )
-      ).catch(() => { /* ignore batch errors */ });
-    }
-
-    console.log(`[searchUsers] Found ${usersMap.size} matching users`);
-
-    // Sort by relevance: exact username match first, then prefix match, then contains
+    // Rank: exact @handle match > @handle prefix > alphabetical.
     const users = Array.from(usersMap.values())
       .sort((a, b) => {
-        const aUsername = (a.username || '').toLowerCase();
-        const bUsername = (b.username || '').toLowerCase();
-
-        // Exact match comes first
-        if (aUsername === queryLower && bUsername !== queryLower) return -1;
-        if (bUsername === queryLower && aUsername !== queryLower) return 1;
-
-        // Prefix match comes next
-        if (aUsername.startsWith(queryLower) && !bUsername.startsWith(queryLower)) return -1;
-        if (bUsername.startsWith(queryLower) && !aUsername.startsWith(queryLower)) return 1;
-
-        return 0;
+        const au = (a.username || '').toLowerCase();
+        const bu = (b.username || '').toLowerCase();
+        if (au === q && bu !== q) return -1;
+        if (bu === q && au !== q) return 1;
+        if (au.startsWith(q) && !bu.startsWith(q)) return -1;
+        if (bu.startsWith(q) && !au.startsWith(q)) return 1;
+        return au.localeCompare(bu);
       })
       .slice(0, 10);
 
