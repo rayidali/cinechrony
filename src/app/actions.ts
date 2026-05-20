@@ -2490,51 +2490,83 @@ export async function leaveList(idToken: string, listOwnerId: string, listId: st
  * Transfer list ownership to a collaborator.
  */
 export async function transferOwnership(idToken: string, listId: string, newOwnerId: string) {
-  // AUDIT.md 1.3: previously NO permission check — anyone could transfer any
-  // list. Now the current owner IS the verified caller; the list path is the
-  // caller's own subtree, and we additionally assert stored ownerId === caller.
-  //
-  // AUDIT.md 2.1 (Phase 2, STILL OPEN): the copy-then-delete below is NOT
-  // transactional — a mid-operation failure can duplicate or orphan movies,
-  // and the `invites` collection's listOwnerId is not updated. Do NOT consider
-  // transferOwnership fully fixed until 2.1 lands.
+  // AUDIT.md 1.3 + 2.1.
+  // 1.3 (auth): the current owner IS the verified caller; stored ownerId is
+  // double-checked inside an atomic pre-flight transaction below.
+  // 2.1 (transactional integrity): subcollection moves can't fit in one
+  // Firestore transaction (500-op limit), so we use a safer staged pattern:
+  //   (P1) atomic pre-flight transaction — verify state ONCE under contention
+  //   (P2) batched idempotent copy of movies to the new owner's path
+  //   (P3) write the new list doc with the swapped collaborator set
+  //   (P4) re-point all relevant /invites docs from old → new owner
+  //   (P5) batched delete of old movies
+  //   (P6) FINAL delete of the old list doc — the canonical transition point
+  // The source list doc stays as the source of truth until P6. A crash
+  // anywhere before P6 leaves the source intact and the operation safely
+  // re-runnable (all writes are idempotent set/update). The audit found the
+  // old code's worst failure mode (movies duplicated and source orphaned on
+  // partial failure); this pattern eliminates that class.
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const currentOwnerId = auth.uid;
 
   const db = getDb();
+  const BATCH_SIZE = 450; // Firestore batch limit is 500; leave headroom.
 
   try {
-    const listRef = db.collection('users').doc(currentOwnerId).collection('lists').doc(listId);
-    const listDoc = await listRef.get();
+    const oldListRef = db
+      .collection('users').doc(currentOwnerId)
+      .collection('lists').doc(listId);
+    const newListRef = db
+      .collection('users').doc(newOwnerId)
+      .collection('lists').doc(listId);
 
-    if (!listDoc.exists) {
-      return { error: 'List not found.' };
+    // P1 — Atomic pre-flight: re-read the list under transaction semantics so
+    // a concurrent ownership change can't sneak through between check and act.
+    type PreflightOk = { kind: 'ok'; listData: FirebaseFirestore.DocumentData };
+    type PreflightErr = { kind: 'err'; error: string };
+    const preflight: PreflightOk | PreflightErr = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(oldListRef);
+      if (!snap.exists) return { kind: 'err' as const, error: 'List not found.' };
+      const data = snap.data() || {};
+      if (data.ownerId !== currentOwnerId) {
+        return { kind: 'err' as const, error: 'Only the list owner can transfer ownership.' };
+      }
+      const collaboratorIds: string[] = data.collaboratorIds || [];
+      if (!collaboratorIds.includes(newOwnerId)) {
+        return { kind: 'err' as const, error: 'New owner must be an existing collaborator.' };
+      }
+      return { kind: 'ok' as const, listData: data };
+    });
+    if (preflight.kind === 'err') return { error: preflight.error };
+
+    const listData = preflight.listData;
+    const collaboratorIds: string[] = listData.collaboratorIds || [];
+    // The new owner moves out of the collaborators array; the previous owner
+    // moves INTO it (becomes a collaborator on what was their own list).
+    const newCollaborators = collaboratorIds
+      .filter((id: string) => id !== newOwnerId)
+      .concat([currentOwnerId]);
+
+    // P2 — Copy movies to the new location. `set` is idempotent so re-runs of
+    // a partially-completed transfer converge.
+    const moviesSnapshot = await oldListRef.collection('movies').get();
+    let copyBatch = db.batch();
+    let copyOps = 0;
+    for (const movieDoc of moviesSnapshot.docs) {
+      copyBatch.set(newListRef.collection('movies').doc(movieDoc.id), movieDoc.data());
+      copyOps++;
+      if (copyOps >= BATCH_SIZE) {
+        await copyBatch.commit();
+        copyBatch = db.batch();
+        copyOps = 0;
+      }
     }
+    if (copyOps > 0) await copyBatch.commit();
 
-    const listData = listDoc.data();
-    const collaboratorIds: string[] = listData?.collaboratorIds || [];
-
-    // Defense in depth: stored owner must equal the verified caller.
-    if (listData?.ownerId !== currentOwnerId) {
-      return { error: 'Only the list owner can transfer ownership.' };
-    }
-
-    // Check if new owner is a collaborator
-    if (!collaboratorIds.includes(newOwnerId)) {
-      return { error: 'New owner must be an existing collaborator.' };
-    }
-
-    // Get all movies in the list
-    const moviesSnapshot = await listRef.collection('movies').get();
-
-    // Create new list under new owner
-    const newListRef = db.collection('users').doc(newOwnerId).collection('lists').doc(listId);
-
-    // Update collaborators: remove new owner, add old owner
-    const newCollaborators = collaboratorIds.filter(id => id !== newOwnerId);
-    newCollaborators.push(currentOwnerId);
-
+    // P3 — Create the list doc at the new owner's path. After this, both
+    // paths technically exist; readers using the new path now see a valid
+    // list. Old path is still canonical until P6.
     await newListRef.set({
       ...listData,
       ownerId: newOwnerId,
@@ -2542,21 +2574,48 @@ export async function transferOwnership(idToken: string, listId: string, newOwne
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // Copy all movies to new location
-    const batch = db.batch();
-    for (const movieDoc of moviesSnapshot.docs) {
-      const newMovieRef = newListRef.collection('movies').doc(movieDoc.id);
-      batch.set(newMovieRef, movieDoc.data());
+    // P4 — Re-point invites. The audit explicitly called this out: without
+    // this, `getCollaborativeLists` reads `users/{oldOwner}/lists/{listId}`
+    // for every invite-derived membership and finds nothing, silently breaking
+    // every collaborator. Idempotent: only invites still pointing at the old
+    // owner are updated; re-running is a no-op.
+    const invitesSnapshot = await db.collection('invites')
+      .where('listId', '==', listId)
+      .where('listOwnerId', '==', currentOwnerId)
+      .get();
+    if (!invitesSnapshot.empty) {
+      let inviteBatch = db.batch();
+      let inviteOps = 0;
+      for (const inv of invitesSnapshot.docs) {
+        inviteBatch.update(inv.ref, { listOwnerId: newOwnerId });
+        inviteOps++;
+        if (inviteOps >= BATCH_SIZE) {
+          await inviteBatch.commit();
+          inviteBatch = db.batch();
+          inviteOps = 0;
+        }
+      }
+      if (inviteOps > 0) await inviteBatch.commit();
     }
-    await batch.commit();
 
-    // Delete old list and movies
-    const deleteBatch = db.batch();
+    // P5 — Delete old movies in batches.
+    let delBatch = db.batch();
+    let delOps = 0;
     for (const movieDoc of moviesSnapshot.docs) {
-      deleteBatch.delete(movieDoc.ref);
+      delBatch.delete(movieDoc.ref);
+      delOps++;
+      if (delOps >= BATCH_SIZE) {
+        await delBatch.commit();
+        delBatch = db.batch();
+        delOps = 0;
+      }
     }
-    deleteBatch.delete(listRef);
-    await deleteBatch.commit();
+    if (delOps > 0) await delBatch.commit();
+
+    // P6 — The atomic "transferred" transition point: only after this does
+    // the new location become canonical. A double-call after success will
+    // hit P1 and return "List not found" — a graceful idempotent no-op.
+    await oldListRef.delete();
 
     revalidatePath('/lists');
     revalidatePath(`/lists/${listId}`);

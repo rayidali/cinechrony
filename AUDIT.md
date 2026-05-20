@@ -1,7 +1,7 @@
 # Cinechrony Pre-Launch Audit & Fix Tracker
 
 > **Started:** 2026-05-15 · **Updated:** 2026-05-20
-> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests green) · Phase 5.1 ✅ (deploy unblocked, `npm run build` passes) · Phase 2 🚧 in flight (done: 2.2/2.3a/2.4/2.7/2.9/2.10 — 46/46 incl. emulator race tests; open: 2.1/2.5/2.6/2.8/2.3b). App is **secure + deployable + scales for delete**; remaining = data-integrity/transactional & cache items.
+> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests green) · Phase 5.1 ✅ (deploy unblocked, `npm run build` passes) · Phase 2 🚧 in flight (done: 2.2/2.3a/2.4/2.7/2.8/2.9/2.10 — 54/54 incl. emulator race + prefix-search tests; open: 2.1/2.5/2.6/2.3b). App is **secure + deployable + scales for delete + cheap to search**; remaining = transactional ownership transfer, ratings-cache, comment edit, profile cache.
 > **Goal:** Ship-ready security posture and data integrity before opening the waitlist
 > **Source of truth:** the Progress log (bottom) + `scripts/audit-tests/*.test.ts`. Section checkboxes are ticked at phase/suite level, not 1:1 per sub-bullet.
 
@@ -176,9 +176,9 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 2.8 — `searchUsers` reads entire collection per keystroke (`actions.ts:779`)
 
-- [ ] **2.8.1** Replace `db.collection('users').get()` with a real prefix query on `usernameLower` and `displayNameLower`. Use `where('usernameLower', '>=', q).where('usernameLower', '<', q + '').limit(20)`.
-- [ ] **2.8.2** Add client-side debounce on user-search inputs (200ms).
-- [ ] **2.8.3** **Test:** seed 1000 users. Type "ab" — read count must be ≤20 docs, not 1000.
+- [x] **2.8.1** Done — two parallel single-field prefix-range queries on `usernameLower` / `displayNameLower`, each limited 20 (max ~40 reads/search). Firestore auto-indexes single fields. Aligns with 1.9: no email search, email never returned. Inline scan-based migration removed (the dedicated `backfillUserSearchFields` action is the right place).
+- [ ] **2.8.2** Client-side debounce on user-search inputs — not done; lower priority now that each keystroke costs ~40 reads instead of thousands. Trivial follow-up if needed.
+- [x] **2.8.3** Done — `11-search-users.test.ts` (8 tests, green): prefix on each field, currentUserId excluded, dedupe when both fields match, 2-char minimum, no false positives, legacy-user excluded (needs backfill), no email in results.
 
 ### 2.9 — `Math.random()` invite codes (`actions.ts:1684`)
 
@@ -384,3 +384,4 @@ Every fix in this document includes a **Test** field describing how we verify it
 | 2026-05-17 | 2 | 2.4 | FirebaseErrorListener no longer throws (whole-app crash on transient blips, high mobile impact) → console + non-fatal toast. non-blocking-updates only routes real `permission-denied` to the permission channel; offline/network/quota logged not misclassified. tsc 0, 37/37, build passes. Pushed to preview branch (f33516d). Also: AUDIT.md checkbox tidy-up (Phase 0/1 fully ticked w/ verification banners; Phase 2 done/partial/open split honest). |
 | 2026-05-17 | 2 | 2.2 | movieCount made atomic: add/remove now in db.runTransaction (closes drift + concurrent same-movie double-count + already-gone negative drift); imports use authoritative recount+SET. **Bonus latent prod bug found via the new race test & fixed**: raw undefined movieData.posterHint/title/year/posterUrl hard-failed adds (Firestore rejects undefined) → coalesced to null. New systemic item 5.11 (ignoreUndefinedProperties) logged. tsc 0, 43/43 (09-moviecount: 6 emulator race tests), build passes. Pushed (c03d0ed). |
 | 2026-05-20 | 2 | 2.7 | deleteUserAccount: O(N users) full-collection scan → single collectionGroup query on `lists` `collaboratorIds` array-contains (O(collaborator-lists), bounded). Updates batched 450/op; skips own lists. firestore.indexes.json fieldOverride added (required in prod). 46/46 incl. 3 new 10-delete-collab tests proving multi-owner removal + control case. Pushed (a5c110f). Resumability sub-item (2.7.2) deferred — rare op, doesn't block launch. Same scan pattern still in searchUsers (2.8, next) and the admin backfills (intentional one-shots). |
+| 2026-05-20 | 2 | 2.8 | searchUsers: per-keystroke full-collection scan → two parallel single-field prefix-range queries (usernameLower/displayNameLower, limit 20 each). O(matches) not O(N); auto single-field indexes — no firestore.indexes.json change. Aligns w/ 1.9 (no email search/return). Removed inline scan-based migration (use backfillUserSearchFields). 54/54 incl. 8 new 11-search-users tests (prefix/exclude/dedupe/min-len/no-FP/legacy/no-email). Pushed (734daf7). |
