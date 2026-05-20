@@ -8,7 +8,7 @@ import { ArrowLeft, Loader2, MessageSquare, Send, X, ChevronDown, ChevronUp } fr
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser, useFirestore } from '@/firebase';
-import { getMovieReviews, createReview, getReviewReplies } from '@/app/actions';
+import { getMovieReviews, createReview, updateReview, getReviewReplies } from '@/app/actions';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import type { Review } from '@/lib/types';
@@ -48,6 +48,10 @@ function CommentsPageContent() {
   // Reply state - track both the root parent and who we're directly replying to
   const [replyingTo, setReplyingTo] = useState<Review | null>(null);
   const [rootParentId, setRootParentId] = useState<string | null>(null); // Always the top-level comment ID
+  // AUDIT.md 2.6: tracks which review we're editing. When set, handleSubmit
+  // calls updateReview instead of createReview (the old code posted a new
+  // duplicate comment instead of editing the original).
+  const [editingReview, setEditingReview] = useState<Review | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Record<string, Review[]>>({});
   const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({});
 
@@ -175,6 +179,45 @@ function CommentsPageContent() {
     if (!user || !commentText.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
+
+    // AUDIT.md 2.6: edit path — patches the existing review in place instead
+    // of creating a duplicate. Replies/parent logic is irrelevant when editing
+    // (we're updating an existing doc, not posting a new one).
+    if (editingReview) {
+      try {
+        const newText = commentText.trim();
+        const res = await updateReview(await user.getIdToken(), editingReview.id, newText);
+        if ('error' in res) throw new Error(res.error);
+
+        // Patch local state so the UI updates without a refetch. Top-level
+        // reviews live in `reviews`; replies live under their root in
+        // `expandedReplies`. Update whichever holds this review.
+        if (editingReview.parentId) {
+          const root = editingReview.parentId;
+          setExpandedReplies(prev => {
+            const list = prev[root];
+            if (!list) return prev;
+            return {
+              ...prev,
+              [root]: list.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)),
+            };
+          });
+        } else {
+          setReviews(prev => prev.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)));
+        }
+
+        setEditingReview(null);
+        setCommentText('');
+        inputRef.current?.blur();
+        toast({ title: 'Comment updated' });
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Failed to update comment', description: error.message || 'Please try again.' });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     // Use rootParentId for replies (Instagram/TikTok style - all replies under root)
     const parentId = rootParentId || null;
 
@@ -251,6 +294,8 @@ function CommentsPageContent() {
 
   // Handle starting a reply - Instagram/TikTok style: all replies go under root parent
   const handleStartReply = useCallback((review: Review, parentIdOverride?: string) => {
+    // Replying overrides any in-progress edit (mutually exclusive composer modes).
+    setEditingReview(null);
     setReplyingTo(review);
     // If this review is already a reply, use its parentId as root. Otherwise, use this review's id.
     const rootId = review.parentId || review.id;
@@ -301,12 +346,19 @@ function CommentsPageContent() {
     }
   }, [expandedReplies, toast]);
 
-  // Handle review edit (for now, just remove and let them re-add)
+  // AUDIT.md 2.6: real edit (was a pre-fill that posted a duplicate on save).
   const handleEditReview = useCallback((review: Review) => {
-    // Pre-fill the input with the review text for editing
+    setEditingReview(review);
     setCommentText(review.text);
+    // Editing precludes replying.
+    setReplyingTo(null);
+    setRootParentId(null);
     inputRef.current?.focus();
-    // Note: In Phase 2, we'll implement proper edit functionality
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingReview(null);
+    setCommentText('');
   }, []);
 
   // Auto-resize textarea
@@ -468,6 +520,20 @@ function CommentsPageContent() {
               <button
                 onClick={handleCancelReply}
                 className="p-1 rounded-full hover:bg-secondary"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          {/* AUDIT.md 2.6: edit indicator (mirror of the reply indicator). */}
+          {editingReview && (
+            <div className="flex items-center justify-between px-4 py-2 bg-secondary/50 border-b border-border">
+              <span className="text-sm text-muted-foreground">Editing your comment</span>
+              <button
+                onClick={cancelEdit}
+                className="p-1 rounded-full hover:bg-secondary"
+                aria-label="Cancel edit"
               >
                 <X className="h-4 w-4" />
               </button>
