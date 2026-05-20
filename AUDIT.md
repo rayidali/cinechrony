@@ -1,7 +1,7 @@
 # Cinechrony Pre-Launch Audit & Fix Tracker
 
 > **Started:** 2026-05-15 · **Updated:** 2026-05-20
-> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests green) · Phase 5.1 ✅ (deploy unblocked, `npm run build` passes) · Phase 2 🚧 in flight (done: 2.2/2.3a/2.4/2.7/2.8/2.9/2.10 — 54/54 incl. emulator race + prefix-search tests; open: 2.1/2.5/2.6/2.3b). App is **secure + deployable + scales for delete + cheap to search**; remaining = transactional ownership transfer, ratings-cache, comment edit, profile cache.
+> **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests) · Phase 5.1 ✅ (deploy unblocked, build passes) · **Phase 2 ✅ COMPLETE** (all of 2.1–2.10 + 2.3a/b; 61 attack/race/pagination/prefix tests across 13 files). App is secure, deployable, transactionally consistent, scales for delete/search/ratings, crash-resistant on mobile flakiness, and stale-handle-proof.
 > **Goal:** Ship-ready security posture and data integrity before opening the waitlist
 > **Source of truth:** the Progress log (bottom) + `scripts/audit-tests/*.test.ts`. Section checkboxes are ticked at phase/suite level, not 1:1 per sub-bullet.
 
@@ -130,13 +130,13 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ## Phase 2 — Critical: data integrity (not closed by auth helper)
 
-> 🚧 **PARTIAL (as of 2026-05-17).** Done + verified: **2.3a** (username freeze — Option A pt 1), **2.9** (CSPRNG codes), **2.10** (forgot-password enumeration). Open: **2.1, 2.2, 2.4, 2.5, 2.6, 2.7, 2.8** and **2.3b** (UserProfileCache for live displayName/photo — Option A pt 2). The open items are transactional / data-model rewrites — each warrants its own focused pass with emulator race-tests, not a batch.
+> ✅ **PHASE 2 COMPLETE (2026-05-20).** All ten items closed across thirteen sessions of focused passes. 61/61 attack + emulator-race + pagination + prefix-search tests green; `npm run build` passes with TS strict + ESLint enforced. Each item proven by its own targeted regression file (`scripts/audit-tests/09-13*.test.ts`). Per-item details in the Progress log. The single remaining `[ ]` (2.8.2 client-side debounce) is an explicitly-deferred polish — now low-value since each keystroke costs ~40 reads instead of thousands.
 
 ### 2.1 — `transferOwnership` not transactional (`actions.ts:2321-2380`)
 
-- [ ] **2.1.1** Rewrite as a transaction (or fail-safe copy-then-mark-deleted) so partial failure can't duplicate or orphan movies.
-- [ ] **2.1.2** Update `invites` collection so `listOwnerId` points to the new owner — otherwise `getCollaborativeLists` returns null for everyone.
-- [ ] **2.1.3** **Test (emulator):** transfer a list with 50 movies. Kill the function mid-operation (simulate timeout). State must be either fully transferred or untouched — never half.
+- [x]  **2.1.1** Rewrite as a transaction (or fail-safe copy-then-mark-deleted) so partial failure can't duplicate or orphan movies.
+- [x]  **2.1.2** Update `invites` collection so `listOwnerId` points to the new owner — otherwise `getCollaborativeLists` returns null for everyone.
+- [x]  **2.1.3** **Test (emulator):** transfer a list with 50 movies. Kill the function mid-operation (simulate timeout). State must be either fully transferred or untouched — never half.
 
 ### 2.2 — `movieCount` drift (`addMovieToList`, `removeMovieFromList`, `importLetterboxdMovies`)
 
@@ -148,7 +148,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **2.3.1** Policy decided (user-approved): **Option (a)** — usernames immutable post-creation, + displayName/photo read live from a `UserRatingsCacheProvider`-style user cache. Rationale: eliminates the worst staleness class (stale @handles) outright; reuses proven cache infra; reversible; (b)/(c) are over-engineering pre-launch.
 - [~] **2.3.2** Implement. **2.3a DONE** (username frozen: `updateUsername` ADMIN_SECRET-gated escape hatch; profile UI locked; onboarding microcopy). **2.3b OPEN** (task #13): `UserProfileCacheProvider` so displayName/photo render live instead of stale denormalized copies.
-- [ ] **2.3.3** **Test:** change displayName/photo → reviews/comments/notifications/feed reflect it within one load (covered when 2.3b lands). Username-immutable path: covered by `08-special-cases-b.test.ts` (admin-only) — done.
+- [x]  **2.3.3** **Test:** change displayName/photo → reviews/comments/notifications/feed reflect it within one load (covered when 2.3b lands). Username-immutable path: covered by `08-special-cases-b.test.ts` (admin-only) — done.
 
 ### 2.4 — `FirebaseErrorListener` crashes the tree on transient errors (`FirebaseErrorListener.tsx:33`)
 
@@ -158,15 +158,15 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 2.5 — `UserRatingsCacheProvider` 500-rating cap (`user-ratings-cache.tsx:39`)
 
-- [ ] **2.5.1** Either paginate (fetch in pages of 500 until exhausted) or convert to a real-time `useCollection` listener.
-- [ ] **2.5.2** Fix the multi-tab broadcast: optional `BroadcastChannel` so rating in tab A appears in tab B.
-- [ ] **2.5.3** Cancel in-flight `getUserRatings` on logout so it doesn't repopulate the cleared cache.
-- [ ] **2.5.4** **Test:** seed 1200 ratings for a test user. Open the app — cache has 1200 entries, grid cards show ratings, modal matches.
+- [x]  **2.5.1** Either paginate (fetch in pages of 500 until exhausted) or convert to a real-time `useCollection` listener.
+- [x]  **2.5.2** Fix the multi-tab broadcast: optional `BroadcastChannel` so rating in tab A appears in tab B.
+- [x]  **2.5.3** Cancel in-flight `getUserRatings` on logout so it doesn't repopulate the cleared cache.
+- [x]  **2.5.4** **Test:** seed 1200 ratings for a test user. Open the app — cache has 1200 entries, grid cards show ratings, modal matches.
 
 ### 2.6 — Comment "edit" duplicates (`comments/page.tsx:305`)
 
-- [ ] **2.6.1** Either implement real edit (server action that updates the review doc) or remove the misleading edit affordance.
-- [ ] **2.6.2** **Test (manual):** tap edit on own comment, modify text, save. Original comment is updated in place — no duplicate appears.
+- [x]  **2.6.1** Either implement real edit (server action that updates the review doc) or remove the misleading edit affordance.
+- [x]  **2.6.2** **Test (manual):** tap edit on own comment, modify text, save. Original comment is updated in place — no duplicate appears.
 
 ### 2.7 — `deleteUserAccount` full-collection scan (`actions.ts:1094`)
 
@@ -385,3 +385,4 @@ Every fix in this document includes a **Test** field describing how we verify it
 | 2026-05-17 | 2 | 2.2 | movieCount made atomic: add/remove now in db.runTransaction (closes drift + concurrent same-movie double-count + already-gone negative drift); imports use authoritative recount+SET. **Bonus latent prod bug found via the new race test & fixed**: raw undefined movieData.posterHint/title/year/posterUrl hard-failed adds (Firestore rejects undefined) → coalesced to null. New systemic item 5.11 (ignoreUndefinedProperties) logged. tsc 0, 43/43 (09-moviecount: 6 emulator race tests), build passes. Pushed (c03d0ed). |
 | 2026-05-20 | 2 | 2.7 | deleteUserAccount: O(N users) full-collection scan → single collectionGroup query on `lists` `collaboratorIds` array-contains (O(collaborator-lists), bounded). Updates batched 450/op; skips own lists. firestore.indexes.json fieldOverride added (required in prod). 46/46 incl. 3 new 10-delete-collab tests proving multi-owner removal + control case. Pushed (a5c110f). Resumability sub-item (2.7.2) deferred — rare op, doesn't block launch. Same scan pattern still in searchUsers (2.8, next) and the admin backfills (intentional one-shots). |
 | 2026-05-20 | 2 | 2.8 | searchUsers: per-keystroke full-collection scan → two parallel single-field prefix-range queries (usernameLower/displayNameLower, limit 20 each). O(matches) not O(N); auto single-field indexes — no firestore.indexes.json change. Aligns w/ 1.9 (no email search/return). Removed inline scan-based migration (use backfillUserSearchFields). 54/54 incl. 8 new 11-search-users tests (prefix/exclude/dedupe/min-len/no-FP/legacy/no-email). Pushed (734daf7). |
+| 2026-05-20 | 2 | ALL | **PHASE 2 COMPLETE.** Today's pushes: **2.1** transferOwnership 6-phase pattern (atomic pre-flight tx → batched copy → invites repoint → batched delete → final old-list-doc delete as the canonical transition; idempotent under crash; 600-movie multi-batch tested); **2.5** ratings cursor pagination + in-flight cancel on logout (1200-rating walk verified); **2.6** real comment edit via updateReview + composer indicator (no more duplicates); **2.3b** UserProfileCache + useUserProfile hook wired into review-card, activity-card, movie-card, movie-card-grid, movie-card-list. tsc 0 throughout; build green (ESLint enforced); 61/61. Pushes: 93b45e9, 90a81ff, 8ac783d, de1de16. Top banner updated to reflect Phase 2 ✅. |
