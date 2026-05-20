@@ -140,8 +140,9 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 2.2 — `movieCount` drift (`addMovieToList`, `removeMovieFromList`, `importLetterboxdMovies`)
 
-- [ ] **2.2.1** Wrap movie write + count increment in `db.runTransaction`. Read existing doc inside the transaction to decide if `isNewMovie`.
-- [ ] **2.2.2** **Test (emulator):** two parallel `addMovieToList` calls for the same movie (different collaborators) → one increments, one is a no-op (merge). `movieCount` ends at +1, not +2.
+- [x] **2.2.1** Done — `addMovieToList` + `removeMovieFromList` wrap existence-check + write + count in `db.runTransaction` (atomic; contention-retry collapses concurrent same-key races). Imports can't be one txn (500-op limit) → switched to authoritative subcollection recount + SET (idempotent, self-healing on re-import/overlap/partial failure).
+- [x] **2.2.2** **Done — emulator race tests** `scripts/audit-tests/09-moviecount.test.ts` (6 tests, green): single +1; concurrent same-movie → count **1 not 2**; re-add no-op; remove −1; already-gone remove → **no negative drift**; concurrent double-remove → one decrement.
+- [x] **2.2.3** **BONUS bug found via the test:** `movieDoc` passed raw `posterHint`/`title`/`year`/`posterUrl` — Firestore Admin rejects `undefined`, so any TMDB result missing `posterHint` hard-failed adds for real users. Coalesced to `null`. **Systemic follow-up (new, tracked in Phase 5.11 below):** set `firestore.settings({ ignoreUndefinedProperties: true })` so this whole bug class can't recur.
 
 ### 2.3 — Denormalization has no propagation
 
@@ -345,6 +346,10 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [ ] `uploadAvatar`/`uploadListCover` append `?v=${Date.now()}` then store the URL. CDN caches the URL but each upload makes the *stored* URL different, defeating the cache for nothing useful. Either bust via a header on R2 or just trust the avatar key.
 
+### 5.11 — `ignoreUndefinedProperties` systemic guard (NEW — found during 2.2)
+
+- [ ] Set `firestore.settings({ ignoreUndefinedProperties: true })` once at Admin Firestore init (`@/firebase/admin`). Firestore Admin hard-throws on any `undefined` field value; today every write site must remember `?? null` (e.g. the `posterHint` crash 2.2 found). One global setting makes the whole class impossible. Behavioral change (undefined fields silently dropped) — desirable here (codebase already uses `|| null` everywhere) but is global, so kept out of the 2.2 commit to avoid mixing concerns / blast radius. Verify the no-undefined invariant still holds for fields that *should* be null.
+
 ---
 
 ## Parking lot — not blocking launch
@@ -355,6 +360,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 - Activity feed cleanup on review/account deletion (orphan activities)
 - Comment-likes don't push notify (only review-likes do)
 - Onboarding's `find-friends-screen` duplicates `searchUsers` logic
+- **Firestore offline persistence not enabled** (noted 2026-05-20 during preview testing). Going offline mid-action no longer crashes the app (2.4 fixed that), but the offline write doesn't auto-replay on reconnect — pre-existing, not a 2.4 regression. Enabling `persistentLocalCache` in the client SDK init (`src/firebase/index.ts`) would queue offline writes through IndexedDB. Quality-of-life polish for mobile PWA, not security/data-integrity. Validate writes don't drift in pathological offline-then-conflict cases before enabling.
 
 ---
 
@@ -376,3 +382,4 @@ Every fix in this document includes a **Test** field describing how we verify it
 | 2026-05-16 | 5 | 5.1 | All 9 baseline TS errors fixed (incl. real latent `getDb` cron crash). `tsc` 9→0. **`npm run build` now succeeds** (proven w/ dummy Firebase env; ESLint enforced & clean) — Vercel deploy unblocked. Deleted dead `ui/calendar.tsx`. Audit suite 37/37, no regression. |
 | 2026-05-16 | 2 | 2.3a/2.9/2.10 | **2.3a** usernames frozen (Option A): updateUsername now ADMIN_SECRET-gated (true immutability + escape hatch; 1.10 transactional logic preserved); profile UI shows locked @handle; onboarding microcopy ("@handle permanent, display name/photo changeable"); dead `Input` import removed. **2.9** invite codes now CSPRNG (`crypto.randomInt`, bias-free) not Math.random. **2.10** forgot-password no longer reveals account existence (user-not-found mirrors success exactly). tsc 0, build-safe, 37/37 (08 1.10 test rewritten for admin-only contract). REMAIN in Phase 2: 2.1 transferOwnership transactional, 2.2 movieCount transactional, 2.4 FirebaseErrorListener, 2.5 ratings-cache cap, 2.6 comment-edit dup, 2.7 deleteUserAccount collectionGroup, 2.8 searchUsers prefix, 2.3b UserProfileCache.
 | 2026-05-17 | 2 | 2.4 | FirebaseErrorListener no longer throws (whole-app crash on transient blips, high mobile impact) → console + non-fatal toast. non-blocking-updates only routes real `permission-denied` to the permission channel; offline/network/quota logged not misclassified. tsc 0, 37/37, build passes. Pushed to preview branch (f33516d). Also: AUDIT.md checkbox tidy-up (Phase 0/1 fully ticked w/ verification banners; Phase 2 done/partial/open split honest). |
+| 2026-05-17 | 2 | 2.2 | movieCount made atomic: add/remove now in db.runTransaction (closes drift + concurrent same-movie double-count + already-gone negative drift); imports use authoritative recount+SET. **Bonus latent prod bug found via the new race test & fixed**: raw undefined movieData.posterHint/title/year/posterUrl hard-failed adds (Firestore rejects undefined) → coalesced to null. New systemic item 5.11 (ignoreUndefinedProperties) logged. tsc 0, 43/43 (09-moviecount: 6 emulator race tests), build passes. Pushed (c03d0ed). |

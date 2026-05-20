@@ -1171,22 +1171,36 @@ export async function deleteUserAccount(idToken: string, confirmUsername: string
     await inviteBatch.commit();
     console.log(`[deleteUserAccount] Deleted invites`);
 
-    // 4. Remove user from any lists they collaborate on
-    const allUsersSnapshot = await db.collection('users').get();
-    for (const userDocSnapshot of allUsersSnapshot.docs) {
-      if (userDocSnapshot.id === userId) continue;
+    // 4. Remove user from any lists they collaborate on.
+    // AUDIT.md 2.7: was a full `users` scan — O(total users) reads per delete,
+    // ~30s+ at 10k users, exceeds function timeouts, half-deletes accounts on
+    // timeout. Switched to a single collectionGroup query that returns ONLY
+    // the lists actually containing this user (O(collaborator-lists)).
+    // Requires the `lists`/`collaboratorIds` collection-group field override
+    // in firestore.indexes.json.
+    const collabLists = await db
+      .collectionGroup('lists')
+      .where('collaboratorIds', 'array-contains', userId)
+      .get();
 
-      const listsSnapshot = await userDocSnapshot.ref.collection('lists')
-        .where('collaboratorIds', 'array-contains', userId)
-        .get();
-
-      for (const listDoc of listsSnapshot.docs) {
-        await listDoc.ref.update({
-          collaboratorIds: FieldValue.arrayRemove(userId),
-        });
+    let collabBatch = db.batch();
+    let collabBatchSize = 0;
+    for (const listDoc of collabLists.docs) {
+      // Skip lists owned by the user being deleted — those are removed
+      // outright in step 5; arrayRemove there would be redundant.
+      if (listDoc.ref.parent.parent?.id === userId) continue;
+      collabBatch.update(listDoc.ref, {
+        collaboratorIds: FieldValue.arrayRemove(userId),
+      });
+      collabBatchSize++;
+      if (collabBatchSize >= 450) {
+        await collabBatch.commit();
+        collabBatch = db.batch();
+        collabBatchSize = 0;
       }
     }
-    console.log(`[deleteUserAccount] Removed from collaborations`);
+    if (collabBatchSize > 0) await collabBatch.commit();
+    console.log(`[deleteUserAccount] Removed from ${collabLists.size} collaborations`);
 
     // 5. Delete all user's lists and their movies (subcollections)
     const userListsSnapshot = await db.collection('users').doc(userId).collection('lists').get();

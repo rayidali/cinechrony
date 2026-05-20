@@ -69,5 +69,13 @@
       ]
     }
   ],
-  "fieldOverrides": []
+  "fieldOverrides": [
+    {
+      "collectionGroup": "lists",
+      "fieldPath": "collaboratorIds",
+      "indexes": [
+        { "arrayConfig": "CONTAINS", "queryScope": "COLLECTION_GROUP" }
+      ]
+    }
+  ]
 }
