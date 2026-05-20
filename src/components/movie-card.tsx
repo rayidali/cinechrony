@@ -22,6 +22,7 @@ import {
 import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { getImdbRating } from '@/app/actions';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import {
   updateDocumentNonBlocking,
   deleteDocumentNonBlocking,
@@ -207,8 +208,10 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Use denormalized user data from movie doc - no fetch needed!
+  // AUDIT.md 2.3b: live profile cache overrides the denormalized snapshot on
+  // the movie doc for the adder's display name + photo.
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByInfo = useMemo(() => {
     if (isAddedByCurrentUser) {
       return {
@@ -216,12 +219,11 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
         photoURL: user?.photoURL || null,
       };
     }
-    // Use denormalized data from movie doc
     return {
-      displayName: movie.addedByDisplayName || movie.addedByUsername || 'Someone',
-      photoURL: movie.addedByPhotoURL || null,
+      displayName: liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || 'Someone',
+      photoURL:    liveAdder?.photoURL    || movie.addedByPhotoURL    || null,
     };
-  }, [isAddedByCurrentUser, user?.displayName, user?.email, user?.photoURL, movie.addedByDisplayName, movie.addedByUsername, movie.addedByPhotoURL]);
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, user?.photoURL, liveAdder?.displayName, liveAdder?.photoURL, movie.addedByDisplayName, movie.addedByUsername, movie.addedByPhotoURL]);
 
   // Parse video URL to check if we have an embeddable video
   const parsedVideo = parseVideoUrl(movie.socialLink);

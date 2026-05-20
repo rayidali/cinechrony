@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { getRatingStyle } from '@/lib/utils';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 
 type MovieCardListProps = {
   movie: Movie;
@@ -45,15 +46,16 @@ export const MovieCardList = memo(function MovieCardList({
     [movie.notes]
   );
 
-  // Use denormalized user data from movie doc - no fetch needed!
+  // AUDIT.md 2.3b: live profile cache overrides the denormalized snapshot on
+  // the movie doc. Username immutable per 2.3a; not overridden.
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByName = useMemo(() => {
     if (isAddedByCurrentUser) {
       return user?.displayName || user?.email?.split('@')[0] || 'You';
     }
-    // Use denormalized data from movie doc
-    return movie.addedByDisplayName || movie.addedByUsername || 'Someone';
-  }, [isAddedByCurrentUser, user?.displayName, user?.email, movie.addedByDisplayName, movie.addedByUsername]);
+    return liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || 'Someone';
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, liveAdder?.displayName, movie.addedByDisplayName, movie.addedByUsername]);
 
   // Build note author names using denormalized noteAuthors data
   const noteAuthorNames = useMemo(() => {

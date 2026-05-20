@@ -8,6 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
 import { likeActivity, unlikeActivity } from '@/app/actions';
 import { useAuth } from '@/firebase';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
 
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w342';
@@ -83,7 +84,13 @@ export const ActivityCard = memo(function ActivityCard({
   const [isPending, startTransition] = useTransition();
 
   const posterUrl = activity.moviePosterUrl || '/placeholder-poster.png';
-  const displayName = activity.username || activity.displayName || 'Someone';
+  // AUDIT.md 2.3b: prefer live profile fields; fall back to the denormalized
+  // snapshot captured at write time. Username is immutable (2.3a) so no
+  // override needed for the profile URL.
+  const live = useUserProfile(activity.userId);
+  const liveDisplayName = live?.displayName ?? activity.displayName ?? null;
+  const livePhotoURL    = live?.photoURL    ?? activity.photoURL    ?? null;
+  const displayName = activity.username || liveDisplayName || 'Someone';
   const profileUrl = activity.username ? `/profile/${activity.username}` : '#';
 
   const handleLike = () => {
@@ -125,9 +132,9 @@ export const ActivityCard = memo(function ActivityCard({
       <div className="flex items-start gap-3 mb-3">
         {/* User avatar */}
         <Link href={profileUrl} className="flex-shrink-0">
-          {activity.photoURL ? (
+          {livePhotoURL ? (
             <Image
-              src={activity.photoURL}
+              src={livePhotoURL}
               alt={displayName}
               width={40}
               height={40}

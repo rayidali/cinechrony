@@ -16,6 +16,7 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
 import { useAuth } from '@/firebase';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import type { Review } from '@/lib/types';
 
 /**
@@ -78,7 +79,12 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   const [isDeleting, setIsDeleting] = useState(false);
 
   const isOwner = currentUserId === review.userId;
-  const displayName = review.userDisplayName || review.username || 'Anonymous';
+  // AUDIT.md 2.3b: prefer live display name / photo from the cache, fall
+  // back to the denormalized snapshot stamped onto the review at write time.
+  const live = useUserProfile(review.userId);
+  const liveDisplayName = live?.displayName ?? review.userDisplayName ?? null;
+  const livePhotoUrl    = live?.photoURL    ?? review.userPhotoUrl    ?? null;
+  const displayName = liveDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
   const replyCount = review.replyCount || 0;
 
@@ -138,8 +144,8 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
       {/* User avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
-          photoURL={review.userPhotoUrl}
-          displayName={review.userDisplayName}
+          photoURL={livePhotoUrl}
+          displayName={liveDisplayName}
           username={review.username}
           size={isReply ? 'sm' : 'md'}
         />

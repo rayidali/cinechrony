@@ -6,6 +6,7 @@ import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
 import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
+import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 
 const spaceGrotesk = Space_Grotesk({
   subsets: ['latin'],
@@ -55,7 +56,9 @@ export default function RootLayout({
           <FirebaseClientProvider>
             <ListMembersCacheProvider>
               <UserRatingsCacheProvider>
-                {children}
+                <UserProfileCacheProvider>
+                  {children}
+                </UserProfileCacheProvider>
               </UserRatingsCacheProvider>
             </ListMembersCacheProvider>
           </FirebaseClientProvider>

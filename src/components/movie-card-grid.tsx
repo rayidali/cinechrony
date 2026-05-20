@@ -8,6 +8,7 @@ import type { Movie } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
 import { useUser } from '@/firebase';
 import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import { TiktokIcon } from './icons';
 import { getRatingStyle } from '@/lib/utils';
 
@@ -58,13 +59,16 @@ export const MovieCardGrid = memo(function MovieCardGrid({
     [movie.notes]
   );
 
-  // Use denormalized user data from movie doc - no fetch needed!
+  // AUDIT.md 2.3b: live profile cache override of the denormalized snapshot
+  // captured on the movie doc at add-time. Username is immutable (2.3a) and
+  // not overridden.
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByName = useMemo(() => {
     if (isAddedByCurrentUser) return 'You';
-    // Use denormalized data from movie doc
-    return movie.addedByDisplayName || movie.addedByUsername || null;
-  }, [isAddedByCurrentUser, movie.addedByDisplayName, movie.addedByUsername]);
+    // Live displayName takes precedence; fall through to denormalized fields.
+    return liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || null;
+  }, [isAddedByCurrentUser, liveAdder?.displayName, movie.addedByDisplayName, movie.addedByUsername]);
 
   const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
 
