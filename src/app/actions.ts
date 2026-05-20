@@ -3821,16 +3821,28 @@ export async function deleteRating(idToken: string, tmdbId: number) {
 /**
  * Get all ratings for a user (for profile/stats).
  */
-export async function getUserRatings(userId: string, limit: number = 100) {
+export async function getUserRatings(
+  userId: string,
+  limit: number = 100,
+  cursor?: string, // ISO timestamp of the last seen rating's updatedAt
+) {
+  // AUDIT.md 2.5: cursor support added so callers can paginate past the
+  // single-call cap (the ratings cache previously stopped at 500 — Letterboxd
+  // importers with 1000+ ratings silently lost the tail). Pass the last
+  // result's `updatedAt` to fetch the next page; results are ordered by
+  // updatedAt desc, so the cursor is monotonic.
   const db = getDb();
 
   try {
-    const snapshot = await db
+    let q = db
       .collection('ratings')
       .where('userId', '==', userId)
       .orderBy('updatedAt', 'desc')
-      .limit(limit)
-      .get();
+      .limit(limit);
+    if (cursor) {
+      q = q.startAfter(new Date(cursor));
+    }
+    const snapshot = await q.get();
 
     const ratings = snapshot.docs.map((doc) => {
       const data = doc.data();
