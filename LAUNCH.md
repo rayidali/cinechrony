@@ -245,6 +245,22 @@ Same conventions as the audit tracker:
 
 > ~2-3 weeks including review iterations.
 
+### D.0 — App Store compliance (carried over from the pre-launch audit)
+
+> These are App Store *gate* items — surfaced and partly built during the
+> audit (2026-05). Tracked here, not in AUDIT.md, because they're launch
+> requirements, not soundness fixes. Status as of 2026-05-20:
+
+- [x] **Account deletion in-app** — already existed (`/settings`); Apple requires it for any app with sign-up.
+- [x] **Sign in with Apple** — N/A. App offers only email/password, no third-party social login, so SIWA is not mandated. (If Google/Apple login is ever added, SIWA becomes required — see B.2.2.)
+- [x] **AppTrackingTransparency** — N/A. No analytics/tracking SDK in the app.
+- [x] **Content reporting (§1.2)** — DONE in the audit: `reportContent` action + Report button on reviews + server-only `/reports` collection.
+- [x] **`/privacy` route exists** — built in the audit with an accurate draft. Final legal copy still pending → D.4.1.
+- [x] **TMDB attribution** — DONE: shown in `/settings` ("uses the TMDB API but is not endorsed or certified by TMDB").
+- [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** The Report half is done; Apple also requires a way to *block* a user. Build `blockUser`/`unblockUser` (writes `/users/{uid}/blocked/{blockedUid}`), maintain a client blocked-set, filter blocked authors out of the comments list (and ideally feed + search). Needed before submission, NOT before TestFlight.
+- [ ] **D.0.2 — Error monitoring (Sentry).** At launch scale you need to know what's breaking. Sign up, get a DSN, wire `@sentry/nextjs`. ~1h once the DSN exists. (Replaces the audit's "no observability" gap.)
+- [ ] **D.0.3 — Moderation contact email** — a published address (e.g. `support@cinechrony.com`) for abuse reports; referenced by the privacy policy and §1.2.
+
 ### D.1 — Apple Developer account
 
 - [ ] **D.1.1** Enroll ($99/yr).
@@ -267,7 +283,7 @@ Same conventions as the audit tracker:
 
 ### D.4 — Privacy policy & terms
 
-- [ ] **D.4.1** Privacy policy hosted at `cinechrony.com/privacy`. Must address: data collected, third parties (Firebase, TMDB, Claude API, R2), retention, user rights, contact.
+- [~] **D.4.1** Privacy policy — the `/privacy` route + an accurate draft already exist (built in the audit; reflects real data + third parties). Remaining: a lawyer review of the draft, and confirm the support email. Must address: data collected, third parties (Firebase, TMDB, OMDb, R2), retention, user rights, contact.
 - [ ] **D.4.2** Terms of service at `cinechrony.com/terms`.
 - [ ] **D.4.3** Both linked from inside the app (Settings → Legal).
 
