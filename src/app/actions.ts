@@ -2273,7 +2273,10 @@ export async function acceptInvite(idToken: string, inviteId?: string, inviteCod
       return { success: true as const, listId: inviteData.listId, listOwnerId: inviteData.listOwnerId };
     });
 
-    if ('error' in txResult) return txResult;
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
     const inviteData = { listId: txResult.listId, listOwnerId: txResult.listOwnerId };
 
     // Delete the associated notification (so Accept/Decline buttons don't show anymore)
@@ -3448,25 +3451,29 @@ export async function likeReview(idToken: string, reviewId: string) {
 
   try {
     const reviewRef = db.collection('reviews').doc(reviewId);
-    const reviewDoc = await reviewRef.get();
 
-    if (!reviewDoc.exists) {
-      return { error: 'Review not found.' };
-    }
-
-    const reviewData = reviewDoc.data();
-    const likedBy = reviewData?.likedBy || [];
-
-    if (likedBy.includes(userId)) {
-      return { error: 'Already liked.' };
-    }
-
-    await reviewRef.update({
-      likes: FieldValue.increment(1),
-      likedBy: FieldValue.arrayUnion(userId),
+    // AUDIT.md 3.5: read-check-write in one transaction. The old separate
+    // get()-then-update() let a fast double-tap run increment(1) twice while
+    // arrayUnion deduped likedBy to a single entry → likes count drifted.
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(reviewRef);
+      if (!snap.exists) return { error: 'Review not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(reviewRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, reviewData: data, newLikes: (data.likes || 0) + 1 };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
+    const reviewData = txResult.reviewData;
 
-    // Create like notification (don't notify yourself)
+    // Create like notification (don't notify yourself) — post-commit, best-effort.
     if (reviewData?.userId && reviewData.userId !== userId) {
       try {
         // Check if review author has likes notifications enabled
@@ -3500,7 +3507,7 @@ export async function likeReview(idToken: string, reviewId: string) {
       }
     }
 
-    return { success: true, likes: (reviewData?.likes || 0) + 1 };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[likeReview] Failed:', error);
     return { error: 'Failed to like review.' };
@@ -3519,25 +3526,26 @@ export async function unlikeReview(idToken: string, reviewId: string) {
 
   try {
     const reviewRef = db.collection('reviews').doc(reviewId);
-    const reviewDoc = await reviewRef.get();
 
-    if (!reviewDoc.exists) {
-      return { error: 'Review not found.' };
-    }
-
-    const reviewData = reviewDoc.data();
-    const likedBy = reviewData?.likedBy || [];
-
-    if (!likedBy.includes(userId)) {
-      return { error: 'Not liked yet.' };
-    }
-
-    await reviewRef.update({
-      likes: FieldValue.increment(-1),
-      likedBy: FieldValue.arrayRemove(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(reviewRef);
+      if (!snap.exists) return { error: 'Review not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      tx.update(reviewRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 1) - 1) };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: Math.max(0, (reviewData?.likes || 1) - 1) };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[unlikeReview] Failed:', error);
     return { error: 'Failed to unlike review.' };
@@ -5902,25 +5910,26 @@ export async function likeActivity(idToken: string, activityId: string) {
 
   try {
     const activityRef = db.collection('activities').doc(activityId);
-    const activityDoc = await activityRef.get();
 
-    if (!activityDoc.exists) {
-      return { error: 'Activity not found.' };
-    }
-
-    const activityData = activityDoc.data();
-    const likedBy = activityData?.likedBy || [];
-
-    if (likedBy.includes(userId)) {
-      return { error: 'Already liked.' };
-    }
-
-    await activityRef.update({
-      likes: FieldValue.increment(1),
-      likedBy: FieldValue.arrayUnion(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(activityRef);
+      if (!snap.exists) return { error: 'Activity not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(activityRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, newLikes: (data.likes || 0) + 1 };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: (activityData?.likes || 0) + 1 };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[likeActivity] Failed:', error);
     return { error: 'Failed to like activity.' };
@@ -5939,25 +5948,26 @@ export async function unlikeActivity(idToken: string, activityId: string) {
 
   try {
     const activityRef = db.collection('activities').doc(activityId);
-    const activityDoc = await activityRef.get();
 
-    if (!activityDoc.exists) {
-      return { error: 'Activity not found.' };
-    }
-
-    const activityData = activityDoc.data();
-    const likedBy = activityData?.likedBy || [];
-
-    if (!likedBy.includes(userId)) {
-      return { error: 'Not liked.' };
-    }
-
-    await activityRef.update({
-      likes: FieldValue.increment(-1),
-      likedBy: FieldValue.arrayRemove(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(activityRef);
+      if (!snap.exists) return { error: 'Activity not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked.' as const };
+      tx.update(activityRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 0) - 1) };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: Math.max(0, (activityData?.likes || 0) - 1) };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[unlikeActivity] Failed:', error);
     return { error: 'Failed to unlike activity.' };
