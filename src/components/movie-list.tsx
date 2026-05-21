@@ -6,14 +6,15 @@ import type { Movie } from '@/lib/types';
 import { MovieCard } from './movie-card';
 import { MovieCardGrid } from './movie-card-grid';
 import { MovieCardList } from './movie-card-list';
+import { MovieCardAnnotated } from './movie-card-annotated';
 import { MovieDetailsModal } from './movie-details-modal';
 import { GridViewHint } from './grid-view-hint';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { Grid3X3, List, LayoutGrid } from 'lucide-react';
+import { Grid3X3, List, LayoutGrid, AlignLeft } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 
-type ViewMode = 'grid' | 'list' | 'cards';
+type ViewMode = 'grid' | 'list' | 'cards' | 'annotated';
 
 type MovieListProps = {
   initialMovies: Movie[];
@@ -36,7 +37,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   // Load view mode from localStorage on mount
   useEffect(() => {
     const saved = localStorage.getItem(VIEW_MODE_KEY);
-    if (saved && ['grid', 'list', 'cards'].includes(saved)) {
+    if (saved && ['grid', 'list', 'cards', 'annotated'].includes(saved)) {
       setViewMode(saved as ViewMode);
     }
   }, []);
@@ -166,6 +167,19 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     </div>
   );
 
+  // Render annotated view (the reading mode — collaborator notes per movie)
+  const renderAnnotatedView = () => (
+    <div className="bg-card border border-border rounded-[20px] shadow-lift px-4">
+      {filteredMovies.map((movie) => (
+        <MovieCardAnnotated
+          key={`${movie.id}-${movie.addedBy}`}
+          movie={movie}
+          onOpenDetails={handleOpenDetails}
+        />
+      ))}
+    </div>
+  );
+
   return (
     <div className="w-full">
       {/* Header with filter tabs and view toggle */}
@@ -176,29 +190,29 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
           onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
           className="w-full sm:w-auto"
         >
-          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-lg shadow-lift p-0 h-auto">
+          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-full p-1 h-auto">
             <TabsTrigger
               value="To Watch"
-              className="rounded-l-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-border px-4"
+              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
             >
-              To Watch
+              to watch
             </TabsTrigger>
             <TabsTrigger
               value="Watched"
-              className="rounded-r-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none px-4"
+              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
             >
-              Watched
+              watched
             </TabsTrigger>
           </TabsList>
         </Tabs>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-background">
+        <div className="flex items-center gap-1 border border-border rounded-full p-1 bg-background">
           <Button
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('grid')}
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 p-0 rounded-full"
             title="Grid view"
           >
             <Grid3X3 className="h-4 w-4" />
@@ -207,7 +221,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'list' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('list')}
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 p-0 rounded-full"
             title="List view"
           >
             <List className="h-4 w-4" />
@@ -216,27 +230,37 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'cards' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('cards')}
-            className="h-8 w-8 p-0"
+            className="h-8 w-8 p-0 rounded-full"
             title="Full cards view"
           >
             <LayoutGrid className="h-4 w-4" />
+          </Button>
+          <Button
+            variant={viewMode === 'annotated' ? 'default' : 'ghost'}
+            size="sm"
+            onClick={() => handleViewModeChange('annotated')}
+            className="h-8 w-8 p-0 rounded-full"
+            title="Annotated view"
+          >
+            <AlignLeft className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
       {/* Movie count */}
-      <p className="text-sm text-muted-foreground mb-4">
-        {filteredMovies.length} {filteredMovies.length === 1 ? 'movie' : 'movies'}
+      <p className="cc-meta text-xs text-muted-foreground mb-4">
+        {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
       </p>
 
       {/* Movie display */}
       {isLoading ? (
         viewMode === 'grid' ? renderGridSkeleton() :
-        viewMode === 'list' ? renderListSkeleton() :
-        renderCardsSkeleton()
+        viewMode === 'cards' ? renderCardsSkeleton() :
+        renderListSkeleton()
       ) : filteredMovies.length > 0 ? (
         viewMode === 'grid' ? renderGridView() :
         viewMode === 'list' ? renderListView() :
+        viewMode === 'annotated' ? renderAnnotatedView() :
         renderCardsView()
       ) : (
         renderEmptyState()
