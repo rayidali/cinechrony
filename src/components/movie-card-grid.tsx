@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { memo, useMemo } from 'react';
-import { EyeOff, Check, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
+import { EyeOff, Check, Maximize2, Instagram, Youtube, Tv, Bookmark } from 'lucide-react';
 
 import type { Movie } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
@@ -72,26 +72,11 @@ export const MovieCardGrid = memo(function MovieCardGrid({
 
   const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
 
-  // Build note author names using denormalized noteAuthors data
-  const noteAuthorNames = useMemo(() => {
-    const authors: Record<string, string> = {};
-    notesEntries.forEach(([uid]) => {
-      if (uid === user?.uid) {
-        authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
-      } else if (movie.noteAuthors?.[uid]) {
-        // Use denormalized note author data
-        const author = movie.noteAuthors[uid];
-        authors[uid] = author.username || author.displayName || 'user';
-      } else if (uid === movie.addedBy && movie.addedByUsername) {
-        // Fallback to movie adder's denormalized data
-        authors[uid] = movie.addedByUsername;
-      } else {
-        // Final fallback
-        authors[uid] = 'user';
-      }
-    });
-    return authors;
-  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.noteAuthors, movie.addedBy, movie.addedByUsername]);
+  // Notes — v2 "marginalia" treatment: a count chip on the poster, plus the
+  // user's own note peeking below the title as a serif-italic pull-quote.
+  // Everyone else's notes live on the movie detail screen, not crowded here.
+  const noteCount = notesEntries.length;
+  const ownNote = user?.uid ? movie.notes?.[user.uid] : undefined;
 
   if (!user) return null;
 
@@ -150,18 +135,28 @@ export const MovieCardGrid = memo(function MovieCardGrid({
           )}
         </div>
 
-        {/* Bottom row: Added by + Status */}
+        {/* Bottom row: Added by + Note count · Status */}
         <div className="absolute bottom-1 left-1 right-1 flex justify-between items-end">
-          {/* Added by indicator */}
-          {addedByInitial && listOwnerId && (
-            <div
-              className="w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-headline font-bold flex items-center justify-center ring-2 ring-white/70"
-              title={`Added by ${addedByName}`}
-            >
-              {addedByInitial}
-            </div>
-          )}
-          {!addedByInitial && <div />}
+          {/* Left group: added-by initial + note count chip */}
+          <div className="flex items-center gap-1">
+            {addedByInitial && listOwnerId && (
+              <div
+                className="w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-headline font-bold flex items-center justify-center ring-2 ring-white/70"
+                title={`Added by ${addedByName}`}
+              >
+                {addedByInitial}
+              </div>
+            )}
+            {noteCount > 0 && (
+              <div
+                className="flex items-center gap-0.5 px-1.5 h-5 rounded-full bg-black/55 backdrop-blur-sm text-white cc-meta text-[9px]"
+                title={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'}`}
+              >
+                <Bookmark className="h-2.5 w-2.5" strokeWidth={2} />
+                {noteCount}
+              </div>
+            )}
+          </div>
 
           {/* Status indicator */}
           <div
@@ -196,20 +191,11 @@ export const MovieCardGrid = memo(function MovieCardGrid({
         </p>
         <p className="cc-meta text-[11px] text-muted-foreground">{movie.year}</p>
 
-        {/* Notes displayed below title */}
-        {notesEntries.length > 0 && (
-          <div className="mt-1.5 space-y-1">
-            {notesEntries.slice(0, 2).map(([uid, note]) => (
-              <div key={uid} className="text-[11px] leading-snug">
-                <span className="font-headline font-semibold text-foreground">@{noteAuthorNames[uid] || '...'}</span>
-                <span className="text-muted-foreground/60 mx-1">·</span>
-                <span className="font-serif italic text-muted-foreground line-clamp-1 break-words">{note}</span>
-              </div>
-            ))}
-            {notesEntries.length > 2 && (
-              <p className="text-[10px] text-muted-foreground/50 font-medium">+{notesEntries.length - 2} more</p>
-            )}
-          </div>
+        {/* Your own note — marginalia pull-quote */}
+        {ownNote && (
+          <p className="mt-1.5 pl-1.5 border-l border-border font-serif italic text-[11px] leading-snug text-foreground/80 line-clamp-2 break-words">
+            {ownNote}
+          </p>
         )}
       </div>
     </div>

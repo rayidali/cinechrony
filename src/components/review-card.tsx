@@ -2,7 +2,7 @@
 
 import { useState, memo, useMemo, Fragment } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Star, Flag } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Flag } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -159,7 +159,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   };
 
   return (
-    <div className={`flex gap-3 ${isReply ? 'py-2' : 'py-4'}`}>
+    <div className={`flex gap-3 ${isReply ? 'py-3 ml-3 pl-3 border-l border-border' : 'py-4'}`}>
       {/* User avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
@@ -176,25 +176,22 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
         <div className="flex items-center gap-2 flex-wrap">
           <Link
             href={`/profile/${review.username || ''}`}
-            className="font-bold text-sm hover:underline"
+            className="cc-meta text-[12px] text-foreground hover:underline"
           >
-            {displayName}
+            {review.username ? `@${review.username}` : displayName}
           </Link>
 
-          {/* Rating badge - shows the rating at time of comment */}
+          <span className="cc-meta text-[11px] text-muted-foreground">· {timeAgo}</span>
+
+          {/* Rating chip — 3-bucket, sits on the byline */}
           {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
             <span
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold"
+              className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
               style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
             >
-              <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
               {review.ratingAtTime.toFixed(1)}
             </span>
           )}
-
-          <span className="text-muted-foreground text-xs">
-            reviewed {timeAgo}
-          </span>
 
           {/* Options menu — owner gets Edit/Delete; everyone else gets Report
               (AUDIT.md App Store §1.2: UGC must be reportable). */}
@@ -238,26 +235,26 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
         </p>
 
         {/* Actions: like, reply */}
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 mt-2.5">
           <button
             onClick={handleLikeToggle}
             disabled={!currentUserId || isLiking}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            className={`flex items-center gap-1.5 cc-meta text-[11px] transition-colors disabled:opacity-50 ${
+              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            <Heart
-              className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`}
-            />
+            <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-current' : ''}`} strokeWidth={1.8} />
             {likes > 0 && <span>{likes}</span>}
           </button>
 
-          {/* Reply button - shows on all comments (Instagram/TikTok style) */}
+          {/* Reply — mono lowercase, subordinate to the like count */}
           {onReply && (
             <button
               onClick={() => onReply(review)}
               disabled={!currentUserId}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              Reply{!isReply && replyCount > 0 && ` (${replyCount})`}
+              reply{!isReply && replyCount > 0 && ` · ${replyCount}`}
             </button>
           )}
         </div>

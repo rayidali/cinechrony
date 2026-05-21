@@ -14,10 +14,10 @@ import {
   Instagram,
   Youtube,
   X,
-  Film,
-  Tv,
   Info,
   MessageSquare,
+  Clock,
+  Calendar,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -556,15 +556,12 @@ export function MovieDetailsModal({
 
             {/* Header */}
             <div className="px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
-              <Drawer.Title className="text-2xl font-headline flex items-center gap-2 pr-10">
-                {movie.mediaType === 'tv' ? (
-                  <Tv className="h-6 w-6 text-primary flex-shrink-0" />
-                ) : (
-                  <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
-                )}
-                <span className="truncate">{movie.title}</span>
-                <span className="text-muted-foreground font-normal text-lg flex-shrink-0">({movie.year})</span>
+              <Drawer.Title className="font-headline font-bold text-2xl lowercase tracking-tight pr-10 truncate">
+                {movie.title}
               </Drawer.Title>
+              <p className="cc-eyebrow mt-1.5">
+                {movie.mediaType === 'tv' ? 'tv series' : 'film'} · {movie.year}
+              </p>
               <Drawer.Close className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors">
                 <X className="h-5 w-5" />
               </Drawer.Close>
@@ -644,46 +641,56 @@ export function MovieDetailsModal({
                         />
                       </div>
 
-                      {/* Runtime/Seasons & Genres */}
+                      {/* Metric chips + genres — the Sunset Vista Lodge move */}
                       {mediaDetails && (
-                        <div className="flex flex-wrap gap-2">
-                          {'runtime' in mediaDetails && mediaDetails.runtime && (
-                            <span className="bg-secondary px-2 py-1 rounded text-sm">
-                              {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
-                            </span>
-                          )}
-                          {'number_of_seasons' in mediaDetails && (
-                            <>
-                              <span className="bg-secondary px-2 py-1 rounded text-sm">
-                                {mediaDetails.number_of_seasons} Season{mediaDetails.number_of_seasons !== 1 ? 's' : ''}
+                        <div className="space-y-3">
+                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 cc-meta text-xs text-foreground">
+                            {'runtime' in mediaDetails && mediaDetails.runtime ? (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                                {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
                               </span>
-                              <span className="bg-secondary px-2 py-1 rounded text-sm">
-                                {mediaDetails.number_of_episodes} Episodes
+                            ) : null}
+                            {'number_of_seasons' in mediaDetails && (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                                {mediaDetails.number_of_seasons} season{mediaDetails.number_of_seasons !== 1 ? 's' : ''} · {mediaDetails.number_of_episodes} ep
                               </span>
-                            </>
+                            )}
+                            {movie.year && (
+                              <span className="inline-flex items-center gap-1.5">
+                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                                {movie.year}
+                              </span>
+                            )}
+                          </div>
+                          {mediaDetails.genres && mediaDetails.genres.length > 0 && (
+                            <div className="flex flex-wrap gap-1.5">
+                              {mediaDetails.genres.map((genre) => (
+                                <span key={genre.id} className="px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
+                                  {genre.name}
+                                </span>
+                              ))}
+                            </div>
                           )}
-                          {mediaDetails.genres?.map((genre) => (
-                            <span key={genre.id} className="bg-secondary px-2 py-1 rounded text-sm">
-                              {genre.name}
-                            </span>
-                          ))}
                         </div>
                       )}
 
-                      {/* Overview */}
+                      {/* Overview — editorial serif */}
                       <div>
-                        <h3 className="font-bold mb-2">Overview</h3>
+                        <div className="cc-eyebrow">the film</div>
+                        <div className="h-px bg-border my-3" />
                         {isLoadingDetails ? (
                           <div className="flex items-center gap-2 text-muted-foreground">
                             <Loader2 className="h-4 w-4 animate-spin" />
-                            Loading details...
+                            <span className="cc-meta text-xs">loading…</span>
                           </div>
                         ) : mediaDetails?.overview || movie.overview ? (
-                          <p className="text-muted-foreground leading-relaxed">
+                          <p className="font-serif text-[15px] leading-relaxed text-foreground">
                             {mediaDetails?.overview || movie.overview}
                           </p>
                         ) : (
-                          <p className="text-muted-foreground italic">No overview available</p>
+                          <p className="font-serif italic text-sm text-muted-foreground">no overview available</p>
                         )}
                       </div>
 
@@ -761,55 +768,56 @@ export function MovieDetailsModal({
                         </div>
                       )}
 
-                      {/* Your Note */}
-                      {canEdit && listId && (
-                        <div className="pt-4 border-t">
-                          <h3 className="font-bold mb-2">Your Note</h3>
-                          <button
-                            onClick={() => setShowNoteEditor(true)}
-                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
-                          >
-                            {userNote ? (
-                              <p className="text-sm leading-relaxed line-clamp-3 whitespace-pre-wrap">{userNote}</p>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">Tap to add a note...</p>
-                            )}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Other Users' Notes */}
-                      {movie.notes && Object.keys(movie.notes).filter(uid => uid !== user.uid).length > 0 && (
-                        <div className="pt-4 border-t">
-                          <h3 className="font-bold mb-3">Team Notes</h3>
-                          <div className="space-y-3">
-                            {Object.entries(movie.notes)
-                              .filter(([uid]) => uid !== user.uid)
-                              .map(([uid, note]) => {
-                                const author = noteAuthors[uid];
-                                return (
-                                  <div key={uid} className="bg-secondary/30 rounded-lg p-3 border border-border/50">
-                                    <div className="flex items-center gap-2 mb-1.5">
-                                      {author?.photoURL ? (
-                                        <Image
-                                          src={author.photoURL}
-                                          alt={author.name}
-                                          width={18}
-                                          height={18}
-                                          className="rounded-full"
-                                        />
-                                      ) : (
-                                        <div className="w-[18px] h-[18px] rounded-full bg-primary/20 flex items-center justify-center text-[10px] font-semibold text-primary">
-                                          {(author?.name || 'U').charAt(0).toUpperCase()}
-                                        </div>
-                                      )}
-                                      <span className="text-sm font-semibold text-primary">@{author?.name || '...'}</span>
-                                    </div>
-                                    <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">{note}</p>
+                      {/* Marginalia — notes from you + your collaborators,
+                          set as editorial pull-quotes (UX_PATTERNS) */}
+                      {listId && (
+                        <div className="pt-4 border-t border-border">
+                          {(() => {
+                            const allNotes = Object.entries(movie.notes || {}).sort(
+                              (a) => (a[0] === user.uid ? -1 : 1)
+                            );
+                            const noteCount = allNotes.length;
+                            return (
+                              <>
+                                <div className="cc-eyebrow">
+                                  marginalia{noteCount > 0 ? ` · ${noteCount} ${noteCount === 1 ? 'note' : 'notes'}` : ''}
+                                </div>
+                                <div className="h-px bg-border my-3" />
+                                {noteCount === 0 ? (
+                                  <p className="font-serif italic text-sm text-muted-foreground">
+                                    {canEdit
+                                      ? "the margins are blank. write something they'll remember."
+                                      : 'no annotations yet.'}
+                                  </p>
+                                ) : (
+                                  <div className="space-y-4">
+                                    {allNotes.map(([uid, note]) => {
+                                      const isMine = uid === user.uid;
+                                      const author = isMine ? 'you' : noteAuthors[uid]?.name || 'user';
+                                      return (
+                                        <blockquote key={uid} className="pl-3 border-l border-border">
+                                          <p className="font-serif italic text-[15px] leading-snug text-foreground whitespace-pre-wrap break-words">
+                                            {note}
+                                          </p>
+                                          <p className="cc-meta text-[10px] text-muted-foreground mt-1.5">
+                                            — {isMine ? 'you' : `@${author}`}
+                                          </p>
+                                        </blockquote>
+                                      );
+                                    })}
                                   </div>
-                                );
-                              })}
-                          </div>
+                                )}
+                                {canEdit && (
+                                  <button
+                                    onClick={() => setShowNoteEditor(true)}
+                                    className="mt-4 inline-flex items-center justify-center h-9 px-4 rounded-full border border-foreground font-headline font-semibold text-[13px] lowercase tracking-tight transition-transform active:scale-[0.98]"
+                                  >
+                                    {userNote ? 'edit your note' : 'add your note'}
+                                  </button>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                       )}
 
