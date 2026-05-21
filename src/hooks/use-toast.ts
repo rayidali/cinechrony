@@ -9,7 +9,10 @@ import type {
 } from "@/components/ui/toast"
 
 const TOAST_LIMIT = 1
-const TOAST_REMOVE_DELAY = 1000000
+// AUDIT.md 3.6: was 1_000_000ms (~16.6 min) — dismissed toasts lingered in
+// the DOM for a quarter-hour, accumulating on long sessions. 5s is plenty
+// for the exit animation after a toast is dismissed.
+const TOAST_REMOVE_DELAY = 5000
 
 type ToasterToast = ToastProps & {
   id: string

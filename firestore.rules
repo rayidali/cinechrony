@@ -303,5 +303,20 @@ service cloud.firestore {
       // No updates - to change username, delete and recreate
       allow update: if false;
     }
+
+    // AUDIT.md 5.8: server-only collections. All access goes through server
+    // actions (Firebase Admin SDK, which bypasses these rules). Clients must
+    // never touch them directly. Unmatched paths are denied by default, but
+    // these explicit `if false` blocks DOCUMENT the contract and stop a
+    // future edit from accidentally opening them up.
+    match /reviews/{reviewId} {
+      allow read, write: if false;
+    }
+    match /ratings/{ratingId} {
+      allow read, write: if false;
+    }
+    match /notifications/{notificationId} {
+      allow read, write: if false;
+    }
   }
 }

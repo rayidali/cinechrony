@@ -2,17 +2,15 @@
 
 import { revalidatePath } from 'next/cache';
 import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType } from '@/lib/types';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirebaseAdminApp } from '@/firebase/admin';
+import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
 import { randomInt } from 'node:crypto';
 
-// --- HELPER ---
-function getDb() {
-  const adminApp = getFirebaseAdminApp();
-  return getFirestore(adminApp);
-}
+// AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
+// (applies ignoreUndefinedProperties once). The previous local copy here
+// returned the Firestore singleton WITHOUT those settings.
 
 // --- USER PROFILE ---
 
