@@ -5,23 +5,25 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useTransition, useEffect, useMemo } from 'react';
 import {
-  Eye,
-  EyeOff,
   Loader2,
   Trash2,
   ExternalLink,
-  Users,
   Instagram,
   Youtube,
-  X,
-  Info,
-  MessageSquare,
   Clock,
   Calendar,
+  Star,
+  ChevronLeft,
+  MoreHorizontal,
+  Plus,
+  Check,
+  Film,
+  Tv,
+  Link2,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, UserProfile } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -29,8 +31,14 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserProfile, getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getImdbRating } from '@/app/actions';
+import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getImdbRating } from '@/app/actions';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { RatingSlider } from './rating-slider';
@@ -56,13 +64,9 @@ type ExtendedTVDetails = TMDBTVDetails & {
 
 type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
 
-type ViewTab = 'info' | 'reviews';
-
-const retroButtonClass =
-  'border border-border rounded-lg shadow-lift transition-all duration-200';
-
-const retroInputClass =
-  'border border-border rounded-lg shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200';
+// Glassy floating control — backdrop blur over a translucent dark square.
+const GLASS_BTN =
+  'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -77,25 +81,6 @@ function getProviderIcon(url: string | undefined) {
     default:
       return null;
   }
-}
-
-function IMDbLogo({ className = 'h-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 64 32" className={className} fill="currentColor">
-      <rect width="64" height="32" rx="4" fill="#F5C518" />
-      <text
-        x="32"
-        y="23"
-        textAnchor="middle"
-        fill="black"
-        fontSize="18"
-        fontWeight="bold"
-        fontFamily="Arial, sans-serif"
-      >
-        IMDb
-      </text>
-    </svg>
-  );
 }
 
 async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails | null> {
@@ -186,7 +171,6 @@ export function MovieDetailsModal({
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
-  const [activeTab, setActiveTab] = useState<ViewTab>('info');
   const [userRating, setUserRating] = useState<number | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [showRateOnWatchModal, setShowRateOnWatchModal] = useState(false);
@@ -265,7 +249,7 @@ export function MovieDetailsModal({
   }, [movie?.notes, movie?.noteAuthors, movie?.addedBy, movie?.addedByUsername, movie?.addedByPhotoURL, cachedMembers, user?.uid, user?.displayName, user?.email, user?.photoURL]);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
-  const drawerHeight = useViewportHeight(85);
+  const drawerHeight = useViewportHeight(92);
 
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
@@ -277,7 +261,6 @@ export function MovieDetailsModal({
       setMediaDetails(null);
       setMediaDetailsForId(null);
       setLocalStatus(movie.status);
-      setActiveTab('info');
       setUserRating(null);
       setShowRateOnWatchModal(false);
       setShowNoteEditor(false);
@@ -535,9 +518,30 @@ export function MovieDetailsModal({
   // Use addedByInfo computed above for display
   const displayName = addedByInfo?.displayName || 'Someone';
 
+  // Hero photo — TMDB backdrop is cinematic (widescreen); fall back to poster.
+  const backdropPath =
+    mediaDetails && 'backdrop_path' in mediaDetails ? mediaDetails.backdrop_path : null;
+  const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : movie.posterUrl;
+
+  // Runtime / season label for the metric row.
+  let runtimeLabel: string | null = null;
+  if (mediaDetails) {
+    if ('runtime' in mediaDetails && mediaDetails.runtime) {
+      runtimeLabel = `${Math.floor(mediaDetails.runtime / 60)}h ${mediaDetails.runtime % 60}m`;
+    } else if ('number_of_seasons' in mediaDetails) {
+      runtimeLabel = `${mediaDetails.number_of_seasons} season${mediaDetails.number_of_seasons !== 1 ? 's' : ''}`;
+    }
+  }
+
+  const cast = mediaDetails?.credits?.cast ?? [];
+  const overview = mediaDetails?.overview || movie.overview;
+  const allNotes = Object.entries(movie.notes || {}).sort((a) => (a[0] === user.uid ? -1 : 1));
+  const heightStyle = drawerHeight > 0 ? `${drawerHeight}px` : 'calc(92 * var(--dvh, 1vh))';
+
   return (
     <>
-      {/* Main Movie Details Drawer - Close when any fullscreen editor is open to release focus trap */}
+      {/* Movie detail — Vaul drawer with the cinematic-open pattern.
+          Close when any fullscreen editor is open to release the focus trap. */}
       <Drawer.Root
         open={isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal}
         onOpenChange={(open) => !open && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatchModal && onClose()}
@@ -545,342 +549,314 @@ export function MovieDetailsModal({
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
-            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border border-border border-b-0 outline-none"
-            style={{
-              height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
-              maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
-            }}
+            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-card outline-none overflow-hidden"
+            style={{ height: heightStyle, maxHeight: heightStyle }}
           >
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
+            <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>
 
-            {/* Header */}
-            <div className="px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
-              <Drawer.Title className="font-headline font-bold text-2xl lowercase tracking-tight pr-10 truncate">
-                {movie.title}
-              </Drawer.Title>
-              <p className="cc-eyebrow mt-1.5">
-                {movie.mediaType === 'tv' ? 'tv series' : 'film'} · {movie.year}
-              </p>
-              <Drawer.Close className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors">
-                <X className="h-5 w-5" />
-              </Drawer.Close>
+            {/* Glassy floating controls — stay fixed over the hero while scrolling */}
+            <div className="absolute top-3 left-3 right-3 z-30 flex items-start justify-between">
+              <button onClick={onClose} className={GLASS_BTN} aria-label="Back">
+                <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+              </button>
+              {canEdit && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className={GLASS_BTN} aria-label="More options">
+                      <MoreHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="border border-border rounded-xl">
+                    <DropdownMenuItem onSelect={() => setShowSocialLinkEditor(true)}>
+                      <Link2 className="h-4 w-4 mr-2" />
+                      {newSocialLink ? 'edit video link' : 'add video link'}
+                    </DropdownMenuItem>
+                    {listId && (
+                      <DropdownMenuItem onSelect={handleRemove} className="text-destructive" disabled={isPending}>
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        remove from list
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
 
-            {/* Scrollable content area */}
-            <div className={`flex-1 min-h-0 flex flex-col ${activeTab === 'info' ? 'overflow-y-auto' : 'overflow-hidden'}`}>
-              {activeTab === 'info' ? (
-                <div className="p-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Left: Poster + Video */}
-                    <div className="space-y-4">
-                      <Image
-                        src={movie.posterUrl}
-                        alt={`Poster for ${movie.title}`}
-                        width={200}
-                        height={300}
-                        className="rounded-lg border border-border shadow-lift w-full max-w-[200px] h-auto mx-auto md:mx-0"
-                      />
+            {/* Scrollable — hero photo + content sheet */}
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              {/* Hero — full-bleed, bleeds to the drawer's top edge */}
+              <div className="relative w-full" style={{ height: 'clamp(240px, 42vh, 360px)', background: 'oklch(0.165 0.012 60)' }}>
+                <Image
+                  src={heroSrc}
+                  alt={`Poster art for ${movie.title}`}
+                  fill
+                  priority
+                  className="object-cover"
+                  sizes="100vw"
+                />
+                {/* scrim — top for control legibility, bottom for the title */}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/80" />
+                <Drawer.Title
+                  className="absolute bottom-7 left-5 right-5 font-headline font-bold text-white text-3xl lowercase tracking-tight leading-[0.95]"
+                  style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
+                >
+                  {movie.title}
+                </Drawer.Title>
+              </div>
 
-                      {hasEmbeddableVideo && (
-                        <div>
-                          <h3 className="font-bold mb-2 flex items-center gap-2">
-                            {SocialIcon && <SocialIcon className="h-4 w-4" />}
-                            {getProviderDisplayName(parsedVideo?.provider || null)} Video
-                          </h3>
-                          <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />
-                        </div>
-                      )}
+              {/* Content sheet — slides up over the bottom of the hero */}
+              <div className="relative -mt-6 rounded-t-[26px] bg-card px-5 pt-2 pb-7">
+                {/* drag handle */}
+                <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 
-                      {movie.socialLink && (
-                        <Button asChild variant="outline" className="w-full">
-                          <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
-                            <ExternalLink className="h-4 w-4 mr-2" />
-                            Open in {hasEmbeddableVideo ? getProviderDisplayName(parsedVideo?.provider || null) : 'Browser'}
-                          </Link>
-                        </Button>
-                      )}
+                {/* eyebrow chip */}
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
+                  {movie.mediaType === 'tv' ? (
+                    <Tv className="h-3 w-3" strokeWidth={1.8} />
+                  ) : (
+                    <Film className="h-3 w-3" strokeWidth={1.8} />
+                  )}
+                  {movie.mediaType === 'tv' ? 'tv series' : 'film'}
+                </span>
 
-                      <div className="text-sm text-muted-foreground">
-                        Added by {displayName}
-                      </div>
-                    </div>
+                {/* title */}
+                <h2 className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
+                  {movie.title}
+                </h2>
 
-                    {/* Right: Details */}
-                    <div className="space-y-4">
-                      {/* IMDB Rating */}
-                      {isLoadingDetails ? (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Loading rating...
-                        </div>
-                      ) : mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' ? (
-                        <div className="flex items-center gap-3">
-                          <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
-                            <IMDbLogo className="h-5 w-auto" />
-                            <span className="text-lg">{mediaDetails.imdbRating}</span>
-                            <span className="text-sm font-normal">/10</span>
-                          </div>
-                          {mediaDetails.imdbVotes && (
-                            <span className="text-sm text-muted-foreground">
-                              ({mediaDetails.imdbVotes} votes)
-                            </span>
-                          )}
-                        </div>
-                      ) : null}
-
-                      {/* Your Rating */}
-                      <div className="pt-2 pb-2 border-y border-border">
-                        <RatingSlider
-                          value={userRating}
-                          onChangeComplete={handleRatingSave}
-                          onClear={handleRatingClear}
-                          disabled={isSavingRating}
-                          size="md"
-                          label="Your Rating"
-                        />
-                      </div>
-
-                      {/* Metric chips + genres — the Sunset Vista Lodge move */}
-                      {mediaDetails && (
-                        <div className="space-y-3">
-                          <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 cc-meta text-xs text-foreground">
-                            {'runtime' in mediaDetails && mediaDetails.runtime ? (
-                              <span className="inline-flex items-center gap-1.5">
-                                <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                                {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
-                              </span>
-                            ) : null}
-                            {'number_of_seasons' in mediaDetails && (
-                              <span className="inline-flex items-center gap-1.5">
-                                <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                                {mediaDetails.number_of_seasons} season{mediaDetails.number_of_seasons !== 1 ? 's' : ''} · {mediaDetails.number_of_episodes} ep
-                              </span>
-                            )}
-                            {movie.year && (
-                              <span className="inline-flex items-center gap-1.5">
-                                <Calendar className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                                {movie.year}
-                              </span>
-                            )}
-                          </div>
-                          {mediaDetails.genres && mediaDetails.genres.length > 0 && (
-                            <div className="flex flex-wrap gap-1.5">
-                              {mediaDetails.genres.map((genre) => (
-                                <span key={genre.id} className="px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
-                                  {genre.name}
-                                </span>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-
-                      {/* Overview — editorial serif */}
-                      <div>
-                        <div className="cc-eyebrow">the film</div>
-                        <div className="h-px bg-border my-3" />
-                        {isLoadingDetails ? (
-                          <div className="flex items-center gap-2 text-muted-foreground">
-                            <Loader2 className="h-4 w-4 animate-spin" />
-                            <span className="cc-meta text-xs">loading…</span>
-                          </div>
-                        ) : mediaDetails?.overview || movie.overview ? (
-                          <p className="font-serif text-[15px] leading-relaxed text-foreground">
-                            {mediaDetails?.overview || movie.overview}
-                          </p>
-                        ) : (
-                          <p className="font-serif italic text-sm text-muted-foreground">no overview available</p>
-                        )}
-                      </div>
-
-                      {/* Cast */}
-                      {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
-                        <div>
-                          <h3 className="font-bold mb-2 flex items-center gap-2">
-                            <Users className="h-4 w-4" />
-                            Cast
-                          </h3>
-                          <div className="grid grid-cols-2 gap-2">
-                            {mediaDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
-                              <div key={actor.id} className="flex items-center gap-2 bg-secondary rounded-lg p-2">
-                                {actor.profile_path ? (
-                                  <Image
-                                    src={`https://image.tmdb.org/t/p/w92${actor.profile_path}`}
-                                    alt={actor.name}
-                                    width={32}
-                                    height={32}
-                                    className="rounded-full object-cover w-8 h-8"
-                                  />
-                                ) : (
-                                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                                    <span className="text-xs">{actor.name.charAt(0)}</span>
-                                  </div>
-                                )}
-                                <div className="overflow-hidden">
-                                  <p className="font-bold text-sm truncate">{actor.name}</p>
-                                  <p className="text-xs text-muted-foreground truncate">{actor.character}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* IMDB Link */}
-                      {mediaDetails?.imdbId && (
-                        <Button asChild variant="outline" className="w-full">
-                          <Link
-                            href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                          >
-                            <IMDbLogo className="h-4 w-auto mr-2" />
-                            View on IMDb
-                          </Link>
-                        </Button>
-                      )}
-
-                      {/* Watch Status */}
-                      {canEdit && (
-                        <div className="pt-4 border-t">
-                          <h3 className="font-bold mb-2">Status</h3>
-                          <div className="flex gap-2">
-                            <Button
-                              onClick={() => handleStatusChange('To Watch')}
-                              variant={localStatus === 'To Watch' ? 'default' : 'outline'}
-                              className={retroButtonClass}
-                              disabled={isPending}
-                            >
-                              <EyeOff className="h-4 w-4 mr-2" />
-                              To Watch
-                            </Button>
-                            <Button
-                              onClick={() => handleStatusChange('Watched')}
-                              variant={localStatus === 'Watched' ? 'default' : 'outline'}
-                              className={retroButtonClass}
-                              disabled={isPending}
-                            >
-                              <Eye className="h-4 w-4 mr-2" />
-                              Watched
-                            </Button>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Marginalia — notes from you + your collaborators,
-                          set as editorial pull-quotes (UX_PATTERNS) */}
-                      {listId && (
-                        <div className="pt-4 border-t border-border">
-                          {(() => {
-                            const allNotes = Object.entries(movie.notes || {}).sort(
-                              (a) => (a[0] === user.uid ? -1 : 1)
-                            );
-                            const noteCount = allNotes.length;
-                            return (
-                              <>
-                                <div className="cc-eyebrow">
-                                  marginalia{noteCount > 0 ? ` · ${noteCount} ${noteCount === 1 ? 'note' : 'notes'}` : ''}
-                                </div>
-                                <div className="h-px bg-border my-3" />
-                                {noteCount === 0 ? (
-                                  <p className="font-serif italic text-sm text-muted-foreground">
-                                    {canEdit
-                                      ? "the margins are blank. write something they'll remember."
-                                      : 'no annotations yet.'}
-                                  </p>
-                                ) : (
-                                  <div className="space-y-4">
-                                    {allNotes.map(([uid, note]) => {
-                                      const isMine = uid === user.uid;
-                                      const author = isMine ? 'you' : noteAuthors[uid]?.name || 'user';
-                                      return (
-                                        <blockquote key={uid} className="pl-3 border-l border-border">
-                                          <p className="font-serif italic text-[15px] leading-snug text-foreground whitespace-pre-wrap break-words">
-                                            {note}
-                                          </p>
-                                          <p className="cc-meta text-[10px] text-muted-foreground mt-1.5">
-                                            — {isMine ? 'you' : `@${author}`}
-                                          </p>
-                                        </blockquote>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                                {canEdit && (
-                                  <button
-                                    onClick={() => setShowNoteEditor(true)}
-                                    className="mt-4 inline-flex items-center justify-center h-9 px-4 rounded-full border border-foreground font-headline font-semibold text-[13px] lowercase tracking-tight transition-transform active:scale-[0.98]"
-                                  >
-                                    {userNote ? 'edit your note' : 'add your note'}
-                                  </button>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </div>
-                      )}
-
-                      {/* Edit Social Link - Tap to open fullscreen editor */}
-                      {canEdit && (
-                        <div className="pt-4 border-t">
-                          <h3 className="font-bold mb-2">Video Link</h3>
-                          <button
-                            onClick={() => setShowSocialLinkEditor(true)}
-                            className="w-full text-left px-3 py-3 rounded-lg bg-secondary/50 hover:bg-secondary/70 active:bg-secondary transition-colors border border-border/50"
-                          >
-                            {newSocialLink ? (
-                              <p className="text-sm text-primary truncate">{newSocialLink}</p>
-                            ) : (
-                              <p className="text-sm text-muted-foreground">Tap to add a video link...</p>
-                            )}
-                          </button>
-                        </div>
-                      )}
-
-                      {/* Remove button */}
-                      {canEdit && (
-                        <div className="pt-4 border-t">
-                          <Button
-                            variant="destructive"
-                            onClick={handleRemove}
-                            disabled={isPending}
-                            className={`w-full ${retroButtonClass}`}
-                          >
-                            <Trash2 className="h-4 w-4 mr-2" />
-                            Remove from List
-                          </Button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                {/* metric chips — runtime · imdb · year */}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 cc-meta text-xs text-foreground">
+                  {runtimeLabel && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                      {runtimeLabel}
+                    </span>
+                  )}
+                  {mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' && (
+                    mediaDetails.imdbId ? (
+                      <a
+                        href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 hover:text-primary transition-colors"
+                      >
+                        <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                        imdb {mediaDetails.imdbRating}
+                      </a>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5">
+                        <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                        imdb {mediaDetails.imdbRating}
+                      </span>
+                    )
+                  )}
+                  {movie.year && (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                      {movie.year}
+                    </span>
+                  )}
+                  {isLoadingDetails && (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                  )}
                 </div>
-              ) : null}
-            </div>
 
-            {/* Sticky bottom bar with Info/Reviews toggle */}
-            <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
-              <div className="flex gap-2 justify-center">
-                <button
-                  onClick={() => setActiveTab('info')}
-                  className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
-                    activeTab === 'info'
-                      ? 'bg-primary text-primary-foreground shadow-lift'
-                      : 'bg-secondary text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  <Info className="h-4 w-4" />
-                  Info
-                </button>
-                <button
-                  onClick={handleOpenFullComments}
-                  className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-secondary text-muted-foreground hover:text-foreground"
-                >
-                  <MessageSquare className="h-4 w-4" />
-                  Reviews
-                </button>
+                {/* genres — hairline mono pills */}
+                {mediaDetails?.genres && mediaDetails.genres.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-3">
+                    {mediaDetails.genres.map((genre) => (
+                      <span
+                        key={genre.id}
+                        className="px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground"
+                      >
+                        {genre.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="h-px bg-border my-4" />
+
+                {/* description — editorial serif */}
+                {overview ? (
+                  <p className="font-serif text-[15px] leading-relaxed text-foreground">{overview}</p>
+                ) : !isLoadingDetails ? (
+                  <p className="font-serif italic text-sm text-muted-foreground">no overview available</p>
+                ) : null}
+
+                {/* cast — horizontal scroll */}
+                {cast.length > 0 && (
+                  <section className="mt-6">
+                    <div className="cc-eyebrow">cast</div>
+                    <div className="h-px bg-border my-3" />
+                    <div className="flex gap-3 overflow-x-auto pb-1 -mx-5 px-5 scrollbar-hide">
+                      {cast.slice(0, 12).map((actor: TMDBCast) => (
+                        <div key={actor.id} className="flex-shrink-0 w-14 text-center">
+                          <div className="w-14 h-14 rounded-full overflow-hidden border border-border bg-muted relative">
+                            {actor.profile_path ? (
+                              <Image
+                                src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`}
+                                alt={actor.name}
+                                fill
+                                className="object-cover"
+                                sizes="56px"
+                              />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center font-headline font-bold text-sm text-muted-foreground">
+                                {actor.name.charAt(0)}
+                              </div>
+                            )}
+                          </div>
+                          <p className="font-headline font-semibold text-[11px] lowercase tracking-tight truncate mt-1.5">
+                            {actor.name}
+                          </p>
+                          <p className="cc-meta text-[9px] text-muted-foreground truncate">
+                            {actor.character}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                )}
+
+                {/* your rating */}
+                <section className="mt-6">
+                  <div className="cc-eyebrow">your rating</div>
+                  <div className="h-px bg-border my-3" />
+                  <RatingSlider
+                    value={userRating}
+                    onChangeComplete={handleRatingSave}
+                    onClear={handleRatingClear}
+                    disabled={isSavingRating}
+                    size="md"
+                    label=""
+                  />
+                </section>
+
+                {/* reviews — link through to the full discussion */}
+                <section className="mt-6">
+                  <div className="cc-eyebrow">reviews</div>
+                  <div className="h-px bg-border my-3" />
+                  <button
+                    onClick={handleOpenFullComments}
+                    className="w-full flex items-center justify-between gap-3 group"
+                  >
+                    <span className="font-serif italic text-[15px] text-muted-foreground text-left">
+                      read what people are saying…
+                    </span>
+                    <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
+                      see all →
+                    </span>
+                  </button>
+                </section>
+
+                {/* marginalia — notes from you + your collaborators */}
+                {listId && (
+                  <section className="mt-6">
+                    <div className="cc-eyebrow">
+                      marginalia{allNotes.length > 0 ? ` · ${allNotes.length} ${allNotes.length === 1 ? 'note' : 'notes'}` : ''}
+                    </div>
+                    <div className="h-px bg-border my-3" />
+                    {allNotes.length === 0 ? (
+                      <p className="font-serif italic text-sm text-muted-foreground">
+                        {canEdit
+                          ? "the margins are blank. write something they'll remember."
+                          : 'no annotations yet.'}
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        {allNotes.map(([uid, note]) => {
+                          const isMine = uid === user.uid;
+                          const author = isMine ? 'you' : noteAuthors[uid]?.name || 'user';
+                          return (
+                            <blockquote key={uid} className="pl-3 border-l border-border">
+                              <p className="font-serif italic text-[15px] leading-snug text-foreground whitespace-pre-wrap break-words">
+                                {note}
+                              </p>
+                              <p className="cc-meta text-[10px] text-muted-foreground mt-1.5">
+                                — {isMine ? 'you' : `@${author}`}
+                              </p>
+                            </blockquote>
+                          );
+                        })}
+                      </div>
+                    )}
+                    {canEdit && (
+                      <button
+                        onClick={() => setShowNoteEditor(true)}
+                        className="mt-4 inline-flex items-center justify-center h-9 px-4 rounded-full border border-foreground font-headline font-semibold text-[13px] lowercase tracking-tight transition-transform active:scale-[0.98]"
+                      >
+                        {userNote ? 'edit your note' : 'add your note'}
+                      </button>
+                    )}
+                  </section>
+                )}
+
+                {/* the clip — attached TikTok / Reel / YouTube */}
+                {(hasEmbeddableVideo || movie.socialLink) && (
+                  <section className="mt-6">
+                    <div className="cc-eyebrow">the clip</div>
+                    <div className="h-px bg-border my-3" />
+                    {hasEmbeddableVideo && <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />}
+                    {movie.socialLink && (
+                      <Button asChild variant="outline" className="w-full mt-3">
+                        <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
+                          {SocialIcon && <SocialIcon className="h-4 w-4 mr-2" />}
+                          {hasEmbeddableVideo ? (
+                            <>open in {getProviderDisplayName(parsedVideo?.provider || null)}</>
+                          ) : (
+                            <>
+                              <ExternalLink className="h-4 w-4 mr-2" />
+                              open link
+                            </>
+                          )}
+                        </Link>
+                      </Button>
+                    )}
+                  </section>
+                )}
+
+                {/* added by */}
+                <p className="cc-meta text-[10px] text-muted-foreground mt-6 text-center">
+                  added by {displayName}
+                </p>
               </div>
             </div>
+
+            {/* Sticky action bar — two CTAs, max */}
+            {canEdit && (
+              <div
+                className="flex-shrink-0 bg-card border-t border-border px-4 pt-3"
+                style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}
+              >
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => handleStatusChange('To Watch')}
+                    disabled={isPending}
+                    className={`flex-1 h-12 rounded-full inline-flex items-center justify-center gap-2 font-headline font-bold text-sm lowercase tracking-tight transition-all disabled:opacity-60 ${
+                      localStatus === 'To Watch'
+                        ? 'bg-foreground text-background'
+                        : 'bg-transparent border border-foreground text-foreground'
+                    }`}
+                  >
+                    <Plus className="h-[15px] w-[15px]" strokeWidth={2.2} />
+                    to watch
+                  </button>
+                  <button
+                    onClick={() => handleStatusChange('Watched')}
+                    disabled={isPending}
+                    className={`flex-1 h-12 rounded-full inline-flex items-center justify-center gap-2 font-headline font-bold text-sm lowercase tracking-tight transition-all disabled:opacity-60 ${
+                      localStatus === 'Watched'
+                        ? 'bg-foreground text-background'
+                        : 'bg-transparent border border-foreground text-foreground'
+                    }`}
+                  >
+                    <Check className="h-[15px] w-[15px]" strokeWidth={2.5} />
+                    watched
+                  </button>
+                </div>
+              </div>
+            )}
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
