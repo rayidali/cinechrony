@@ -117,7 +117,7 @@ export const ActivityCard = memo(function ActivityCard({
     : '';
 
   return (
-    <div className="bg-card rounded-[18px] border border-border p-4 shadow-lift">
+    <div className="bg-card rounded-[20px] border border-border p-4 shadow-lift">
       {/* Header: Avatar, name, action, time */}
       <div className="flex items-start gap-3 mb-3">
         {/* User avatar */}
@@ -197,7 +197,7 @@ export const ActivityCard = memo(function ActivityCard({
             )}
             {/* Review preview for 'reviewed' type */}
             {activity.type === 'reviewed' && activity.reviewText && (
-              <p className="text-sm text-muted-foreground mt-2 line-clamp-2 italic">
+              <p className="font-serif italic text-[15px] text-muted-foreground mt-2 line-clamp-2">
                 "{activity.reviewText}"
               </p>
             )}

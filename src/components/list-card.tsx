@@ -45,7 +45,7 @@ export function ListCard({
     <div className="relative cursor-pointer group" onClick={onClick}>
       <div
         className={cn(
-          'relative aspect-[4/5] rounded-[18px] overflow-hidden',
+          'relative aspect-[4/5] rounded-[20px] overflow-hidden',
           'bg-card border border-border shadow-lift',
           'flex flex-col p-3.5',
           'transition-all duration-200',

@@ -1,5 +1,9 @@
 import type {Config} from 'tailwindcss';
 
+// Wrap a bare-oklch-component token so Tailwind can compose opacity
+// modifiers (bg-x/50, border-x/30, …) via the <alpha-value> placeholder.
+const ok = (name: string) => `oklch(var(${name}) / <alpha-value>)`;
+
 export default {
   darkMode: ['class'],
   content: [
@@ -10,70 +14,74 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        // v2: Newsreader (serif body), Bricolage Grotesque (display), Space Mono (data).
-        body: ['var(--font-body)', 'Georgia', 'serif'],
+        // v2: Bricolage Grotesque is the UI default + display face;
+        // Newsreader serif is reserved for prose (font-serif / .cc-lead);
+        // Space Mono carries tabular data. `headline`/`body` are kept as
+        // aliases so existing class usages don't break — both = Bricolage.
+        sans: ['var(--font-headline)', 'system-ui', 'sans-serif'],
         headline: ['var(--font-headline)', 'system-ui', 'sans-serif'],
+        body: ['var(--font-headline)', 'system-ui', 'sans-serif'],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
       colors: {
-        // Tokens are oklch in globals.css — referenced directly, not hsl-wrapped.
-        background: 'var(--background)',
-        foreground: 'var(--foreground)',
+        background: ok('--background'),
+        foreground: ok('--foreground'),
         card: {
-          DEFAULT: 'var(--card)',
-          foreground: 'var(--card-foreground)',
+          DEFAULT: ok('--card'),
+          foreground: ok('--card-foreground'),
         },
         popover: {
-          DEFAULT: 'var(--popover)',
-          foreground: 'var(--popover-foreground)',
+          DEFAULT: ok('--popover'),
+          foreground: ok('--popover-foreground'),
         },
         primary: {
-          DEFAULT: 'var(--primary)',
-          foreground: 'var(--primary-foreground)',
+          DEFAULT: ok('--primary'),
+          foreground: ok('--primary-foreground'),
         },
         secondary: {
-          DEFAULT: 'var(--secondary)',
-          foreground: 'var(--secondary-foreground)',
+          DEFAULT: ok('--secondary'),
+          foreground: ok('--secondary-foreground'),
         },
         muted: {
-          DEFAULT: 'var(--muted)',
-          foreground: 'var(--muted-foreground)',
+          DEFAULT: ok('--muted'),
+          foreground: ok('--muted-foreground'),
         },
         accent: {
-          DEFAULT: 'var(--accent)',
-          foreground: 'var(--accent-foreground)',
+          DEFAULT: ok('--accent'),
+          foreground: ok('--accent-foreground'),
         },
         destructive: {
-          DEFAULT: 'var(--destructive)',
-          foreground: 'var(--destructive-foreground)',
+          DEFAULT: ok('--destructive'),
+          foreground: ok('--destructive-foreground'),
         },
         warning: {
-          DEFAULT: 'var(--warning)',
-          foreground: 'var(--warning-foreground)',
+          DEFAULT: ok('--warning'),
+          foreground: ok('--warning-foreground'),
         },
         success: {
-          DEFAULT: 'var(--success)',
-          foreground: 'var(--success-foreground)',
+          DEFAULT: ok('--success'),
+          foreground: ok('--success-foreground'),
         },
-        border: 'var(--border)',
-        input: 'var(--input)',
-        ring: 'var(--ring)',
+        border: ok('--border'),
+        input: ok('--input'),
+        ring: ok('--ring'),
         chart: {
-          '1': 'var(--chart-1)',
-          '2': 'var(--chart-2)',
-          '3': 'var(--chart-3)',
-          '4': 'var(--chart-4)',
-          '5': 'var(--chart-5)',
+          '1': ok('--chart-1'),
+          '2': ok('--chart-2'),
+          '3': ok('--chart-3'),
+          '4': ok('--chart-4'),
+          '5': ok('--chart-5'),
         },
         sidebar: {
-          DEFAULT: 'var(--sidebar-background)',
-          foreground: 'var(--sidebar-foreground)',
-          primary: 'var(--sidebar-primary)',
-          'primary-foreground': 'var(--sidebar-primary-foreground)',
-          accent: 'var(--sidebar-accent)',
-          'accent-foreground': 'var(--sidebar-accent-foreground)',
-          border: 'var(--sidebar-border)',
-          ring: 'var(--sidebar-ring)',
+          DEFAULT: ok('--sidebar-background'),
+          foreground: ok('--sidebar-foreground'),
+          primary: ok('--sidebar-primary'),
+          'primary-foreground': ok('--sidebar-primary-foreground'),
+          accent: ok('--sidebar-accent'),
+          'accent-foreground': ok('--sidebar-accent-foreground'),
+          border: ok('--sidebar-border'),
+          ring: ok('--sidebar-ring'),
         },
       },
       borderRadius: {

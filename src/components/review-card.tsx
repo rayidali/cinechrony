@@ -233,7 +233,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
         </div>
 
         {/* Review text with @mentions as links */}
-        <p className="text-sm mt-1 whitespace-pre-wrap break-words">
+        <p className="font-serif text-[15px] leading-relaxed mt-1.5 whitespace-pre-wrap break-words">
           {renderTextWithMentions(review.text)}
         </p>
 

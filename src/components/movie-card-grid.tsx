@@ -203,7 +203,7 @@ export const MovieCardGrid = memo(function MovieCardGrid({
               <div key={uid} className="text-[11px] leading-snug">
                 <span className="font-headline font-semibold text-foreground">@{noteAuthorNames[uid] || '...'}</span>
                 <span className="text-muted-foreground/60 mx-1">·</span>
-                <span className="text-muted-foreground line-clamp-1 break-words">{note}</span>
+                <span className="font-serif italic text-muted-foreground line-clamp-1 break-words">{note}</span>
               </div>
             ))}
             {notesEntries.length > 2 && (

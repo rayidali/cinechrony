@@ -5,29 +5,26 @@
 /* ============================================================
    Cinechrony Design System v2 — Editorial cinema.
    Newsprint cream paper, cinema-black ink, soft lifts,
-   lowercase display headlines, serif body, tabular dates.
+   lowercase display headlines, a serif body, tabular dates.
    One brutalist survivor: the yellow FAB.
 
-   Tokens are oklch. Tailwind classes (bg-background, text-foreground,
-   border-border, etc.) resolve straight to these vars — see
-   tailwind.config.ts where colors are `var(--x)` (not hsl-wrapped).
+   Color tokens are stored as BARE oklch components
+   ("lightness chroma hue") so Tailwind can compose opacity:
+   tailwind.config.ts wraps them as `oklch(var(--x) / <alpha-value>)`.
+   In raw CSS, wrap manually: `oklch(var(--token))`.
    ============================================================ */
 
 @layer base {
   :root {
-    /* ---- Brand palette — paper, ink, film stock ---- */
-    --cc-paper:        oklch(0.945 0.012 78);
-    --cc-bone:         oklch(0.978 0.006 80);
-    --cc-ink:          oklch(0.165 0.012 60);
-    --cc-graphite:     oklch(0.46 0.012 60);
-    --cc-rule:         oklch(0.22 0.012 60 / 0.18);
-    --cc-film-red:     oklch(0.64 0.17 35);
-    --cc-sage:         oklch(0.74 0.09 152);
-    --cc-sage-deep:    oklch(0.52 0.11 150);
-    --cc-amber:        oklch(0.78 0.13 78);
-    --cc-marker:       oklch(0.6 0.20 27);
-    --cc-yellow:       oklch(0.88 0.18 95);
-    --cc-yellow-ink:   oklch(0.22 0.05 70);
+    /* ---- Brand palette — bare oklch components ---- */
+    --cc-paper:     0.945 0.012 78;
+    --cc-bone:      0.978 0.006 80;
+    --cc-ink:       0.165 0.012 60;
+    --cc-graphite:  0.46 0.012 60;
+    --cc-film-red:  0.64 0.17 35;
+    --cc-sage:      0.74 0.09 152;
+    --cc-amber:     0.78 0.13 78;
+    --cc-marker:    0.6 0.20 27;
 
     /* ---- Semantic tokens (light) ----
        Same names the codebase already uses — only the values changed. */
@@ -40,22 +37,24 @@
     /* Primary carries the brand film-red accent (was yellow in v1). */
     --primary:               var(--cc-film-red);
     --primary-foreground:    var(--cc-bone);
-    --secondary:             oklch(0.92 0.012 78);
+    --secondary:             0.92 0.012 78;
     --secondary-foreground:  var(--cc-ink);
-    --muted:                 oklch(0.915 0.012 78);
+    --muted:                 0.915 0.012 78;
     --muted-foreground:      var(--cc-graphite);
     /* shadcn `accent` = subtle hover surface, NOT the brand accent.
        Brand accent lives on --primary. */
-    --accent:                oklch(0.91 0.012 78);
+    --accent:                0.91 0.012 78;
     --accent-foreground:     var(--cc-ink);
     --warning:               var(--cc-amber);
     --warning-foreground:    var(--cc-ink);
     --success:               var(--cc-sage);
     --success-foreground:    var(--cc-ink);
     --destructive:           var(--cc-marker);
-    --destructive-foreground: oklch(0.99 0 0);
-    --border:                var(--cc-rule);
-    --input:                 oklch(0.22 0.012 60 / 0.26);
+    --destructive-foreground: 0.99 0 0;
+    /* Hairline — a solid light warm-grey, the visual equal of v2's
+       translucent ink rule, but composable for opacity modifiers. */
+    --border:                0.84 0.01 72;
+    --input:                 0.84 0.01 72;
     --ring:                  var(--cc-film-red);
 
     --chart-1: var(--cc-film-red);
@@ -68,15 +67,12 @@
     --sidebar-foreground:         var(--cc-ink);
     --sidebar-primary:            var(--cc-ink);
     --sidebar-primary-foreground: var(--cc-bone);
-    --sidebar-accent:             oklch(0.91 0.012 78);
+    --sidebar-accent:             0.91 0.012 78;
     --sidebar-accent-foreground:  var(--cc-ink);
-    --sidebar-border:             var(--cc-rule);
+    --sidebar-border:             0.84 0.01 72;
     --sidebar-ring:               var(--cc-film-red);
 
     --radius: 1rem;
-
-    /* ---- Type ---- */
-    --font-mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
     /* ---- Shadows — soft, magazine-y. Hard stamp is FAB-only. ---- */
     --shadow-lift:  0 1px 2px oklch(0.16 0.01 60 / 0.06),
@@ -84,59 +80,56 @@
     --shadow-press: 0 1px 2px oklch(0.16 0.01 60 / 0.10);
     --shadow-photo: 0 2px 4px oklch(0.16 0.01 60 / 0.06),
                     0 16px 40px oklch(0.16 0.01 60 / 0.10);
-    --shadow-stamp: 3px 3px 0 0 var(--cc-ink);
+    --shadow-stamp: 3px 3px 0 0 oklch(0.165 0.012 60);
   }
 
   .dark {
     /* Projection-room dark — warm coffee, never pure black. */
-    --cc-coffee:       oklch(0.20 0.012 60);
-    --cc-cream:        oklch(0.92 0.012 78);
+    --background:            0.20 0.012 60;
+    --foreground:            0.92 0.012 78;
+    --card:                  0.24 0.012 60;
+    --card-foreground:       0.92 0.012 78;
+    --popover:               0.24 0.012 60;
+    --popover-foreground:    0.92 0.012 78;
+    --primary:               0.72 0.16 35;
+    --primary-foreground:    0.20 0.012 60;
+    --secondary:             0.27 0.012 60;
+    --secondary-foreground:  0.92 0.012 78;
+    --muted:                 0.27 0.012 60;
+    --muted-foreground:      0.62 0.012 60;
+    --accent:                0.30 0.012 60;
+    --accent-foreground:     0.92 0.012 78;
+    --warning:               0.80 0.14 78;
+    --warning-foreground:    0.20 0.012 60;
+    --success:               0.72 0.10 150;
+    --success-foreground:    0.20 0.012 60;
+    --destructive:           0.66 0.20 27;
+    --destructive-foreground: 0.99 0 0;
+    --border:                0.34 0.008 65;
+    --input:                 0.34 0.008 65;
+    --ring:                  0.72 0.16 35;
 
-    --background:            var(--cc-coffee);
-    --foreground:            var(--cc-cream);
-    --card:                  oklch(0.24 0.012 60);
-    --card-foreground:       var(--cc-cream);
-    --popover:               oklch(0.24 0.012 60);
-    --popover-foreground:    var(--cc-cream);
-    --primary:               oklch(0.72 0.16 35);
-    --primary-foreground:    var(--cc-coffee);
-    --secondary:             oklch(0.27 0.012 60);
-    --secondary-foreground:  var(--cc-cream);
-    --muted:                 oklch(0.27 0.012 60);
-    --muted-foreground:      oklch(0.62 0.012 60);
-    --accent:                oklch(0.30 0.012 60);
-    --accent-foreground:     var(--cc-cream);
-    --warning:               oklch(0.80 0.14 78);
-    --warning-foreground:    var(--cc-coffee);
-    --success:               oklch(0.72 0.10 150);
-    --success-foreground:    var(--cc-coffee);
-    --destructive:           oklch(0.66 0.20 27);
-    --destructive-foreground: oklch(0.99 0 0);
-    --border:                oklch(0.92 0.012 78 / 0.16);
-    --input:                 oklch(0.92 0.012 78 / 0.20);
-    --ring:                  oklch(0.72 0.16 35);
+    --chart-1: 0.72 0.16 35;
+    --chart-2: 0.72 0.10 150;
+    --chart-3: 0.92 0.012 78;
+    --chart-4: 0.80 0.14 78;
+    --chart-5: 0.62 0.012 60;
 
-    --chart-1: oklch(0.72 0.16 35);
-    --chart-2: oklch(0.72 0.10 150);
-    --chart-3: var(--cc-cream);
-    --chart-4: oklch(0.80 0.14 78);
-    --chart-5: oklch(0.62 0.012 60);
-
-    --sidebar-background:         oklch(0.24 0.012 60);
-    --sidebar-foreground:         var(--cc-cream);
-    --sidebar-primary:            oklch(0.72 0.16 35);
-    --sidebar-primary-foreground: var(--cc-coffee);
-    --sidebar-accent:             oklch(0.30 0.012 60);
-    --sidebar-accent-foreground:  var(--cc-cream);
-    --sidebar-border:             oklch(0.92 0.012 78 / 0.16);
-    --sidebar-ring:               oklch(0.72 0.16 35);
+    --sidebar-background:         0.24 0.012 60;
+    --sidebar-foreground:         0.92 0.012 78;
+    --sidebar-primary:            0.72 0.16 35;
+    --sidebar-primary-foreground: 0.20 0.012 60;
+    --sidebar-accent:             0.30 0.012 60;
+    --sidebar-accent-foreground:  0.92 0.012 78;
+    --sidebar-border:             0.34 0.008 65;
+    --sidebar-ring:               0.72 0.16 35;
 
     --shadow-lift:  0 1px 2px rgba(0,0,0,0.4),
                     0 12px 32px rgba(0,0,0,0.45);
     --shadow-press: 0 1px 2px rgba(0,0,0,0.4);
     --shadow-photo: 0 4px 12px rgba(0,0,0,0.4),
                     0 24px 56px rgba(0,0,0,0.5);
-    --shadow-stamp: 3px 3px 0 0 var(--cc-cream);
+    --shadow-stamp: 3px 3px 0 0 oklch(0.92 0.012 78);
   }
 }
 
@@ -202,12 +195,12 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
   }
 
-  /* Editorial type defaults — display headlines lowercase + tight. */
+  /* Display headlines — Bricolage Grotesque, tight tracking. */
   h1, h2, h3 {
-    font-family: var(--font-headline), sans-serif;
+    font-family: var(--font-headline), system-ui, sans-serif;
     letter-spacing: -0.03em;
   }
 
@@ -215,6 +208,8 @@
   html {
     -webkit-tap-highlight-color: transparent;
     scroll-behavior: smooth;
+    background-color: oklch(var(--background));
+    min-height: 100%;
   }
 
   /* Faster touch response on interactive elements */
@@ -240,37 +235,26 @@
 @layer components {
   /* Eyebrow — UPPERCASE mono label above a section (MoMA-Baku move). */
   .cc-eyebrow {
-    font-family: var(--font-mono), monospace;
+    font-family: var(--font-mono), "Space Mono", ui-monospace, monospace;
     font-weight: 700;
     font-size: 0.6875rem;
     text-transform: uppercase;
     letter-spacing: 0.18em;
-    color: var(--muted-foreground);
+    color: oklch(var(--muted-foreground));
   }
 
   /* Tabular meta — dates, runtimes, IDs in Space Mono. */
   .cc-meta {
-    font-family: var(--font-mono), monospace;
+    font-family: var(--font-mono), "Space Mono", ui-monospace, monospace;
     letter-spacing: -0.02em;
     font-variant-numeric: tabular-nums;
   }
 
   /* Serif italic lead / pull-quote — the magazine voice. */
   .cc-lead {
-    font-family: var(--font-body), serif;
+    font-family: var(--font-serif), Georgia, serif;
     font-style: italic;
     font-weight: 300;
     line-height: 1.6;
   }
-}
-
-/* Apply flat newsprint background to html/body — no dot grid in v2. */
-html {
-  background-color: var(--background);
-  min-height: 100%;
-}
-
-body {
-  background: transparent;
-  min-height: 100%;
 }

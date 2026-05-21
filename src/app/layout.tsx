@@ -9,7 +9,9 @@ import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
 import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 
 // Design system v2 — editorial cinema.
-// Display: Bricolage Grotesque · Body: Newsreader (serif) · Data: Space Mono.
+// Bricolage Grotesque is the UI default + display face (--font-headline).
+// Newsreader serif is reserved for prose (--font-serif).
+// Space Mono carries tabular data (--font-mono).
 const bricolage = Bricolage_Grotesque({
   subsets: ['latin'],
   variable: '--font-headline',
@@ -19,7 +21,7 @@ const bricolage = Bricolage_Grotesque({
 const newsreader = Newsreader({
   subsets: ['latin'],
   style: ['normal', 'italic'],
-  variable: '--font-body',
+  variable: '--font-serif',
   display: 'swap',
 });
 
@@ -62,7 +64,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${bricolage.variable} ${newsreader.variable} ${spaceMono.variable} font-body antialiased`}>
+      <body className={`${bricolage.variable} ${newsreader.variable} ${spaceMono.variable} font-sans antialiased`}>
         <ThemeProvider>
           <FirebaseClientProvider>
             <ListMembersCacheProvider>
