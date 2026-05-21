@@ -548,7 +548,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                       alt={selectedMovie.title}
                       width={100}
                       height={150}
-                      className="rounded-xl border-2 border-border shadow-md object-cover flex-shrink-0"
+                      className="rounded-xl border border-border shadow-md object-cover flex-shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <h3 className="text-xl font-bold">{selectedMovie.title}</h3>
@@ -677,7 +677,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                     return (
                       <div
                         key={list.id}
-                        className={`rounded-2xl border-2 overflow-hidden transition-all ${
+                        className={`rounded-2xl border overflow-hidden transition-all ${
                           isSelected
                             ? 'border-primary bg-primary/5'
                             : 'border-border'
@@ -709,7 +709,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                             isSelected
                               ? 'bg-primary'
-                              : 'border-2 border-border'
+                              : 'border border-border'
                           }`}>
                             {isSelected && (
                               <Check className="h-4 w-4 text-primary-foreground" />

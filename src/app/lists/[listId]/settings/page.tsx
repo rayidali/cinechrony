@@ -348,7 +348,7 @@ export default function ListSettingsPage() {
           {/* Cover Image */}
           <div
             onClick={() => !isProcessingImage && fileInputRef.current?.click()}
-            className={`relative w-28 h-28 rounded-xl border-2 border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 ${isProcessingImage ? 'opacity-70 cursor-wait' : ''}`}
+            className={`relative w-28 h-28 rounded-xl border border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 ${isProcessingImage ? 'opacity-70 cursor-wait' : ''}`}
           >
             {isProcessingImage ? (
               <div className="flex flex-col items-center gap-1">
@@ -449,7 +449,7 @@ export default function ListSettingsPage() {
           {/* Add Collaborators Button */}
           <Button
             onClick={() => setIsInviteOpen(true)}
-            className="w-full h-12 rounded-full border-[3px] border-border bg-primary text-primary-foreground font-semibold shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all"
+            className="w-full h-12 rounded-full border border-border bg-primary text-primary-foreground font-semibold shadow-lift transition-all"
           >
             <Plus className="h-5 w-5 mr-2" />
             Add Collaborators

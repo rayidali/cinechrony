@@ -205,7 +205,7 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+              <DropdownMenuContent align="end" className="border border-border rounded-xl">
                 {isOwner ? (
                   <>
                     <DropdownMenuItem onClick={() => onEdit?.(review)}>

@@ -556,7 +556,7 @@ function CommentsPageContent() {
                 placeholder={replyingTo ? 'Write a reply...' : 'Add a comment...'}
                 rows={1}
                 maxLength={1000}
-                className="w-full px-4 py-2 pr-12 rounded-2xl border-2 border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"
+                className="w-full px-4 py-2 pr-12 rounded-2xl border border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"
                 style={{
                   fontSize: '16px', // Prevents iOS zoom
                   lineHeight: '1.5',

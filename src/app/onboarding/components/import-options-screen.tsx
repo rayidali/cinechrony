@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ClipboardList, FileArchive } from 'lucide-react';
 
-const retroCardClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200 bg-card";
+const retroCardClass = "border border-border rounded-2xl shadow-lift hover:shadow-press transition-all duration-200 bg-card";
 
 type ImportOptionsScreenProps = {
   onPaste: () => void;

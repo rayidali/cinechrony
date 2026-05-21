@@ -291,7 +291,7 @@ export function InviteCollaboratorModal({
                         className="flex items-center justify-between p-3 rounded-xl bg-secondary/30"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center border-2 border-dashed border-muted-foreground/30">
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center border border-dashed border-muted-foreground/30">
                             <UserPlus className="h-4 w-4 text-muted-foreground" />
                           </div>
                           <div>

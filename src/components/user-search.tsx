@@ -10,7 +10,7 @@ import { useUser } from '@/firebase';
 import type { UserProfile } from '@/lib/types';
 import Link from 'next/link';
 
-const retroInputClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200";
+const retroInputClass = "border border-border rounded-lg shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200";
 
 export function UserSearch() {
   const { user } = useUser();
@@ -84,7 +84,7 @@ export function UserSearch() {
       </div>
 
       {showResults && (
-        <div className="absolute top-full left-0 right-0 mt-2 bg-background border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] z-50 max-h-80 overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 mt-2 bg-background border border-border rounded-lg shadow-lift z-50 max-h-80 overflow-y-auto">
           {isSearching ? (
             <div className="p-4 flex items-center justify-center">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />

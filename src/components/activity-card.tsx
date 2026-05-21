@@ -39,32 +39,22 @@ function getActionText(activity: Activity): string {
 function ActivityIcon({ type }: { type: Activity['type'] }) {
   switch (type) {
     case 'added':
-      return <Plus className="h-3.5 w-3.5" />;
+      return <Plus className="h-3 w-3" strokeWidth={1.8} />;
     case 'rated':
-      return <Star className="h-3.5 w-3.5" />;
+      return <Star className="h-3 w-3" strokeWidth={1.8} />;
     case 'watched':
-      return <Eye className="h-3.5 w-3.5" />;
+      return <Eye className="h-3 w-3" strokeWidth={1.8} />;
     case 'reviewed':
-      return <MessageCircle className="h-3.5 w-3.5" />;
+      return <MessageCircle className="h-3 w-3" strokeWidth={1.8} />;
     default:
       return null;
   }
 }
 
-// Activity type badge
+// Activity type badge — v2: lowercase mono in a hairline pill
 function ActivityBadge({ type }: { type: Activity['type'] }) {
-  const colorClasses = {
-    added: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    rated: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    watched: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    reviewed: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  };
-
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide',
-      colorClasses[type]
-    )}>
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
       <ActivityIcon type={type} />
       {type}
     </span>
@@ -127,7 +117,7 @@ export const ActivityCard = memo(function ActivityCard({
     : '';
 
   return (
-    <div className="bg-card rounded-2xl border-[3px] dark:border-2 border-border p-4 shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none">
+    <div className="bg-card rounded-[18px] border border-border p-4 shadow-lift">
       {/* Header: Avatar, name, action, time */}
       <div className="flex items-start gap-3 mb-3">
         {/* User avatar */}
@@ -138,10 +128,10 @@ export const ActivityCard = memo(function ActivityCard({
               alt={displayName}
               width={40}
               height={40}
-              className="rounded-full border-2 border-border"
+              className="rounded-full border border-border"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center border-2 border-border">
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center border border-border">
               <span className="text-sm font-bold">
                 {displayName.charAt(0).toUpperCase()}
               </span>
@@ -154,13 +144,13 @@ export const ActivityCard = memo(function ActivityCard({
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={profileUrl}
-              className="font-semibold text-sm hover:underline truncate"
+              className="font-headline font-bold text-sm hover:underline truncate"
             >
               {displayName}
             </Link>
             <ActivityBadge type={activity.type} />
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="cc-meta text-[11px] text-muted-foreground mt-0.5">
             {getActionText(activity)} · {timeAgo}
           </p>
         </div>
@@ -185,7 +175,7 @@ export const ActivityCard = memo(function ActivityCard({
       >
         <div className="flex gap-3">
           {/* Poster */}
-          <div className="flex-shrink-0 w-16 aspect-[2/3] rounded-lg overflow-hidden border-2 border-border relative">
+          <div className="flex-shrink-0 w-16 aspect-[2/3] rounded-lg overflow-hidden border border-border relative">
             <Image
               src={posterUrl}
               alt={activity.movieTitle}
@@ -197,11 +187,11 @@ export const ActivityCard = memo(function ActivityCard({
 
           {/* Title and details */}
           <div className="flex-1 min-w-0 py-1">
-            <h3 className="font-semibold line-clamp-2 group-hover:text-primary transition-colors">
+            <h3 className="font-headline font-semibold text-[15px] lowercase tracking-tight line-clamp-2 group-hover:text-primary transition-colors">
               {activity.movieTitle}
             </h3>
             {activity.movieYear && (
-              <p className="text-sm text-muted-foreground mt-0.5">
+              <p className="cc-meta text-xs text-muted-foreground mt-0.5">
                 {activity.movieYear}
               </p>
             )}

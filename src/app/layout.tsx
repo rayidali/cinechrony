@@ -1,22 +1,33 @@
 import type {Metadata} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
-import { Space_Grotesk, Space_Mono } from 'next/font/google';
+import { Bricolage_Grotesque, Newsreader, Space_Mono } from 'next/font/google';
 import { FirebaseClientProvider } from '@/firebase/client-provider';
 import { ThemeProvider } from '@/components/theme-provider';
 import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
 import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
 import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 
-const spaceGrotesk = Space_Grotesk({
+// Design system v2 — editorial cinema.
+// Display: Bricolage Grotesque · Body: Newsreader (serif) · Data: Space Mono.
+const bricolage = Bricolage_Grotesque({
   subsets: ['latin'],
   variable: '--font-headline',
+  display: 'swap',
+});
+
+const newsreader = Newsreader({
+  subsets: ['latin'],
+  style: ['normal', 'italic'],
+  variable: '--font-body',
+  display: 'swap',
 });
 
 const spaceMono = Space_Mono({
   subsets: ['latin'],
   weight: ['400', '700'],
-  variable: '--font-body',
+  variable: '--font-mono',
+  display: 'swap',
 });
 
 
@@ -51,7 +62,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${spaceGrotesk.variable} ${spaceMono.variable} font-body antialiased`}>
+      <body className={`${bricolage.variable} ${newsreader.variable} ${spaceMono.variable} font-body antialiased`}>
         <ThemeProvider>
           <FirebaseClientProvider>
             <ListMembersCacheProvider>

@@ -212,7 +212,7 @@ export default function UserProfilePage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4 border-[3px] border-border">
+            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center mb-4 border border-border">
               <span className="text-2xl font-bold text-muted-foreground">?</span>
             </div>
             <h1 className="text-2xl font-headline font-bold mb-2">User Not Found</h1>
@@ -266,20 +266,20 @@ export default function UserProfilePage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleLoadFollowers}
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-card shadow-lift hover:shadow-press transition-all min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{profile.followersCount || 0}</span>
                 <span className="text-xs text-muted-foreground">followers</span>
               </button>
               <button
                 onClick={handleLoadFollowing}
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-card shadow-lift hover:shadow-press transition-all min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{profile.followingCount || 0}</span>
                 <span className="text-xs text-muted-foreground">following</span>
               </button>
               <div
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-lift min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{lists.length}</span>
                 <span className="text-xs">lists</span>
@@ -301,7 +301,7 @@ export default function UserProfilePage() {
                         alt={movie.title}
                         width={70}
                         height={105}
-                        className="rounded-lg border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+                        className="rounded-lg border border-border shadow-lift"
                         title={movie.title}
                       />
                     </div>
@@ -349,7 +349,7 @@ export default function UserProfilePage() {
               })}
             </div>
           ) : (
-            <Card className="border-[3px] border-dashed border-border rounded-2xl bg-secondary">
+            <Card className="border border-dashed border-border rounded-2xl bg-secondary">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Lock className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="font-headline text-xl font-bold mb-2">No public lists</h3>
@@ -389,7 +389,7 @@ export default function UserProfilePage() {
         {/* Followers Modal */}
         {showFollowers && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+            <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Followers</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
@@ -431,7 +431,7 @@ export default function UserProfilePage() {
         {/* Following Modal */}
         {showFollowing && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+            <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Following</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>

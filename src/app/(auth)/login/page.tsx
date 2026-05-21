@@ -13,8 +13,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -54,7 +54,7 @@ export default function LoginPage() {
         </h1>
       </div>
 
-      <Card className="w-full max-w-sm bg-card rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+      <Card className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-photo">
         <CardHeader>
           <CardTitle className="font-headline">Welcome Back!</CardTitle>
           <CardDescription>Sign in to access your movie lists.</CardDescription>

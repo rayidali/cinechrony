@@ -183,7 +183,7 @@ export function RatingSlider({
           />
           {/* Thumb */}
           <div
-            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 bg-background border-2 border-foreground rounded-full shadow-lg ${
+            className={`absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-6 h-6 bg-background border border-foreground rounded-full shadow-lg ${
               isDragging ? 'scale-125' : 'transition-all duration-150'
             }`}
             style={{ left: `${fillPercentage}%` }}

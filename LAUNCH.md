@@ -1,9 +1,46 @@
 # Cinechrony Launch Plan — App Stores + Hero Feature + Marketing
 
-> **Started:** 2026-05-15
-> **Goal:** Ship to iOS App Store + Google Play with the screenshot-to-watchlist Share Extension as the hero feature, plus automated TikTok-first / Instagram-second daily content.
-> **Sequencing:** This runs **after `AUDIT.md` Phase 1** completes (auth foundation is required by the refactor in Phase A below). Phase A naturally folds in the rest of AUDIT.md Phase 1 — closing both at once.
+> **Started:** 2026-05-15 · **Updated:** 2026-05-21
+> **Goal:** Ship to iOS App Store + Google Play with a refreshed UI + the screenshot-to-watchlist Share Extension as the hero feature, plus automated TikTok-first / Instagram-second daily content.
+> **Sequencing:** The pre-launch audit (`AUDIT.md` Phases 0–2) is done. **Phase 0 (UI redesign) runs first** — it sets the design language every later phase builds in. Then A (API routes) → B (Capacitor) → C (Share Extension) → D (stores) → E (marketing).
 > **Approach:** Capacitor (right path — static export + API routes refactor). Not a Swift rewrite. Solo dev using Claude Code for Swift work.
+
+---
+
+## Phase 0 — UI Redesign (do first)
+
+> **Why first, not later:** a full redesign (scope B — new visual direction) defines the component language that *every subsequent phase builds in* — the onboarding redesign (C.7), the Share Extension's confirmation UI, and the App Store screenshots (D). Redesign late and that UI gets built twice. Redesign first and everything downstream is built once, in the final look.
+>
+> **Workflow:** explore visually on **claude.ai (Artifacts)** — fast, live, zero repo risk — to lock a direction; then **Claude Code** implements the chosen direction across the real codebase consistently. Hand the approved Artifact JSX/Tailwind to Claude Code as the reference.
+>
+> **Scope discipline (a full redesign is the #1 launch-delay risk):** the screen list in 0.3 is FIXED up front — no adding screens mid-flight. Timebox ~2–4 weeks. "Good and shipped" beats "perfect and slipping." Anything that creeps becomes a post-launch polish ticket.
+
+### 0.1 — Direction & identity decision
+
+- [ ] **0.1.1** Explore on claude.ai/Artifacts. Paste screenshots of the current Home feed, Movie detail modal, and the add-movie flow; iterate on 2–3 visual directions.
+- [ ] **0.1.2** **Decide: evolve or replace the neo-brutalist identity.** Today it's 3px borders, hard offset shadows, Space Grotesk/Mono. Scope B explicitly allows a new component language — this is a founder call; make it deliberately, once, here.
+- [ ] **0.1.3** Lock ONE direction on the 3 hero screens. Everything else conforms to it. No more direction-shopping after this.
+
+### 0.2 — Codify the design system
+
+- [ ] **0.2.1** Update Tailwind tokens (`tailwind.config.ts` + `globals.css`): color palette, type scale, spacing, radii, shadows, motion. One source of truth.
+- [ ] **0.2.2** Build/refresh the shared `components/ui` primitives (button, card, surface, input, drawer chrome) to the new system FIRST — the screen rollout then composes them.
+- [ ] **0.2.3** Update `src/components/CLAUDE.md` + the Design System section of root `CLAUDE.md` so the new language is the documented one.
+
+### 0.3 — Screen-by-screen rollout (FIXED list, highest-traffic first)
+
+- [ ] **0.3.1** Home (activity feed, trending carousel, cards)
+- [ ] **0.3.2** Movie detail modal + the movie-card variants (grid / list / card)
+- [ ] **0.3.3** Lists + individual list view
+- [ ] **0.3.4** Profile (own + public) + the comments page
+- [ ] **0.3.5** Auth (login / signup / forgot / reset) + onboarding screens — coordinate with C.7 (C.7 is the *flow* change; it builds in this system)
+- [ ] **0.3.6** Notifications, Settings, add-movie flow, bottom nav + header
+
+### 0.4 — QA & consistency pass
+
+- [ ] **0.4.1** Dark mode parity on every redesigned screen.
+- [ ] **0.4.2** iOS PWA / responsive check (notch, safe areas, the Vaul drawers, keyboard).
+- [ ] **0.4.3** `npm run build` green, `npm run audit:test` still 74/74 (redesign is presentational — must not regress logic), preview deploy walked end-to-end.
 
 ---
 
@@ -228,6 +265,8 @@ Same conventions as the audit tracker:
 ### C.7 — Onboarding redesign around try-before-signup
 
 > Only buildable once C.1 (`/api/v1/identify-movie`) exists — it reuses that backend at zero marginal cost. This is the "try before you sign up" idea, sequenced correctly. Do NOT build before the hero feature exists; do NOT add a personalization quiz (it changes nothing in the experience — fake-progress anti-pattern).
+>
+> **Builds in the Phase 0 design system.** C.7 is the *flow* change (try-before-signup); the *look* is already settled by Phase 0.3.5. Don't redesign onboarding visuals here — apply the existing system.
 
 - [ ] **C.7.1** Replace the static 1.5s logo splash (`onboarding/components/splash-screen.tsx`) with an interactive first screen: "Paste a TikTok/Reel link — see what movie it is" (and, on native, "or share a screenshot"). No auth required.
 - [ ] **C.7.2** Wire that screen to `POST /api/v1/identify-movie` (C.1). Show the identified movie card (poster + title + year) — the value reveal — before any signup wall.
@@ -270,7 +309,7 @@ Same conventions as the audit tracker:
 ### D.2 — App Store Connect setup
 
 - [ ] **D.2.1** Create app record with bundle ID `com.cinechrony.app`.
-- [ ] **D.2.2** Upload icon (1024×1024), screenshots (6.7" + 5.5" required; 6.5" recommended).
+- [ ] **D.2.2** Upload icon (1024×1024), screenshots (6.7" + 5.5" required; 6.5" recommended). **Capture against the Phase 0 redesign** — never ship store screenshots of the old UI.
 - [ ] **D.2.3** App description, keywords, support URL, marketing URL, privacy policy URL.
 - [ ] **D.2.4** App Privacy questionnaire (Firebase Analytics, push tokens, profile data — declare honestly).
 - [ ] **D.2.5** Age rating questionnaire.
@@ -380,17 +419,19 @@ Same conventions as the audit tracker:
 
 | Week | Primary work | Parallel |
 |------|--------------|----------|
-| 1-2 | Phase A.1-A.3 (server actions refactor + auth) | — |
-| 3 | Phase A.4-A.5 (client migration + static export) | E.1-E.2 (account setup) |
-| 4 | Phase B (Capacitor wrap) | E.3 (n8n) |
-| 5-6 | Phase C.1-C.3 (Share Extension + AI) | E.4-E.5 (Remotion + pipeline) |
-| 7 | Phase C.4-C.5 (Android share + polish) | E.6 (posting workflow) |
-| 8 | Phase D.1-D.3 (TestFlight + iterate) | Audit Phase 2-3 in TestFlight |
-| 9 | Phase D.5-D.6 (App Store submission) | E.7 (back-catalog content) |
-| 10 | Apple review iterations | — |
-| 11 | **Launch** | — |
+| 1 | Phase 0.1-0.2 (UI direction locked + design system codified) | E.1-E.2 (account setup) |
+| 2-3 | Phase 0.3-0.4 (screen-by-screen redesign + QA) | E.1-E.2 (account setup) |
+| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | — |
+| 6 | Phase A.4-A.5 (client migration + static export) | E.3 (n8n) |
+| 7 | Phase B (Capacitor wrap) | E.3 (n8n) |
+| 8-9 | Phase C.1-C.3 (Share Extension + AI) | E.4-E.5 (Remotion + pipeline) |
+| 10 | Phase C.4-C.7 (Android share + onboarding + polish) | E.6 (posting workflow) |
+| 11 | Phase D.1-D.3 (TestFlight + iterate) | Audit Phase 2-3 in TestFlight |
+| 12 | Phase D.5-D.6 (App Store submission) | E.7 (back-catalog content) |
+| 13 | Apple review iterations | — |
+| 14 | **Launch** | — |
 
-~**11 weeks** if everything goes smoothly. Add 2-4 weeks of buffer for Apple review cycles + Swift learning curve + the unexpected.
+~**14 weeks** if everything goes smoothly. Add 2-4 weeks of buffer for Apple review cycles + Swift learning curve + the unexpected. The redesign adds ~3 weeks up front — that's the cost of scope B; it pays for itself by C.7 and D not rebuilding UI.
 
 ---
 
@@ -399,3 +440,4 @@ Same conventions as the audit tracker:
 | Date | Phase | Item | Notes |
 |------|-------|------|-------|
 | 2026-05-15 | — | Plan | Launch plan created. AUDIT.md Phase 1 still pending — must complete before Phase A starts. |
+| 2026-05-21 | 0 | Plan | Added Phase 0 — full UI redesign (scope B), sequenced first. AUDIT.md Phases 0-2 complete; redesign now leads the launch. |

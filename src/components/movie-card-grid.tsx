@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import { memo, useMemo } from 'react';
-import { Eye, EyeOff, Star, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
+import { EyeOff, Check, Maximize2, Instagram, Youtube, Tv } from 'lucide-react';
 
 import type { Movie } from '@/lib/types';
 import { parseVideoUrl } from '@/lib/video-utils';
@@ -111,7 +111,7 @@ export const MovieCardGrid = memo(function MovieCardGrid({
       onClick={handleClick}
     >
       {/* Poster */}
-      <div className="relative aspect-[2/3] rounded-md overflow-hidden border-[2px] border-black shadow-[3px_3px_0px_0px_#000] transition-all duration-200 md:group-hover:shadow-[1px_1px_0px_0px_#000] md:group-hover:translate-x-0.5 md:group-hover:translate-y-0.5">
+      <div className="relative aspect-[2/3] rounded-[14px] overflow-hidden border border-border shadow-lift transition-all duration-200 md:group-hover:shadow-photo md:group-hover:-translate-y-0.5">
         <Image
           src={movie.posterUrl}
           alt={movie.title}
@@ -127,25 +127,24 @@ export const MovieCardGrid = memo(function MovieCardGrid({
             {/* User's personal rating badge - color reflects rating */}
             {userRating !== null ? (
               <div
-                className="px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5"
+                className="px-1.5 py-0.5 rounded font-headline font-bold text-xs tabular-nums"
                 style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
                 title={`Your rating: ${userRating.toFixed(1)}/10`}
               >
-                <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
                 {userRating.toFixed(1)}
               </div>
             ) : null}
             {/* TV badge */}
             {movie.mediaType === 'tv' && (
-              <div className="bg-primary text-primary-foreground px-1.5 py-0.5 rounded text-xs font-bold flex items-center gap-0.5" title="TV Show">
-                <Tv className="h-3 w-3" />
+              <div className="bg-black/55 backdrop-blur-sm text-white p-1 rounded-md flex items-center" title="TV Show">
+                <Tv className="h-3 w-3" strokeWidth={1.8} />
               </div>
             )}
           </div>
 
           {/* Social link badge */}
           {hasSocialLink && (
-            <div className="bg-black/80 text-white p-1 rounded" title="Has video link">
+            <div className="bg-black/55 backdrop-blur-sm text-white p-1 rounded-md" title="Has video link">
               <SocialIcon className="h-3 w-3" />
             </div>
           )}
@@ -156,7 +155,7 @@ export const MovieCardGrid = memo(function MovieCardGrid({
           {/* Added by indicator */}
           {addedByInitial && listOwnerId && (
             <div
-              className="w-5 h-5 rounded-full bg-primary text-primary-foreground text-xs font-bold flex items-center justify-center border border-white"
+              className="w-5 h-5 rounded-full bg-foreground text-background text-[10px] font-headline font-bold flex items-center justify-center ring-2 ring-white/70"
               title={`Added by ${addedByName}`}
             >
               {addedByInitial}
@@ -166,15 +165,17 @@ export const MovieCardGrid = memo(function MovieCardGrid({
 
           {/* Status indicator */}
           <div
-            className={`w-5 h-5 rounded-full border-2 border-white flex items-center justify-center ${
-              movie.status === 'Watched' ? 'bg-green-500' : 'bg-yellow-500'
+            className={`w-5 h-5 rounded-full flex items-center justify-center ring-1 ring-white/70 ${
+              movie.status === 'Watched'
+                ? 'bg-[oklch(0.52_0.11_150)]'
+                : 'bg-black/50 backdrop-blur-sm'
             }`}
             title={movie.status}
           >
             {movie.status === 'Watched' ? (
-              <Eye className="h-3 w-3 text-white" />
+              <Check className="h-3 w-3 text-white" strokeWidth={2.5} />
             ) : (
-              <EyeOff className="h-3 w-3 text-white" />
+              <EyeOff className="h-3 w-3 text-white" strokeWidth={1.8} />
             )}
           </div>
         </div>
@@ -190,17 +191,17 @@ export const MovieCardGrid = memo(function MovieCardGrid({
 
       {/* Title, year, and notes below poster */}
       <div className="mt-1.5 px-0.5">
-        <p className="text-xs font-medium truncate leading-tight" title={movie.title}>
+        <p className="text-[13px] font-headline font-semibold lowercase tracking-tight truncate leading-tight" title={movie.title}>
           {movie.title}
         </p>
-        <p className="text-xs text-muted-foreground">{movie.year}</p>
+        <p className="cc-meta text-[11px] text-muted-foreground">{movie.year}</p>
 
         {/* Notes displayed below title */}
         {notesEntries.length > 0 && (
           <div className="mt-1.5 space-y-1">
             {notesEntries.slice(0, 2).map(([uid, note]) => (
               <div key={uid} className="text-[11px] leading-snug">
-                <span className="font-semibold text-primary">@{noteAuthorNames[uid] || '...'}</span>
+                <span className="font-headline font-semibold text-foreground">@{noteAuthorNames[uid] || '...'}</span>
                 <span className="text-muted-foreground/60 mx-1">·</span>
                 <span className="text-muted-foreground line-clamp-1 break-words">{note}</span>
               </div>

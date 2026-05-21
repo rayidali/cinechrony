@@ -59,10 +59,10 @@ type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
 type ViewTab = 'info' | 'reviews';
 
 const retroButtonClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
+  'border border-border rounded-lg shadow-lift transition-all duration-200';
 
 const retroInputClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200';
+  'border border-border rounded-lg shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -545,7 +545,7 @@ export function MovieDetailsModal({
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
           <Drawer.Content
-            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
+            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border border-border border-b-0 outline-none"
             style={{
               height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
               maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
@@ -582,7 +582,7 @@ export function MovieDetailsModal({
                         alt={`Poster for ${movie.title}`}
                         width={200}
                         height={300}
-                        className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full max-w-[200px] h-auto mx-auto md:mx-0"
+                        className="rounded-lg border border-border shadow-lift w-full max-w-[200px] h-auto mx-auto md:mx-0"
                       />
 
                       {hasEmbeddableVideo && (
@@ -857,7 +857,7 @@ export function MovieDetailsModal({
                   onClick={() => setActiveTab('info')}
                   className={`flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all ${
                     activeTab === 'info'
-                      ? 'bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]'
+                      ? 'bg-primary text-primary-foreground shadow-lift'
                       : 'bg-secondary text-muted-foreground hover:text-foreground'
                   }`}
                 >

@@ -85,7 +85,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <div key={i} className="aspect-[2/3]">
-          <Skeleton className="w-full h-full rounded-md border-[2px] border-black" />
+          <Skeleton className="w-full h-full rounded-md border border-border" />
         </div>
       ))}
     </div>
@@ -95,7 +95,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const renderListSkeleton = () => (
     <div className="space-y-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[100px] rounded-lg border-[2px] border-black" />
+        <Skeleton key={i} className="h-[100px] rounded-lg border border-border" />
       ))}
     </div>
   );
@@ -103,14 +103,14 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   // Render cards view skeleton (original)
   const renderCardsSkeleton = () => (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-      <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
-      <Skeleton className="h-[500px] rounded-lg border-[3px] border-black" />
+      <Skeleton className="h-[500px] rounded-lg border border-border" />
+      <Skeleton className="h-[500px] rounded-lg border border-border" />
     </div>
   );
 
   // Render empty state
   const renderEmptyState = () => (
-    <div className="text-center py-16 border-[3px] border-dashed border-black rounded-lg bg-secondary">
+    <div className="text-center py-16 border border-dashed border-border rounded-lg bg-secondary">
       <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
       <h3 className="font-headline text-2xl font-bold">All clear!</h3>
       <p className="text-muted-foreground mt-2">
@@ -176,10 +176,10 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
           onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
           className="w-full sm:w-auto"
         >
-          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] p-0 h-auto">
+          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-lg shadow-lift p-0 h-auto">
             <TabsTrigger
               value="To Watch"
-              className="rounded-l-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-black px-4"
+              className="rounded-l-md data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-border px-4"
             >
               To Watch
             </TabsTrigger>
@@ -193,7 +193,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
         </Tabs>
 
         {/* View mode toggle */}
-        <div className="flex items-center gap-1 border-[2px] border-black rounded-lg p-1 bg-background">
+        <div className="flex items-center gap-1 border border-border rounded-lg p-1 bg-background">
           <Button
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
             size="sm"

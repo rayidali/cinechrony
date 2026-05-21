@@ -29,8 +29,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import type { UserProfile, MovieList, ListInvite, FavoriteMovie } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
-const retroInputClass = "border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border dark:border border-border rounded-full shadow-lift transition-all duration-200";
+const retroInputClass = "border dark:border border-border rounded-2xl shadow-lift focus:shadow-press dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
 
 export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -455,21 +455,21 @@ export default function MyProfilePage() {
             <div className="flex gap-3 mt-6">
               <button
                 onClick={handleLoadFollowers}
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-card shadow-lift hover:shadow-press transition-all min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{userProfile?.followersCount || 0}</span>
                 <span className="text-xs text-muted-foreground">followers</span>
               </button>
               <button
                 onClick={handleLoadFollowing}
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-card shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-card shadow-lift hover:shadow-press transition-all min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{userProfile?.followingCount || 0}</span>
                 <span className="text-xs text-muted-foreground">following</span>
               </button>
               <Link
                 href="/lists"
-                className="flex flex-col items-center px-5 py-3 rounded-xl border-[3px] dark:border-2 border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none hover:shadow-[2px_2px_0px_0px_hsl(var(--border))] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all min-w-[90px]"
+                className="flex flex-col items-center px-5 py-3 rounded-xl border dark:border border-border bg-yellow-400 dark:bg-yellow-500 text-black shadow-lift hover:shadow-press transition-all min-w-[90px]"
               >
                 <span className="font-bold text-2xl">{lists?.length || 0}</span>
                 <span className="text-xs">lists</span>
@@ -497,7 +497,7 @@ export default function MyProfilePage() {
                           alt={movie.title}
                           width={70}
                           height={105}
-                          className="rounded-lg border-[3px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] transition-all duration-200 group-hover:shadow-[1px_1px_0px_0px_hsl(var(--border))] group-hover:translate-x-0.5 group-hover:translate-y-0.5"
+                          className="rounded-[14px] border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5"
                           title={movie.title}
                         />
                         <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center">
@@ -510,7 +510,7 @@ export default function MyProfilePage() {
                     <button
                       key={index}
                       onClick={() => setIsFavoritePickerOpen(true)}
-                      className="w-[70px] h-[105px] rounded-lg border-[3px] border-dashed border-border/50 bg-secondary/30 flex items-center justify-center hover:border-primary hover:bg-primary/10 transition-all duration-200 group"
+                      className="w-[70px] h-[105px] rounded-lg border border-dashed border-border/50 bg-secondary/30 flex items-center justify-center hover:border-primary hover:bg-primary/10 transition-all duration-200 group"
                     >
                       <div className="flex flex-col items-center gap-1">
                         <div className="w-8 h-8 rounded-full bg-border/30 group-hover:bg-primary/20 flex items-center justify-center transition-colors">
@@ -548,11 +548,11 @@ export default function MyProfilePage() {
               {pendingInvites.map((invite) => (
                 <Card
                   key={invite.id}
-                  className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none"
+                  className="border dark:border border-border rounded-2xl shadow-lift"
                 >
                   <CardContent className="flex items-center justify-between p-4">
                     <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border-[3px] border-border">
+                      <div className="h-10 w-10 rounded-full bg-primary flex items-center justify-center border border-border">
                         <Users className="h-5 w-5 text-primary-foreground" />
                       </div>
                       <div>
@@ -566,7 +566,7 @@ export default function MyProfilePage() {
                       <Button
                         size="sm"
                         variant="outline"
-                        className="border-[2px] border-border rounded-full"
+                        className="border border-border rounded-full"
                         onClick={() => handleDeclineInvite(invite)}
                       >
                         <X className="h-4 w-4" />
@@ -625,7 +625,7 @@ export default function MyProfilePage() {
           {isLoadingLists ? (
             <div className="grid grid-cols-2 gap-4">
               {[1, 2].map((i) => (
-                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border border-border animate-pulse" />
               ))}
             </div>
           ) : lists && lists.length > 0 ? (
@@ -650,7 +650,7 @@ export default function MyProfilePage() {
                           <MoreVertical className="h-5 w-5" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
+                      <DropdownMenuContent align="end" className="border border-border rounded-xl">
                         <DropdownMenuItem
                           onSelect={() => {
                             setSelectedList(list);
@@ -689,7 +689,7 @@ export default function MyProfilePage() {
         {/* Followers Modal */}
         {showFollowers && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none">
+            <Card className="w-full max-w-md border dark:border border-border rounded-2xl shadow-photo">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Followers</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
@@ -731,7 +731,7 @@ export default function MyProfilePage() {
         {/* Following Modal */}
         {showFollowing && (
           <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-            <Card className="w-full max-w-md border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none">
+            <Card className="w-full max-w-md border dark:border border-border rounded-2xl shadow-photo">
               <CardHeader className="flex flex-row items-center justify-between">
                 <CardTitle>Following</CardTitle>
                 <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>

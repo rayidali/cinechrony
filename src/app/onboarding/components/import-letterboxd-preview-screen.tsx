@@ -8,7 +8,7 @@ import { useUser } from '@/firebase';
 import { importLetterboxdMovies } from '@/app/actions';
 import type { LetterboxdMovie, LetterboxdList } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type ImportLetterboxdPreviewScreenProps = {
   letterboxdData: {
@@ -172,7 +172,7 @@ export function ImportLetterboxdPreviewScreen({
           <p className="text-sm font-medium text-muted-foreground">Import as:</p>
 
           {watchedCount > 0 && (
-            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
               <input
                 type="checkbox"
                 checked={importWatched}
@@ -184,7 +184,7 @@ export function ImportLetterboxdPreviewScreen({
           )}
 
           {ratingsCount > 0 && (
-            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
               <input
                 type="checkbox"
                 checked={importRatings}
@@ -196,7 +196,7 @@ export function ImportLetterboxdPreviewScreen({
           )}
 
           {watchlistCount > 0 && (
-            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
               <input
                 type="checkbox"
                 checked={importWatchlist}
@@ -208,7 +208,7 @@ export function ImportLetterboxdPreviewScreen({
           )}
 
           {reviewsCount > 0 && (
-            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
               <input
                 type="checkbox"
                 checked={importReviews}
@@ -220,7 +220,7 @@ export function ImportLetterboxdPreviewScreen({
           )}
 
           {listsCount > 0 && (
-            <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+            <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
               <input
                 type="checkbox"
                 checked={importLists}

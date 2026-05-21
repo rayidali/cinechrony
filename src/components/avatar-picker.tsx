@@ -143,7 +143,7 @@ export function AvatarPicker({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-md border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+      <DialogContent className="max-w-md border border-border shadow-photo">
         <DialogHeader>
           <DialogTitle className="text-xl font-headline">Choose Profile Picture</DialogTitle>
           <DialogDescription>
@@ -155,7 +155,7 @@ export function AvatarPicker({
           {/* Current selection preview */}
           <div className="flex justify-center">
             <div className="relative">
-              <div className="relative w-32 h-32 rounded-full border-[4px] border-black shadow-[6px_6px_0px_0px_#000] overflow-hidden bg-secondary">
+              <div className="relative w-32 h-32 rounded-full border border-border shadow-photo overflow-hidden bg-secondary">
                 {selectedUrl ? (
                   <Image
                     src={selectedUrl}
@@ -186,10 +186,10 @@ export function AvatarPicker({
                 <button
                   key={avatar.id}
                   onClick={() => handleSelectDefault(avatar.url)}
-                  className={`relative aspect-square rounded-lg overflow-hidden border-[2px] transition-all ${
+                  className={`relative aspect-square rounded-lg overflow-hidden border transition-all ${
                     selectedUrl === avatar.url
-                      ? 'border-primary shadow-[2px_2px_0px_0px_#000] scale-105'
-                      : 'border-black hover:border-primary'
+                      ? 'border-primary shadow-press scale-105'
+                      : 'border-border hover:border-primary'
                   }`}
                   title={avatar.name}
                 >
@@ -229,7 +229,7 @@ export function AvatarPicker({
               htmlFor="avatar-upload"
               className={`
                 flex items-center justify-center w-full py-3 px-4
-                border-[2px] border-black rounded-lg cursor-pointer
+                border border-border rounded-lg cursor-pointer
                 bg-background hover:bg-secondary transition-colors
                 ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
               `}
@@ -256,14 +256,14 @@ export function AvatarPicker({
             <Button
               variant="outline"
               onClick={onClose}
-              className="flex-1 border-[2px] border-black"
+              className="flex-1 border border-border"
             >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
               disabled={!hasChanges || isSaving || isUploading}
-              className="flex-1 border-[2px] border-black shadow-[3px_3px_0px_0px_#000]"
+              className="flex-1 border border-border shadow-lift"
             >
               {isSaving ? (
                 <>

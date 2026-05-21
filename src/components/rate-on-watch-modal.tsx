@@ -66,7 +66,7 @@ export function RateOnWatchModal({
       />
       {/* Modal */}
       <div
-        className="relative bg-background max-w-md w-full rounded-lg border-[3px] border-black shadow-[8px_8px_0px_0px_#000] p-6"
+        className="relative bg-background max-w-md w-full rounded-lg border border-border shadow-photo p-6"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close button */}
@@ -107,7 +107,7 @@ export function RateOnWatchModal({
               placeholder="Share your thoughts..."
               rows={3}
               maxLength={500}
-              className="w-full resize-none rounded-lg border-2 border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
+              className="w-full resize-none rounded-lg border border-border bg-secondary/50 px-4 py-2.5 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 focus:bg-background"
             />
           </div>
 

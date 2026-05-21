@@ -232,7 +232,7 @@ export function PublicMovieDetailsModal({
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
         <Drawer.Content
-          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
+          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border border-border border-b-0 outline-none"
           style={{
             height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
             maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
@@ -268,7 +268,7 @@ export function PublicMovieDetailsModal({
                       alt={`Poster for ${movie.title}`}
                       width={200}
                       height={300}
-                      className="rounded-lg border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] w-full max-w-[200px] h-auto mx-auto md:mx-0"
+                      className="rounded-lg border border-border shadow-lift w-full max-w-[200px] h-auto mx-auto md:mx-0"
                     />
 
                     {hasEmbeddableVideo && (
@@ -426,7 +426,7 @@ export function PublicMovieDetailsModal({
           <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
             <div className="flex gap-2 justify-center">
               <button
-                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-primary text-primary-foreground shadow-lift"
               >
                 <Info className="h-4 w-4" />
                 Info

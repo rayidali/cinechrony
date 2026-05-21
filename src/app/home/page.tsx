@@ -48,7 +48,7 @@ export default function HomePage() {
               <div className="flex justify-between items-center">
                 <div className="flex items-center gap-3">
                   <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-9 w-9" />
-                  <h1 className="text-xl font-headline font-bold">Cinechrony</h1>
+                  <h1 className="text-xl font-headline font-bold lowercase tracking-tight">cinechrony</h1>
                 </div>
                 <div className="flex items-center gap-2">
                   <NotificationBell />
@@ -62,6 +62,10 @@ export default function HomePage() {
             <TrendingMovies />
 
             {/* Activity Feed */}
+            <div className="mb-4">
+              <div className="cc-eyebrow">the feed</div>
+              <div className="h-px bg-border mt-2.5" />
+            </div>
             <ActivityFeed currentUserId={user.uid} refreshKey={refreshKey} />
           </div>
         </main>

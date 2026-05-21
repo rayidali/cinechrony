@@ -309,7 +309,7 @@ export default function NotificationsPage() {
                       <button
                         onClick={(e) => handleDeclineInvite(notification, e)}
                         disabled={!!processingInvites[notification.id]}
-                        className="px-3 py-1.5 text-xs font-medium rounded-full border-2 border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs font-medium rounded-full border border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
                       >
                         {processingInvites[notification.id] === 'declining' ? (
                           <Loader2 className="h-3 w-3 animate-spin" />

@@ -3,7 +3,7 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type ImportLetterboxdGuideScreenProps = {
   onOpenLetterboxd: () => void;
@@ -29,13 +29,13 @@ const StepImage = ({ step, alt }: { step: number; alt: string }) => {
       <img
         src={imageUrl}
         alt={alt}
-        className="w-full max-w-[200px] mx-auto rounded-xl border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+        className="w-full max-w-[200px] mx-auto rounded-xl border border-border shadow-lift"
       />
     );
   }
 
   return (
-    <div className="w-full max-w-[200px] mx-auto aspect-[9/16] rounded-xl bg-secondary/50 border-2 border-dashed border-border flex items-center justify-center">
+    <div className="w-full max-w-[200px] mx-auto aspect-[9/16] rounded-xl bg-secondary/50 border border-dashed border-border flex items-center justify-center">
       <span className="text-muted-foreground text-sm">Step {step}</span>
     </div>
   );

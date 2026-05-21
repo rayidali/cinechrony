@@ -7,7 +7,7 @@ import { followUser, unfollowUser, isFollowing } from '@/app/actions';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 
-const retroButtonClass = "border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border border-border rounded-lg shadow-lift transition-all duration-200";
 
 type FollowButtonProps = {
   targetUserId: string;

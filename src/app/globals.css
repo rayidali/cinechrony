@@ -2,171 +2,199 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+   Cinechrony Design System v2 — Editorial cinema.
+   Newsprint cream paper, cinema-black ink, soft lifts,
+   lowercase display headlines, serif body, tabular dates.
+   One brutalist survivor: the yellow FAB.
+
+   Tokens are oklch. Tailwind classes (bg-background, text-foreground,
+   border-border, etc.) resolve straight to these vars — see
+   tailwind.config.ts where colors are `var(--x)` (not hsl-wrapped).
+   ============================================================ */
+
 @layer base {
   :root {
-    /* Warm cream background like Pablo app */
-    --background: 40 33% 96%;
-    --foreground: 20 14.3% 4.1%;
-    --card: 0 0% 100%;
-    --card-foreground: 20 14.3% 4.1%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 14.3% 4.1%;
-    /* Sunny yellow primary */
-    --primary: 48 100% 50%;
-    --primary-foreground: 20 14.3% 4.1%;
-    --secondary: 40 25% 92%;
-    --secondary-foreground: 20 14.3% 4.1%;
-    --muted: 40 20% 90%;
-    --muted-foreground: 20 10% 40%;
-    /* Accent yellow */
-    --accent: 48 100% 50%;
-    --accent-foreground: 20 14.3% 4.1%;
-    /* Sunny yellow for CTAs */
-    --warning: 48 100% 50%;
-    --warning-foreground: 20 14.3% 4.1%;
-    /* Mint green for success/public badges */
-    --success: 142 70% 70%;
-    --success-foreground: 20 14.3% 4.1%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 20 14.3% 4.1%;
-    --input: 0 0% 100%;
-    --ring: 48 100% 50%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 142 70% 70%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 48 100% 50%;
-    --chart-5: 27 87% 67%;
+    /* ---- Brand palette — paper, ink, film stock ---- */
+    --cc-paper:        oklch(0.945 0.012 78);
+    --cc-bone:         oklch(0.978 0.006 80);
+    --cc-ink:          oklch(0.165 0.012 60);
+    --cc-graphite:     oklch(0.46 0.012 60);
+    --cc-rule:         oklch(0.22 0.012 60 / 0.18);
+    --cc-film-red:     oklch(0.64 0.17 35);
+    --cc-sage:         oklch(0.74 0.09 152);
+    --cc-sage-deep:    oklch(0.52 0.11 150);
+    --cc-amber:        oklch(0.78 0.13 78);
+    --cc-marker:       oklch(0.6 0.20 27);
+    --cc-yellow:       oklch(0.88 0.18 95);
+    --cc-yellow-ink:   oklch(0.22 0.05 70);
+
+    /* ---- Semantic tokens (light) ----
+       Same names the codebase already uses — only the values changed. */
+    --background:            var(--cc-paper);
+    --foreground:            var(--cc-ink);
+    --card:                  var(--cc-bone);
+    --card-foreground:       var(--cc-ink);
+    --popover:               var(--cc-bone);
+    --popover-foreground:    var(--cc-ink);
+    /* Primary carries the brand film-red accent (was yellow in v1). */
+    --primary:               var(--cc-film-red);
+    --primary-foreground:    var(--cc-bone);
+    --secondary:             oklch(0.92 0.012 78);
+    --secondary-foreground:  var(--cc-ink);
+    --muted:                 oklch(0.915 0.012 78);
+    --muted-foreground:      var(--cc-graphite);
+    /* shadcn `accent` = subtle hover surface, NOT the brand accent.
+       Brand accent lives on --primary. */
+    --accent:                oklch(0.91 0.012 78);
+    --accent-foreground:     var(--cc-ink);
+    --warning:               var(--cc-amber);
+    --warning-foreground:    var(--cc-ink);
+    --success:               var(--cc-sage);
+    --success-foreground:    var(--cc-ink);
+    --destructive:           var(--cc-marker);
+    --destructive-foreground: oklch(0.99 0 0);
+    --border:                var(--cc-rule);
+    --input:                 oklch(0.22 0.012 60 / 0.26);
+    --ring:                  var(--cc-film-red);
+
+    --chart-1: var(--cc-film-red);
+    --chart-2: var(--cc-sage);
+    --chart-3: var(--cc-ink);
+    --chart-4: var(--cc-amber);
+    --chart-5: var(--cc-graphite);
+
+    --sidebar-background:         var(--cc-bone);
+    --sidebar-foreground:         var(--cc-ink);
+    --sidebar-primary:            var(--cc-ink);
+    --sidebar-primary-foreground: var(--cc-bone);
+    --sidebar-accent:             oklch(0.91 0.012 78);
+    --sidebar-accent-foreground:  var(--cc-ink);
+    --sidebar-border:             var(--cc-rule);
+    --sidebar-ring:               var(--cc-film-red);
+
     --radius: 1rem;
-    --sidebar-background: 0 0% 98%;
-    --sidebar-foreground: 240 5.3% 26.1%;
-    --sidebar-primary: 240 5.9% 10%;
-    --sidebar-primary-foreground: 0 0% 98%;
-    --sidebar-accent: 240 4.8% 95.9%;
-    --sidebar-accent-foreground: 240 5.9% 10%;
-    --sidebar-border: 220 13% 91%;
-    --sidebar-ring: 217.2 91.2% 59.8%;
-    --dot-color: 0 0% 0%;
-    --dot-opacity: 0.08;
+
+    /* ---- Type ---- */
+    --font-mono: "Space Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+    /* ---- Shadows — soft, magazine-y. Hard stamp is FAB-only. ---- */
+    --shadow-lift:  0 1px 2px oklch(0.16 0.01 60 / 0.06),
+                    0 8px 24px oklch(0.16 0.01 60 / 0.08);
+    --shadow-press: 0 1px 2px oklch(0.16 0.01 60 / 0.10);
+    --shadow-photo: 0 2px 4px oklch(0.16 0.01 60 / 0.06),
+                    0 16px 40px oklch(0.16 0.01 60 / 0.10);
+    --shadow-stamp: 3px 3px 0 0 var(--cc-ink);
   }
+
   .dark {
-    /* Rich dark background - warm undertone, not pure black */
-    --background: 25 15% 10%;
-    /* Off-white foreground - easier on eyes than pure white */
-    --foreground: 40 15% 90%;
-    /* Cards slightly elevated via brightness */
-    --card: 25 12% 14%;
-    --card-foreground: 40 15% 90%;
-    --popover: 25 12% 16%;
-    --popover-foreground: 40 15% 90%;
-    /* Sunny yellow primary - brighter for dark mode visibility */
-    --primary: 48 95% 58%;
-    --primary-foreground: 25 20% 8%;
-    /* Secondary - subtle elevation */
-    --secondary: 25 10% 18%;
-    --secondary-foreground: 40 15% 88%;
-    /* Muted - for less important elements */
-    --muted: 25 8% 20%;
-    --muted-foreground: 40 8% 55%;
-    /* Accent matches primary */
-    --accent: 48 95% 58%;
-    --accent-foreground: 25 20% 8%;
-    /* Warning/CTA - vibrant yellow */
-    --warning: 48 95% 58%;
-    --warning-foreground: 25 20% 8%;
-    /* Success - minty green, slightly brighter for dark */
-    --success: 142 55% 55%;
-    --success-foreground: 25 20% 8%;
-    --destructive: 0 72% 55%;
-    --destructive-foreground: 0 0% 98%;
-    /* Borders - subtle, not harsh. Key for dark mode! */
-    --border: 40 6% 25%;
-    --input: 25 10% 18%;
-    --ring: 48 95% 58%;
-    /* Charts */
-    --chart-1: 220 65% 55%;
-    --chart-2: 142 55% 55%;
-    --chart-3: 30 75% 58%;
-    --chart-4: 48 95% 58%;
-    --chart-5: 340 70% 58%;
-    /* Sidebar */
-    --sidebar-background: 25 12% 12%;
-    --sidebar-foreground: 40 15% 90%;
-    --sidebar-primary: 48 95% 58%;
-    --sidebar-primary-foreground: 25 20% 8%;
-    --sidebar-accent: 25 10% 18%;
-    --sidebar-accent-foreground: 40 15% 88%;
-    --sidebar-border: 40 6% 22%;
-    --sidebar-ring: 48 95% 58%;
-    /* Dot pattern - more visible in dark mode */
-    --dot-color: 40 15% 90%;
-    --dot-opacity: 0.08;
+    /* Projection-room dark — warm coffee, never pure black. */
+    --cc-coffee:       oklch(0.20 0.012 60);
+    --cc-cream:        oklch(0.92 0.012 78);
+
+    --background:            var(--cc-coffee);
+    --foreground:            var(--cc-cream);
+    --card:                  oklch(0.24 0.012 60);
+    --card-foreground:       var(--cc-cream);
+    --popover:               oklch(0.24 0.012 60);
+    --popover-foreground:    var(--cc-cream);
+    --primary:               oklch(0.72 0.16 35);
+    --primary-foreground:    var(--cc-coffee);
+    --secondary:             oklch(0.27 0.012 60);
+    --secondary-foreground:  var(--cc-cream);
+    --muted:                 oklch(0.27 0.012 60);
+    --muted-foreground:      oklch(0.62 0.012 60);
+    --accent:                oklch(0.30 0.012 60);
+    --accent-foreground:     var(--cc-cream);
+    --warning:               oklch(0.80 0.14 78);
+    --warning-foreground:    var(--cc-coffee);
+    --success:               oklch(0.72 0.10 150);
+    --success-foreground:    var(--cc-coffee);
+    --destructive:           oklch(0.66 0.20 27);
+    --destructive-foreground: oklch(0.99 0 0);
+    --border:                oklch(0.92 0.012 78 / 0.16);
+    --input:                 oklch(0.92 0.012 78 / 0.20);
+    --ring:                  oklch(0.72 0.16 35);
+
+    --chart-1: oklch(0.72 0.16 35);
+    --chart-2: oklch(0.72 0.10 150);
+    --chart-3: var(--cc-cream);
+    --chart-4: oklch(0.80 0.14 78);
+    --chart-5: oklch(0.62 0.012 60);
+
+    --sidebar-background:         oklch(0.24 0.012 60);
+    --sidebar-foreground:         var(--cc-cream);
+    --sidebar-primary:            oklch(0.72 0.16 35);
+    --sidebar-primary-foreground: var(--cc-coffee);
+    --sidebar-accent:             oklch(0.30 0.012 60);
+    --sidebar-accent-foreground:  var(--cc-cream);
+    --sidebar-border:             oklch(0.92 0.012 78 / 0.16);
+    --sidebar-ring:               oklch(0.72 0.16 35);
+
+    --shadow-lift:  0 1px 2px rgba(0,0,0,0.4),
+                    0 12px 32px rgba(0,0,0,0.45);
+    --shadow-press: 0 1px 2px rgba(0,0,0,0.4);
+    --shadow-photo: 0 4px 12px rgba(0,0,0,0.4),
+                    0 24px 56px rgba(0,0,0,0.5);
+    --shadow-stamp: 3px 3px 0 0 var(--cc-cream);
   }
 }
 
-/* Neo-brutalist animations */
+/* ============================================================
+   Animation — v2 vocabulary is calm: float, rise, fade-in,
+   slide-up, marquee. Retired from v1: wiggle, pulse-shadow,
+   bounce-subtle (the brand no longer does little dances).
+   ============================================================ */
 @keyframes float {
   0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-10px); }
+  50% { transform: translateY(-6px); }
 }
-
 @keyframes float-delayed {
   0%, 100% { transform: translateY(0px); }
-  50% { transform: translateY(-8px); }
-}
-
-@keyframes bounce-subtle {
-  0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-5px); }
 }
-
-@keyframes wiggle {
-  0%, 100% { transform: rotate(-3deg); }
-  50% { transform: rotate(3deg); }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
-
-@keyframes pulse-shadow {
-  0%, 100% { box-shadow: 4px 4px 0px 0px #000; }
-  50% { box-shadow: 6px 6px 0px 0px #000; }
-}
-
 @keyframes slide-up {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
-
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
 
 .animate-float {
-  animation: float 3s ease-in-out infinite;
+  animation: float 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
 }
-
 .animate-float-delayed {
-  animation: float-delayed 3.5s ease-in-out infinite;
+  animation: float-delayed 4.5s cubic-bezier(0.16, 1, 0.3, 1) infinite;
   animation-delay: 0.5s;
 }
-
-.animate-bounce-subtle {
-  animation: bounce-subtle 2s ease-in-out infinite;
+.animate-rise {
+  animation: rise 0.36s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
-
-.animate-wiggle {
-  animation: wiggle 2s ease-in-out infinite;
-}
-
-.animate-pulse-shadow {
-  animation: pulse-shadow 2s ease-in-out infinite;
-}
-
 .animate-slide-up {
-  animation: slide-up 0.6s ease-out forwards;
+  animation: slide-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.animate-fade-in {
+  animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
-.animate-fade-in {
-  animation: fade-in 0.5s ease-out forwards;
+@media (prefers-reduced-motion: reduce) {
+  .animate-float,
+  .animate-float-delayed,
+  .animate-rise,
+  .animate-slide-up,
+  .animate-fade-in {
+    animation: none;
+  }
 }
 
 @layer base {
@@ -175,6 +203,12 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+
+  /* Editorial type defaults — display headlines lowercase + tight. */
+  h1, h2, h3 {
+    font-family: var(--font-headline), sans-serif;
+    letter-spacing: -0.03em;
   }
 
   /* Mobile performance optimizations */
@@ -200,44 +234,39 @@
   }
 }
 
-/* Dot pattern background for depth */
-@layer utilities {
-  .bg-dot-pattern {
-    background-image: radial-gradient(
-      hsl(var(--dot-color) / var(--dot-opacity)) 1px,
-      transparent 1px
-    );
-    background-size: 12px 12px;
+/* ============================================================
+   Editorial primitives — drop-in helpers for the v2 patterns.
+   ============================================================ */
+@layer components {
+  /* Eyebrow — UPPERCASE mono label above a section (MoMA-Baku move). */
+  .cc-eyebrow {
+    font-family: var(--font-mono), monospace;
+    font-weight: 700;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.18em;
+    color: var(--muted-foreground);
+  }
+
+  /* Tabular meta — dates, runtimes, IDs in Space Mono. */
+  .cc-meta {
+    font-family: var(--font-mono), monospace;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* Serif italic lead / pull-quote — the magazine voice. */
+  .cc-lead {
+    font-family: var(--font-body), serif;
+    font-style: italic;
+    font-weight: 300;
+    line-height: 1.6;
   }
 }
 
-/* Combined background with dots - use this instead of bg-background */
-.bg-background-dots {
-  background-color: hsl(var(--background));
-  background-image: radial-gradient(
-    hsl(var(--dot-color) / var(--dot-opacity)) 1px,
-    transparent 1px
-  );
-  background-size: 12px 12px;
-}
-
-/* Dark mode neo-brutalist adjustments */
-/* In dark mode, remove hard shadows for cleaner look */
-.dark {
-  /* Border colors should be more subtle */
-  & .border-black {
-    border-color: hsl(var(--border));
-  }
-}
-
-/* Apply to html/body for consistent background */
+/* Apply flat newsprint background to html/body — no dot grid in v2. */
 html {
-  background-color: hsl(var(--background));
-  background-image: radial-gradient(
-    hsl(var(--dot-color) / var(--dot-opacity)) 1px,
-    transparent 1px
-  );
-  background-size: 12px 12px;
+  background-color: var(--background);
   min-height: 100%;
 }
 

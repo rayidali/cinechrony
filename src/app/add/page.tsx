@@ -154,8 +154,8 @@ async function searchAll(query: string): Promise<SearchResult[]> {
   return combined.slice(0, 12);
 }
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift dark:border focus:shadow-press dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift dark:border transition-all duration-200";
 
 export default function AddPage() {
   const { user, isUserLoading } = useUser();
@@ -332,7 +332,7 @@ export default function AddPage() {
         <header className="mb-8 text-center">
           <div className="flex justify-center items-center mb-4">
             <div className="flex items-center gap-3">
-              <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
+              <div className="bg-primary p-2 rounded-xl border dark:border border-border shadow-lift">
                 <Plus className="h-6 w-6 text-primary-foreground" />
               </div>
               <h1 className="text-2xl md:text-3xl font-headline font-bold">Add to List</h1>
@@ -357,7 +357,7 @@ export default function AddPage() {
                 <SelectTrigger className={`${retroInputClass} w-full`}>
                   <SelectValue placeholder="Select a list" />
                 </SelectTrigger>
-                <SelectContent className="border-[3px] border-border rounded-xl">
+                <SelectContent className="border border-border rounded-xl">
                   {(isLoadingLists || isLoadingCollab) ? (
                     <SelectItem value="loading" disabled>Loading lists...</SelectItem>
                   ) : allLists.length > 0 ? (
@@ -411,7 +411,7 @@ export default function AddPage() {
 
           {/* Search Section */}
           {!selectedMovie ? (
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
+            <Card className="border dark:border border-border rounded-2xl shadow-photo bg-card">
               <CardContent className="p-6 space-y-4">
                 {/* Search Input */}
                 <div className="relative">
@@ -434,19 +434,19 @@ export default function AddPage() {
 
                 {/* Search Results */}
                 {results.length > 0 && (
-                  <div className="space-y-2 max-h-80 overflow-y-auto p-2 bg-background rounded-2xl border-[3px] border-border">
+                  <div className="space-y-2 max-h-80 overflow-y-auto p-2 bg-background rounded-2xl border border-border">
                     {results.map((movie) => (
                       <button
                         key={`${movie.mediaType}-${movie.id}`}
                         onClick={() => handleSelectMovie(movie)}
-                        className="w-full text-left p-3 rounded-xl hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-4 border-[2px] border-transparent hover:border-border"
+                        className="w-full text-left p-3 rounded-xl hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-4 border border-transparent hover:border-border"
                       >
                         <Image
                           src={movie.posterUrl}
                           alt={movie.title}
                           width={50}
                           height={75}
-                          className="rounded-lg border-[2px] border-border"
+                          className="rounded-lg border border-border"
                           data-ai-hint={movie.posterHint}
                         />
                         <div className="flex-grow">
@@ -481,7 +481,7 @@ export default function AddPage() {
             </Card>
           ) : (
             /* Selected Movie Form */
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
+            <Card className="border dark:border border-border rounded-2xl shadow-photo bg-card">
               <CardContent className="p-6">
                 <form action={handleAddMovie} className="space-y-6">
                   <div className="flex gap-6 items-start">
@@ -490,7 +490,7 @@ export default function AddPage() {
                       alt={selectedMovie.title}
                       width={120}
                       height={180}
-                      className="rounded-xl border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))]"
+                      className="rounded-xl border border-border shadow-lift"
                       data-ai-hint={selectedMovie.posterHint}
                     />
                     <div className="flex-grow">
@@ -502,7 +502,7 @@ export default function AddPage() {
                       <div className="mt-4">
                         <label className="text-sm text-muted-foreground block mb-1">Adding to:</label>
                         <Select value={selectedListId} onValueChange={handleListChange}>
-                          <SelectTrigger className="border-[2px] border-border rounded-xl bg-secondary h-auto py-2">
+                          <SelectTrigger className="border border-border rounded-xl bg-secondary h-auto py-2">
                             <SelectValue>
                               <span className="font-bold flex items-center gap-2">
                                 {allLists.find(l => l.id === selectedListId)?.isCollaborative ? (
@@ -514,7 +514,7 @@ export default function AddPage() {
                               </span>
                             </SelectValue>
                           </SelectTrigger>
-                          <SelectContent className="border-[3px] border-border rounded-xl">
+                          <SelectContent className="border border-border rounded-xl">
                             {/* Own lists */}
                             {lists && lists.length > 0 && (
                               <>
@@ -604,7 +604,7 @@ export default function AddPage() {
                       type="button"
                       variant="outline"
                       onClick={() => { setSelectedMovie(null); setSocialLink(''); }}
-                      className="border-[3px] border-border rounded-full font-bold"
+                      className="border border-border rounded-full font-bold"
                     >
                       Cancel
                     </Button>

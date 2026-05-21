@@ -113,12 +113,12 @@ export const MovieCardList = memo(function MovieCardList({
 
   return (
     <div
-      className="group rounded-lg border-[2px] border-black shadow-[3px_3px_0px_0px_#000] bg-card cursor-pointer transition-all duration-200 md:hover:shadow-[1px_1px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 overflow-hidden"
+      className="group rounded-lg border border-border shadow-lift bg-card cursor-pointer transition-all duration-200 md:hover:shadow-press overflow-hidden"
       onClick={handleClick}
     >
       <div className="flex gap-3 p-3">
         {/* Poster thumbnail */}
-        <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-black">
+        <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-border">
           <Image
             src={movie.posterUrl}
             alt={movie.title}
