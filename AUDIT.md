@@ -216,12 +216,12 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 3.5 — `like` actions are not transactional (`likeReview:3128`, `unlikeReview:3195`, `likeActivity:5567`)
 
-- [ ] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
+- [x] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
 - [ ] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry.
 
 ### 3.6 — `useToast` 16-minute leak (`use-toast.ts:11`)
 
-- [ ] `TOAST_REMOVE_DELAY = 5000`.
+- [x] `TOAST_REMOVE_DELAY = 5000`.
 - [ ] **Test (manual):** trigger 20 toasts in sequence. DOM doesn't accumulate stale `<Toast>` nodes after 10 seconds.
 
 ### 3.7 — `activity-feed` IntersectionObserver thrash (`activity-feed.tsx:131`)
@@ -231,7 +231,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 3.8 — No rate limiting on hot endpoints
 
-- [ ] Add a per-UID Firestore-backed rate limiter (`/rate_limits/{uid}_{action}` with timestamp). Apply to: `followUser`, `likeReview`, `likeActivity`, `createReview`, `inviteToList`, `createInviteLink`, `savePushSubscription`.
+- [x] Add a per-UID Firestore-backed rate limiter (`/rate_limits/{uid}_{action}` with timestamp). Apply to: `followUser`, `likeReview`, `likeActivity`, `createReview`, `inviteToList`, `createInviteLink`, `savePushSubscription`.
 - [ ] **Test (exploit script):** fire 100 `followUser` calls in 10 seconds → some are rejected with rate-limit error.
 
 ### 3.9 — `apphosting.yaml` maxInstances: 1
@@ -314,7 +314,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 5.4 — Delete stale docs
 
-- [ ] Remove `docs/blueprint.md`, `docs/backend.json`, `src/docs/backend.json`, `docs/images/`. They describe the v1 "Film Collab" product, not Cinechrony.
+- [x] Remove `docs/blueprint.md`, `docs/backend.json`, `src/docs/backend.json`, `docs/images/`. They describe the v1 "Film Collab" product, not Cinechrony.
 
 ### 5.5 — Update `CLAUDE.md` to reality
 
@@ -335,11 +335,11 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 5.8 — Add explicit deny rules for server-only collections (`firestore.rules`)
 
-- [ ] Add `match /reviews/{id} { allow read, write: if false; }` and the same for `/ratings`, `/notifications`, `/users/{uid}/pushSubscriptions`. Default-deny already covers them, but explicit rules document intent and prevent future drift.
+- [x] Add `match /reviews/{id} { allow read, write: if false; }` and the same for `/ratings`, `/notifications`, `/users/{uid}/pushSubscriptions`. Default-deny already covers them, but explicit rules document intent and prevent future drift.
 
 ### 5.9 — Cron secret enforcement (`api/cron/weekly-digest/route.ts`)
 
-- [ ] Fail closed if `CRON_SECRET` env is unset in production. Currently the `if` clause skips auth when secret is missing.
+- [x] Fail closed if `CRON_SECRET` env is unset in production. Currently the `if` clause skips auth when secret is missing.
 - [ ] **Test:** unset env, deploy preview, call the cron endpoint → 401.
 
 ### 5.10 — Cache-bust URL pattern wastes R2/CDN
@@ -348,7 +348,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 ### 5.11 — `ignoreUndefinedProperties` systemic guard (NEW — found during 2.2)
 
-- [ ] Set `firestore.settings({ ignoreUndefinedProperties: true })` once at Admin Firestore init (`@/firebase/admin`). Firestore Admin hard-throws on any `undefined` field value; today every write site must remember `?? null` (e.g. the `posterHint` crash 2.2 found). One global setting makes the whole class impossible. Behavioral change (undefined fields silently dropped) — desirable here (codebase already uses `|| null` everywhere) but is global, so kept out of the 2.2 commit to avoid mixing concerns / blast radius. Verify the no-undefined invariant still holds for fields that *should* be null.
+- [x] Set `firestore.settings({ ignoreUndefinedProperties: true })` once at Admin Firestore init (`@/firebase/admin`). Firestore Admin hard-throws on any `undefined` field value; today every write site must remember `?? null` (e.g. the `posterHint` crash 2.2 found). One global setting makes the whole class impossible. Behavioral change (undefined fields silently dropped) — desirable here (codebase already uses `|| null` everywhere) but is global, so kept out of the 2.2 commit to avoid mixing concerns / blast radius. Verify the no-undefined invariant still holds for fields that *should* be null.
 
 ---
 
@@ -386,3 +386,4 @@ Every fix in this document includes a **Test** field describing how we verify it
 | 2026-05-20 | 2 | 2.7 | deleteUserAccount: O(N users) full-collection scan → single collectionGroup query on `lists` `collaboratorIds` array-contains (O(collaborator-lists), bounded). Updates batched 450/op; skips own lists. firestore.indexes.json fieldOverride added (required in prod). 46/46 incl. 3 new 10-delete-collab tests proving multi-owner removal + control case. Pushed (a5c110f). Resumability sub-item (2.7.2) deferred — rare op, doesn't block launch. Same scan pattern still in searchUsers (2.8, next) and the admin backfills (intentional one-shots). |
 | 2026-05-20 | 2 | 2.8 | searchUsers: per-keystroke full-collection scan → two parallel single-field prefix-range queries (usernameLower/displayNameLower, limit 20 each). O(matches) not O(N); auto single-field indexes — no firestore.indexes.json change. Aligns w/ 1.9 (no email search/return). Removed inline scan-based migration (use backfillUserSearchFields). 54/54 incl. 8 new 11-search-users tests (prefix/exclude/dedupe/min-len/no-FP/legacy/no-email). Pushed (734daf7). |
 | 2026-05-20 | 2 | ALL | **PHASE 2 COMPLETE.** Today's pushes: **2.1** transferOwnership 6-phase pattern (atomic pre-flight tx → batched copy → invites repoint → batched delete → final old-list-doc delete as the canonical transition; idempotent under crash; 600-movie multi-batch tested); **2.5** ratings cursor pagination + in-flight cancel on logout (1200-rating walk verified); **2.6** real comment edit via updateReview + composer indicator (no more duplicates); **2.3b** UserProfileCache + useUserProfile hook wired into review-card, activity-card, movie-card, movie-card-grid, movie-card-list. tsc 0 throughout; build green (ESLint enforced); 61/61. Pushes: 93b45e9, 90a81ff, 8ac783d, de1de16. Top banner updated to reflect Phase 2 ✅. |
+| 2026-05-20 | 3/5/AppStore | batch | Hardening + App Store gates. **5.11** ignoreUndefinedProperties (guarded; getDb unified in @/firebase/admin). **3.6** toast leak 16min→5s. **5.9** cron fails closed. **5.8** explicit deny rules for /reviews /ratings /notifications /rate_limits /reports. **5.4** stale v1 docs deleted. **3.5** like/unlike/likeActivity/unlikeActivity now transactional (14-like-atomicity). **3.8** per-user rate limiting — src/lib/rate-limit.ts wired into 7 abuse-prone actions (15-rate-limit). **App Store §1.2**: reportContent action + Report UI in review-card + /reports collection (16-report-content). **App Store**: /privacy route w/ real policy draft; TMDB attribution in Settings. tsc 0, 74/74, build passes. Pushes: df7556b, 9dbf000, 6382db3, 574d257. REMAINING App Store gate: block-abusive-users (task #15) — before submission, not TestFlight. |
