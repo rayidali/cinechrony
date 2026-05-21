@@ -134,6 +134,7 @@ export function CoverPicker({
 
     try {
       const result = await uploadListCover(
+        await user.getIdToken(),
         ownerId,
         listId,
         selectedFile.base64,
@@ -178,9 +179,9 @@ export function CoverPicker({
     const ownerId = listOwnerId || user.uid;
 
     try {
-      const result = await updateListCover(ownerId, listId, null);
+      const result = await updateListCover(await user.getIdToken(), ownerId, listId, null);
 
-      if (result.error) {
+      if ('error' in result) {
         toast({
           variant: 'destructive',
           title: 'Failed to remove cover',
@@ -220,7 +221,7 @@ export function CoverPicker({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && handleClose()}>
-      <DialogContent className="max-w-sm border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+      <DialogContent className="max-w-sm border border-border shadow-photo">
         <DialogHeader>
           <DialogTitle className="text-xl font-headline">Set Cover Image</DialogTitle>
           <DialogDescription>
@@ -230,7 +231,7 @@ export function CoverPicker({
 
         <div className="space-y-4 mt-4">
           {/* Preview */}
-          <div className="relative aspect-[4/5] rounded-xl overflow-hidden border-[2px] border-border bg-muted">
+          <div className="relative aspect-[4/5] rounded-xl overflow-hidden border border-border bg-muted">
             {previewUrl ? (
               <Image
                 src={previewUrl}
@@ -265,7 +266,7 @@ export function CoverPicker({
             htmlFor="cover-upload"
             className={`
               flex items-center justify-center w-full py-3 px-4
-              border-[2px] border-border rounded-xl cursor-pointer
+              border border-border rounded-xl cursor-pointer
               bg-background hover:bg-secondary transition-colors
               ${isUploading ? 'opacity-50 cursor-not-allowed' : ''}
             `}
@@ -293,7 +294,7 @@ export function CoverPicker({
                 variant="outline"
                 onClick={handleRemoveCover}
                 disabled={isUploading}
-                className="border-[2px] border-destructive text-destructive hover:bg-destructive/10"
+                className="border border-destructive text-destructive hover:bg-destructive/10"
               >
                 Remove
               </Button>
@@ -301,14 +302,14 @@ export function CoverPicker({
             <Button
               variant="outline"
               onClick={handleClose}
-              className="flex-1 border-[2px] border-border"
+              className="flex-1 border border-border"
             >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
               disabled={!hasChanges || isUploading}
-              className="flex-1 border-[2px] border-border shadow-[3px_3px_0px_0px_hsl(var(--border))]"
+              className="flex-1 border border-border shadow-lift"
             >
               {isUploading ? (
                 <>

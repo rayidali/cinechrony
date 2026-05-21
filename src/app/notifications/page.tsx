@@ -73,7 +73,7 @@ export default function NotificationsPage() {
   const handleMarkAllRead = async () => {
     if (!user?.uid) return;
     try {
-      await markNotificationsRead(user.uid);
+      await markNotificationsRead(await user.getIdToken());
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (err) {
       console.error('Failed to mark as read:', err);
@@ -87,8 +87,8 @@ export default function NotificationsPage() {
 
     setProcessingInvites(prev => ({ ...prev, [notification.id]: 'accepting' }));
     try {
-      const result = await acceptInvite(user.uid, notification.inviteId);
-      if (result.error) {
+      const result = await acceptInvite(await user.getIdToken(), notification.inviteId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({
@@ -120,8 +120,8 @@ export default function NotificationsPage() {
 
     setProcessingInvites(prev => ({ ...prev, [notification.id]: 'declining' }));
     try {
-      const result = await declineInvite(user.uid, notification.inviteId);
-      if (result.error) {
+      const result = await declineInvite(await user.getIdToken(), notification.inviteId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({
@@ -147,7 +147,7 @@ export default function NotificationsPage() {
   const handleNotificationClick = (notification: Notification) => {
     // Mark as read
     if (!notification.read && user?.uid) {
-      markNotificationsRead(user.uid, [notification.id]).catch(console.error);
+      user.getIdToken().then(t => markNotificationsRead(t, [notification.id])).catch(console.error);
       setNotifications(prev =>
         prev.map(n => (n.id === notification.id ? { ...n, read: true } : n))
       );
@@ -309,7 +309,7 @@ export default function NotificationsPage() {
                       <button
                         onClick={(e) => handleDeclineInvite(notification, e)}
                         disabled={!!processingInvites[notification.id]}
-                        className="px-3 py-1.5 text-xs font-medium rounded-full border-2 border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
+                        className="px-3 py-1.5 text-xs font-medium rounded-full border border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
                       >
                         {processingInvites[notification.id] === 'declining' ? (
                           <Loader2 className="h-3 w-3 animate-spin" />

@@ -9,8 +9,8 @@ import { useUser } from '@/firebase';
 import { searchUsers, followUser } from '@/app/actions';
 import { useDebouncedCallback } from 'use-debounce';
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type SearchResult = {
   uid: string;
@@ -83,9 +83,9 @@ export function FindFriendsScreen({
     setFollowingInProgress(prev => new Set(prev).add(targetUser.uid));
 
     try {
-      const result = await followUser(user.uid, targetUser.uid);
+      const result = await followUser(await user.getIdToken(), targetUser.uid);
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 
@@ -148,7 +148,7 @@ export function FindFriendsScreen({
           {searchResults.map((result) => (
             <div
               key={result.uid}
-              className="flex items-center justify-between p-3 rounded-xl border-2 border-border bg-card"
+              className="flex items-center justify-between p-3 rounded-xl border border-border bg-card"
             >
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-full bg-secondary overflow-hidden">

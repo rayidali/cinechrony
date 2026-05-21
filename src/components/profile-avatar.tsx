@@ -43,17 +43,17 @@ const sizeClasses = {
 };
 
 const borderClasses = {
-  sm: 'border-[2px]',
-  md: 'border-[2px]',
-  lg: 'border-[3px]',
-  xl: 'border-[4px]',
+  sm: 'border',
+  md: 'border',
+  lg: 'border',
+  xl: 'border',
 };
 
 const shadowClasses = {
-  sm: 'shadow-[2px_2px_0px_0px_#000]',
-  md: 'shadow-[3px_3px_0px_0px_#000]',
-  lg: 'shadow-[4px_4px_0px_0px_#000]',
-  xl: 'shadow-[6px_6px_0px_0px_#000]',
+  sm: 'shadow-press',
+  md: 'shadow-lift',
+  lg: 'shadow-lift',
+  xl: 'shadow-photo',
 };
 
 export function ProfileAvatar({
@@ -72,7 +72,7 @@ export function ProfileAvatar({
   return (
     <div
       className={cn(
-        'relative rounded-full border-black flex items-center justify-center overflow-hidden',
+        'relative rounded-full border-border flex items-center justify-center overflow-hidden',
         sizeClasses[size],
         borderClasses[size],
         shadowClasses[size],

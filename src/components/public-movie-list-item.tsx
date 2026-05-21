@@ -23,11 +23,11 @@ export function PublicMovieListItem({ movie, onOpenDetails }: PublicMovieListIte
 
   return (
     <div
-      className="group flex gap-3 p-3 rounded-lg border-[2px] border-black shadow-[3px_3px_0px_0px_#000] bg-card cursor-pointer transition-all duration-200 md:hover:shadow-[1px_1px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5"
+      className="group flex gap-3 p-3 rounded-lg border border-border shadow-lift bg-card cursor-pointer transition-all duration-200 md:hover:shadow-press"
       onClick={handleClick}
     >
       {/* Poster thumbnail */}
-      <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-black">
+      <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-border">
         <Image
           src={movie.posterUrl}
           alt={movie.title}
@@ -65,10 +65,8 @@ export function PublicMovieListItem({ movie, onOpenDetails }: PublicMovieListIte
       {/* Status badge */}
       <div className="flex flex-col items-end justify-start">
         <span
-          className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-            movie.status === 'Watched'
-              ? 'bg-green-100 text-green-800'
-              : 'bg-yellow-100 text-yellow-800'
+          className={`inline-flex items-center px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase ${
+            movie.status === 'Watched' ? 'text-success' : 'text-muted-foreground'
           }`}
         >
           {movie.status}

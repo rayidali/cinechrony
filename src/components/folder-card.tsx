@@ -16,14 +16,13 @@ export function FolderCard({ children, className, onClick, tabLabel }: FolderCar
       className={cn(
         'relative cursor-pointer group',
         'transition-all duration-200',
-        'active:translate-x-0.5 active:translate-y-0.5',
         className
       )}
       onClick={onClick}
     >
       {/* Folder tab */}
       <div className="absolute -top-3 left-4 z-10">
-        <div className="bg-card border-[3px] dark:border-2 border-border border-b-0 rounded-t-xl px-4 py-1 min-w-[80px]">
+        <div className="bg-card border border-border border-b-0 rounded-t-xl px-4 py-1 min-w-[80px]">
           <div className="h-2" />
         </div>
       </div>
@@ -31,14 +30,9 @@ export function FolderCard({ children, className, onClick, tabLabel }: FolderCar
       {/* Main folder body */}
       <div
         className={cn(
-          'relative bg-card border-[3px] dark:border-2 border-border rounded-2xl',
-          'shadow-[4px_4px_0px_0px_hsl(var(--border))]',
-          'dark:shadow-none',
-          'group-hover:shadow-[2px_2px_0px_0px_hsl(var(--border))]',
-          'dark:group-hover:shadow-none',
-          'group-hover:translate-x-0.5 group-hover:translate-y-0.5',
-          'dark:group-hover:translate-x-0 dark:group-hover:translate-y-0',
-          'group-active:shadow-none',
+          'relative bg-card border border-border rounded-2xl',
+          'shadow-lift',
+          'group-hover:shadow-photo group-hover:-translate-y-0.5',
           'transition-all duration-200',
           'pt-2'
         )}

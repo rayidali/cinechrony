@@ -125,7 +125,7 @@ export function ImportLetterboxdUploadScreen({
         <button
           onClick={() => fileInputRef.current?.click()}
           disabled={isProcessing}
-          className="w-full aspect-[4/3] rounded-2xl border-[3px] border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-4"
+          className="w-full aspect-[4/3] rounded-2xl border border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-4"
         >
           {isProcessing ? (
             <>

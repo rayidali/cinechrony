@@ -4,10 +4,12 @@ import type {NextConfig} from 'next';
 const nextConfig: NextConfig = {
   /* config options here */
   typescript: {
-    ignoreBuildErrors: true,
+    // AUDIT.md Phase 0.3: re-enabled. Build now fails on type errors.
+    ignoreBuildErrors: false,
   },
   eslint: {
-    ignoreDuringBuilds: true,
+    // AUDIT.md Phase 0.3: re-enabled. Build now fails on lint errors.
+    ignoreDuringBuilds: false,
   },
   experimental: {
     serverActions: {

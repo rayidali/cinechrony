@@ -205,7 +205,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         const listsWithPreviews = await Promise.all(
           combined.map(async (list) => {
             try {
-              const preview = await getListPreview(list.ownerId, list.id);
+              const preview = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
               return {
                 ...list,
                 previewPosters: preview.previewPosters || [],
@@ -302,7 +302,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       for (const selection of selectedLists.values()) {
         const formData = new FormData();
         formData.append('movieData', JSON.stringify(selectedMovie));
-        formData.append('userId', user.uid);
+        formData.append('idToken', await user.getIdToken());
         formData.append('listId', selection.listId);
         formData.append('listOwnerId', selection.listOwnerId);
         formData.append('status', 'To Watch');
@@ -310,7 +310,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         if (selection.note) formData.append('note', selection.note);
 
         const result = await addMovieToList(formData);
-        if (result?.error) {
+        if (result && 'error' in result) {
           errorCount++;
         } else {
           successCount++;
@@ -548,7 +548,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                       alt={selectedMovie.title}
                       width={100}
                       height={150}
-                      className="rounded-xl border-2 border-border shadow-md object-cover flex-shrink-0"
+                      className="rounded-xl border border-border shadow-md object-cover flex-shrink-0"
                     />
                     <div className="flex-1 min-w-0">
                       <h3 className="text-xl font-bold">{selectedMovie.title}</h3>
@@ -568,7 +568,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                       </div>
                       {selectedMovie.rating && selectedMovie.rating > 0 && (
                         <div className="mt-2 text-sm">
-                          <span className="text-yellow-500">★</span>
+                          <span className="text-warning">★</span>
                           <span className="ml-1">{selectedMovie.rating.toFixed(1)}/10</span>
                         </div>
                       )}
@@ -677,7 +677,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                     return (
                       <div
                         key={list.id}
-                        className={`rounded-2xl border-2 overflow-hidden transition-all ${
+                        className={`rounded-2xl border overflow-hidden transition-all ${
                           isSelected
                             ? 'border-primary bg-primary/5'
                             : 'border-border'
@@ -709,7 +709,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                           <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
                             isSelected
                               ? 'bg-primary'
-                              : 'border-2 border-border'
+                              : 'border border-border'
                           }`}>
                             {isSelected && (
                               <Check className="h-4 w-4 text-primary-foreground" />

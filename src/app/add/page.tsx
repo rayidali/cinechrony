@@ -154,8 +154,8 @@ async function searchAll(query: string): Promise<SearchResult[]> {
   return combined.slice(0, 12);
 }
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none dark:border-[2px] active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift dark:border focus:shadow-press dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift dark:border transition-all duration-200";
 
 export default function AddPage() {
   const { user, isUserLoading } = useUser();
@@ -276,7 +276,7 @@ export default function AddPage() {
     if (!selectedMovie || !user || !selectedListId || !selectedListOwnerId) return;
 
     formData.append('movieData', JSON.stringify(selectedMovie));
-    formData.append('userId', user.uid);
+    formData.append('idToken', await user.getIdToken());
     formData.append('listId', selectedListId);
     formData.append('listOwnerId', selectedListOwnerId);
     if (socialLink) {
@@ -286,7 +286,7 @@ export default function AddPage() {
     startAddingTransition(async () => {
       const result = await addMovieToList(formData);
       const itemType = selectedMovie.mediaType === 'tv' ? 'TV Show' : 'Movie';
-      if (result?.error) {
+      if (result && 'error' in result) {
         toast({
           variant: 'destructive',
           title: `Error adding ${itemType.toLowerCase()}`,
@@ -327,37 +327,35 @@ export default function AddPage() {
 
   return (
     <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20 flex flex-col relative">
-      <div className="container mx-auto p-4 md:p-8 flex-1 flex flex-col justify-center">
-        {/* Header */}
-        <header className="mb-8 text-center">
-          <div className="flex justify-center items-center mb-4">
-            <div className="flex items-center gap-3">
-              <div className="bg-primary p-2 rounded-xl border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none">
-                <Plus className="h-6 w-6 text-primary-foreground" />
-              </div>
-              <h1 className="text-2xl md:text-3xl font-headline font-bold">Add to List</h1>
+      <div className="container mx-auto px-4 md:px-8 pt-2 max-w-2xl w-full">
+        {/* Header — editorial title block */}
+        <header className="mb-7">
+          <div className="flex justify-end items-center mb-5">
+            <div className="flex items-center gap-2">
+              <ThemeToggle />
+              <UserAvatar />
             </div>
           </div>
-          <p className="text-muted-foreground">
-            Search for movies or TV shows to add to your watchlist.
+          <div className="cc-eyebrow">the search</div>
+          <div className="h-px bg-border my-3" />
+          <h1 className="font-headline font-bold text-4xl md:text-5xl lowercase tracking-tight leading-[0.95]">
+            find a film
+          </h1>
+          <p className="cc-lead text-[15px] mt-2">
+            search films, tv series, genres — and add the clip that sold you on it.
           </p>
-          {/* Theme toggle and avatar in top right corner */}
-          <div className="absolute top-4 right-4 flex items-center gap-3">
-            <ThemeToggle />
-            <UserAvatar />
-          </div>
         </header>
 
         <div className="max-w-2xl mx-auto w-full">
           {/* List Selector */}
           {!selectedMovie && (
             <div className="mb-6">
-              <label className="text-sm font-medium mb-2 block">Add to list:</label>
+              <label className="cc-eyebrow block mb-2">add to list</label>
               <Select value={selectedListId} onValueChange={handleListChange}>
                 <SelectTrigger className={`${retroInputClass} w-full`}>
                   <SelectValue placeholder="Select a list" />
                 </SelectTrigger>
-                <SelectContent className="border-[3px] border-border rounded-xl">
+                <SelectContent className="border border-border rounded-xl">
                   {(isLoadingLists || isLoadingCollab) ? (
                     <SelectItem value="loading" disabled>Loading lists...</SelectItem>
                   ) : allLists.length > 0 ? (
@@ -411,16 +409,16 @@ export default function AddPage() {
 
           {/* Search Section */}
           {!selectedMovie ? (
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
+            <Card className="border dark:border border-border rounded-2xl shadow-photo bg-card">
               <CardContent className="p-6 space-y-4">
                 {/* Search Input */}
                 <div className="relative">
                   <Input
                     type="text"
-                    placeholder="Search for movies or TV shows..."
+                    placeholder="films, tv series, genres…"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
-                    className={`${retroInputClass} pr-10 text-lg`}
+                    className="rounded-full pr-11 shadow-lift"
                     disabled={isAdding}
                   />
                   <div className="absolute inset-y-0 right-0 flex items-center pr-4 pointer-events-none">
@@ -434,54 +432,55 @@ export default function AddPage() {
 
                 {/* Search Results */}
                 {results.length > 0 && (
-                  <div className="space-y-2 max-h-80 overflow-y-auto p-2 bg-background rounded-2xl border-[3px] border-border">
-                    {results.map((movie) => (
-                      <button
-                        key={`${movie.mediaType}-${movie.id}`}
-                        onClick={() => handleSelectMovie(movie)}
-                        className="w-full text-left p-3 rounded-xl hover:bg-accent hover:text-accent-foreground transition-colors flex items-center gap-4 border-[2px] border-transparent hover:border-border"
-                      >
-                        <Image
-                          src={movie.posterUrl}
-                          alt={movie.title}
-                          width={50}
-                          height={75}
-                          className="rounded-lg border-[2px] border-border"
-                          data-ai-hint={movie.posterHint}
-                        />
-                        <div className="flex-grow">
-                          <p className="font-bold text-lg">{movie.title}</p>
-                          <p className="text-sm text-muted-foreground">{movie.year}</p>
-                        </div>
-                        <div className="flex items-center gap-1 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full border border-border">
-                          {movie.mediaType === 'movie' ? (
-                            <>
-                              <Film className="h-3 w-3" />
-                              <span>Movie</span>
-                            </>
-                          ) : (
-                            <>
-                              <Tv className="h-3 w-3" />
-                              <span>TV</span>
-                            </>
-                          )}
-                        </div>
-                      </button>
-                    ))}
+                  <div>
+                    <div className="cc-eyebrow mb-1">matching your search · {results.length}</div>
+                    <div className="max-h-80 overflow-y-auto">
+                      {results.map((movie) => (
+                        <button
+                          key={`${movie.mediaType}-${movie.id}`}
+                          onClick={() => handleSelectMovie(movie)}
+                          className="w-full text-left py-2.5 flex items-center gap-3 border-b border-border last:border-0 hover:opacity-70 transition-opacity"
+                        >
+                          <Image
+                            src={movie.posterUrl}
+                            alt={movie.title}
+                            width={44}
+                            height={66}
+                            className="rounded-[8px] border border-border flex-shrink-0"
+                            data-ai-hint={movie.posterHint}
+                          />
+                          <div className="flex-grow min-w-0">
+                            <p className="font-headline font-semibold text-[15px] lowercase tracking-tight truncate">
+                              {movie.title}
+                            </p>
+                            <p className="cc-meta text-[11px] text-muted-foreground mt-0.5">
+                              {movie.year} · {movie.mediaType === 'tv' ? 'tv series' : 'film'}
+                            </p>
+                          </div>
+                          <span className="flex-shrink-0 text-muted-foreground">
+                            {movie.mediaType === 'movie' ? (
+                              <Film className="h-4 w-4" strokeWidth={1.6} />
+                            ) : (
+                              <Tv className="h-4 w-4" strokeWidth={1.6} />
+                            )}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 
                 {/* No results message */}
                 {query && !isSearching && results.length === 0 && (
-                  <p className="text-center text-muted-foreground py-4">
-                    No results found for &quot;{query}&quot;
+                  <p className="font-serif italic text-center text-muted-foreground py-6">
+                    couldn&apos;t find that one. try another title?
                   </p>
                 )}
               </CardContent>
             </Card>
           ) : (
             /* Selected Movie Form */
-            <Card className="border-[3px] dark:border-2 border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))] dark:shadow-none bg-card">
+            <Card className="border dark:border border-border rounded-2xl shadow-photo bg-card">
               <CardContent className="p-6">
                 <form action={handleAddMovie} className="space-y-6">
                   <div className="flex gap-6 items-start">
@@ -490,19 +489,20 @@ export default function AddPage() {
                       alt={selectedMovie.title}
                       width={120}
                       height={180}
-                      className="rounded-xl border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))]"
+                      className="rounded-xl border border-border shadow-lift"
                       data-ai-hint={selectedMovie.posterHint}
                     />
                     <div className="flex-grow">
-                      <h3 className="text-2xl font-bold font-headline">{selectedMovie.title}</h3>
-                      <p className="text-muted-foreground text-lg">{selectedMovie.year}</p>
-                      <p className="text-sm text-primary mt-1 capitalize">{selectedMovie.mediaType}</p>
+                      <h3 className="font-headline font-bold text-2xl lowercase tracking-tight leading-tight">{selectedMovie.title}</h3>
+                      <p className="cc-meta text-xs text-muted-foreground mt-1.5">
+                        {selectedMovie.year} · {selectedMovie.mediaType === 'tv' ? 'tv series' : 'film'}
+                      </p>
 
                       {/* Selected List - with dropdown to change */}
                       <div className="mt-4">
                         <label className="text-sm text-muted-foreground block mb-1">Adding to:</label>
                         <Select value={selectedListId} onValueChange={handleListChange}>
-                          <SelectTrigger className="border-[2px] border-border rounded-xl bg-secondary h-auto py-2">
+                          <SelectTrigger className="border border-border rounded-xl bg-secondary h-auto py-2">
                             <SelectValue>
                               <span className="font-bold flex items-center gap-2">
                                 {allLists.find(l => l.id === selectedListId)?.isCollaborative ? (
@@ -514,7 +514,7 @@ export default function AddPage() {
                               </span>
                             </SelectValue>
                           </SelectTrigger>
-                          <SelectContent className="border-[3px] border-border rounded-xl">
+                          <SelectContent className="border border-border rounded-xl">
                             {/* Own lists */}
                             {lists && lists.length > 0 && (
                               <>
@@ -604,7 +604,7 @@ export default function AddPage() {
                       type="button"
                       variant="outline"
                       onClick={() => { setSelectedMovie(null); setSocialLink(''); }}
-                      className="border-[3px] border-border rounded-full font-bold"
+                      className="border border-border rounded-full font-bold"
                     >
                       Cancel
                     </Button>

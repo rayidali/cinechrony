@@ -20,7 +20,7 @@ function ActivitySkeleton() {
       {[1, 2, 3].map((i) => (
         <div
           key={i}
-          className="bg-card rounded-2xl border-[3px] dark:border-2 border-border p-4 shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none"
+          className="bg-card rounded-2xl border dark:border border-border p-4 shadow-lift"
         >
           {/* Header */}
           <div className="flex items-center gap-3 mb-3">
@@ -73,7 +73,7 @@ function EmptyState() {
       </p>
       <Link
         href="/add"
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-full font-medium text-sm shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none hover:translate-x-0.5 hover:translate-y-0.5 hover:shadow-[1px_1px_0px_0px_hsl(var(--border))] active:translate-x-1 active:translate-y-1 active:shadow-none transition-all"
+        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-full font-medium text-sm shadow-lift hover:shadow-press transition-all"
       >
         <Plus className="h-4 w-4" />
         Add your first movie

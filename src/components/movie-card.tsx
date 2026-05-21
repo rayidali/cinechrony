@@ -22,6 +22,7 @@ import {
 import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { getImdbRating } from '@/app/actions';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import {
   updateDocumentNonBlocking,
   deleteDocumentNonBlocking,
@@ -67,10 +68,10 @@ type ExtendedMovieDetails = TMDBMovieDetails & {
 };
 
 const retroButtonClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
+  'border border-border rounded-lg shadow-lift transition-all duration-200';
 
 const retroInputClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] focus:shadow-[2px_2px_0px_0px_#000] focus:border-primary transition-shadow duration-200';
+  'border border-border rounded-lg shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -207,8 +208,10 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   const { user } = useUser();
   const firestore = useFirestore();
 
-  // Use denormalized user data from movie doc - no fetch needed!
+  // AUDIT.md 2.3b: live profile cache overrides the denormalized snapshot on
+  // the movie doc for the adder's display name + photo.
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByInfo = useMemo(() => {
     if (isAddedByCurrentUser) {
       return {
@@ -216,12 +219,11 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
         photoURL: user?.photoURL || null,
       };
     }
-    // Use denormalized data from movie doc
     return {
-      displayName: movie.addedByDisplayName || movie.addedByUsername || 'Someone',
-      photoURL: movie.addedByPhotoURL || null,
+      displayName: liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || 'Someone',
+      photoURL:    liveAdder?.photoURL    || movie.addedByPhotoURL    || null,
     };
-  }, [isAddedByCurrentUser, user?.displayName, user?.email, user?.photoURL, movie.addedByDisplayName, movie.addedByUsername, movie.addedByPhotoURL]);
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, user?.photoURL, liveAdder?.displayName, liveAdder?.photoURL, movie.addedByDisplayName, movie.addedByUsername, movie.addedByPhotoURL]);
 
   // Parse video URL to check if we have an embeddable video
   const parsedVideo = parseVideoUrl(movie.socialLink);
@@ -300,11 +302,11 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
 
   return (
     <>
-      <Card className="flex flex-col border-[3px] border-black rounded-lg shadow-[8px_8px_0px_0px_#000] overflow-hidden transition-all duration-200 md:hover:shadow-[4px_4px_0px_0px_#000] active:shadow-[4px_4px_0px_0px_#000]">
+      <Card className="flex flex-col border border-border rounded-lg shadow-photo overflow-hidden transition-all duration-200 md:hover:shadow-lift active:shadow-lift">
         <CardHeader>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10 border-[3px] border-black">
+              <Avatar className="h-10 w-10 border border-border">
                 <AvatarImage src={addedByInfo.photoURL || userAvatarUrl} alt={addedByInfo.displayName} />
                 <AvatarFallback>{addedByInfo.displayName.charAt(0).toUpperCase()}</AvatarFallback>
               </Avatar>
@@ -340,7 +342,7 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
               alt={`Poster for ${movie.title}`}
               width={500}
               height={750}
-              className="rounded-md border-[3px] border-black object-cover w-full h-auto aspect-[2/3] shadow-[4px_4px_0px_0px_#000]"
+              className="rounded-md border border-border object-cover w-full h-auto aspect-[2/3] shadow-lift"
               data-ai-hint={movie.posterHint}
             />
 
@@ -380,7 +382,7 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
                 variant="outline"
                 size="sm"
                 onClick={handleExpandVideo}
-                className="w-full flex items-center justify-center gap-2 border-[2px] border-black"
+                className="w-full flex items-center justify-center gap-2 border border-border"
               >
                 {SocialIcon && <SocialIcon className="h-4 w-4" />}
                 <span className="font-bold">
@@ -431,7 +433,7 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
           )}
         </CardContent>
 
-        <CardFooter className="flex justify-between gap-2 bg-secondary p-4 border-t-[3px] border-black mt-auto">
+        <CardFooter className="flex justify-between gap-2 bg-secondary p-4 border-t-[3px] border-border mt-auto">
           <form
             action={handleRemove}
             className="flex"
@@ -503,7 +505,7 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
 
       {/* Expanded Modal View */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border-[3px] border-black shadow-[8px_8px_0px_0px_#000]">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto border border-border shadow-photo">
           <DialogHeader>
             <DialogTitle className="text-2xl font-headline flex items-center gap-2">
               {movie.title}
@@ -519,7 +521,7 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
                 alt={`Poster for ${movie.title}`}
                 width={400}
                 height={600}
-                className="rounded-lg border-[3px] border-black shadow-[4px_4px_0px_0px_#000] w-full h-auto"
+                className="rounded-lg border border-border shadow-lift w-full h-auto"
               />
 
               {/* Video embed in modal */}

@@ -4,7 +4,18 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, ExternalLink, Users, Instagram, Youtube, X, Film, Tv, Info, MessageSquare } from 'lucide-react';
+import {
+  Loader2,
+  ExternalLink,
+  Instagram,
+  Youtube,
+  Film,
+  Tv,
+  ChevronLeft,
+  Clock,
+  Star,
+  Calendar,
+} from 'lucide-react';
 import { Drawer } from 'vaul';
 
 import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast } from '@/lib/types';
@@ -31,6 +42,9 @@ type ExtendedTVDetails = TMDBTVDetails & {
 
 type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
 
+const GLASS_BTN =
+  'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
+
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
   if (!parsed) return null;
@@ -44,25 +58,6 @@ function getProviderIcon(url: string | undefined) {
     default:
       return null;
   }
-}
-
-function IMDbLogo({ className = 'h-4' }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 64 32" className={className} fill="currentColor">
-      <rect width="64" height="32" rx="4" fill="#F5C518" />
-      <text
-        x="32"
-        y="23"
-        textAnchor="middle"
-        fill="black"
-        fontSize="18"
-        fontWeight="bold"
-        fontFamily="Arial, sans-serif"
-      >
-        IMDb
-      </text>
-    </svg>
-  );
 }
 
 async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails | null> {
@@ -84,7 +79,6 @@ async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails |
     const imdbId = data.external_ids?.imdb_id;
 
     if (imdbId) {
-      // Use server action to fetch IMDB rating (keeps API key server-side)
       const omdbData = await getImdbRating(imdbId);
       if (omdbData.imdbRating) {
         return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
@@ -116,7 +110,6 @@ async function fetchTVDetails(tmdbId: number): Promise<ExtendedTVDetails | null>
     const imdbId = data.external_ids?.imdb_id;
 
     if (imdbId) {
-      // Use server action to fetch IMDB rating (keeps API key server-side)
       const omdbData = await getImdbRating(imdbId);
       if (omdbData.imdbRating) {
         return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
@@ -139,6 +132,12 @@ type PublicMovieDetailsModalProps = {
   returnPath?: string;
 };
 
+/**
+ * Public movie detail — the read-only twin of MovieDetailsModal.
+ * Same cinematic-open pattern (full-bleed hero + content sheet), but no
+ * watch-status / rating / marginalia editing. Used for trending movies and
+ * public lists viewed by non-collaborators.
+ */
 export function PublicMovieDetailsModal({
   movie,
   isOpen,
@@ -153,7 +152,7 @@ export function PublicMovieDetailsModal({
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
-  const drawerHeight = useViewportHeight(85);
+  const drawerHeight = useViewportHeight(92);
 
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
@@ -161,7 +160,6 @@ export function PublicMovieDetailsModal({
   // Reset state when movie changes
   useEffect(() => {
     if (movie) {
-      // Only clear media details if switching to a different movie
       if (mediaDetailsForId !== movie.id) {
         setMediaDetails(null);
         setMediaDetailsForId(null);
@@ -177,27 +175,21 @@ export function PublicMovieDetailsModal({
       poster: movie.posterUrl || '',
       type: movie.mediaType || 'movie',
     });
-    // Pass return context so back navigation can return to the correct page
     // SECURITY: Use returnPath to preserve original route (e.g., public profile view)
-    // This prevents the comments page from redirecting to /lists/{id} which could
-    // give unintended edit access through broken permission checks
     if (returnPath) {
       params.set('returnPath', returnPath);
     }
     if (listId) params.set('returnListId', listId);
     if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
     if (movie.id) params.set('returnMovieId', movie.id);
-    onClose(); // Close the drawer first
+    onClose();
     router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
   };
 
   // Fetch movie/TV details when modal opens
   useEffect(() => {
     async function loadDetails() {
-      // Skip if no movie, modal closed, or already loading
       if (!movie || !isOpen || isLoadingDetails) return;
-
-      // Skip if we already have details for this movie
       if (mediaDetailsForId === movie.id && mediaDetails) return;
 
       setIsLoadingDetails(true);
@@ -227,217 +219,213 @@ export function PublicMovieDetailsModal({
   const hasEmbeddableVideo = parsedVideo && parsedVideo.provider !== null;
   const SocialIcon = getProviderIcon(movie.socialLink);
 
+  const backdropPath =
+    mediaDetails && 'backdrop_path' in mediaDetails ? mediaDetails.backdrop_path : null;
+  const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : movie.posterUrl;
+
+  let runtimeLabel: string | null = null;
+  if (mediaDetails) {
+    if ('runtime' in mediaDetails && mediaDetails.runtime) {
+      runtimeLabel = `${Math.floor(mediaDetails.runtime / 60)}h ${mediaDetails.runtime % 60}m`;
+    } else if ('number_of_seasons' in mediaDetails) {
+      runtimeLabel = `${mediaDetails.number_of_seasons} season${mediaDetails.number_of_seasons !== 1 ? 's' : ''}`;
+    }
+  }
+
+  const cast = mediaDetails?.credits?.cast ?? [];
+  const overview = mediaDetails?.overview || movie.overview;
+  const heightStyle = drawerHeight > 0 ? `${drawerHeight}px` : 'calc(92 * var(--dvh, 1vh))';
+
   return (
     <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
         <Drawer.Content
-          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-[3px] border-black border-b-0 outline-none"
-          style={{
-            height: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))',
-            maxHeight: drawerHeight > 0 ? `${drawerHeight}px` : 'calc(85 * var(--dvh, 1vh))'
-          }}
+          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-card outline-none overflow-hidden"
+          style={{ height: heightStyle, maxHeight: heightStyle }}
         >
-          {/* Drag handle */}
-          <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
+          <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>
 
-          {/* Header */}
-          <div className="relative px-6 pt-4 pb-4 border-b border-border flex-shrink-0">
-            <Drawer.Title className="text-2xl font-headline flex items-center gap-2 pr-10">
-              {movie.mediaType === 'tv' ? (
-                <Tv className="h-6 w-6 text-primary flex-shrink-0" />
-              ) : (
-                <Film className="h-6 w-6 text-muted-foreground flex-shrink-0" />
-              )}
-              <span className="truncate">{movie.title}</span>
-              <span className="text-muted-foreground font-normal text-lg flex-shrink-0">({movie.year})</span>
-            </Drawer.Title>
-            <Drawer.Close className="absolute right-4 top-4 p-1 rounded-full hover:bg-secondary transition-colors">
-              <X className="h-5 w-5" />
-            </Drawer.Close>
+          {/* Glassy floating back control */}
+          <div className="absolute top-3 left-3 z-30">
+            <button onClick={onClose} className={GLASS_BTN} aria-label="Back">
+              <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+            </button>
           </div>
 
-          {/* Scrollable content area */}
+          {/* Scrollable — hero + content sheet */}
           <div className="flex-1 min-h-0 overflow-y-auto">
-            <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  {/* Left: Poster + Video */}
-                  <div className="space-y-4">
-                    <Image
-                      src={movie.posterUrl}
-                      alt={`Poster for ${movie.title}`}
-                      width={200}
-                      height={300}
-                      className="rounded-lg border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] w-full max-w-[200px] h-auto mx-auto md:mx-0"
-                    />
+            {/* Hero */}
+            <div className="relative w-full" style={{ height: 'clamp(240px, 42vh, 360px)', background: 'oklch(0.165 0.012 60)' }}>
+              <Image
+                src={heroSrc}
+                alt={`Poster art for ${movie.title}`}
+                fill
+                priority
+                className="object-cover"
+                sizes="100vw"
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/80" />
+              <Drawer.Title
+                className="absolute bottom-7 left-5 right-5 font-headline font-bold text-white text-3xl lowercase tracking-tight leading-[0.95]"
+                style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
+              >
+                {movie.title}
+              </Drawer.Title>
+            </div>
 
-                    {hasEmbeddableVideo && (
-                      <div>
-                        <h3 className="font-bold mb-2 flex items-center gap-2">
-                          {SocialIcon && <SocialIcon className="h-4 w-4" />}
-                          {getProviderDisplayName(parsedVideo?.provider || null)} Video
-                        </h3>
-                        <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />
-                      </div>
-                    )}
+            {/* Content sheet */}
+            <div className="relative -mt-6 rounded-t-[26px] bg-card px-5 pt-2 pb-8">
+              <div className="mx-auto mb-3.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 
-                    {movie.socialLink && (
-                      <Button asChild variant="outline" className="w-full">
-                        <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
-                          <ExternalLink className="h-4 w-4 mr-2" />
-                          Open in {hasEmbeddableVideo ? getProviderDisplayName(parsedVideo?.provider || null) : 'Browser'}
-                        </Link>
-                      </Button>
-                    )}
-                  </div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
+                {movie.mediaType === 'tv' ? (
+                  <Tv className="h-3 w-3" strokeWidth={1.8} />
+                ) : (
+                  <Film className="h-3 w-3" strokeWidth={1.8} />
+                )}
+                {movie.mediaType === 'tv' ? 'tv series' : 'film'}
+              </span>
 
-                  {/* Right: Details */}
-                  <div className="space-y-4">
-                    {/* IMDB Rating */}
-                    {isLoadingDetails ? (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Loading rating...
-                      </div>
-                    ) : mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' ? (
-                      <div className="flex items-center gap-3">
-                        <div className="flex items-center gap-2 bg-[#F5C518] text-black px-3 py-1.5 rounded-lg font-bold">
-                          <IMDbLogo className="h-5 w-auto" />
-                          <span className="text-lg">{mediaDetails.imdbRating}</span>
-                          <span className="text-sm font-normal">/10</span>
+              <h2 className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
+                {movie.title}
+              </h2>
+
+              {/* Metric chips */}
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 cc-meta text-xs text-foreground">
+                {runtimeLabel && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Clock className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                    {runtimeLabel}
+                  </span>
+                )}
+                {mediaDetails?.imdbRating && mediaDetails.imdbRating !== 'N/A' && (
+                  mediaDetails.imdbId ? (
+                    <a
+                      href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 hover:text-primary transition-colors"
+                    >
+                      <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                      imdb {mediaDetails.imdbRating}
+                    </a>
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                      imdb {mediaDetails.imdbRating}
+                    </span>
+                  )
+                )}
+                {movie.year && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Calendar className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
+                    {movie.year}
+                  </span>
+                )}
+                {isLoadingDetails && (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                )}
+              </div>
+
+              {/* Genres */}
+              {mediaDetails?.genres && mediaDetails.genres.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {mediaDetails.genres.map((genre) => (
+                    <span
+                      key={genre.id}
+                      className="px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground"
+                    >
+                      {genre.name}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              <div className="h-px bg-border my-4" />
+
+              {/* Description */}
+              {overview ? (
+                <p className="font-serif text-[15px] leading-relaxed text-foreground">{overview}</p>
+              ) : !isLoadingDetails ? (
+                <p className="font-serif italic text-sm text-muted-foreground">no overview available</p>
+              ) : null}
+
+              {/* Cast */}
+              {cast.length > 0 && (
+                <section className="mt-6">
+                  <div className="cc-eyebrow">cast</div>
+                  <div className="h-px bg-border my-3" />
+                  <div className="flex gap-3 overflow-x-auto pb-1 -mx-5 px-5 scrollbar-hide">
+                    {cast.slice(0, 12).map((actor: TMDBCast) => (
+                      <div key={actor.id} className="flex-shrink-0 w-14 text-center">
+                        <div className="w-14 h-14 rounded-full overflow-hidden border border-border bg-muted relative">
+                          {actor.profile_path ? (
+                            <Image
+                              src={`https://image.tmdb.org/t/p/w185${actor.profile_path}`}
+                              alt={actor.name}
+                              fill
+                              className="object-cover"
+                              sizes="56px"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center font-headline font-bold text-sm text-muted-foreground">
+                              {actor.name.charAt(0)}
+                            </div>
+                          )}
                         </div>
-                        {mediaDetails.imdbVotes && (
-                          <span className="text-sm text-muted-foreground">
-                            ({mediaDetails.imdbVotes} votes)
-                          </span>
-                        )}
+                        <p className="font-headline font-semibold text-[11px] lowercase tracking-tight truncate mt-1.5">
+                          {actor.name}
+                        </p>
+                        <p className="cc-meta text-[9px] text-muted-foreground truncate">
+                          {actor.character}
+                        </p>
                       </div>
-                    ) : null}
+                    ))}
+                  </div>
+                </section>
+              )}
 
-                    {/* Runtime/Seasons & Genres */}
-                    {mediaDetails && (
-                      <div className="flex flex-wrap gap-2">
-                        {'runtime' in mediaDetails && mediaDetails.runtime && (
-                          <span className="bg-secondary px-2 py-1 rounded text-sm">
-                            {Math.floor(mediaDetails.runtime / 60)}h {mediaDetails.runtime % 60}m
-                          </span>
-                        )}
-                        {'number_of_seasons' in mediaDetails && (
+              {/* Reviews link */}
+              <section className="mt-6">
+                <div className="cc-eyebrow">reviews</div>
+                <div className="h-px bg-border my-3" />
+                <button
+                  onClick={handleOpenFullComments}
+                  className="w-full flex items-center justify-between gap-3 group"
+                >
+                  <span className="font-serif italic text-[15px] text-muted-foreground text-left">
+                    read what people are saying…
+                  </span>
+                  <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
+                    see all →
+                  </span>
+                </button>
+              </section>
+
+              {/* The attached clip */}
+              {(hasEmbeddableVideo || movie.socialLink) && (
+                <section className="mt-6">
+                  <div className="cc-eyebrow">the clip</div>
+                  <div className="h-px bg-border my-3" />
+                  {hasEmbeddableVideo && <VideoEmbed url={movie.socialLink} autoLoad={true} autoPlay={true} />}
+                  {movie.socialLink && (
+                    <Button asChild variant="outline" className="w-full mt-3">
+                      <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
+                        {SocialIcon && <SocialIcon className="h-4 w-4 mr-2" />}
+                        {hasEmbeddableVideo ? (
+                          <>open in {getProviderDisplayName(parsedVideo?.provider || null)}</>
+                        ) : (
                           <>
-                            <span className="bg-secondary px-2 py-1 rounded text-sm">
-                              {mediaDetails.number_of_seasons} Season{mediaDetails.number_of_seasons !== 1 ? 's' : ''}
-                            </span>
-                            <span className="bg-secondary px-2 py-1 rounded text-sm">
-                              {mediaDetails.number_of_episodes} Episodes
-                            </span>
+                            <ExternalLink className="h-4 w-4 mr-2" />
+                            open link
                           </>
                         )}
-                        {mediaDetails.genres?.map((genre) => (
-                          <span key={genre.id} className="bg-secondary px-2 py-1 rounded text-sm">
-                            {genre.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Overview */}
-                    <div>
-                      <h3 className="font-bold mb-2">Overview</h3>
-                      {isLoadingDetails ? (
-                        <div className="flex items-center gap-2 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          Loading details...
-                        </div>
-                      ) : mediaDetails?.overview || movie.overview ? (
-                        <p className="text-muted-foreground leading-relaxed">
-                          {mediaDetails?.overview || movie.overview}
-                        </p>
-                      ) : (
-                        <p className="text-muted-foreground italic">No overview available</p>
-                      )}
-                    </div>
-
-                    {/* Cast */}
-                    {mediaDetails?.credits?.cast && mediaDetails.credits.cast.length > 0 && (
-                      <div>
-                        <h3 className="font-bold mb-2 flex items-center gap-2">
-                          <Users className="h-4 w-4" />
-                          Cast
-                        </h3>
-                        <div className="grid grid-cols-2 gap-2">
-                          {mediaDetails.credits.cast.slice(0, 6).map((actor: TMDBCast) => (
-                            <div key={actor.id} className="flex items-center gap-2 bg-secondary rounded-lg p-2">
-                              {actor.profile_path ? (
-                                <Image
-                                  src={`https://image.tmdb.org/t/p/w92${actor.profile_path}`}
-                                  alt={actor.name}
-                                  width={32}
-                                  height={32}
-                                  className="rounded-full object-cover w-8 h-8"
-                                />
-                              ) : (
-                                <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                                  <span className="text-xs">{actor.name.charAt(0)}</span>
-                                </div>
-                              )}
-                              <div className="overflow-hidden">
-                                <p className="font-bold text-sm truncate">{actor.name}</p>
-                                <p className="text-xs text-muted-foreground truncate">{actor.character}</p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* IMDB Link */}
-                    {mediaDetails?.imdbId && (
-                      <Button asChild variant="outline" className="w-full">
-                        <Link
-                          href={`https://www.imdb.com/title/${mediaDetails.imdbId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          <IMDbLogo className="h-4 w-auto mr-2" />
-                          View on IMDb
-                        </Link>
-                      </Button>
-                    )}
-
-                    {/* Status (read-only) */}
-                    <div className="pt-4 border-t">
-                      <h3 className="font-bold mb-2">Status</h3>
-                      <span
-                        className={`px-3 py-1 rounded-full text-sm font-bold ${
-                          movie.status === 'Watched'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                            : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
-                        }`}
-                      >
-                        {movie.status}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-          </div>
-
-          {/* Bottom bar with Info/Reviews - Reviews navigates to full page */}
-          <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3" style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom, 0px))' }}>
-            <div className="flex gap-2 justify-center">
-              <button
-                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-primary text-primary-foreground shadow-[3px_3px_0px_0px_hsl(var(--border))]"
-              >
-                <Info className="h-4 w-4" />
-                Info
-              </button>
-              <button
-                onClick={handleOpenFullComments}
-                className="flex-1 max-w-[150px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-full font-medium transition-all bg-secondary text-muted-foreground hover:text-foreground"
-              >
-                <MessageSquare className="h-4 w-4" />
-                Reviews
-              </button>
+                      </Link>
+                    </Button>
+                  )}
+                </section>
+              )}
             </div>
           </div>
         </Drawer.Content>

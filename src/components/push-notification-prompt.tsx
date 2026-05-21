@@ -92,7 +92,7 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
       }
 
       // Save to Firestore
-      const result = await savePushSubscription(user.uid, {
+      const result = await savePushSubscription(await user.getIdToken(), {
         endpoint: subscriptionJson.endpoint,
         keys: {
           p256dh: subscriptionJson.keys.p256dh!,
@@ -100,7 +100,7 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
         },
       });
 
-      if (result.success) {
+      if (!('error' in result)) {
         setIsEnabled(true);
       }
     } catch (error) {
@@ -121,7 +121,7 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
         const subscription = await registration.pushManager.getSubscription();
         if (subscription) {
           await subscription.unsubscribe();
-          await removePushSubscription(user.uid, subscription.endpoint);
+          await removePushSubscription(await user.getIdToken(), subscription.endpoint);
         }
       }
       setIsEnabled(false);
@@ -233,7 +233,7 @@ export function PushNotificationToggle() {
           const subscription = await registration.pushManager.getSubscription();
           if (subscription) {
             await subscription.unsubscribe();
-            await removePushSubscription(user.uid, subscription.endpoint);
+            await removePushSubscription(await user.getIdToken(), subscription.endpoint);
           }
         }
         setIsEnabled(false);
@@ -258,7 +258,7 @@ export function PushNotificationToggle() {
         const subscriptionJson = subscription.toJSON();
 
         if (subscriptionJson.endpoint && subscriptionJson.keys) {
-          await savePushSubscription(user.uid, {
+          await savePushSubscription(await user.getIdToken(), {
             endpoint: subscriptionJson.endpoint,
             keys: {
               p256dh: subscriptionJson.keys.p256dh!,

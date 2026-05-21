@@ -331,43 +331,48 @@ type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
 
 ---
 
-## Design System
+## Design System — v2 "editorial cinema"
 
-**Neo-brutalist aesthetic:**
-- Borders: `border-[3px] border-black` (light) / `border-2 border-border` (dark)
-- Shadows: `shadow-[4px_4px_0px_0px_#000]` (light) / none (dark)
-- Press effect: `active:translate-x-1 active:translate-y-1`
-- Typography: Space Grotesk (headlines), Space Mono (body)
-- Colors: Primary blue (#2962FF), Success green, Warning yellow
+> v1 was chunky neo-brutalist (3px black borders, hard 4×4 offset shadows,
+> dot-grid paper). v2 is **editorial cinema**: newsprint cream paper, cinema-
+> black ink, soft lifts, lowercase display headlines, a serif body, tabular
+> dates. One v1 element survived: the **yellow FAB**.
 
-**Profile Page Stats Boxes:**
+**Foundations** (tokens in `src/app/globals.css`, oklch; bound in `tailwind.config.ts`):
+- Surfaces: `bg-background` (newsprint cream), `bg-card` (bone). No dot grid.
+- Borders: `border border-border` — a hairline, ~1px low-opacity. No 3px black.
+- Shadows: `shadow-lift` (default card), `shadow-photo` (hero photo cards),
+  `shadow-press` (inputs). `shadow-stamp` is the FAB-only hard 3×3 offset.
+- Typography: `font-headline` = Bricolage Grotesque (display, **lowercase**),
+  `font-body` = Newsreader (serif), `font-mono` = Space Mono (data).
+- Accent: `--primary` is film red — reserved for the one hero CTA + focus
+  rings + the notification dot. Standard buttons are ink (`Button` default).
+
+**Brand patterns:**
+- Eyebrow → hairline → lowercase title at the top of every content block.
+  Use `.cc-eyebrow` (UPPERCASE mono label) and `.cc-meta` / `.cc-lead`.
+- Headlines are lowercase. The wordmark is always `cinechrony`.
+- Tabular data (dates, runtimes, ratings) in Space Mono: `23.04.25`, `2h 14m`.
+- Rating chips are a 3-bucket system (sage ≥7.5 / amber ≥5.5 / marker <5.5) —
+  see `getRatingStyle()` in `src/lib/utils.ts`.
+- No emoji in product copy. The voice does the playfulness; visuals stay calm.
+
+**The FAB** — the lone brutalist survivor. Yellow, 2.5px ink border, hard
+`shadow-stamp`, press transform. One per screen, max. Don't replicate its
+treatment elsewhere.
 ```typescript
-// Styled stat boxes with neo-brutalist shadows and hover/press effects
-<button className="flex flex-col items-center px-5 py-3 rounded-xl
-  border-[3px] dark:border-2 border-border bg-card
-  shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none
-  hover:shadow-[2px_2px_0px_0px_hsl(var(--border))]
-  hover:translate-x-0.5 hover:translate-y-0.5
-  active:shadow-none active:translate-x-1 active:translate-y-1
-  transition-all min-w-[90px]">
-  <span className="font-bold text-2xl">{count}</span>
-  <span className="text-xs text-muted-foreground">label</span>
+<button className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50
+  h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)]
+  border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp
+  active:translate-x-[3px] active:translate-y-[3px] active:shadow-none
+  flex items-center gap-2 font-headline font-bold lowercase">
+  <Plus className="h-5 w-5" strokeWidth={2.5} />
+  <span>Add</span>
 </button>
-
-// Yellow highlight for "lists" stat
-className="bg-yellow-400 dark:bg-yellow-500 text-black"
 ```
 
-**Extended FAB Buttons:**
-FAB buttons use pill shape with icon + label for better discoverability:
-```typescript
-<button className="fixed bottom-24 right-4 z-40 h-12 px-4 rounded-full
-  bg-primary text-primary-foreground shadow-lg
-  flex items-center gap-2 font-medium">
-  <Plus className="h-5 w-5" />
-  <span>Add</span>  {/* or "New List" */}
-</button>
-```
+The full design system package (README.md + `colors_and_type.css` + UI kit)
+is the source of truth for v2 — kept alongside the repo, not committed to it.
 
 ---
 

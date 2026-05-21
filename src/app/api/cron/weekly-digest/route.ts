@@ -73,8 +73,15 @@ export async function GET(request: NextRequest) {
   const authHeader = request.headers.get('authorization');
   const cronSecret = process.env.CRON_SECRET;
 
-  // In production, verify the cron secret
-  if (process.env.NODE_ENV === 'production' && cronSecret) {
+  // AUDIT.md 5.9: fail CLOSED. The old guard `&& cronSecret` meant that if
+  // CRON_SECRET was ever unset in production, the whole check was skipped and
+  // this endpoint became publicly callable. Now: in production the secret is
+  // mandatory — missing → refuse to run; mismatch → 401.
+  if (process.env.NODE_ENV === 'production') {
+    if (!cronSecret) {
+      console.error('[cron] CRON_SECRET not configured — refusing to run');
+      return NextResponse.json({ error: 'Server misconfigured' }, { status: 500 });
+    }
     if (authHeader !== `Bearer ${cronSecret}`) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }

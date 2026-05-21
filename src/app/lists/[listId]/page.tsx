@@ -244,7 +244,7 @@ export default function ListDetailPage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border-[3px] border-border">
+            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border border-border">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
             <h1 className="text-2xl font-headline font-bold mb-2">Access Denied</h1>
@@ -337,10 +337,10 @@ export default function ListDetailPage() {
       {canEdit && effectiveOwnerId && (
         <button
           onClick={() => setIsAddMovieOpen(true)}
-          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 h-12 px-5 rounded-full bg-yellow-400 text-black border-[3px] border-black dark:border-2 dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none flex items-center justify-center gap-2 hover:shadow-[2px_2px_0px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all font-headline font-bold"
+          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)] border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp hover:translate-x-px hover:translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none flex items-center justify-center gap-2 transition-all duration-200 font-headline font-bold lowercase tracking-tight"
           aria-label="Add movie"
         >
-          <Plus className="h-5 w-5" strokeWidth={3} />
+          <Plus className="h-5 w-5" strokeWidth={2.5} />
           <span>Add</span>
         </button>
       )}

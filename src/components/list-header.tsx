@@ -89,39 +89,37 @@ export function ListHeader({
   });
 
   return (
-    <div className="flex flex-col items-center">
-      {/* List name */}
-      <div className="flex items-center gap-3 mb-1">
-        <img
-          src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
-          alt="Cinechrony"
-          className="h-8 w-8 md:h-10 md:w-10"
-        />
-        <h1 className="text-3xl md:text-5xl font-headline font-bold text-center tracking-tighter">
-          {listData?.name || 'List'}
+    <div className="flex flex-col">
+      {/* Editorial title block — eyebrow → hairline → lowercase display title */}
+      <div className="cc-eyebrow">
+        {listData?.isPublic ? 'PUBLIC LIST' : 'PRIVATE LIST'}
+      </div>
+      <div className="h-px bg-border my-3" />
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="font-headline font-bold text-3xl md:text-5xl lowercase tracking-tight leading-[0.95]">
+          {listData?.name || 'list'}
         </h1>
         {(isOwner || isCollaborator) && (
           <Link
             href={settingsUrl}
             prefetch={true}
-            className="p-2 rounded-full hover:bg-secondary transition-colors"
+            className="flex-shrink-0 mt-1 p-2 rounded-full hover:bg-secondary transition-colors"
             title="Edit list settings"
           >
-            <Pencil className="h-5 w-5 text-muted-foreground hover:text-foreground transition-colors" />
+            <Pencil className="h-5 w-5 text-muted-foreground" strokeWidth={1.6} />
           </Link>
         )}
       </div>
 
-      {/* List description if present */}
-      {listData?.description ? (
-        <p className="text-sm text-muted-foreground italic text-center mb-3 max-w-md">
+      {/* List description — serif italic lead */}
+      {listData?.description && (
+        <p className="cc-lead text-[17px] mt-3 max-w-xl">
           {listData.description}
         </p>
-      ) : (
-        <div className="mb-2" />
       )}
 
       {/* Tappable Collaborator Bar */}
+      <div className="mt-4">
       {(isOwner || isCollaborator) ? (
         <Link
           href={settingsUrl}
@@ -188,6 +186,7 @@ export function ListHeader({
           </span>
         </div>
       )}
+      </div>
     </div>
   );
 }

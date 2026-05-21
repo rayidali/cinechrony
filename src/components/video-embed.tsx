@@ -10,7 +10,7 @@ import { TiktokIcon } from './icons';
 import { Instagram, Youtube } from 'lucide-react';
 
 const retroButtonClass =
-  'border-[3px] border-black rounded-lg shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200';
+  'border border-border rounded-lg shadow-lift transition-all duration-200';
 
 type VideoEmbedProps = {
   url: string | undefined;
@@ -361,7 +361,7 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
     // Fallback for unsupported URLs - just show a link
     if (url) {
       return (
-        <div className="flex items-center justify-center p-4 bg-secondary rounded-lg border-[3px] border-black">
+        <div className="flex items-center justify-center p-4 bg-secondary rounded-lg border border-border">
           <Button asChild variant="outline" className={retroButtonClass}>
             <Link href={url} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="h-4 w-4 mr-2" />
@@ -381,7 +381,7 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
   // Show "Click to load" button before loading the embed
   if (!isLoaded) {
     return (
-      <div className="relative w-full aspect-[9/16] max-h-[500px] bg-secondary rounded-lg border-[3px] border-black overflow-hidden touch-manipulation">
+      <div className="relative w-full aspect-[9/16] max-h-[500px] bg-secondary rounded-lg border border-border overflow-hidden touch-manipulation">
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
           <div className="flex items-center gap-2 text-muted-foreground">
             <ProviderIcon provider={parsedVideo.provider} />
@@ -405,7 +405,7 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
   // Render the appropriate embed based on provider
   // Key prop ensures React creates fresh DOM for each unique video
   return (
-    <div key={parsedVideo.videoId} className="relative w-full bg-secondary rounded-lg border-[3px] border-black overflow-hidden p-4">
+    <div key={parsedVideo.videoId} className="relative w-full bg-secondary rounded-lg border border-border overflow-hidden p-4">
       {parsedVideo.provider === 'youtube' && parsedVideo.videoId && (
         <YouTubeEmbed videoId={parsedVideo.videoId} />
       )}
@@ -439,7 +439,7 @@ export function VideoPreview({ url, onClick }: VideoPreviewProps) {
   return (
     <button
       onClick={onClick}
-      className="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-full border-[2px] border-black hover:bg-accent active:bg-accent transition-colors touch-manipulation"
+      className="flex items-center gap-2 px-3 py-1.5 bg-secondary rounded-full border border-border hover:bg-accent active:bg-accent transition-colors touch-manipulation"
     >
       <ProviderIcon provider={parsedVideo.provider} />
       <span className="text-sm font-bold">{getProviderDisplayName(parsedVideo.provider)}</span>

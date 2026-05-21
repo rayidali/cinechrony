@@ -16,7 +16,7 @@ import { PushNotificationToggle } from '@/components/push-notification-prompt';
 import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border dark:border border-border rounded-full shadow-lift transition-all duration-200";
 
 export default function SettingsPage() {
   const { user, isUserLoading } = useUser();
@@ -102,7 +102,7 @@ export default function SettingsPage() {
     setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
 
     try {
-      await updateNotificationPreferences(user.uid, { [key]: newValue });
+      await updateNotificationPreferences(await user.getIdToken(), { [key]: newValue });
     } catch (err) {
       // Revert on error
       setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
@@ -128,9 +128,9 @@ export default function SettingsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await deleteUserAccount(user.uid, deleteConfirmUsername);
+      const result = await deleteUserAccount(await user.getIdToken(), deleteConfirmUsername);
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 
@@ -318,7 +318,7 @@ export default function SettingsPage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isProcessing}
-                className="w-full p-8 rounded-2xl border-[3px] border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-4"
+                className="w-full p-8 rounded-2xl border border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-4"
               >
                 {isProcessing ? (
                   <>
@@ -376,7 +376,7 @@ export default function SettingsPage() {
                 )}
                 {ratingsCount > 0 && (
                   <div className="flex items-center gap-3">
-                    <Star className="h-5 w-5 text-yellow-500" />
+                    <Star className="h-5 w-5 text-muted-foreground" />
                     <span>{ratingsCount} with ratings</span>
                   </div>
                 )}
@@ -411,7 +411,7 @@ export default function SettingsPage() {
                 <p className="text-sm font-medium text-muted-foreground">Select what to import:</p>
 
                 {watchedCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importWatched}
@@ -423,7 +423,7 @@ export default function SettingsPage() {
                 )}
 
                 {ratingsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importRatings}
@@ -435,7 +435,7 @@ export default function SettingsPage() {
                 )}
 
                 {watchlistCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importWatchlist}
@@ -447,7 +447,7 @@ export default function SettingsPage() {
                 )}
 
                 {reviewsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importReviews}
@@ -459,7 +459,7 @@ export default function SettingsPage() {
                 )}
 
                 {listsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border-2 border-border hover:bg-secondary/50 transition-colors cursor-pointer">
+                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
                     <input
                       type="checkbox"
                       checked={importLists}
@@ -521,7 +521,7 @@ export default function SettingsPage() {
           </p>
 
           {/* Push Notifications Toggle */}
-          <div className="p-4 rounded-xl border-2 border-border mb-4">
+          <div className="p-4 rounded-xl border border-border mb-4">
             <PushNotificationToggle />
           </div>
 
@@ -536,7 +536,7 @@ export default function SettingsPage() {
             ) : (
               <>
                 {/* Mentions */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
                   <div className="flex items-center gap-3">
                     <AtSign className="h-5 w-5 text-primary" />
                     <div>
@@ -559,7 +559,7 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Replies */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
                   <div className="flex items-center gap-3">
                     <MessageSquare className="h-5 w-5 text-primary" />
                     <div>
@@ -582,7 +582,7 @@ export default function SettingsPage() {
                 </div>
 
                 {/* Likes */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
                   <div className="flex items-center gap-3">
                     <Heart className="h-5 w-5 text-red-500" />
                     <div>
@@ -605,7 +605,7 @@ export default function SettingsPage() {
                 </div>
 
                 {/* New Followers */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
                   <div className="flex items-center gap-3">
                     <UserPlus className="h-5 w-5 text-green-500" />
                     <div>
@@ -628,7 +628,7 @@ export default function SettingsPage() {
                 </div>
 
                 {/* List Invites */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border-2 border-border">
+                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
                   <div className="flex items-center gap-3">
                     <Users className="h-5 w-5 text-blue-500" />
                     <div>
@@ -661,7 +661,7 @@ export default function SettingsPage() {
             <h2 className="text-xl font-headline font-bold text-destructive">Danger Zone</h2>
           </div>
 
-          <div className="p-4 rounded-xl border-2 border-destructive/30 bg-destructive/5">
+          <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5">
             <h3 className="font-semibold text-destructive mb-2">Delete Account</h3>
             <p className="text-sm text-muted-foreground mb-4">
               Permanently delete your account and all associated data. This action cannot be undone.
@@ -677,12 +677,31 @@ export default function SettingsPage() {
             </Button>
           </div>
         </section>
+
+        {/* AUDIT.md (App Store / TMDB ToS): attribution + legal links. */}
+        <section className="pt-2 pb-8 text-center space-y-1">
+          <p className="text-xs text-muted-foreground">
+            Movie &amp; TV data from{' '}
+            <a
+              href="https://www.themoviedb.org/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+            >
+              TMDB
+            </a>
+            . This product uses the TMDB API but is not endorsed or certified by TMDB.
+          </p>
+          <p className="text-xs text-muted-foreground">
+            <a href="/privacy" className="underline">Privacy Policy</a>
+          </p>
+        </section>
       </div>
 
       {/* Delete Account Confirmation Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-          <div className="w-full max-w-md bg-background rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))] p-6">
+          <div className="w-full max-w-md bg-background rounded-2xl border border-border shadow-photo p-6">
             <div className="flex items-center gap-3 mb-4">
               <div className="p-2 rounded-full bg-destructive/10">
                 <AlertTriangle className="h-6 w-6 text-destructive" />
@@ -716,7 +735,7 @@ export default function SettingsPage() {
                   value={deleteConfirmUsername}
                   onChange={(e) => setDeleteConfirmUsername(e.target.value)}
                   placeholder="Enter your username"
-                  className="w-full px-4 py-3 rounded-xl border-2 border-border bg-background focus:outline-none focus:border-destructive"
+                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:border-destructive"
                   style={{ fontSize: '16px' }}
                   autoComplete="off"
                   autoCorrect="off"

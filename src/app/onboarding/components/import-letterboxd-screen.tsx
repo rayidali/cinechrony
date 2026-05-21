@@ -3,7 +3,7 @@
 import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type ImportLetterboxdScreenProps = {
   onOpenLetterboxd: () => void;

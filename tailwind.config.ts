@@ -1,5 +1,9 @@
 import type {Config} from 'tailwindcss';
 
+// Wrap a bare-oklch-component token so Tailwind can compose opacity
+// modifiers (bg-x/50, border-x/30, …) via the <alpha-value> placeholder.
+const ok = (name: string) => `oklch(var(${name}) / <alpha-value>)`;
+
 export default {
   darkMode: ['class'],
   content: [
@@ -10,73 +14,87 @@ export default {
   theme: {
     extend: {
       fontFamily: {
-        body: ['var(--font-body)', 'monospace'],
-        headline: ['var(--font-headline)', 'sans-serif'],
+        // v2: Bricolage Grotesque is the UI default + display face;
+        // Newsreader serif is reserved for prose (font-serif / .cc-lead);
+        // Space Mono carries tabular data. `headline`/`body` are kept as
+        // aliases so existing class usages don't break — both = Bricolage.
+        sans: ['var(--font-headline)', 'system-ui', 'sans-serif'],
+        headline: ['var(--font-headline)', 'system-ui', 'sans-serif'],
+        body: ['var(--font-headline)', 'system-ui', 'sans-serif'],
+        serif: ['var(--font-serif)', 'Georgia', 'serif'],
+        mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
       },
       colors: {
-        background: 'hsl(var(--background))',
-        foreground: 'hsl(var(--foreground))',
+        background: ok('--background'),
+        foreground: ok('--foreground'),
         card: {
-          DEFAULT: 'hsl(var(--card))',
-          foreground: 'hsl(var(--card-foreground))',
+          DEFAULT: ok('--card'),
+          foreground: ok('--card-foreground'),
         },
         popover: {
-          DEFAULT: 'hsl(var(--popover))',
-          foreground: 'hsl(var(--popover-foreground))',
+          DEFAULT: ok('--popover'),
+          foreground: ok('--popover-foreground'),
         },
         primary: {
-          DEFAULT: 'hsl(var(--primary))',
-          foreground: 'hsl(var(--primary-foreground))',
+          DEFAULT: ok('--primary'),
+          foreground: ok('--primary-foreground'),
         },
         secondary: {
-          DEFAULT: 'hsl(var(--secondary))',
-          foreground: 'hsl(var(--secondary-foreground))',
+          DEFAULT: ok('--secondary'),
+          foreground: ok('--secondary-foreground'),
         },
         muted: {
-          DEFAULT: 'hsl(var(--muted))',
-          foreground: 'hsl(var(--muted-foreground))',
+          DEFAULT: ok('--muted'),
+          foreground: ok('--muted-foreground'),
         },
         accent: {
-          DEFAULT: 'hsl(var(--accent))',
-          foreground: 'hsl(var(--accent-foreground))',
+          DEFAULT: ok('--accent'),
+          foreground: ok('--accent-foreground'),
         },
         destructive: {
-          DEFAULT: 'hsl(var(--destructive))',
-          foreground: 'hsl(var(--destructive-foreground))',
+          DEFAULT: ok('--destructive'),
+          foreground: ok('--destructive-foreground'),
         },
         warning: {
-          DEFAULT: 'hsl(var(--warning))',
-          foreground: 'hsl(var(--warning-foreground))',
+          DEFAULT: ok('--warning'),
+          foreground: ok('--warning-foreground'),
         },
         success: {
-          DEFAULT: 'hsl(var(--success))',
-          foreground: 'hsl(var(--success-foreground))',
+          DEFAULT: ok('--success'),
+          foreground: ok('--success-foreground'),
         },
-        border: 'hsl(var(--border))',
-        input: 'hsl(var(--input))',
-        ring: 'hsl(var(--ring))',
+        border: ok('--border'),
+        input: ok('--input'),
+        ring: ok('--ring'),
         chart: {
-          '1': 'hsl(var(--chart-1))',
-          '2': 'hsl(var(--chart-2))',
-          '3': 'hsl(var(--chart-3))',
-          '4': 'hsl(var(--chart-4))',
-          '5': 'hsl(var(--chart-5))',
+          '1': ok('--chart-1'),
+          '2': ok('--chart-2'),
+          '3': ok('--chart-3'),
+          '4': ok('--chart-4'),
+          '5': ok('--chart-5'),
         },
         sidebar: {
-          DEFAULT: 'hsl(var(--sidebar-background))',
-          foreground: 'hsl(var(--sidebar-foreground))',
-          primary: 'hsl(var(--sidebar-primary))',
-          'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-          accent: 'hsl(var(--sidebar-accent))',
-          'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-          border: 'hsl(var(--sidebar-border))',
-          ring: 'hsl(var(--sidebar-ring))',
+          DEFAULT: ok('--sidebar-background'),
+          foreground: ok('--sidebar-foreground'),
+          primary: ok('--sidebar-primary'),
+          'primary-foreground': ok('--sidebar-primary-foreground'),
+          accent: ok('--sidebar-accent'),
+          'accent-foreground': ok('--sidebar-accent-foreground'),
+          border: ok('--sidebar-border'),
+          ring: ok('--sidebar-ring'),
         },
       },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
+      },
+      boxShadow: {
+        // v2 soft, magazine-y lifts. `stamp` is the FAB-only brutalist survivor.
+        lift: 'var(--shadow-lift)',
+        photo: 'var(--shadow-photo)',
+        press: 'var(--shadow-press)',
+        stamp: 'var(--shadow-stamp)',
       },
       keyframes: {
         'accordion-down': {
@@ -113,10 +131,10 @@ export default {
         },
       },
       animation: {
-        'accordion-down': 'accordion-down 0.2s ease-out',
-        'accordion-up': 'accordion-up 0.2s ease-out',
-        'slide-up': 'slide-up-from-bottom 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-        'slide-down': 'slide-down-to-bottom 0.2s ease-in',
+        'accordion-down': 'accordion-down 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        'accordion-up': 'accordion-up 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+        'slide-up': 'slide-up-from-bottom 0.36s cubic-bezier(0.16, 1, 0.3, 1)',
+        'slide-down': 'slide-down-to-bottom 0.22s ease-in',
       },
     },
   },

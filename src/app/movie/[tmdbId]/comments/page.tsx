@@ -4,13 +4,14 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { ArrowLeft, Loader2, MessageSquare, Send, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, X, ChevronDown, ChevronUp, ChevronLeft, ArrowUp } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser, useFirestore } from '@/firebase';
-import { getMovieReviews, createReview, getReviewReplies } from '@/app/actions';
+import { getMovieReviews, createReview, updateReview, getReviewReplies } from '@/app/actions';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
+import { getRatingStyle } from '@/lib/utils';
 import type { Review } from '@/lib/types';
 
 function CommentsPageContent() {
@@ -48,6 +49,10 @@ function CommentsPageContent() {
   // Reply state - track both the root parent and who we're directly replying to
   const [replyingTo, setReplyingTo] = useState<Review | null>(null);
   const [rootParentId, setRootParentId] = useState<string | null>(null); // Always the top-level comment ID
+  // AUDIT.md 2.6: tracks which review we're editing. When set, handleSubmit
+  // calls updateReview instead of createReview (the old code posted a new
+  // duplicate comment instead of editing the original).
+  const [editingReview, setEditingReview] = useState<Review | null>(null);
   const [expandedReplies, setExpandedReplies] = useState<Record<string, Review[]>>({});
   const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({});
 
@@ -175,12 +180,51 @@ function CommentsPageContent() {
     if (!user || !commentText.trim() || isSubmitting) return;
 
     setIsSubmitting(true);
+
+    // AUDIT.md 2.6: edit path — patches the existing review in place instead
+    // of creating a duplicate. Replies/parent logic is irrelevant when editing
+    // (we're updating an existing doc, not posting a new one).
+    if (editingReview) {
+      try {
+        const newText = commentText.trim();
+        const res = await updateReview(await user.getIdToken(), editingReview.id, newText);
+        if ('error' in res) throw new Error(res.error);
+
+        // Patch local state so the UI updates without a refetch. Top-level
+        // reviews live in `reviews`; replies live under their root in
+        // `expandedReplies`. Update whichever holds this review.
+        if (editingReview.parentId) {
+          const root = editingReview.parentId;
+          setExpandedReplies(prev => {
+            const list = prev[root];
+            if (!list) return prev;
+            return {
+              ...prev,
+              [root]: list.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)),
+            };
+          });
+        } else {
+          setReviews(prev => prev.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)));
+        }
+
+        setEditingReview(null);
+        setCommentText('');
+        inputRef.current?.blur();
+        toast({ title: 'Comment updated' });
+      } catch (error: any) {
+        toast({ variant: 'destructive', title: 'Failed to update comment', description: error.message || 'Please try again.' });
+      } finally {
+        setIsSubmitting(false);
+      }
+      return;
+    }
+
     // Use rootParentId for replies (Instagram/TikTok style - all replies under root)
     const parentId = rootParentId || null;
 
     try {
       const result = await createReview(
-        user.uid,
+        await user.getIdToken(),
         tmdbId,
         mediaType,
         movieTitle,
@@ -190,7 +234,7 @@ function CommentsPageContent() {
         parentId // parentId for replies
       );
 
-      if (result.error) {
+      if ('error' in result) {
         throw new Error(result.error);
       }
 
@@ -251,6 +295,8 @@ function CommentsPageContent() {
 
   // Handle starting a reply - Instagram/TikTok style: all replies go under root parent
   const handleStartReply = useCallback((review: Review, parentIdOverride?: string) => {
+    // Replying overrides any in-progress edit (mutually exclusive composer modes).
+    setEditingReview(null);
     setReplyingTo(review);
     // If this review is already a reply, use its parentId as root. Otherwise, use this review's id.
     const rootId = review.parentId || review.id;
@@ -301,12 +347,19 @@ function CommentsPageContent() {
     }
   }, [expandedReplies, toast]);
 
-  // Handle review edit (for now, just remove and let them re-add)
+  // AUDIT.md 2.6: real edit (was a pre-fill that posted a duplicate on save).
   const handleEditReview = useCallback((review: Review) => {
-    // Pre-fill the input with the review text for editing
+    setEditingReview(review);
     setCommentText(review.text);
+    // Editing precludes replying.
+    setReplyingTo(null);
+    setRootParentId(null);
     inputRef.current?.focus();
-    // Note: In Phase 2, we'll implement proper edit functionality
+  }, []);
+
+  const cancelEdit = useCallback(() => {
+    setEditingReview(null);
+    setCommentText('');
   }, []);
 
   // Auto-resize textarea
@@ -318,61 +371,46 @@ function CommentsPageContent() {
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
   };
 
+  // Featured = the most-liked review, lifted out as a magazine pull-quote.
+  const featured = (() => {
+    if (reviews.length < 2) return null;
+    const top = [...reviews].sort((a, b) => (b.likes || 0) - (a.likes || 0))[0];
+    return top && (top.likes || 0) > 0 ? top : null;
+  })();
+  const restReviews = featured ? reviews.filter((r) => r.id !== featured.id) : reviews;
+  const threadCount = reviews.filter((r) => (r.replyCount || 0) > 0).length;
+
   return (
     <div className="fixed inset-0 bg-background flex flex-col">
-      {/* Fixed Header */}
-      <header className="flex-shrink-0 border-b border-border bg-background z-10">
+      {/* Sticky context header */}
+      <header className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
         <div className="flex items-center gap-3 px-4 py-3">
           <button
             onClick={handleBack}
-            className="p-2 -ml-2 rounded-full hover:bg-secondary transition-colors"
+            className="p-1.5 -ml-1.5 rounded-full hover:bg-secondary transition-colors"
+            aria-label="Back"
           >
-            <ArrowLeft className="h-5 w-5" />
+            <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
           </button>
 
           {moviePoster && (
             <Image
               src={moviePoster}
               alt={movieTitle}
-              width={40}
-              height={60}
-              className="rounded border border-border object-cover flex-shrink-0"
+              width={32}
+              height={48}
+              className="rounded-[5px] border border-border object-cover flex-shrink-0"
             />
           )}
 
           <div className="min-w-0 flex-1">
-            <h1 className="font-semibold text-sm truncate">{movieTitle}</h1>
-            <p className="text-xs text-muted-foreground">
-              {reviews.length} {reviews.length === 1 ? 'comment' : 'comments'}
+            <h1 className="font-headline font-semibold text-sm lowercase tracking-tight truncate">{movieTitle}</h1>
+            <p className="cc-meta text-[11px] text-muted-foreground">
+              {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}
+              {threadCount > 0 ? ` · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}` : ''}
             </p>
           </div>
         </div>
-
-        {/* Sort options */}
-        {reviews.length > 1 && (
-          <div className="px-4 py-2 flex gap-2 border-t border-border">
-            <button
-              onClick={() => setSortBy('recent')}
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                sortBy === 'recent'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Recent
-            </button>
-            <button
-              onClick={() => setSortBy('likes')}
-              className={`text-xs px-3 py-1 rounded-full transition-colors ${
-                sortBy === 'likes'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-muted-foreground hover:text-foreground'
-              }`}
-            >
-              Top
-            </button>
-          </div>
-        )}
       </header>
 
       {/* Scrollable Comments List */}
@@ -386,67 +424,120 @@ function CommentsPageContent() {
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : reviews.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-center">
-            <MessageSquare className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No comments yet</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              Be the first to share your thoughts!
+          <div className="py-16 text-center">
+            <div className="cc-eyebrow">reviews</div>
+            <p className="font-serif italic text-[17px] text-muted-foreground mt-3">
+              no reviews yet. be the first to write something.
             </p>
           </div>
         ) : (
-          <div className="divide-y divide-border">
-            {reviews.map(review => (
-              <div key={review.id}>
-                {/* Parent review */}
-                <ReviewCard
-                  review={review}
-                  currentUserId={user?.uid}
-                  onDelete={handleDeleteReview}
-                  onEdit={handleEditReview}
-                  onReply={handleStartReply}
-                />
-
-                {/* View replies button */}
-                {(review.replyCount || 0) > 0 && (
-                  <div className="pl-12 pb-2">
-                    <button
-                      onClick={() => handleToggleReplies(review)}
-                      disabled={loadingReplies[review.id]}
-                      className="flex items-center gap-1 text-sm text-primary hover:underline disabled:opacity-50"
-                    >
-                      {loadingReplies[review.id] ? (
-                        <Loader2 className="h-3 w-3 animate-spin" />
-                      ) : expandedReplies[review.id] ? (
-                        <ChevronUp className="h-3 w-3" />
-                      ) : (
-                        <ChevronDown className="h-3 w-3" />
-                      )}
-                      {expandedReplies[review.id]
-                        ? 'Hide replies'
-                        : `View ${review.replyCount} ${review.replyCount === 1 ? 'reply' : 'replies'}`
-                      }
-                    </button>
-                  </div>
-                )}
-
-                {/* Inline replies */}
-                {expandedReplies[review.id] && (
-                  <div className="pl-12 border-l-2 border-border/50 ml-5 mb-2">
-                    {expandedReplies[review.id].map(reply => (
-                      <ReviewCard
-                        key={reply.id}
-                        review={reply}
-                        currentUserId={user?.uid}
-                        onDelete={handleDeleteReview}
-                        onReply={(r) => handleStartReply(r, review.id)} // Pass root parent ID
-                        isReply
-                      />
-                    ))}
-                  </div>
-                )}
+          <>
+            {/* Sort line */}
+            <div className="flex items-baseline justify-between py-3 border-b border-border">
+              <span className="cc-eyebrow">reviews</span>
+              <div className="flex gap-3 cc-meta text-[11px]">
+                <button
+                  onClick={() => setSortBy('recent')}
+                  className={sortBy === 'recent' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
+                >
+                  most recent
+                </button>
+                <button
+                  onClick={() => setSortBy('likes')}
+                  className={sortBy === 'likes' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
+                >
+                  most liked
+                </button>
               </div>
-            ))}
-          </div>
+            </div>
+
+            {/* Featured pull-quote — the most-liked take, set like a magazine */}
+            {featured && (
+              <div className="py-5 border-b border-border">
+                <div className="cc-eyebrow text-primary">★ featured review</div>
+                <p className="font-serif italic font-light text-[21px] leading-snug text-foreground mt-3">
+                  &ldquo;{featured.text}&rdquo;
+                </p>
+                <div className="flex items-center gap-2 mt-3">
+                  <ProfileAvatar
+                    photoURL={featured.userPhotoUrl ?? null}
+                    displayName={featured.userDisplayName ?? null}
+                    username={featured.username}
+                    size="sm"
+                  />
+                  <span className="cc-meta text-[11px] text-muted-foreground">
+                    {featured.username ? `@${featured.username}` : 'anonymous'}
+                  </span>
+                  {featured.ratingAtTime != null && (
+                    <span
+                      className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
+                      style={{
+                        ...getRatingStyle(featured.ratingAtTime).background,
+                        ...getRatingStyle(featured.ratingAtTime).textOnBg,
+                      }}
+                    >
+                      {featured.ratingAtTime.toFixed(1)}
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Comment list */}
+            <div className="divide-y divide-border">
+              {restReviews.map(review => (
+                <div key={review.id}>
+                  {/* Parent review */}
+                  <ReviewCard
+                    review={review}
+                    currentUserId={user?.uid}
+                    onDelete={handleDeleteReview}
+                    onEdit={handleEditReview}
+                    onReply={handleStartReply}
+                  />
+
+                  {/* View replies button */}
+                  {(review.replyCount || 0) > 0 && (
+                    <div className="pl-11 pb-2">
+                      <button
+                        onClick={() => handleToggleReplies(review)}
+                        disabled={loadingReplies[review.id]}
+                        className="flex items-center gap-1.5 cc-meta text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
+                      >
+                        {loadingReplies[review.id] ? (
+                          <Loader2 className="h-3 w-3 animate-spin" />
+                        ) : expandedReplies[review.id] ? (
+                          <ChevronUp className="h-3 w-3" />
+                        ) : (
+                          <ChevronDown className="h-3 w-3" />
+                        )}
+                        {expandedReplies[review.id]
+                          ? 'hide replies'
+                          : `${review.replyCount} ${review.replyCount === 1 ? 'reply' : 'replies'}`
+                        }
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Inline replies — ReviewCard handles its own left-rule */}
+                  {expandedReplies[review.id] && (
+                    <div className="pb-2">
+                      {expandedReplies[review.id].map(reply => (
+                        <ReviewCard
+                          key={reply.id}
+                          review={reply}
+                          currentUserId={user?.uid}
+                          onDelete={handleDeleteReview}
+                          onReply={(r) => handleStartReply(r, review.id)}
+                          isReply
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
 
@@ -474,6 +565,20 @@ function CommentsPageContent() {
             </div>
           )}
 
+          {/* AUDIT.md 2.6: edit indicator (mirror of the reply indicator). */}
+          {editingReview && (
+            <div className="flex items-center justify-between px-4 py-2 bg-secondary/50 border-b border-border">
+              <span className="text-sm text-muted-foreground">Editing your comment</span>
+              <button
+                onClick={cancelEdit}
+                className="p-1 rounded-full hover:bg-secondary"
+                aria-label="Cancel edit"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           <div className="flex items-end gap-3 px-4 py-3">
             <ProfileAvatar
               photoURL={userProfile?.photoURL}
@@ -487,10 +592,10 @@ function CommentsPageContent() {
                 ref={inputRef}
                 value={commentText}
                 onChange={handleTextareaChange}
-                placeholder={replyingTo ? 'Write a reply...' : 'Add a comment...'}
+                placeholder={replyingTo ? 'write a reply…' : 'share what you thought…'}
                 rows={1}
                 maxLength={1000}
-                className="w-full px-4 py-2 pr-12 rounded-2xl border-2 border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"
+                className="w-full px-4 py-2 pr-12 rounded-2xl border border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"
                 style={{
                   fontSize: '16px', // Prevents iOS zoom
                   lineHeight: '1.5',
@@ -508,12 +613,13 @@ function CommentsPageContent() {
               <button
                 onClick={handleSubmitComment}
                 disabled={!commentText.trim() || isSubmitting}
-                className="absolute right-2 bottom-2 p-2 rounded-full bg-primary text-primary-foreground disabled:opacity-50 disabled:bg-muted"
+                className="absolute right-2 bottom-1.5 p-2 rounded-full bg-foreground text-background disabled:opacity-40"
+                aria-label="Post comment"
               >
                 {isSubmitting ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Send className="h-4 w-4" />
+                  <ArrowUp className="h-4 w-4" strokeWidth={2.2} />
                 )}
               </button>
             </div>
@@ -526,9 +632,9 @@ function CommentsPageContent() {
         <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3">
           <Link
             href="/login"
-            className="block w-full text-center py-3 rounded-2xl bg-primary text-primary-foreground font-medium"
+            className="block w-full text-center py-3 rounded-full bg-foreground text-background font-headline font-semibold lowercase tracking-tight"
           >
-            Sign in to comment
+            sign in to comment
           </Link>
         </div>
       )}

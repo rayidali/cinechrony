@@ -1,0 +1,23 @@
+# TypeScript baseline — captured 2026-05-16 at AUDIT.md Phase 0.3
+#
+# These are the errors hidden by next.config.ts ignoreBuildErrors:true (now false).
+# Phase 5.1 work inventory. DO NOT fix here — tracked in AUDIT.md.
+# Notable: 'getDb not exported' = weekly-digest cron was a latent runtime crash
+# (matches security audit finding #8).
+#
+# Regenerate: npx tsc --noEmit
+# ---
+src/app/api/cron/weekly-digest/route.ts(2,21): error TS7016: Could not find a declaration file for module 'web-push'. '/Users/rayidali/Desktop/Cinechrony/cinechrony2/node_modules/web-push/src/index.js' implicitly has an 'any' type.
+  Try `npm i --save-dev @types/web-push` if it exists or add a new declaration (.d.ts) file containing `declare module 'web-push';`
+src/app/api/cron/weekly-digest/route.ts(3,10): error TS2305: Module '"@/firebase/admin"' has no exported member 'getDb'.
+src/components/activity-card.tsx(164,58): error TS2339: Property 'text' does not exist on type 'RatingStyle'.
+src/components/ui/calendar.tsx(57,9): error TS2353: Object literal may only specify known properties, and 'IconLeft' does not exist in type 'Partial<CustomComponents>'.
+src/components/ui/calendar.tsx(57,22): error TS7031: Binding element 'className' implicitly has an 'any' type.
+src/components/ui/calendar.tsx(60,23): error TS7031: Binding element 'className' implicitly has an 'any' type.
+src/firebase/non-blocking-login.tsx(11,3): error TS2322: Type 'Promise<void | UserCredential>' is not assignable to type 'Promise<void>'.
+  Type 'void | UserCredential' is not assignable to type 'void'.
+    Type 'UserCredential' is not assignable to type 'void'.
+src/firebase/non-blocking-login.tsx(21,3): error TS2322: Type 'Promise<UserCredential>' is not assignable to type 'Promise<void>'.
+  Type 'UserCredential' is not assignable to type 'void'.
+src/firebase/non-blocking-login.tsx(29,3): error TS2322: Type 'Promise<UserCredential>' is not assignable to type 'Promise<void>'.
+  Type 'UserCredential' is not assignable to type 'void'.

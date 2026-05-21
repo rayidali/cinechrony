@@ -37,8 +37,8 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
@@ -75,15 +75,15 @@ export default function ListsPage() {
 
       try {
         const result = await ensureUserProfile(
-          user.uid,
+          await user.getIdToken(),
           user.email || '',
           user.displayName
         );
 
-        if (result.defaultListId) {
+        if (!('error' in result) && result.defaultListId) {
           // Check for old movies to migrate
-          const migrateResult = await migrateMoviesToList(user.uid, result.defaultListId);
-          if (migrateResult.migratedCount && migrateResult.migratedCount > 0) {
+          const migrateResult = await migrateMoviesToList(await user.getIdToken(), result.defaultListId);
+          if (!('error' in migrateResult) && migrateResult.migratedCount && migrateResult.migratedCount > 0) {
             toast({
               title: 'Movies Migrated',
               description: `${migrateResult.migratedCount} movies moved to your default list.`,
@@ -135,7 +135,7 @@ export default function ListsPage() {
 
       try {
         const listIds = lists.map((list) => list.id);
-        const result = await getListsPreviews(user.uid, listIds);
+        const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
         if (result.previews) {
           setListPreviews(result.previews);
         }
@@ -157,7 +157,7 @@ export default function ListsPage() {
         // Fetch previews in parallel - each list has its own owner
         await Promise.all(
           collaborativeLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id);
+            const result = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -179,8 +179,8 @@ export default function ListsPage() {
 
     setIsSubmitting(true);
     try {
-      const result = await createList(user.uid, newListName);
-      if (result.error) {
+      const result = await createList(await user.getIdToken(), newListName);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
         return;
       }
@@ -193,7 +193,9 @@ export default function ListsPage() {
           const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
           const ext = mimeType.split('/')[1] || 'jpg';
 
+          const idToken = await user.getIdToken();
           const uploadResult = await uploadListCover(
+            idToken,
             user.uid,
             result.listId,
             base64Data,
@@ -205,7 +207,7 @@ export default function ListsPage() {
             console.error('Cover upload failed:', uploadResult.error);
             toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
           } else if (uploadResult.url) {
-            await updateListCover(user.uid, result.listId, uploadResult.url);
+            await updateListCover(idToken, user.uid, result.listId, uploadResult.url);
           }
         } catch (coverError) {
           console.error('Cover upload error:', coverError);
@@ -294,7 +296,7 @@ export default function ListsPage() {
       // Refresh own list previews
       if (lists && lists.length > 0) {
         const listIds = lists.map((list) => list.id);
-        const previewResult = await getListsPreviews(user.uid, listIds);
+        const previewResult = await getListsPreviews(user.uid, listIds, await user.getIdToken());
         if (previewResult.previews) {
           setListPreviews(previewResult.previews);
         }
@@ -319,10 +321,10 @@ export default function ListsPage() {
           <div className="container mx-auto p-4 md:p-8">
         {/* Header */}
         <header className="mb-8">
-          <div className="flex justify-between items-center mb-6">
-            <div className="flex items-center gap-3">
-              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10" />
-              <h1 className="text-2xl md:text-3xl font-headline font-bold">Cinechrony</h1>
+          <div className="flex justify-between items-center mb-7">
+            <div className="flex items-center gap-2.5">
+              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-8 w-8" />
+              <span className="font-headline font-bold text-lg lowercase tracking-tight">cinechrony</span>
             </div>
             <div className="flex items-center gap-2">
               <NotificationBell />
@@ -330,21 +332,24 @@ export default function ListsPage() {
               <UserAvatar />
             </div>
           </div>
-          <p className="text-muted-foreground">
-            Your movie watchlists
-          </p>
+          {/* Editorial title block */}
+          <div className="cc-eyebrow">the collection</div>
+          <div className="h-px bg-border my-3" />
+          <h1 className="font-headline font-bold text-4xl md:text-5xl lowercase tracking-tight leading-[0.95]">
+            your watchlists
+          </h1>
         </header>
 
         <div className="max-w-4xl mx-auto">
           {/* My Lists Section */}
-          <div className="flex justify-between items-center mb-6">
-            <h2 className="text-xl font-headline font-bold">My Lists</h2>
+          <div className="flex justify-between items-center mb-5">
+            <h2 className="cc-eyebrow">mine</h2>
           </div>
 
           {isLoadingLists ? (
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {[1, 2, 3, 4].map((i) => (
-                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+                <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border border-border animate-pulse" />
               ))}
             </div>
           ) : lists && lists.length > 0 ? (
@@ -362,11 +367,11 @@ export default function ListsPage() {
               })}
             </div>
           ) : (
-            <Card className="border-[3px] border-dashed border-border rounded-2xl bg-card">
+            <Card className="border border-dashed border-border rounded-2xl bg-card">
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Film className="h-12 w-12 text-muted-foreground mb-4" />
-                <h3 className="font-headline text-xl font-bold mb-2">No lists yet</h3>
-                <p className="text-muted-foreground mb-4">Create your first watchlist to get started.</p>
+                <h3 className="font-headline text-xl font-bold mb-2 lowercase tracking-tight">no lists yet</h3>
+                <p className="text-muted-foreground mb-4 cc-lead">your first watchlist is one tap away.</p>
                 <Button onClick={() => setIsCreateOpen(true)} className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
                   <Plus className="h-5 w-5 mr-2" />
                   Create List
@@ -378,14 +383,14 @@ export default function ListsPage() {
           {/* Collaborative Lists Section */}
           {(isLoadingCollaborative || collaborativeLists.length > 0) && (
             <div className="mt-12">
-              <div className="flex items-center gap-2 mb-6">
-                <Users className="h-5 w-5 text-primary" />
-                <h2 className="text-xl font-headline font-bold">Shared Lists</h2>
+              <div className="flex items-center gap-2 mb-5">
+                <Users className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.8} />
+                <h2 className="cc-eyebrow">with friends</h2>
               </div>
               {isLoadingCollaborative ? (
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {[1, 2].map((i) => (
-                    <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border-[3px] border-border animate-pulse" />
+                    <div key={i} className="aspect-[4/5] bg-secondary rounded-2xl border border-border animate-pulse" />
                   ))}
                 </div>
               ) : (
@@ -417,7 +422,7 @@ export default function ListsPage() {
             setNewListName('');
           }
         }}>
-          <DialogContent className="border-[3px] border-border rounded-2xl shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+          <DialogContent className="border border-border rounded-2xl shadow-photo">
             <DialogHeader>
               <DialogTitle className="font-headline text-center">Create New List</DialogTitle>
             </DialogHeader>
@@ -434,7 +439,7 @@ export default function ListsPage() {
                 <button
                   type="button"
                   onClick={() => createCoverInputRef.current?.click()}
-                  className="relative w-32 aspect-[4/5] rounded-xl overflow-hidden bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border-2 border-dashed border-white/50 transition-transform active:scale-95"
+                  className="relative w-32 aspect-[4/5] rounded-xl overflow-hidden bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border border-dashed border-white/50 transition-transform active:scale-95"
                 >
                   {newListCoverPreview ? (
                     <>
@@ -486,9 +491,9 @@ export default function ListsPage() {
       {/* Floating Action Button - outside PullToRefresh to keep fixed positioning */}
       <button
         onClick={() => setIsCreateOpen(true)}
-        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-5 rounded-full bg-yellow-400 text-black border-[3px] border-black dark:border-2 dark:border-border shadow-[4px_4px_0px_0px_#000] dark:shadow-none flex items-center justify-center gap-2 hover:shadow-[2px_2px_0px_0px_#000] hover:translate-x-0.5 hover:translate-y-0.5 active:shadow-none active:translate-x-1 active:translate-y-1 transition-all font-headline font-bold"
+        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)] border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp hover:translate-x-px hover:translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none flex items-center justify-center gap-2 transition-all duration-200 font-headline font-bold lowercase tracking-tight"
       >
-        <Plus className="h-5 w-5" strokeWidth={3} />
+        <Plus className="h-5 w-5" strokeWidth={2.5} />
         <span>New List</span>
       </button>
 

@@ -10,8 +10,8 @@ import { useUser } from '@/firebase';
 import { checkUsernameAvailability, createUserProfileWithUsername } from '@/app/actions';
 import { useDebouncedCallback } from 'use-debounce';
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type UsernameScreenProps = {
   username: string;
@@ -125,13 +125,13 @@ export function UsernameScreen({
     setIsSubmitting(true);
     try {
       const result = await createUserProfileWithUsername(
-        user.uid,
+        await user.getIdToken(),
         user.email || '',
         username.toLowerCase(),
         displayName || null
       );
 
-      if (result.error) {
+      if ('error' in result) {
         if (result.error.includes('taken')) {
           setStatus('taken');
           toast({
@@ -174,8 +174,13 @@ export function UsernameScreen({
         <h1 className="text-2xl md:text-3xl font-headline font-bold text-center mb-2">
           What should we call you?
         </h1>
-        <p className="text-muted-foreground text-center mb-8">
+        <p className="text-muted-foreground text-center mb-1">
           Choose a unique username
+        </p>
+        {/* AUDIT.md 2.3 (Option A): set expectations at the moment of choice. */}
+        <p className="text-xs text-muted-foreground text-center mb-8">
+          Your <span className="font-semibold">@handle is permanent</span> — pick
+          carefully. You can change your display name and photo anytime.
         </p>
 
         <form onSubmit={handleSubmit} className="space-y-4">

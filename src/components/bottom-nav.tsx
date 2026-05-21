@@ -2,109 +2,99 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Search, List, User } from 'lucide-react';
+import { Home, Search, Bookmark, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
   href: string;
-  icon: React.ReactNode;
+  icon: typeof Home;
   label: string;
   matchPaths?: string[];
 }
 
 const navItems: NavItem[] = [
-  {
-    href: '/home',
-    icon: <Home className="h-6 w-6" />,
-    label: 'Home',
-    matchPaths: ['/home'],
-  },
-  {
-    href: '/add',
-    icon: <Search className="h-6 w-6" />,
-    label: 'Add',
-    matchPaths: ['/add'],
-  },
-  {
-    href: '/lists',
-    icon: <List className="h-6 w-6" />,
-    label: 'Lists',
-    matchPaths: ['/lists'],
-  },
-  {
-    href: '/profile',
-    icon: <User className="h-6 w-6" />,
-    label: 'Profile',
-    matchPaths: ['/profile'],
-  },
+  { href: '/home', icon: Home, label: 'Home', matchPaths: ['/home'] },
+  { href: '/add', icon: Search, label: 'Add', matchPaths: ['/add'] },
+  { href: '/lists', icon: Bookmark, label: 'Lists', matchPaths: ['/lists'] },
+  { href: '/profile', icon: User, label: 'Profile', matchPaths: ['/profile'] },
 ];
 
+/**
+ * Bottom navigation — design system v2.
+ *
+ * A dark floating pill (cinema ink), icon-only, centered. The active item
+ * is a cream-filled circle. The pill is a self-contained dark island, so its
+ * cream/white internals read the same in light and dark mode.
+ */
 export function BottomNav() {
   const pathname = usePathname();
 
-  const isActive = (item: NavItem) => {
-    if (item.matchPaths) {
-      return item.matchPaths.some(path => pathname.startsWith(path));
-    }
-    return pathname === item.href;
-  };
+  const isActive = (item: NavItem) =>
+    item.matchPaths
+      ? item.matchPaths.some((path) => pathname.startsWith(path))
+      : pathname === item.href;
 
   return (
     <>
-      {/* Spacer to prevent content from being hidden behind nav */}
-      <div className="h-24 md:hidden" />
+      {/* Spacer so content clears the floating nav */}
+      <div className="h-28 md:hidden" />
 
-      {/* Bottom navigation - mobile only */}
-      <nav className="fixed bottom-4 left-4 right-4 z-50 md:hidden">
-        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none px-2 py-2">
-          <ul className="flex items-center justify-around">
-            {navItems.map((item) => {
-              const active = isActive(item);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex flex-col items-center justify-center w-14 h-14 rounded-xl transition-all duration-200',
-                      active
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground'
-                    )}
-                  >
-                    {item.icon}
-                    <span className="text-[10px] font-medium mt-0.5">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+      {/* Mobile — dark floating pill, icon-only */}
+      <nav className="fixed left-1/2 -translate-x-1/2 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-50 md:hidden">
+        <div
+          className="flex items-center gap-1 p-1.5 rounded-full border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.28)]"
+          style={{ background: 'oklch(0.17 0.012 60)' }}
+        >
+          {navItems.map((item) => {
+            const active = isActive(item);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-label={item.label}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex items-center justify-center w-[52px] h-11 rounded-full transition-all duration-200',
+                  active
+                    ? 'bg-[oklch(0.95_0.012_78)] text-[oklch(0.165_0.012_60)]'
+                    : 'text-white/55 hover:text-white/85'
+                )}
+              >
+                <Icon className="h-5 w-5" strokeWidth={active ? 2 : 1.6} />
+              </Link>
+            );
+          })}
         </div>
       </nav>
 
-      {/* Desktop sidebar/top nav could go here */}
+      {/* Desktop — dark pill at top, icon + label */}
       <nav className="hidden md:flex fixed top-4 left-1/2 -translate-x-1/2 z-50">
-        <div className="bg-card border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none px-4 py-2">
-          <ul className="flex items-center gap-2">
-            {navItems.map((item) => {
-              const active = isActive(item);
-              return (
-                <li key={item.href}>
-                  <Link
-                    href={item.href}
-                    className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-xl transition-all duration-200 font-medium',
-                      active
-                        ? 'bg-primary text-primary-foreground'
-                        : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-                    )}
-                  >
-                    {item.icon}
-                    <span className="text-sm">{item.label}</span>
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
+        <div
+          className="flex items-center gap-1 p-1.5 rounded-full border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
+          style={{ background: 'oklch(0.17 0.012 60)' }}
+        >
+          {navItems.map((item) => {
+            const active = isActive(item);
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                aria-current={active ? 'page' : undefined}
+                className={cn(
+                  'flex items-center gap-2 px-4 h-10 rounded-full transition-all duration-200',
+                  'font-headline font-semibold text-sm lowercase tracking-tight',
+                  active
+                    ? 'bg-[oklch(0.95_0.012_78)] text-[oklch(0.165_0.012_60)]'
+                    : 'text-white/55 hover:text-white/85'
+                )}
+              >
+                <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
+                <span>{item.label}</span>
+              </Link>
+            );
+          })}
         </div>
       </nav>
     </>

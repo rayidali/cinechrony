@@ -8,7 +8,7 @@ import { useUser } from '@/firebase';
 import { importMatchedMovies } from '@/app/actions';
 import type { MatchedMovie } from '@/lib/types';
 
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 type ImportPasteConfirmScreenProps = {
   matchedMovies: MatchedMovie[];
@@ -87,7 +87,7 @@ export function ImportPasteConfirmScreen({
           {matchedMovies.map((item, index) => (
             <div
               key={index}
-              className={`flex items-center gap-3 p-3 rounded-xl border-2 transition-colors ${
+              className={`flex items-center gap-3 p-3 rounded-xl border transition-colors ${
                 item.match
                   ? item.selected
                     ? 'border-primary bg-primary/5'
@@ -98,7 +98,7 @@ export function ImportPasteConfirmScreen({
               {item.match ? (
                 <button
                   onClick={() => toggleMovie(index)}
-                  className={`flex-shrink-0 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${
+                  className={`flex-shrink-0 w-6 h-6 rounded-md border flex items-center justify-center transition-colors ${
                     item.selected
                       ? 'bg-primary border-primary text-primary-foreground'
                       : 'border-muted-foreground'
@@ -107,7 +107,7 @@ export function ImportPasteConfirmScreen({
                   {item.selected && <Check className="h-4 w-4" />}
                 </button>
               ) : (
-                <div className="flex-shrink-0 w-6 h-6 rounded-md border-2 border-muted flex items-center justify-center">
+                <div className="flex-shrink-0 w-6 h-6 rounded-md border border-muted flex items-center justify-center">
                   <AlertTriangle className="h-4 w-4 text-muted-foreground" />
                 </div>
               )}
@@ -135,7 +135,7 @@ export function ImportPasteConfirmScreen({
                       {item.match.release_date?.slice(0, 4) || 'Unknown year'}
                     </p>
                     {item.status === 'best_guess' && (
-                      <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                      <p className="text-xs text-warning">
                         Best match for &quot;{item.parsed.title}&quot;
                       </p>
                     )}

@@ -87,8 +87,17 @@ service cloud.firestore {
      * User profile documents are publicly readable for search and profile views.
      * Only the user can write to their own profile.
      */
+    // AUDIT.md 1.9: private user fields (email) live here, NOT on the publicly
+    // readable /users doc. Server-only via Admin SDK (which bypasses rules);
+    // all direct client access denied.
+    match /users_private/{userId} {
+      allow read, write: if false;
+    }
+
     match /users/{userId} {
-      // Allow public read for search, profiles, followers/following display
+      // Allow public read for search, profiles, followers/following display.
+      // (Email is no longer stored here — see /users_private — so this
+      // public read no longer leaks PII.)
       allow read: if true;
 
       // Only owner can create/update/delete their profile
@@ -293,6 +302,30 @@ service cloud.firestore {
 
       // No updates - to change username, delete and recreate
       allow update: if false;
+    }
+
+    // AUDIT.md 5.8: server-only collections. All access goes through server
+    // actions (Firebase Admin SDK, which bypasses these rules). Clients must
+    // never touch them directly. Unmatched paths are denied by default, but
+    // these explicit `if false` blocks DOCUMENT the contract and stop a
+    // future edit from accidentally opening them up.
+    match /reviews/{reviewId} {
+      allow read, write: if false;
+    }
+    match /ratings/{ratingId} {
+      allow read, write: if false;
+    }
+    match /notifications/{notificationId} {
+      allow read, write: if false;
+    }
+    // AUDIT.md 3.8: rate-limit counters — server-only, clients must never read
+    // or tamper with their own budget.
+    match /rate_limits/{limitId} {
+      allow read, write: if false;
+    }
+    // AUDIT.md (App Store §1.2): content reports — server-only.
+    match /reports/{reportId} {
+      allow read, write: if false;
     }
   }
 }

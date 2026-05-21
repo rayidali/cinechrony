@@ -2,7 +2,7 @@
 
 import { useState, memo, useMemo, Fragment } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Flag } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -14,7 +14,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
+import { likeReview, unlikeReview, deleteReview, reportContent } from '@/app/actions';
+import { useAuth } from '@/firebase';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import type { Review } from '@/lib/types';
 
 /**
@@ -68,6 +70,7 @@ interface ReviewCardProps {
 
 export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit, onReply, isReply = false }: ReviewCardProps) {
   const { toast } = useToast();
+  const auth = useAuth();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
     currentUserId ? review.likedBy.includes(currentUserId) : false
@@ -76,7 +79,12 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
   const [isDeleting, setIsDeleting] = useState(false);
 
   const isOwner = currentUserId === review.userId;
-  const displayName = review.userDisplayName || review.username || 'Anonymous';
+  // AUDIT.md 2.3b: prefer live display name / photo from the cache, fall
+  // back to the denormalized snapshot stamped onto the review at write time.
+  const live = useUserProfile(review.userId);
+  const liveDisplayName = live?.displayName ?? review.userDisplayName ?? null;
+  const livePhotoUrl    = live?.photoURL    ?? review.userPhotoUrl    ?? null;
+  const displayName = liveDisplayName || review.username || 'Anonymous';
   const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
   const replyCount = review.replyCount || 0;
 
@@ -89,20 +97,20 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
     setIsLiking(true);
     try {
       if (isLiked) {
-        const result = await unlikeReview(currentUserId, review.id);
-        if (result.success) {
+        const result = await unlikeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        if ('error' in result) {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        } else {
           setLikes(result.likes ?? likes - 1);
           setIsLiked(false);
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
         }
       } else {
-        const result = await likeReview(currentUserId, review.id);
-        if (result.success) {
+        const result = await likeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        if ('error' in result) {
+          toast({ variant: 'destructive', title: 'Error', description: result.error });
+        } else {
           setLikes(result.likes ?? likes + 1);
           setIsLiked(true);
-        } else {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
         }
       }
     } catch {
@@ -117,12 +125,12 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
 
     setIsDeleting(true);
     try {
-      const result = await deleteReview(currentUserId, review.id);
-      if (result.success) {
+      const result = await deleteReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+      if ('error' in result) {
+        toast({ variant: 'destructive', title: 'Error', description: result.error });
+      } else {
         toast({ title: 'Deleted', description: 'Your review has been deleted.' });
         onDelete?.(review.id);
-      } else {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete review.' });
@@ -131,13 +139,32 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
     }
   };
 
+  // AUDIT.md (App Store §1.2): report this comment for moderator review.
+  const handleReport = async () => {
+    try {
+      const res = await reportContent(
+        await auth.currentUser?.getIdToken() ?? '',
+        'review',
+        review.id,
+        '',
+      );
+      if ('error' in res) {
+        toast({ variant: 'destructive', title: 'Error', description: res.error });
+      } else {
+        toast({ title: 'Reported', description: "Thanks — we'll review this." });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not submit report.' });
+    }
+  };
+
   return (
-    <div className={`flex gap-3 ${isReply ? 'py-2' : 'py-4'}`}>
+    <div className={`flex gap-3 ${isReply ? 'py-3 ml-3 pl-3 border-l border-border' : 'py-4'}`}>
       {/* User avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
-          photoURL={review.userPhotoUrl}
-          displayName={review.userDisplayName}
+          photoURL={livePhotoUrl}
+          displayName={liveDisplayName}
           username={review.username}
           size={isReply ? 'sm' : 'md'}
         />
@@ -149,78 +176,85 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
         <div className="flex items-center gap-2 flex-wrap">
           <Link
             href={`/profile/${review.username || ''}`}
-            className="font-bold text-sm hover:underline"
+            className="cc-meta text-[12px] text-foreground hover:underline"
           >
-            {displayName}
+            {review.username ? `@${review.username}` : displayName}
           </Link>
 
-          {/* Rating badge - shows the rating at time of comment */}
+          <span className="cc-meta text-[11px] text-muted-foreground">· {timeAgo}</span>
+
+          {/* Rating chip — 3-bucket, sits on the byline */}
           {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
             <span
-              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-xs font-bold"
+              className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
               style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
             >
-              <Star className="h-3 w-3" style={{ fill: 'currentColor' }} />
               {review.ratingAtTime.toFixed(1)}
             </span>
           )}
 
-          <span className="text-muted-foreground text-xs">
-            reviewed {timeAgo}
-          </span>
-
-          {/* Options menu for owner */}
-          {isOwner && (
+          {/* Options menu — owner gets Edit/Delete; everyone else gets Report
+              (AUDIT.md App Store §1.2: UGC must be reportable). */}
+          {currentUserId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto">
                   <MoreVertical className="h-4 w-4" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
-                <DropdownMenuItem onClick={() => onEdit?.(review)}>
-                  <Pencil className="h-4 w-4 mr-2" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDelete}
-                  className="text-destructive"
-                  disabled={isDeleting}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
+              <DropdownMenuContent align="end" className="border border-border rounded-xl">
+                {isOwner ? (
+                  <>
+                    <DropdownMenuItem onClick={() => onEdit?.(review)}>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleDelete}
+                      className="text-destructive"
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem onClick={handleReport}>
+                    <Flag className="h-4 w-4 mr-2" />
+                    Report
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}
         </div>
 
         {/* Review text with @mentions as links */}
-        <p className="text-sm mt-1 whitespace-pre-wrap break-words">
+        <p className="font-serif text-[15px] leading-relaxed mt-1.5 whitespace-pre-wrap break-words">
           {renderTextWithMentions(review.text)}
         </p>
 
         {/* Actions: like, reply */}
-        <div className="flex items-center gap-4 mt-2">
+        <div className="flex items-center gap-4 mt-2.5">
           <button
             onClick={handleLikeToggle}
             disabled={!currentUserId || isLiking}
-            className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+            className={`flex items-center gap-1.5 cc-meta text-[11px] transition-colors disabled:opacity-50 ${
+              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground'
+            }`}
           >
-            <Heart
-              className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`}
-            />
+            <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-current' : ''}`} strokeWidth={1.8} />
             {likes > 0 && <span>{likes}</span>}
           </button>
 
-          {/* Reply button - shows on all comments (Instagram/TikTok style) */}
+          {/* Reply — mono lowercase, subordinate to the like count */}
           {onReply && (
             <button
               onClick={() => onReply(review)}
               disabled={!currentUserId}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
-              Reply{!isReply && replyCount > 0 && ` (${replyCount})`}
+              reply{!isReply && replyCount > 0 && ` · ${replyCount}`}
             </button>
           )}
         </div>

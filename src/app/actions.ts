@@ -2,15 +2,16 @@
 
 import { revalidatePath } from 'next/cache';
 import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType } from '@/lib/types';
-import { getFirestore, FieldValue } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
-import { getFirebaseAdminApp } from '@/firebase/admin';
+import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
+import { verifyCaller, isAuthError } from '@/lib/auth-server';
+import { checkRateLimit } from '@/lib/rate-limit';
+import { randomInt } from 'node:crypto';
 
-// --- HELPER ---
-function getDb() {
-  const adminApp = getFirebaseAdminApp();
-  return getFirestore(adminApp);
-}
+// AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
+// (applies ignoreUndefinedProperties once). The previous local copy here
+// returned the Firestore singleton WITHOUT those settings.
 
 // --- USER PROFILE ---
 
@@ -54,19 +55,24 @@ async function generateUniqueUsername(db: FirebaseFirestore.Firestore, email: st
 /**
  * Creates a user profile and default list when a user signs up.
  */
-export async function createUserProfile(userId: string, email: string, displayName: string | null) {
+// Private: actual profile + default-list creation, keyed by an ALREADY-TRUSTED
+// uid. Reached only via the token-gated createUserProfile() wrapper below, or
+// server-to-server from ensureUserProfile() (which has already verified the
+// caller). Never export this — it does no auth of its own.
+async function createProfileAndDefaultList(userId: string, email: string, displayName: string | null) {
   const db = getDb();
 
   try {
     // Generate unique username
     const username = await generateUniqueUsername(db, email, displayName);
 
-    // Create user profile document
+    // Create user profile document.
+    // AUDIT.md 1.9: /users/{uid} is PUBLICLY readable (firestore.rules) and
+    // Firestore can't field-mask, so email must NOT live here. Private fields
+    // go to /users_private/{uid} (server-only; client read denied in rules).
     const userRef = db.collection('users').doc(userId);
     await userRef.set({
       uid: userId,
-      email: email,
-      emailLower: email.toLowerCase(),
       displayName: displayName,
       displayNameLower: displayName?.toLowerCase() || null,
       photoURL: null,
@@ -75,6 +81,12 @@ export async function createUserProfile(userId: string, email: string, displayNa
       followersCount: 0,
       followingCount: 0,
       createdAt: FieldValue.serverTimestamp(),
+    });
+
+    await db.collection('users_private').doc(userId).set({
+      uid: userId,
+      email: email,
+      emailLower: email.toLowerCase(),
     });
 
     // Create default list
@@ -97,10 +109,25 @@ export async function createUserProfile(userId: string, email: string, displayNa
 }
 
 /**
+ * Public, token-gated entry point. Called right after Firebase signup — the
+ * client is authenticated by then, so getIdToken() yields a valid token whose
+ * uid is the new user. We create the profile for THAT uid, never a client param.
+ */
+export async function createUserProfile(idToken: string, email: string, displayName: string | null) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  return createProfileAndDefaultList(auth.uid, email, displayName);
+}
+
+/**
  * Ensures a user has a profile and default list (for existing users).
  * Also migrates existing users to have social fields.
  */
-export async function ensureUserProfile(userId: string, email: string, displayName: string | null) {
+export async function ensureUserProfile(idToken: string, email: string, displayName: string | null) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -108,8 +135,9 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
     const userDoc = await userRef.get();
 
     if (!userDoc.exists) {
-      // Create profile if it doesn't exist
-      return await createUserProfile(userId, email, displayName);
+      // Create profile if it doesn't exist. ensureUserProfile already verified
+      // the caller, so call the private uid-keyed helper (not the token wrapper).
+      return await createProfileAndDefaultList(userId, email, displayName);
     }
 
     // Check if user needs social fields migration
@@ -122,14 +150,19 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
 
     if (needsMigration) {
       const username = userData?.username || await generateUniqueUsername(db, email, displayName);
+      // AUDIT.md 1.9: emailLower no longer written to the public doc.
       await userRef.update({
         username: username,
         usernameLower: username.toLowerCase(),
-        emailLower: (userData?.email || email).toLowerCase(),
         displayNameLower: (userData?.displayName || displayName)?.toLowerCase() || null,
         followersCount: userData?.followersCount ?? 0,
         followingCount: userData?.followingCount ?? 0,
       });
+      await db.collection('users_private').doc(userId).set({
+        uid: userId,
+        email: userData?.email || email,
+        emailLower: (userData?.email || email).toLowerCase(),
+      }, { merge: true });
       console.log(`[ensureUserProfile] Migrated user ${userId} with username: ${username}`);
     }
 
@@ -175,7 +208,11 @@ export async function ensureUserProfile(userId: string, email: string, displayNa
 /**
  * Creates a new list for a user.
  */
-export async function createList(userId: string, name: string, isPublic: boolean = true) {
+export async function createList(idToken: string, name: string, isPublic: boolean = true) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -202,7 +239,11 @@ export async function createList(userId: string, name: string, isPublic: boolean
  * Renames a list.
  * Only the list owner can rename.
  */
-export async function renameList(userId: string, listOwnerId: string, listId: string, newName: string) {
+export async function renameList(idToken: string, listOwnerId: string, listId: string, newName: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -230,7 +271,11 @@ export async function renameList(userId: string, listOwnerId: string, listId: st
  * Update list description.
  * Only the list owner can update the description.
  */
-export async function updateListDescription(userId: string, listOwnerId: string, listId: string, description: string) {
+export async function updateListDescription(idToken: string, listOwnerId: string, listId: string, description: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -258,7 +303,11 @@ export async function updateListDescription(userId: string, listOwnerId: string,
  * Update list visibility (public/private).
  * Only the list owner can update visibility.
  */
-export async function updateListVisibility(userId: string, listOwnerId: string, listId: string, isPublic: boolean) {
+export async function updateListVisibility(idToken: string, listOwnerId: string, listId: string, isPublic: boolean) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -287,7 +336,11 @@ export async function updateListVisibility(userId: string, listOwnerId: string, 
  * Cannot delete the default list.
  * Only the list owner can delete.
  */
-export async function deleteList(userId: string, listOwnerId: string, listId: string) {
+export async function deleteList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -351,8 +404,13 @@ export async function addMovieToList(formData: FormData) {
   const db = getDb();
 
   try {
+    // AUDIT.md Phase 1 (FormData variant): identity comes from a verified token
+    // carried in the FormData, NOT a client-supplied 'userId' field.
+    const auth = await verifyCaller(formData.get('idToken'));
+    if (isAuthError(auth)) return auth;
+    const userId = auth.uid;
+
     const movieData = JSON.parse(formData.get('movieData') as string) as SearchResult;
-    const userId = formData.get('userId') as string;
     const listId = formData.get('listId') as string;
     const socialLink = formData.get('socialLink') as string;
     const note = formData.get('note') as string;
@@ -387,12 +445,17 @@ export async function addMovieToList(formData: FormData) {
       .doc(docId);
 
     // Build the movie document with denormalized user data
+    // AUDIT.md 2.2 (found via the movieCount race test): Firestore Admin
+    // REJECTS undefined field values — a TMDB result missing posterHint (or any
+    // raw string field) made `addMovieToList` hard-fail with "Failed to add
+    // movie" for real users. Coalesce every raw field to a Firestore-safe value;
+    // when present this is a no-op, when absent it stores null instead of crashing.
     const movieDoc: Record<string, unknown> = {
       id: docId,
-      title: movieData.title,
-      year: movieData.year,
-      posterUrl: movieData.posterUrl,
-      posterHint: movieData.posterHint,
+      title: movieData.title ?? null,
+      year: movieData.year ?? null,
+      posterUrl: movieData.posterUrl ?? null,
+      posterHint: movieData.posterHint ?? null,
       mediaType: mediaType,
       addedBy: userId,
       // Denormalized user data to avoid N+1 fetches
@@ -416,26 +479,32 @@ export async function addMovieToList(formData: FormData) {
       };
     }
 
-    // Check if movie already exists (to avoid double-counting)
-    const existingDoc = await movieRef.get();
-    const isNewMovie = !existingDoc.exists;
-
-    await movieRef.set(movieDoc, { merge: true });
-
-    // Update list's updatedAt and increment movieCount if new
     const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
       .doc(listId);
 
-    if (isNewMovie) {
-      await listRef.update({
+    // AUDIT.md 2.2: the movie write and the movieCount increment must be
+    // atomic. They used to be separate ops — a mid-operation failure drifted
+    // the count, and two concurrent adds of the SAME movie both read
+    // "not exists" and double-incremented. One transaction makes the
+    // existence-check + set + count-change a single unit; Firestore's
+    // contention retry collapses the concurrent-add race to one increment.
+    const isNewMovie = await db.runTransaction(async (tx) => {
+      const existing = await tx.get(movieRef);
+      const isNew = !existing.exists;
+      tx.set(movieRef, movieDoc, { merge: true });
+      tx.update(listRef, {
         updatedAt: FieldValue.serverTimestamp(),
-        movieCount: FieldValue.increment(1),
+        ...(isNew ? { movieCount: FieldValue.increment(1) } : {}),
       });
+      return isNew;
+    });
 
-      // Create activity for new movie additions
+    // Best-effort activity for genuinely new additions — post-commit so its
+    // failure can neither roll back nor fail the add.
+    if (isNewMovie) {
       try {
         const listDoc = await listRef.get();
         const listData = listDoc.data();
@@ -454,10 +523,6 @@ export async function addMovieToList(formData: FormData) {
         console.error('[addMovieToList] Failed to create activity:', activityError);
         // Don't fail the whole operation if activity creation fails
       }
-    } else {
-      await listRef.update({
-        updatedAt: FieldValue.serverTimestamp(),
-      });
     }
 
     revalidatePath(`/lists/${listId}`);
@@ -473,11 +538,15 @@ export async function addMovieToList(formData: FormData) {
  * Supports collaborative lists - user can be owner or collaborator.
  */
 export async function removeMovieFromList(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -487,26 +556,27 @@ export async function removeMovieFromList(
       return { error: 'You do not have permission to remove movies from this list.' };
     }
 
-    const movieRef = db
+    const listRef = db
       .collection('users')
       .doc(listOwnerId)
       .collection('lists')
-      .doc(listId)
-      .collection('movies')
-      .doc(movieId);
+      .doc(listId);
+    const movieRef = listRef.collection('movies').doc(movieId);
 
-    await movieRef.delete();
-
-    // Update list's updatedAt and decrement movieCount
-    await db
-      .collection('users')
-      .doc(listOwnerId)
-      .collection('lists')
-      .doc(listId)
-      .update({
+    // AUDIT.md 2.2: only decrement when an actual delete happens, atomically.
+    // The old code always `increment(-1)` even if the movie was already gone
+    // (double-tap remove / stale UI) → movieCount drifted negative. The
+    // transaction makes "the doc existed → delete it AND decrement" one unit;
+    // if it's already gone, it's a clean no-op.
+    await db.runTransaction(async (tx) => {
+      const existing = await tx.get(movieRef);
+      if (!existing.exists) return; // nothing to remove — do not decrement
+      tx.delete(movieRef);
+      tx.update(listRef, {
         updatedAt: FieldValue.serverTimestamp(),
         movieCount: FieldValue.increment(-1),
       });
+    });
 
     revalidatePath(`/lists/${listId}`);
     return { success: true };
@@ -521,12 +591,16 @@ export async function removeMovieFromList(
  * Supports collaborative lists - user can be owner or collaborator.
  */
 export async function updateMovieStatus(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string,
   status: 'To Watch' | 'Watched'
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -592,12 +666,19 @@ export async function updateMovieStatus(
  * Notes are stored per-user in the movie document.
  */
 export async function updateMovieNote(
-  userId: string,
+  idToken: string,
   listOwnerId: string,
   listId: string,
   movieId: string,
   note: string
 ) {
+  // AUDIT.md 1.6: note was keyed `notes.${userId}` with a client-supplied
+  // userId — a collaborator could spoof or delete ANOTHER member's note.
+  // Keyed to the verified caller now: you can only ever touch your own note.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -659,64 +740,18 @@ export async function updateMovieNote(
   }
 }
 
-/**
- * Legacy addMovie function for backward compatibility.
- * Adds movie to user's default list.
- */
-export async function addMovie(formData: FormData) {
-  const db = getDb();
-
-  try {
-    const movieData = JSON.parse(formData.get('movieData') as string) as SearchResult;
-    const addedBy = formData.get('addedBy') as string;
-    const socialLink = formData.get('socialLink') as string;
-
-    if (!movieData || !addedBy) {
-      throw new Error('Missing movie data or user ID.');
-    }
-
-    // Find user's default list
-    const listsSnapshot = await db
-      .collection('users')
-      .doc(addedBy)
-      .collection('lists')
-      .where('isDefault', '==', true)
-      .limit(1)
-      .get();
-
-    let listId: string;
-
-    if (listsSnapshot.empty) {
-      // Create default list if none exists
-      const result = await ensureUserProfile(addedBy, '', null);
-      if ('error' in result || !result.defaultListId) {
-        throw new Error('Could not find or create default list.');
-      }
-      listId = result.defaultListId;
-    } else {
-      listId = listsSnapshot.docs[0].id;
-    }
-
-    // Add movie to the default list
-    const newFormData = new FormData();
-    newFormData.append('movieData', JSON.stringify(movieData));
-    newFormData.append('userId', addedBy);
-    newFormData.append('listId', listId);
-    newFormData.append('socialLink', socialLink || '');
-
-    return await addMovieToList(newFormData);
-  } catch (error) {
-    console.error('Failed to add movie:', error);
-    return { error: 'Failed to add movie.' };
-  }
-}
-
+// Legacy addMovie() removed (AUDIT.md 4.3 / Phase 1): dead code, no callers,
+// and was a reachable POST endpoint that trusted a client-supplied addedBy.
 /**
  * Migrates movies from the old structure to a list.
  * Old: users/{userId}/movies/{movieId}
  * New: users/{userId}/lists/{listId}/movies/{movieId}
  */
-export async function migrateMoviesToList(userId: string, listId: string) {
+export async function migrateMoviesToList(idToken: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -763,6 +798,16 @@ export async function migrateMoviesToList(userId: string, listId: string) {
  * Also migrates users missing normalized fields on-the-fly.
  */
 export async function searchUsers(query: string, currentUserId?: string) {
+  // AUDIT.md 2.8: this used to fetch EVERY user doc on every keystroke and
+  // filter client-side — at 5k users that's ~5MB per character typed. Now: two
+  // parallel single-field prefix-range queries (Firestore auto-indexes
+  // single fields, so no composite index needed), each limited. Per-keystroke
+  // cost goes from O(total users) to at most ~40 reads.
+  // 1.9 note: email is no longer on the public /users doc, so we don't search
+  // it (intentional privacy decision — you can't find people by email).
+  // Legacy users without usernameLower/displayNameLower won't appear in
+  // search until `backfillUserSearchFields` is run — same pre-launch
+  // operational task as backfillEmailPrivacy.
   const db = getDb();
 
   try {
@@ -770,88 +815,56 @@ export async function searchUsers(query: string, currentUserId?: string) {
       return { users: [] };
     }
 
-    const queryLower = query.toLowerCase().trim();
+    const q = query.toLowerCase().trim();
+    // Classic Firestore prefix-range pattern: [q, q + '') matches every
+    // string starting with q ( is a high-codepoint sentinel).
+    const upper = q + '';
+    const PER_FIELD_LIMIT = 20;
+
+    const [byUsername, byDisplayName] = await Promise.all([
+      db.collection('users')
+        .where('usernameLower', '>=', q)
+        .where('usernameLower', '<', upper)
+        .limit(PER_FIELD_LIMIT)
+        .get(),
+      db.collection('users')
+        .where('displayNameLower', '>=', q)
+        .where('displayNameLower', '<', upper)
+        .limit(PER_FIELD_LIMIT)
+        .get(),
+    ]);
+
     const usersMap = new Map<string, UserProfile>();
-    const usersToMigrate: Array<{ ref: FirebaseFirestore.DocumentReference; data: FirebaseFirestore.DocumentData }> = [];
-
-    // Fetch all users and filter client-side
-    // For apps with <1000 users, this is pragmatic and reliable
-    const allUsersSnapshot = await db.collection('users').get();
-
-    console.log(`[searchUsers] Query: "${queryLower}", Total users in DB: ${allUsersSnapshot.size}`);
-
-    allUsersSnapshot.docs.forEach((doc) => {
+    const collect = (doc: FirebaseFirestore.QueryDocumentSnapshot) => {
       const data = doc.data();
-
-      // Skip current user
       const docUid = data.uid || doc.id;
       if (docUid === currentUserId) return;
+      if (usersMap.has(docUid)) return;
+      usersMap.set(docUid, {
+        uid: docUid,
+        email: '', // 1.9: email lives in /users_private, never returned here
+        displayName: data.displayName || null,
+        photoURL: data.photoURL || null,
+        username: data.username || null,
+        bio: data.bio || null,
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        followersCount: data.followersCount || 0,
+        followingCount: data.followingCount || 0,
+      });
+    };
+    byUsername.docs.forEach(collect);
+    byDisplayName.docs.forEach(collect);
 
-      // Track users needing migration
-      if (!data.usernameLower && data.username) {
-        usersToMigrate.push({ ref: doc.ref, data });
-      }
-
-      // Use pre-normalized fields if available, otherwise normalize on the fly
-      const username = data.usernameLower || (data.username || '').toLowerCase();
-      const email = data.emailLower || (data.email || '').toLowerCase();
-      const displayName = data.displayNameLower || (data.displayName || '').toLowerCase();
-
-      // Check if any field contains or starts with the query
-      const matchesUsername = username && (username.includes(queryLower) || username.startsWith(queryLower));
-      const matchesEmail = email && (email.includes(queryLower) || email.split('@')[0].includes(queryLower));
-      const matchesDisplayName = displayName && displayName.includes(queryLower);
-
-      if (matchesUsername || matchesEmail || matchesDisplayName) {
-        // Convert Firestore Timestamp to ISO string for serialization
-        const userProfile: UserProfile = {
-          uid: docUid,
-          email: data.email || '',
-          displayName: data.displayName || null,
-          photoURL: data.photoURL || null,
-          username: data.username || null,
-          bio: data.bio || null,
-          createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          followersCount: data.followersCount || 0,
-          followingCount: data.followingCount || 0,
-        };
-        usersMap.set(docUid, userProfile);
-      }
-    });
-
-    // Migrate users missing normalized fields (fire and forget, capped at 10)
-    const MAX_MIGRATIONS_PER_SEARCH = 10;
-    if (usersToMigrate.length > 0) {
-      const toMigrate = usersToMigrate.slice(0, MAX_MIGRATIONS_PER_SEARCH);
-      console.log(`[searchUsers] Migrating ${toMigrate.length} of ${usersToMigrate.length} users with missing normalized fields`);
-      Promise.all(
-        toMigrate.map(({ ref, data }) =>
-          ref.update({
-            usernameLower: data.username.toLowerCase(),
-            emailLower: (data.email || '').toLowerCase(),
-            displayNameLower: data.displayName?.toLowerCase() || null,
-          }).catch((err) => console.error(`[searchUsers] Migration failed for ${ref.id}:`, err))
-        )
-      ).catch(() => { /* ignore batch errors */ });
-    }
-
-    console.log(`[searchUsers] Found ${usersMap.size} matching users`);
-
-    // Sort by relevance: exact username match first, then prefix match, then contains
+    // Rank: exact @handle match > @handle prefix > alphabetical.
     const users = Array.from(usersMap.values())
       .sort((a, b) => {
-        const aUsername = (a.username || '').toLowerCase();
-        const bUsername = (b.username || '').toLowerCase();
-
-        // Exact match comes first
-        if (aUsername === queryLower && bUsername !== queryLower) return -1;
-        if (bUsername === queryLower && aUsername !== queryLower) return 1;
-
-        // Prefix match comes next
-        if (aUsername.startsWith(queryLower) && !bUsername.startsWith(queryLower)) return -1;
-        if (bUsername.startsWith(queryLower) && !aUsername.startsWith(queryLower)) return 1;
-
-        return 0;
+        const au = (a.username || '').toLowerCase();
+        const bu = (b.username || '').toLowerCase();
+        if (au === q && bu !== q) return -1;
+        if (bu === q && au !== q) return 1;
+        if (au.startsWith(q) && !bu.startsWith(q)) return -1;
+        if (bu.startsWith(q) && !au.startsWith(q)) return 1;
+        return au.localeCompare(bu);
       })
       .slice(0, 10);
 
@@ -970,7 +983,21 @@ export async function getUserByUsername(username: string) {
 /**
  * Update a user's username.
  */
-export async function updateUsername(userId: string, newUsername: string) {
+/**
+ * AUDIT.md 2.3 (Option A): usernames are IMMUTABLE for users — frozen at
+ * signup. This eliminates the worst denormalization-staleness class (stale
+ * @handles breaking profile URLs / @mentions / search). It is intentionally
+ * NOT user-callable: it is an ADMIN escape hatch (trademark/abuse/typo support
+ * tickets) gated by ADMIN_SECRET, same hardened pattern as backfill actions
+ * (1.8). The transactional username/usernameLower/reservation logic from 1.10
+ * is preserved — it just runs on an admin-supplied target uid now.
+ */
+export async function updateUsername(adminSecret: string, userId: string, newUsername: string) {
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
+  }
+
   const db = getDb();
 
   try {
@@ -984,22 +1011,44 @@ export async function updateUsername(userId: string, newUsername: string) {
       return { error: 'Username must be 20 characters or less.' };
     }
 
-    // Check if username is taken
-    const existing = await db.collection('users')
-      .where('username', '==', username)
-      .limit(1)
-      .get();
+    const result = await db.runTransaction(async (tx) => {
+      const newResRef = db.collection('usernames').doc(username);
+      const userRef = db.collection('users').doc(userId);
 
-    if (!existing.empty && existing.docs[0].id !== userId) {
-      return { error: 'Username is already taken.' };
-    }
+      const [newResSnap, userSnap] = await Promise.all([tx.get(newResRef), tx.get(userRef)]);
 
-    await db.collection('users').doc(userId).update({
-      username: username,
+      // Reservation owned by someone else → taken. (If unreserved, the
+      // collection-group query below is the correctness backstop for legacy
+      // users created before reservations were maintained.)
+      if (newResSnap.exists && newResSnap.data()?.uid !== userId) {
+        return { error: 'Username is already taken.' };
+      }
+      if (!userSnap.exists) {
+        return { error: 'User not found.' };
+      }
+
+      // Backstop for legacy users without a reservation doc.
+      const clash = await tx.get(
+        db.collection('users').where('usernameLower', '==', username).limit(1)
+      );
+      if (!clash.empty && clash.docs[0].id !== userId) {
+        return { error: 'Username is already taken.' };
+      }
+
+      const oldLower: string | undefined = userSnap.data()?.usernameLower;
+
+      tx.update(userRef, { username, usernameLower: username });
+      tx.set(newResRef, { uid: userId });
+      if (oldLower && oldLower !== username) {
+        tx.delete(db.collection('usernames').doc(oldLower));
+      }
+      return { success: true as const, username };
     });
 
+    if ('error' in result) return result;
+
     revalidatePath('/profile');
-    return { success: true, username };
+    return result;
   } catch (error) {
     console.error('Failed to update username:', error);
     return { error: 'Failed to update username.' };
@@ -1010,13 +1059,22 @@ export async function updateUsername(userId: string, newUsername: string) {
  * Delete a user account and all associated data.
  * This is a destructive operation that cannot be undone.
  */
-export async function deleteUserAccount(userId: string, confirmUsername: string) {
+export async function deleteUserAccount(idToken: string, confirmUsername: string) {
+  // AUDIT.md 1.2 (CRITICAL): the old auth was "username matches userId's stored
+  // username" — but usernames are PUBLIC, so anyone could delete anyone by
+  // passing (victimUid, victimUsername). Identity now comes from the verified
+  // token (checkRevoked for this highest-stakes op); the username check is
+  // demoted to a typed "are you sure" confirmation against the caller's OWN name.
+  const authRes = await verifyCaller(idToken, { checkRevoked: true });
+  if (isAuthError(authRes)) return authRes;
+  const userId = authRes.uid;
+
   const db = getDb();
   const adminApp = getFirebaseAdminApp();
   const auth = getAuth(adminApp);
 
   try {
-    // First, verify the user exists and username matches
+    // Verify the user exists and the typed confirmation matches THEIR own name.
     const userDoc = await db.collection('users').doc(userId).get();
     if (!userDoc.exists) {
       return { error: 'User not found.' };
@@ -1090,22 +1148,36 @@ export async function deleteUserAccount(userId: string, confirmUsername: string)
     await inviteBatch.commit();
     console.log(`[deleteUserAccount] Deleted invites`);
 
-    // 4. Remove user from any lists they collaborate on
-    const allUsersSnapshot = await db.collection('users').get();
-    for (const userDocSnapshot of allUsersSnapshot.docs) {
-      if (userDocSnapshot.id === userId) continue;
+    // 4. Remove user from any lists they collaborate on.
+    // AUDIT.md 2.7: was a full `users` scan — O(total users) reads per delete,
+    // ~30s+ at 10k users, exceeds function timeouts, half-deletes accounts on
+    // timeout. Switched to a single collectionGroup query that returns ONLY
+    // the lists actually containing this user (O(collaborator-lists)).
+    // Requires the `lists`/`collaboratorIds` collection-group field override
+    // in firestore.indexes.json.
+    const collabLists = await db
+      .collectionGroup('lists')
+      .where('collaboratorIds', 'array-contains', userId)
+      .get();
 
-      const listsSnapshot = await userDocSnapshot.ref.collection('lists')
-        .where('collaboratorIds', 'array-contains', userId)
-        .get();
-
-      for (const listDoc of listsSnapshot.docs) {
-        await listDoc.ref.update({
-          collaboratorIds: FieldValue.arrayRemove(userId),
-        });
+    let collabBatch = db.batch();
+    let collabBatchSize = 0;
+    for (const listDoc of collabLists.docs) {
+      // Skip lists owned by the user being deleted — those are removed
+      // outright in step 5; arrayRemove there would be redundant.
+      if (listDoc.ref.parent.parent?.id === userId) continue;
+      collabBatch.update(listDoc.ref, {
+        collaboratorIds: FieldValue.arrayRemove(userId),
+      });
+      collabBatchSize++;
+      if (collabBatchSize >= 450) {
+        await collabBatch.commit();
+        collabBatch = db.batch();
+        collabBatchSize = 0;
       }
     }
-    console.log(`[deleteUserAccount] Removed from collaborations`);
+    if (collabBatchSize > 0) await collabBatch.commit();
+    console.log(`[deleteUserAccount] Removed from ${collabLists.size} collaborations`);
 
     // 5. Delete all user's lists and their movies (subcollections)
     const userListsSnapshot = await db.collection('users').doc(userId).collection('lists').get();
@@ -1188,7 +1260,16 @@ export async function deleteUserAccount(userId: string, confirmUsername: string)
 /**
  * Follow a user.
  */
-export async function followUser(followerId: string, followingId: string) {
+export async function followUser(idToken: string, followingId: string) {
+  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const followerId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted follow/notification spam.
+  const rl = await checkRateLimit(followerId, 'follow');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -1282,7 +1363,12 @@ export async function followUser(followerId: string, followingId: string) {
 /**
  * Unfollow a user.
  */
-export async function unfollowUser(followerId: string, followingId: string) {
+export async function unfollowUser(idToken: string, followingId: string) {
+  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const followerId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1577,7 +1663,11 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
  * Toggle a list's public/private status.
  * Only the list owner can change visibility.
  */
-export async function toggleListVisibility(userId: string, listOwnerId: string, listId: string) {
+export async function toggleListVisibility(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -1605,6 +1695,50 @@ export async function toggleListVisibility(userId: string, listOwnerId: string, 
   } catch (error) {
     console.error('Failed to toggle list visibility:', error);
     return { error: 'Failed to toggle list visibility.' };
+  }
+}
+
+/**
+ * AUDIT.md 1.9 migration: move email/emailLower OFF the publicly-readable
+ * /users docs of EXISTING users into /users_private, then strip them from the
+ * public doc. New users are already split at creation; this closes the leak
+ * for legacy data. Admin-gated (same hardened secret check as 1.8). Idempotent.
+ */
+export async function backfillEmailPrivacy(adminSecret: string) {
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
+  }
+
+  const db = getDb();
+  try {
+    const usersSnapshot = await db.collection('users').get();
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const doc of usersSnapshot.docs) {
+      const data = doc.data();
+      const hasEmail = data.email !== undefined || data.emailLower !== undefined;
+      if (!hasEmail) { skipped++; continue; }
+
+      const email: string = data.email || '';
+      await db.collection('users_private').doc(doc.id).set({
+        uid: doc.id,
+        email,
+        emailLower: (data.email || data.emailLower || '').toLowerCase(),
+      }, { merge: true });
+
+      await doc.ref.update({
+        email: FieldValue.delete(),
+        emailLower: FieldValue.delete(),
+      });
+      migrated++;
+    }
+
+    return { success: true, migrated, skipped };
+  } catch (error) {
+    console.error('[backfillEmailPrivacy] Failed:', error);
+    return { error: 'Failed to backfill email privacy.' };
   }
 }
 
@@ -1682,10 +1816,12 @@ const MAX_LIST_MEMBERS = 10; // Owner + 9 collaborators
  * Generate a random invite code for link-based invites.
  */
 function generateInviteCode(): string {
+  // AUDIT.md 2.9: Math.random() is not a CSPRNG (predictable). randomInt() is
+  // cryptographically secure AND rejection-samples internally (no modulo bias).
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
   let code = '';
   for (let i = 0; i < 12; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
+    code += chars.charAt(randomInt(chars.length));
   }
   return code;
 }
@@ -1751,7 +1887,15 @@ export async function getListMembers(listOwnerId: string, listId: string) {
 /**
  * Invite a user to collaborate on a list (in-app invite).
  */
-export async function inviteToList(inviterId: string, listOwnerId: string, listId: string, inviteeId: string) {
+export async function inviteToList(idToken: string, listOwnerId: string, listId: string, inviteeId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const inviterId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted invite spam.
+  const rl = await checkRateLimit(inviterId, 'invite');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -1857,7 +2001,15 @@ export async function inviteToList(inviterId: string, listOwnerId: string, listI
 /**
  * Create an invite link for a list.
  */
-export async function createInviteLink(inviterId: string, listOwnerId: string, listId: string) {
+export async function createInviteLink(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const inviterId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted invite-link generation.
+  const rl = await checkRateLimit(inviterId, 'invite');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -1998,7 +2150,15 @@ export async function getMyPendingInvites(userId: string) {
 /**
  * Get pending invites for a list (for owner or collaborators to see).
  */
-export async function getListPendingInvites(userId: string, listOwnerId: string, listId: string) {
+export async function getListPendingInvites(idToken: string, listOwnerId: string, listId: string) {
+  // AUDIT.md 1.14: was IDOR/tautological (trusted client userId; passing
+  // userId===listOwnerId satisfied isOwner). Now membership is decided by the
+  // verified caller. Also: inviteCode is owner-only — a collaborator who is
+  // later removed must not walk away with a working join code.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2035,7 +2195,8 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
         inviterUsername: data.inviterUsername,
         inviteeId: data.inviteeId,
         inviteeUsername: data.inviteeUsername,
-        inviteCode: data.inviteCode,
+        // 1.14: only the owner gets the join code.
+        inviteCode: isOwner ? data.inviteCode : undefined,
         status: data.status,
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         expiresAt: data.expiresAt?.toDate?.()?.toISOString?.() || undefined,
@@ -2052,87 +2213,84 @@ export async function getListPendingInvites(userId: string, listOwnerId: string,
 /**
  * Accept an invite (either by inviteId or inviteCode).
  */
-export async function acceptInvite(userId: string, inviteId?: string, inviteCode?: string) {
+export async function acceptInvite(idToken: string, inviteId?: string, inviteCode?: string) {
+  // AUDIT.md 1.11: was IDOR (trusted client userId) + a read-check-write RACE
+  // (two concurrent accepts could blow past MAX_LIST_MEMBERS; a concurrent
+  // revoke could be ignored). Now: verified token + a single transaction that
+  // re-reads invite status and the member count atomically.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
-    let inviteDoc;
+    // Resolve the invite ref (a code lookup is a query; the transaction below
+    // re-reads this exact ref, so a stale status here is harmless).
     let inviteRef;
-
     if (inviteId) {
       inviteRef = db.collection('invites').doc(inviteId);
-      inviteDoc = await inviteRef.get();
     } else if (inviteCode) {
       const inviteSnapshot = await db.collection('invites')
         .where('inviteCode', '==', inviteCode)
         .where('status', '==', 'pending')
         .limit(1)
         .get();
-
       if (inviteSnapshot.empty) {
         return { error: 'Invite not found or has expired.' };
       }
-
-      inviteDoc = inviteSnapshot.docs[0];
-      inviteRef = inviteDoc.ref;
+      inviteRef = inviteSnapshot.docs[0].ref;
     } else {
       return { error: 'No invite specified.' };
     }
 
-    if (!inviteDoc.exists) {
-      return { error: 'Invite not found.' };
-    }
+    const txResult = await db.runTransaction(async (tx) => {
+      const inviteSnap = await tx.get(inviteRef);
+      if (!inviteSnap.exists) return { error: 'Invite not found.' };
+      const inviteData = inviteSnap.data()!;
 
-    const inviteData = inviteDoc.data();
+      if (inviteData.inviteeId && inviteData.inviteeId !== userId) {
+        return { error: 'This invite is for another user.' };
+      }
+      // Re-checked INSIDE the tx — closes the revoke↔accept race.
+      if (inviteData.status !== 'pending') {
+        return { error: 'This invite is no longer valid.' };
+      }
+      if (inviteData.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
+        return { error: 'This invite has expired.' };
+      }
 
-    // Check if invite is for this user (for in-app invites)
-    if (inviteData?.inviteeId && inviteData.inviteeId !== userId) {
-      return { error: 'This invite is for another user.' };
-    }
+      const listRef = db.collection('users').doc(inviteData.listOwnerId)
+        .collection('lists').doc(inviteData.listId);
+      const listSnap = await tx.get(listRef);
+      if (!listSnap.exists) return { error: 'List no longer exists.' };
 
-    // Check if invite is pending
-    if (inviteData?.status !== 'pending') {
-      return { error: 'This invite is no longer valid.' };
-    }
+      const collaboratorIds: string[] = listSnap.data()?.collaboratorIds || [];
 
-    // Check expiration for link invites
-    if (inviteData?.expiresAt && inviteData.expiresAt.toDate() < new Date()) {
-      return { error: 'This invite has expired.' };
-    }
+      if (collaboratorIds.includes(userId) || userId === inviteData.listOwnerId) {
+        tx.update(inviteRef, { status: 'accepted' });
+        return { error: 'You are already a member of this list.' };
+      }
 
-    // Get list and check max members
-    const listRef = db.collection('users').doc(inviteData.listOwnerId).collection('lists').doc(inviteData.listId);
-    const listDoc = await listRef.get();
+      // Member-cap check now atomic with the write below.
+      if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
+        return { error: 'This list has reached the maximum number of members.' };
+      }
 
-    if (!listDoc.exists) {
-      return { error: 'List no longer exists.' };
-    }
+      tx.update(listRef, {
+        collaboratorIds: FieldValue.arrayUnion(userId),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      tx.update(inviteRef, { status: 'accepted', inviteeId: userId });
 
-    const listData = listDoc.data();
-    const collaboratorIds: string[] = listData?.collaboratorIds || [];
-
-    // Check if already a collaborator
-    if (collaboratorIds.includes(userId) || userId === inviteData.listOwnerId) {
-      await inviteRef.update({ status: 'accepted' });
-      return { error: 'You are already a member of this list.' };
-    }
-
-    // Check max members
-    if (collaboratorIds.length + 1 >= MAX_LIST_MEMBERS) {
-      return { error: 'This list has reached the maximum number of members.' };
-    }
-
-    // Add user as collaborator
-    await listRef.update({
-      collaboratorIds: FieldValue.arrayUnion(userId),
-      updatedAt: FieldValue.serverTimestamp(),
+      return { success: true as const, listId: inviteData.listId, listOwnerId: inviteData.listOwnerId };
     });
 
-    // Update invite status
-    await inviteRef.update({
-      status: 'accepted',
-      inviteeId: userId, // Set for link invites
-    });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
+    const inviteData = { listId: txResult.listId, listOwnerId: txResult.listOwnerId };
 
     // Delete the associated notification (so Accept/Decline buttons don't show anymore)
     // Query by listId for backwards compatibility (older notifications may not have inviteId)
@@ -2163,7 +2321,11 @@ export async function acceptInvite(userId: string, inviteId?: string, inviteCode
 /**
  * Decline an invite.
  */
-export async function declineInvite(userId: string, inviteId: string) {
+export async function declineInvite(idToken: string, inviteId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2211,27 +2373,39 @@ export async function declineInvite(userId: string, inviteId: string) {
 /**
  * Revoke an invite (owner only).
  */
-export async function revokeInvite(userId: string, inviteId: string) {
+export async function revokeInvite(idToken: string, inviteId: string) {
+  // AUDIT.md 1.12: was IDOR (trusted client userId) + too narrow (only the
+  // inviter could revoke; the list owner couldn't revoke a collaborator's
+  // invite) + racy vs acceptInvite. Now: verified token, owner-OR-inviter,
+  // and the status check + write happen in one transaction.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
     const inviteRef = db.collection('invites').doc(inviteId);
-    const inviteDoc = await inviteRef.get();
 
-    if (!inviteDoc.exists) {
-      return { error: 'Invite not found.' };
-    }
+    const result = await db.runTransaction(async (tx) => {
+      const inviteSnap = await tx.get(inviteRef);
+      if (!inviteSnap.exists) return { error: 'Invite not found.' };
+      const inviteData = inviteSnap.data()!;
 
-    const inviteData = inviteDoc.data();
+      // The inviter OR the list owner may revoke.
+      if (inviteData.inviterId !== userId && inviteData.listOwnerId !== userId) {
+        return { error: 'Only the list owner or the inviter can revoke this invite.' };
+      }
+      // Re-checked in-tx: don't revoke an invite that was just accepted.
+      if (inviteData.status !== 'pending') {
+        return { error: 'This invite is no longer pending.' };
+      }
 
-    // Only inviter (owner) can revoke
-    if (inviteData?.inviterId !== userId) {
-      return { error: 'Only the list owner can revoke invites.' };
-    }
+      tx.update(inviteRef, { status: 'revoked' });
+      return { success: true as const };
+    });
 
-    await inviteRef.update({ status: 'revoked' });
-
-    return { success: true };
+    return result;
   } catch (error) {
     console.error('[revokeInvite] Failed:', error);
     return { error: 'Failed to revoke invite.' };
@@ -2241,7 +2415,14 @@ export async function revokeInvite(userId: string, inviteId: string) {
 /**
  * Remove a collaborator from a list (owner only).
  */
-export async function removeCollaborator(ownerId: string, listId: string, collaboratorId: string) {
+export async function removeCollaborator(idToken: string, ownerId: string, listId: string, collaboratorId: string) {
+  // AUDIT.md 1.4: the old check `listData.ownerId !== ownerId` was tautological
+  // (ownerId was both the path AND the comparison target — always passed).
+  // Now we compare the stored owner against the cryptographically-verified
+  // caller, so only the real owner can remove collaborators.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
@@ -2254,8 +2435,8 @@ export async function removeCollaborator(ownerId: string, listId: string, collab
 
     const listData = listDoc.data();
 
-    // Check if user is owner
-    if (listData?.ownerId !== ownerId) {
+    // Only the verified list owner may remove collaborators.
+    if (listData?.ownerId !== auth.uid) {
       return { error: 'Only the list owner can remove collaborators.' };
     }
 
@@ -2277,7 +2458,11 @@ export async function removeCollaborator(ownerId: string, listId: string, collab
 /**
  * Leave a list (collaborator only - owner must transfer ownership first).
  */
-export async function leaveList(userId: string, listOwnerId: string, listId: string) {
+export async function leaveList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2318,35 +2503,84 @@ export async function leaveList(userId: string, listOwnerId: string, listId: str
 /**
  * Transfer list ownership to a collaborator.
  */
-export async function transferOwnership(currentOwnerId: string, listId: string, newOwnerId: string) {
+export async function transferOwnership(idToken: string, listId: string, newOwnerId: string) {
+  // AUDIT.md 1.3 + 2.1.
+  // 1.3 (auth): the current owner IS the verified caller; stored ownerId is
+  // double-checked inside an atomic pre-flight transaction below.
+  // 2.1 (transactional integrity): subcollection moves can't fit in one
+  // Firestore transaction (500-op limit), so we use a safer staged pattern:
+  //   (P1) atomic pre-flight transaction — verify state ONCE under contention
+  //   (P2) batched idempotent copy of movies to the new owner's path
+  //   (P3) write the new list doc with the swapped collaborator set
+  //   (P4) re-point all relevant /invites docs from old → new owner
+  //   (P5) batched delete of old movies
+  //   (P6) FINAL delete of the old list doc — the canonical transition point
+  // The source list doc stays as the source of truth until P6. A crash
+  // anywhere before P6 leaves the source intact and the operation safely
+  // re-runnable (all writes are idempotent set/update). The audit found the
+  // old code's worst failure mode (movies duplicated and source orphaned on
+  // partial failure); this pattern eliminates that class.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const currentOwnerId = auth.uid;
+
   const db = getDb();
+  const BATCH_SIZE = 450; // Firestore batch limit is 500; leave headroom.
 
   try {
-    const listRef = db.collection('users').doc(currentOwnerId).collection('lists').doc(listId);
-    const listDoc = await listRef.get();
+    const oldListRef = db
+      .collection('users').doc(currentOwnerId)
+      .collection('lists').doc(listId);
+    const newListRef = db
+      .collection('users').doc(newOwnerId)
+      .collection('lists').doc(listId);
 
-    if (!listDoc.exists) {
-      return { error: 'List not found.' };
+    // P1 — Atomic pre-flight: re-read the list under transaction semantics so
+    // a concurrent ownership change can't sneak through between check and act.
+    type PreflightOk = { kind: 'ok'; listData: FirebaseFirestore.DocumentData };
+    type PreflightErr = { kind: 'err'; error: string };
+    const preflight: PreflightOk | PreflightErr = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(oldListRef);
+      if (!snap.exists) return { kind: 'err' as const, error: 'List not found.' };
+      const data = snap.data() || {};
+      if (data.ownerId !== currentOwnerId) {
+        return { kind: 'err' as const, error: 'Only the list owner can transfer ownership.' };
+      }
+      const collaboratorIds: string[] = data.collaboratorIds || [];
+      if (!collaboratorIds.includes(newOwnerId)) {
+        return { kind: 'err' as const, error: 'New owner must be an existing collaborator.' };
+      }
+      return { kind: 'ok' as const, listData: data };
+    });
+    if (preflight.kind === 'err') return { error: preflight.error };
+
+    const listData = preflight.listData;
+    const collaboratorIds: string[] = listData.collaboratorIds || [];
+    // The new owner moves out of the collaborators array; the previous owner
+    // moves INTO it (becomes a collaborator on what was their own list).
+    const newCollaborators = collaboratorIds
+      .filter((id: string) => id !== newOwnerId)
+      .concat([currentOwnerId]);
+
+    // P2 — Copy movies to the new location. `set` is idempotent so re-runs of
+    // a partially-completed transfer converge.
+    const moviesSnapshot = await oldListRef.collection('movies').get();
+    let copyBatch = db.batch();
+    let copyOps = 0;
+    for (const movieDoc of moviesSnapshot.docs) {
+      copyBatch.set(newListRef.collection('movies').doc(movieDoc.id), movieDoc.data());
+      copyOps++;
+      if (copyOps >= BATCH_SIZE) {
+        await copyBatch.commit();
+        copyBatch = db.batch();
+        copyOps = 0;
+      }
     }
+    if (copyOps > 0) await copyBatch.commit();
 
-    const listData = listDoc.data();
-    const collaboratorIds: string[] = listData?.collaboratorIds || [];
-
-    // Check if new owner is a collaborator
-    if (!collaboratorIds.includes(newOwnerId)) {
-      return { error: 'New owner must be an existing collaborator.' };
-    }
-
-    // Get all movies in the list
-    const moviesSnapshot = await listRef.collection('movies').get();
-
-    // Create new list under new owner
-    const newListRef = db.collection('users').doc(newOwnerId).collection('lists').doc(listId);
-
-    // Update collaborators: remove new owner, add old owner
-    const newCollaborators = collaboratorIds.filter(id => id !== newOwnerId);
-    newCollaborators.push(currentOwnerId);
-
+    // P3 — Create the list doc at the new owner's path. After this, both
+    // paths technically exist; readers using the new path now see a valid
+    // list. Old path is still canonical until P6.
     await newListRef.set({
       ...listData,
       ownerId: newOwnerId,
@@ -2354,21 +2588,48 @@ export async function transferOwnership(currentOwnerId: string, listId: string, 
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // Copy all movies to new location
-    const batch = db.batch();
-    for (const movieDoc of moviesSnapshot.docs) {
-      const newMovieRef = newListRef.collection('movies').doc(movieDoc.id);
-      batch.set(newMovieRef, movieDoc.data());
+    // P4 — Re-point invites. The audit explicitly called this out: without
+    // this, `getCollaborativeLists` reads `users/{oldOwner}/lists/{listId}`
+    // for every invite-derived membership and finds nothing, silently breaking
+    // every collaborator. Idempotent: only invites still pointing at the old
+    // owner are updated; re-running is a no-op.
+    const invitesSnapshot = await db.collection('invites')
+      .where('listId', '==', listId)
+      .where('listOwnerId', '==', currentOwnerId)
+      .get();
+    if (!invitesSnapshot.empty) {
+      let inviteBatch = db.batch();
+      let inviteOps = 0;
+      for (const inv of invitesSnapshot.docs) {
+        inviteBatch.update(inv.ref, { listOwnerId: newOwnerId });
+        inviteOps++;
+        if (inviteOps >= BATCH_SIZE) {
+          await inviteBatch.commit();
+          inviteBatch = db.batch();
+          inviteOps = 0;
+        }
+      }
+      if (inviteOps > 0) await inviteBatch.commit();
     }
-    await batch.commit();
 
-    // Delete old list and movies
-    const deleteBatch = db.batch();
+    // P5 — Delete old movies in batches.
+    let delBatch = db.batch();
+    let delOps = 0;
     for (const movieDoc of moviesSnapshot.docs) {
-      deleteBatch.delete(movieDoc.ref);
+      delBatch.delete(movieDoc.ref);
+      delOps++;
+      if (delOps >= BATCH_SIZE) {
+        await delBatch.commit();
+        delBatch = db.batch();
+        delOps = 0;
+      }
     }
-    deleteBatch.delete(listRef);
-    await deleteBatch.commit();
+    if (delOps > 0) await delBatch.commit();
+
+    // P6 — The atomic "transferred" transition point: only after this does
+    // the new location become canonical. A double-call after success will
+    // hit P1 and return "List not found" — a graceful idempotent no-op.
+    await oldListRef.delete();
 
     revalidatePath('/lists');
     revalidatePath(`/lists/${listId}`);
@@ -2484,11 +2745,15 @@ export async function getCollaborativeLists(userId: string) {
  * - R2_PUBLIC_BASE_URL: Public URL for the bucket (e.g., https://pub-xxx.r2.dev)
  */
 export async function uploadAvatar(
-  userId: string,
+  idToken: string,
   base64Data: string,
   fileName: string,
   mimeType: string
 ): Promise<{ url?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   try {
     // Validate inputs
     if (!userId || !base64Data) {
@@ -2578,7 +2843,11 @@ export async function uploadAvatar(
 /**
  * Update user's profile photo URL.
  */
-export async function updateProfilePhoto(userId: string, photoURL: string) {
+export async function updateProfilePhoto(idToken: string, photoURL: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2603,14 +2872,20 @@ export async function updateProfilePhoto(userId: string, photoURL: string) {
 /**
  * Update user's bio.
  */
-export async function updateBio(userId: string, bio: string) {
+export async function updateBio(idToken: string, bio: string) {
+  // AUDIT.md Phase 1: caller identity comes from the verified token, never a
+  // client-supplied userId. Writing to auth.uid makes the old IDOR (editing
+  // another user's bio) structurally impossible.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
     // Limit bio length
     const trimmedBio = bio.trim().slice(0, 160);
 
-    await db.collection('users').doc(userId).update({
+    await db.collection('users').doc(auth.uid).update({
       bio: trimmedBio || null,
     });
 
@@ -2627,9 +2902,13 @@ export async function updateBio(userId: string, bio: string) {
  * Update user's favorite movies (top 5).
  */
 export async function updateFavoriteMovies(
-  userId: string,
+  idToken: string,
   favoriteMovies: Array<{ id: string; title: string; posterUrl: string; tmdbId: number }>
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -2652,14 +2931,37 @@ export async function updateFavoriteMovies(
 /**
  * Get preview posters and movie count for a list.
  */
-export async function getListPreview(userId: string, listId: string) {
+export async function getListPreview(listOwnerId: string, listId: string, viewerIdToken?: string) {
+  // AUDIT.md 1.13: previously NO privacy gate — anyone with ownerId+listId
+  // could fetch poster previews + count from a PRIVATE list. Now: public lists
+  // are open; private lists require a verified owner/collaborator token,
+  // otherwise an empty preview is returned (no leak, no error).
   const db = getDb();
 
   try {
+    const listSnap = await db
+      .collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
+    if (!listSnap.exists) {
+      return { previewPosters: [], movieCount: 0 };
+    }
+    const listInfo = listSnap.data();
+    if (listInfo?.isPublic !== true) {
+      // Private: only the owner or a collaborator (by verified token) may see it.
+      const viewer = await verifyCaller(viewerIdToken);
+      const viewerUid = isAuthError(viewer) ? null : viewer.uid;
+      const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
+      const allowed =
+        viewerUid != null &&
+        (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
+      if (!allowed) {
+        return { previewPosters: [], movieCount: 0 };
+      }
+    }
+
     // Get the first 4 movies from the list for preview posters
     const moviesSnapshot = await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
@@ -2678,7 +2980,7 @@ export async function getListPreview(userId: string, listId: string) {
     // Get total movie count
     const allMoviesSnapshot = await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .collection('movies')
@@ -2697,15 +2999,16 @@ export async function getListPreview(userId: string, listId: string) {
 /**
  * Get preview posters for multiple lists at once (batch operation).
  */
-export async function getListsPreviews(userId: string, listIds: string[]) {
+export async function getListsPreviews(listOwnerId: string, listIds: string[], viewerIdToken?: string) {
   const db = getDb();
   const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
 
   try {
-    // Fetch previews for all lists in parallel
+    // Fetch previews for all lists in parallel (privacy enforced per-list in
+    // getListPreview via the optional viewer token).
     const results = await Promise.all(
       listIds.map(async (listId) => {
-        const result = await getListPreview(userId, listId);
+        const result = await getListPreview(listOwnerId, listId, viewerIdToken);
         return { listId, ...result };
       })
     );
@@ -2722,19 +3025,31 @@ export async function getListsPreviews(userId: string, listIds: string[]) {
 }
 
 /**
- * Upload list cover image to R2.
+ * Upload list cover image to R2. (AUDIT.md 1.5 sibling)
+ * First param is the LIST OWNER — the R2 key and Firestore path live under the
+ * owner, so a collaborator's uid differs from it. Verify the caller, then
+ * require owner-or-collaborator edit rights on that list.
  */
 export async function uploadListCover(
-  userId: string,
+  idToken: string,
+  listOwnerId: string,
   listId: string,
   base64Data: string,
   fileName: string,
   mimeType: string
 ): Promise<{ url?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   try {
     // Validate inputs
-    if (!userId || !listId || !base64Data) {
+    if (!listOwnerId || !listId || !base64Data) {
       return { error: 'Missing required fields.' };
+    }
+
+    const canEdit = await canEditList(auth.uid, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to update this list.' };
     }
 
     // Validate mime type - accept any image type (iOS sends various formats)
@@ -2770,7 +3085,7 @@ export async function uploadListCover(
       return { error: `Missing env vars: ${missing.join(', ')}` };
     }
 
-    console.log('[uploadListCover] Starting upload for user:', userId, 'list:', listId);
+    console.log('[uploadListCover] Starting upload for owner:', listOwnerId, 'list:', listId);
 
     // Import S3 client
     const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
@@ -2802,7 +3117,7 @@ export async function uploadListCover(
     const ext = extMap[mimeType] || mimeType.split('/')[1] || 'jpg';
 
     // Use consistent filename per list (overwrites previous cover)
-    const fileKey = `covers/${userId}/${listId}/cover.${ext}`;
+    const fileKey = `covers/${listOwnerId}/${listId}/cover.${ext}`;
 
     // Upload to R2
     console.log('[uploadListCover] Uploading to R2:', fileKey);
@@ -2831,7 +3146,7 @@ export async function uploadListCover(
     try {
       await db
         .collection('users')
-        .doc(userId)
+        .doc(listOwnerId)
         .collection('lists')
         .doc(listId)
         .update({
@@ -2858,13 +3173,24 @@ export async function uploadListCover(
 /**
  * Update list cover image.
  */
-export async function updateListCover(userId: string, listId: string, coverImageUrl: string | null) {
+export async function updateListCover(idToken: string, listOwnerId: string, listId: string, coverImageUrl: string | null) {
+  // AUDIT.md 1.5: previously NO permission check — anyone could swap any list's
+  // cover. First param is the list OWNER (path), not the caller. Verify the
+  // caller, then require owner-or-collaborator edit rights on that list.
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
   const db = getDb();
 
   try {
+    const canEdit = await canEditList(auth.uid, listOwnerId, listId);
+    if (!canEdit) {
+      return { error: 'You do not have permission to update this list.' };
+    }
+
     await db
       .collection('users')
-      .doc(userId)
+      .doc(listOwnerId)
       .collection('lists')
       .doc(listId)
       .update({
@@ -2888,7 +3214,7 @@ export async function updateListCover(userId: string, listId: string, coverImage
  * Optionally pass the user's rating to snapshot with the comment.
  */
 export async function createReview(
-  userId: string,
+  idToken: string,
   tmdbId: number,
   mediaType: 'movie' | 'tv',
   movieTitle: string,
@@ -2897,6 +3223,14 @@ export async function createReview(
   ratingAtTime?: number | null, // Optional: pass the current user rating to snapshot
   parentId?: string | null // Optional: if replying to another review
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted review/comment spam (+ @mention notifications).
+  const rl = await checkRateLimit(userId, 'review');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -3125,30 +3459,42 @@ export async function getReviewReplies(parentId: string, limit: number = 50) {
 /**
  * Like a review.
  */
-export async function likeReview(userId: string, reviewId: string) {
+export async function likeReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted like/notification spam.
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
     const reviewRef = db.collection('reviews').doc(reviewId);
-    const reviewDoc = await reviewRef.get();
 
-    if (!reviewDoc.exists) {
-      return { error: 'Review not found.' };
-    }
-
-    const reviewData = reviewDoc.data();
-    const likedBy = reviewData?.likedBy || [];
-
-    if (likedBy.includes(userId)) {
-      return { error: 'Already liked.' };
-    }
-
-    await reviewRef.update({
-      likes: FieldValue.increment(1),
-      likedBy: FieldValue.arrayUnion(userId),
+    // AUDIT.md 3.5: read-check-write in one transaction. The old separate
+    // get()-then-update() let a fast double-tap run increment(1) twice while
+    // arrayUnion deduped likedBy to a single entry → likes count drifted.
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(reviewRef);
+      if (!snap.exists) return { error: 'Review not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(reviewRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, reviewData: data, newLikes: (data.likes || 0) + 1 };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
+    const reviewData = txResult.reviewData;
 
-    // Create like notification (don't notify yourself)
+    // Create like notification (don't notify yourself) — post-commit, best-effort.
     if (reviewData?.userId && reviewData.userId !== userId) {
       try {
         // Check if review author has likes notifications enabled
@@ -3182,7 +3528,7 @@ export async function likeReview(userId: string, reviewId: string) {
       }
     }
 
-    return { success: true, likes: (reviewData?.likes || 0) + 1 };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[likeReview] Failed:', error);
     return { error: 'Failed to like review.' };
@@ -3192,30 +3538,35 @@ export async function likeReview(userId: string, reviewId: string) {
 /**
  * Unlike a review.
  */
-export async function unlikeReview(userId: string, reviewId: string) {
+export async function unlikeReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
     const reviewRef = db.collection('reviews').doc(reviewId);
-    const reviewDoc = await reviewRef.get();
 
-    if (!reviewDoc.exists) {
-      return { error: 'Review not found.' };
-    }
-
-    const reviewData = reviewDoc.data();
-    const likedBy = reviewData?.likedBy || [];
-
-    if (!likedBy.includes(userId)) {
-      return { error: 'Not liked yet.' };
-    }
-
-    await reviewRef.update({
-      likes: FieldValue.increment(-1),
-      likedBy: FieldValue.arrayRemove(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(reviewRef);
+      if (!snap.exists) return { error: 'Review not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      tx.update(reviewRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 1) - 1) };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: Math.max(0, (reviewData?.likes || 1) - 1) };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[unlikeReview] Failed:', error);
     return { error: 'Failed to unlike review.' };
@@ -3225,7 +3576,11 @@ export async function unlikeReview(userId: string, reviewId: string) {
 /**
  * Delete a review (only by owner).
  */
-export async function deleteReview(userId: string, reviewId: string) {
+export async function deleteReview(idToken: string, reviewId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3253,7 +3608,11 @@ export async function deleteReview(userId: string, reviewId: string) {
 /**
  * Update a review (only by owner).
  */
-export async function updateReview(userId: string, reviewId: string, text: string) {
+export async function updateReview(idToken: string, reviewId: string, text: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3334,13 +3693,17 @@ export async function getUserReviewForMovie(userId: string, tmdbId: number) {
  * Rating is 1.0-10.0 with one decimal place.
  */
 export async function createOrUpdateRating(
-  userId: string,
+  idToken: string,
   tmdbId: number,
   mediaType: 'movie' | 'tv',
   movieTitle: string,
   moviePosterUrl: string | undefined,
   rating: number
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3452,7 +3815,11 @@ export async function getUserRating(userId: string, tmdbId: number) {
 /**
  * Delete a user's rating for a movie/TV show.
  */
-export async function deleteRating(userId: string, tmdbId: number) {
+export async function deleteRating(idToken: string, tmdbId: number) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3481,16 +3848,28 @@ export async function deleteRating(userId: string, tmdbId: number) {
 /**
  * Get all ratings for a user (for profile/stats).
  */
-export async function getUserRatings(userId: string, limit: number = 100) {
+export async function getUserRatings(
+  userId: string,
+  limit: number = 100,
+  cursor?: string, // ISO timestamp of the last seen rating's updatedAt
+) {
+  // AUDIT.md 2.5: cursor support added so callers can paginate past the
+  // single-call cap (the ratings cache previously stopped at 500 — Letterboxd
+  // importers with 1000+ ratings silently lost the tail). Pass the last
+  // result's `updatedAt` to fetch the next page; results are ordered by
+  // updatedAt desc, so the cursor is monotonic.
   const db = getDb();
 
   try {
-    const snapshot = await db
+    let q = db
       .collection('ratings')
       .where('userId', '==', userId)
       .orderBy('updatedAt', 'desc')
-      .limit(limit)
-      .get();
+      .limit(limit);
+    if (cursor) {
+      q = q.startAfter(new Date(cursor));
+    }
+    const snapshot = await q.get();
 
     const ratings = snapshot.docs.map((doc) => {
       const data = doc.data();
@@ -3573,11 +3952,15 @@ export async function checkUsernameAvailability(username: string) {
  * This is called after the user picks their username.
  */
 export async function createUserProfileWithUsername(
-  userId: string,
+  idToken: string,
   email: string,
   username: string,
   displayName: string | null
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -3613,11 +3996,10 @@ export async function createUserProfileWithUsername(
         onboardingComplete: false, // Will be set to true after import/friends steps
       });
     } else {
-      // Create new profile
+      // Create new profile. AUDIT.md 1.9: email goes to /users_private, never
+      // the publicly-readable /users doc.
       await userRef.set({
         uid: userId,
-        email: email,
-        emailLower: email.toLowerCase(),
         displayName: displayName,
         displayNameLower: displayName?.toLowerCase() || null,
         photoURL: null,
@@ -3627,6 +4009,11 @@ export async function createUserProfileWithUsername(
         followingCount: 0,
         onboardingComplete: false,
         createdAt: FieldValue.serverTimestamp(),
+      });
+      await db.collection('users_private').doc(userId).set({
+        uid: userId,
+        email: email,
+        emailLower: email.toLowerCase(),
       });
     }
 
@@ -3877,16 +4264,21 @@ export async function importMatchedMovies(
       await batch.commit();
     }
 
-    // Update movie count on list
-    await db
+    // AUDIT.md 2.2: bulk imports can't be one transaction (500-op limit), so
+    // instead of `increment(importedCount)` — which over-counts on re-import /
+    // overlapping movies and drifts on partial failure — recount the
+    // subcollection and SET the authoritative value. Idempotent + self-healing:
+    // re-running an import converges movieCount to reality.
+    const importedListRef = db
       .collection('users')
       .doc(userId)
       .collection('lists')
-      .doc(listId)
-      .update({
-        movieCount: FieldValue.increment(importedCount),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      .doc(listId);
+    const importedCountSnap = await importedListRef.collection('movies').count().get();
+    await importedListRef.update({
+      movieCount: importedCountSnap.data().count,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
     return { success: true, importedCount };
   } catch (error) {
@@ -4387,16 +4779,21 @@ export async function importLetterboxdMovies(
       await batch.commit();
     }
 
-    // Update movie count on list
-    await db
+    // AUDIT.md 2.2: bulk imports can't be one transaction (500-op limit), so
+    // instead of `increment(importedCount)` — which over-counts on re-import /
+    // overlapping movies and drifts on partial failure — recount the
+    // subcollection and SET the authoritative value. Idempotent + self-healing:
+    // re-running an import converges movieCount to reality.
+    const importedListRef = db
       .collection('users')
       .doc(userId)
       .collection('lists')
-      .doc(listId)
-      .update({
-        movieCount: FieldValue.increment(importedCount),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
+      .doc(listId);
+    const importedCountSnap = await importedListRef.collection('movies').count().get();
+    await importedListRef.update({
+      movieCount: importedCountSnap.data().count,
+      updatedAt: FieldValue.serverTimestamp(),
+    });
 
     // Import Letterboxd lists (create new lists with descriptions and movies)
     let listsCreated = 0;
@@ -4600,9 +4997,12 @@ export async function importLetterboxdMovies(
 // ============================================
 
 export async function backfillMovieUserData(adminSecret: string) {
-  // Simple protection against accidental runs
-  if (adminSecret !== process.env.ADMIN_SECRET && adminSecret !== 'run-backfill-now') {
-    return { error: 'Invalid admin secret. Pass "run-backfill-now" to confirm.' };
+  // AUDIT.md 1.8: this is a reachable server-action endpoint. The old code
+  // accepted the literal "run-backfill-now" as a valid secret — anyone could
+  // run it. Require strict equality with ADMIN_SECRET; fail closed if unset.
+  const expected = process.env.ADMIN_SECRET;
+  if (!expected || adminSecret !== expected) {
+    return { error: 'Unauthorized' };
   }
 
   const db = getDb();
@@ -4971,7 +5371,11 @@ export async function getNotifications(userId: string, limit: number = 50) {
 /**
  * Mark notifications as read.
  */
-export async function markNotificationsRead(userId: string, notificationIds?: string[]) {
+export async function markNotificationsRead(idToken: string, notificationIds?: string[]) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5033,12 +5437,20 @@ export async function getUnreadNotificationCount(userId: string) {
  * Save a push subscription for a user.
  */
 export async function savePushSubscription(
-  userId: string,
+  idToken: string,
   subscription: {
     endpoint: string;
     keys: { p256dh: string; auth: string };
   }
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap push-subscription churn.
+  const rl = await checkRateLimit(userId, 'pushSubscribe');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -5086,7 +5498,11 @@ export async function savePushSubscription(
 /**
  * Remove a push subscription for a user.
  */
-export async function removePushSubscription(userId: string, endpoint: string) {
+export async function removePushSubscription(idToken: string, endpoint: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5181,7 +5597,7 @@ export async function getNotificationPreferences(userId: string) {
 }
 
 export async function updateNotificationPreferences(
-  userId: string,
+  idToken: string,
   preferences: {
     mentions?: boolean;
     replies?: boolean;
@@ -5191,6 +5607,10 @@ export async function updateNotificationPreferences(
     weeklyDigest?: boolean;
   }
 ) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
@@ -5506,30 +5926,39 @@ export async function getActivityFeed(
 /**
  * Like an activity.
  */
-export async function likeActivity(userId: string, activityId: string) {
+export async function likeActivity(idToken: string, activityId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted like spam.
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
     const activityRef = db.collection('activities').doc(activityId);
-    const activityDoc = await activityRef.get();
 
-    if (!activityDoc.exists) {
-      return { error: 'Activity not found.' };
-    }
-
-    const activityData = activityDoc.data();
-    const likedBy = activityData?.likedBy || [];
-
-    if (likedBy.includes(userId)) {
-      return { error: 'Already liked.' };
-    }
-
-    await activityRef.update({
-      likes: FieldValue.increment(1),
-      likedBy: FieldValue.arrayUnion(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(activityRef);
+      if (!snap.exists) return { error: 'Activity not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(activityRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, newLikes: (data.likes || 0) + 1 };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: (activityData?.likes || 0) + 1 };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[likeActivity] Failed:', error);
     return { error: 'Failed to like activity.' };
@@ -5539,32 +5968,78 @@ export async function likeActivity(userId: string, activityId: string) {
 /**
  * Unlike an activity.
  */
-export async function unlikeActivity(userId: string, activityId: string) {
+export async function unlikeActivity(idToken: string, activityId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
   const db = getDb();
 
   try {
     const activityRef = db.collection('activities').doc(activityId);
-    const activityDoc = await activityRef.get();
 
-    if (!activityDoc.exists) {
-      return { error: 'Activity not found.' };
-    }
-
-    const activityData = activityDoc.data();
-    const likedBy = activityData?.likedBy || [];
-
-    if (!likedBy.includes(userId)) {
-      return { error: 'Not liked.' };
-    }
-
-    await activityRef.update({
-      likes: FieldValue.increment(-1),
-      likedBy: FieldValue.arrayRemove(userId),
+    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(activityRef);
+      if (!snap.exists) return { error: 'Activity not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked.' as const };
+      tx.update(activityRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 0) - 1) };
     });
+    // txResult.error is `string` at runtime in this branch; the `| undefined`
+    // is only a TS union-normalization artifact (the ok-variant never carries
+    // `error`). The cast keeps the function's return type clean.
+    if ('error' in txResult) return { error: txResult.error as string };
 
-    return { success: true, likes: Math.max(0, (activityData?.likes || 0) - 1) };
+    return { success: true, likes: txResult.newLikes };
   } catch (error) {
     console.error('[unlikeActivity] Failed:', error);
     return { error: 'Failed to unlike activity.' };
+  }
+}
+
+/**
+ * AUDIT.md (App Store §1.2 — User-Generated Content): lets a user report
+ * objectionable content (a review/comment, another user, or a list). Apple
+ * requires UGC apps to provide a reporting mechanism; reports land in the
+ * server-only `/reports` collection for the developer to review and act on.
+ *
+ * Rate-limited to stop report-spam / harassment-by-mass-report.
+ */
+export async function reportContent(
+  idToken: string,
+  contentType: 'review' | 'user' | 'list',
+  targetId: string,
+  reason: string,
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
+  const rl = await checkRateLimit(auth.uid, 'report');
+  if (!rl.ok) return { error: rl.error };
+
+  if (!targetId || !['review', 'user', 'list'].includes(contentType)) {
+    return { error: 'Invalid report.' };
+  }
+
+  const db = getDb();
+  try {
+    await db.collection('reports').add({
+      reporterId: auth.uid,
+      contentType,
+      targetId,
+      reason: (reason || '').trim().slice(0, 1000),
+      status: 'pending', // pending → reviewed → actioned/dismissed
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('[reportContent] Failed:', error);
+    return { error: 'Failed to submit report.' };
   }
 }

@@ -13,8 +13,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { verifyPasswordResetCode, confirmPasswordReset } from 'firebase/auth';
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 function ResetPasswordContent() {
   const [password, setPassword] = useState('');
@@ -114,12 +114,12 @@ function ResetPasswordContent() {
 
       <div className="flex items-center gap-3 mb-6">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          Cinechrony
+        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
+          cinechrony
         </h1>
       </div>
 
-      <Card className="w-full max-w-sm bg-card rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+      <Card className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-photo">
         <CardHeader>
           <CardTitle className="font-headline flex items-center gap-2">
             <KeyRound className="h-5 w-5" />
@@ -150,7 +150,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 onClick={() => router.push('/login')}
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
               >
                 Go to Login
               </Button>
@@ -167,7 +167,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 onClick={() => router.push('/forgot-password')}
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
               >
                 Request New Link
               </Button>
@@ -201,7 +201,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 type="submit"
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="animate-spin" /> : 'Reset Password'}

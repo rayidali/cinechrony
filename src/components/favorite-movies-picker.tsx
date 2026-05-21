@@ -13,13 +13,14 @@ import {
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
 import { updateFavoriteMovies } from '@/app/actions';
+import { useAuth } from '@/firebase';
 import type { FavoriteMovie } from '@/lib/types';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w185';
 
-const retroInputClass = "border-[3px] dark:border-2 border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] dark:border-2 border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none active:shadow-none active:translate-x-1 active:translate-y-1 dark:active:translate-x-0 dark:active:translate-y-0 transition-all duration-200";
+const retroInputClass = "border dark:border border-border rounded-2xl shadow-lift focus:shadow-press dark:focus:shadow-none focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border dark:border border-border rounded-full shadow-lift transition-all duration-200";
 
 type SearchResult = {
   id: number;
@@ -44,6 +45,7 @@ export function FavoriteMoviesPicker({
   currentFavorites,
   onUpdate,
 }: FavoriteMoviesPickerProps) {
+  const auth = useAuth();
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -138,8 +140,8 @@ export function FavoriteMoviesPicker({
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      const result = await updateFavoriteMovies(userId, selectedMovies);
-      if (result.error) {
+      const result = await updateFavoriteMovies(await auth.currentUser?.getIdToken() ?? '', selectedMovies);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Favorites Updated', description: 'Your favorite movies have been saved.' });
@@ -153,10 +155,10 @@ export function FavoriteMoviesPicker({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+      <DialogContent className="max-w-lg border border-border shadow-photo">
         <DialogHeader>
           <DialogTitle className="text-xl font-headline flex items-center gap-2">
-            <Star className="h-5 w-5 text-yellow-500" />
+            <Star className="h-5 w-5 text-muted-foreground" />
             Top 5 Favorite Movies
           </DialogTitle>
         </DialogHeader>
@@ -174,7 +176,7 @@ export function FavoriteMoviesPicker({
                       alt={movie.title}
                       width={70}
                       height={105}
-                      className="rounded-lg border-[3px] border-border shadow-[2px_2px_0px_0px_hsl(var(--border))]"
+                      className="rounded-lg border border-border shadow-press"
                     />
                     <button
                       onClick={() => handleRemoveMovie(movie.tmdbId)}
@@ -189,7 +191,7 @@ export function FavoriteMoviesPicker({
               return (
                 <div
                   key={index}
-                  className="w-[70px] h-[105px] rounded-lg border-[3px] border-dashed border-border/40 bg-secondary/20 flex items-center justify-center"
+                  className="w-[70px] h-[105px] rounded-lg border border-dashed border-border/40 bg-secondary/20 flex items-center justify-center"
                 >
                   <span className="text-2xl text-muted-foreground/40">{index + 1}</span>
                 </div>
@@ -215,7 +217,7 @@ export function FavoriteMoviesPicker({
 
           {/* Search Results */}
           {searchResults.length > 0 && (
-            <div className="max-h-60 overflow-y-auto space-y-2 border-2 border-border rounded-lg p-2">
+            <div className="max-h-60 overflow-y-auto space-y-2 border border-border rounded-lg p-2">
               {searchResults.map((movie) => {
                 const isSelected = selectedMovies.some((m) => m.tmdbId === movie.id);
                 return (

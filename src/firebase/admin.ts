@@ -1,4 +1,5 @@
 import { initializeApp, getApp, getApps, App, cert } from 'firebase-admin/app';
+import { getFirestore } from 'firebase-admin/firestore';
 
 /**
  * Gets the Firebase Admin SDK App instance.
@@ -35,4 +36,41 @@ export function getFirebaseAdminApp(): App {
     }),
     storageBucket,
   });
+}
+
+/**
+ * Admin Firestore instance. (AUDIT.md 5.1)
+ * The weekly-digest cron route imported this but it never existed — a latent
+ * runtime crash hidden by ignoreBuildErrors. Now a real shared export.
+ *
+ * AUDIT.md 5.11: applies `ignoreUndefinedProperties: true` exactly once on
+ * the singleton. Firestore Admin otherwise rejects any `undefined` field
+ * value at write time — the bug class 2.2 caught (raw `posterHint` on an
+ * older TMDB result hard-failed adds for real users). With this on, a stray
+ * undefined is silently dropped instead of crashing the whole write. The
+ * codebase already uses `|| null` everywhere it cares; this is a safety
+ * net for everything it forgot.
+ *
+ * Must be called before the first read/write — and exactly once — or
+ * Firestore throws "settings() has already been called". The module-level
+ * flag guards both.
+ */
+let _firestoreSettingsApplied = false;
+export function getDb() {
+  const db = getFirestore(getFirebaseAdminApp());
+  if (!_firestoreSettingsApplied) {
+    // Set the flag FIRST so a throw below doesn't make every call retry.
+    _firestoreSettingsApplied = true;
+    try {
+      db.settings({ ignoreUndefinedProperties: true });
+    } catch {
+      // Firestore throws if settings() is called after the instance has
+      // already been used. In production getDb() is the first thing to touch
+      // Firestore, so this succeeds. The only case it throws is a test
+      // harness that seeded data before the first getDb() call — harmless to
+      // ignore (tests seed well-formed data; ignoreUndefinedProperties is a
+      // production safety net, not a test requirement).
+    }
+  }
+  return db;
 }

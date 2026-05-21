@@ -6,9 +6,16 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Rating color system using HSL interpolation.
- * Maps rating 1-10 to a continuous color gradient from red to green.
- * Uses inline styles to avoid Tailwind dynamic class generation issues.
+ * Rating color system — design system v2 "3-bucket".
+ *
+ * v1 used a continuous red→green HSL rainbow. v2 collapses ratings into
+ * three legible buckets — easier to scan, less visual noise:
+ *   >= 7.5  sage deep  (great)
+ *   >= 5.5  amber      (fine)
+ *   <  5.5  marker red (rough)
+ *
+ * Uses inline styles so colors are bulletproof regardless of Tailwind JIT.
+ * getRatingStyle() keeps its v1 return shape so existing callers don't break.
  */
 
 export type RatingStyle = {
@@ -20,28 +27,22 @@ export type RatingStyle = {
   accent: React.CSSProperties;
 };
 
-/**
- * Get HSL color values for a rating.
- * Rating 1 = red (hue 0), Rating 10 = green (hue 120)
- * Uses a smooth interpolation for continuous color gradient.
- */
-function getRatingHSL(rating: number, isDark: boolean = false): { h: number; s: number; l: number } {
-  // Clamp rating to 1-10
-  const clampedRating = Math.max(1, Math.min(10, rating));
+// v2 palette (oklch) — mirrors the --cc-* tokens in globals.css.
+const RATING_GOOD = 'oklch(0.52 0.11 150)';     // sage deep
+const RATING_MID = 'oklch(0.78 0.13 78)';       // amber
+const RATING_BAD = 'oklch(0.6 0.20 27)';        // marker red
+const RATING_NEUTRAL = 'oklch(0.46 0.012 60)';  // graphite (no rating)
+const INK = 'oklch(0.165 0.012 60)';
+// A deeper amber so mid-rating text stays legible on cream paper.
+const RATING_MID_ACCENT = 'oklch(0.6 0.13 70)';
 
-  // Map rating 1-10 to hue 0-120 (red to green)
-  // Using a slightly curved mapping for better visual distribution
-  const normalizedRating = (clampedRating - 1) / 9; // 0 to 1
-  const hue = Math.round(normalizedRating * 120);
+type RatingBucket = 'good' | 'mid' | 'bad';
 
-  // Saturation: keep vibrant
-  const saturation = isDark ? 65 : 70;
-
-  // Lightness: adjust for theme
-  // For backgrounds: darker in dark mode
-  const lightness = isDark ? 45 : 50;
-
-  return { h: hue, s: saturation, l: lightness };
+/** Collapse a 1-10 rating into one of three buckets. */
+function getRatingBucket(rating: number): RatingBucket {
+  if (rating >= 7.5) return 'good';
+  if (rating >= 5.5) return 'mid';
+  return 'bad';
 }
 
 /**
@@ -52,31 +53,33 @@ function getRatingHSL(rating: number, isDark: boolean = false): { h: number; s: 
  * @returns Object with background, textOnBg, and accent styles
  */
 export function getRatingStyle(rating: number | null | undefined): RatingStyle {
-  // Handle null/undefined with neutral gray
   if (rating === null || rating === undefined) {
     return {
-      background: { backgroundColor: 'rgb(156 163 175)' }, // gray-400
+      background: { backgroundColor: RATING_NEUTRAL },
       textOnBg: { color: 'white' },
-      accent: { color: 'rgb(107 114 128)' }, // gray-500
+      accent: { color: RATING_NEUTRAL },
     };
   }
 
-  const { h, s, l } = getRatingHSL(rating);
-
-  // Background color
-  const bgColor = `hsl(${h}, ${s}%, ${l}%)`;
-
-  // Text on background - white for most colors, dark for yellow range
-  const needsDarkText = h >= 45 && h <= 75 && l >= 45; // Yellow range
-  const textOnBgColor = needsDarkText ? `hsl(${h}, ${s}%, 15%)` : 'white';
-
-  // Accent color (for text/icons) - slightly darker/more saturated
-  const accentColor = `hsl(${h}, ${s + 10}%, ${l - 5}%)`;
-
+  const bucket = getRatingBucket(rating);
+  if (bucket === 'good') {
+    return {
+      background: { backgroundColor: RATING_GOOD },
+      textOnBg: { color: 'white' },
+      accent: { color: RATING_GOOD },
+    };
+  }
+  if (bucket === 'mid') {
+    return {
+      background: { backgroundColor: RATING_MID },
+      textOnBg: { color: INK },
+      accent: { color: RATING_MID_ACCENT },
+    };
+  }
   return {
-    background: { backgroundColor: bgColor },
-    textOnBg: { color: textOnBgColor },
-    accent: { color: accentColor },
+    background: { backgroundColor: RATING_BAD },
+    textOnBg: { color: 'white' },
+    accent: { color: RATING_BAD },
   };
 }
 
@@ -85,29 +88,25 @@ export function getRatingStyle(rating: number | null | undefined): RatingStyle {
  * Useful for elements that need just the color value.
  */
 export function getRatingBgColorValue(rating: number | null | undefined): string {
-  if (rating === null || rating === undefined) {
-    return 'rgb(156 163 175)'; // gray-400
-  }
-  const { h, s, l } = getRatingHSL(rating);
-  return `hsl(${h}, ${s}%, ${l}%)`;
+  if (rating === null || rating === undefined) return RATING_NEUTRAL;
+  const bucket = getRatingBucket(rating);
+  return bucket === 'good' ? RATING_GOOD : bucket === 'mid' ? RATING_MID : RATING_BAD;
 }
 
 /**
  * Get rating text color as a CSS string.
- * For text/icons that should match the rating color.
+ * For text/icons that should match the rating color (legible on cream paper).
  */
 export function getRatingTextColorValue(rating: number | null | undefined): string {
-  if (rating === null || rating === undefined) {
-    return 'rgb(107 114 128)'; // gray-500
-  }
-  const { h, s, l } = getRatingHSL(rating);
-  return `hsl(${h}, ${s + 10}%, ${l - 5}%)`;
+  if (rating === null || rating === undefined) return RATING_NEUTRAL;
+  const bucket = getRatingBucket(rating);
+  return bucket === 'good' ? RATING_GOOD : bucket === 'mid' ? RATING_MID_ACCENT : RATING_BAD;
 }
 
 // ============================================================================
 // Legacy/Tailwind-based helpers (kept for backwards compatibility)
-// These use Tailwind classes but may have issues with dynamic class generation
-// Prefer getRatingStyle() for new code
+// Prefer getRatingStyle() for new code. These return Tailwind classes and now
+// mirror the v2 3-bucket model (sage / amber / marker) instead of a rainbow.
 // ============================================================================
 
 export type RatingColors = {
@@ -120,67 +119,35 @@ export type RatingColors = {
 export function getRatingColors(rating: number | null | undefined): RatingColors {
   if (rating === null || rating === undefined) {
     return {
-      bg: 'bg-gray-400 dark:bg-gray-600',
-      text: 'text-gray-500 dark:text-gray-400',
-      textOnBg: 'text-white dark:text-gray-100',
-      fill: 'fill-gray-500 dark:fill-gray-400',
+      bg: 'bg-muted-foreground',
+      text: 'text-muted-foreground',
+      textOnBg: 'text-white',
+      fill: 'fill-muted-foreground',
     };
   }
 
-  // Map to discrete buckets for Tailwind classes
-  if (rating >= 9.0) {
+  const bucket = getRatingBucket(rating);
+  if (bucket === 'good') {
     return {
-      bg: 'bg-emerald-500 dark:bg-emerald-600',
-      text: 'text-emerald-600 dark:text-emerald-400',
+      bg: 'bg-success',
+      text: 'text-success',
       textOnBg: 'text-white',
-      fill: 'fill-emerald-600 dark:fill-emerald-400',
+      fill: 'fill-success',
     };
   }
-  if (rating >= 8.0) {
+  if (bucket === 'mid') {
     return {
-      bg: 'bg-green-500 dark:bg-green-600',
-      text: 'text-green-600 dark:text-green-400',
-      textOnBg: 'text-white',
-      fill: 'fill-green-600 dark:fill-green-400',
-    };
-  }
-  if (rating >= 7.0) {
-    return {
-      bg: 'bg-lime-500 dark:bg-lime-600',
-      text: 'text-lime-600 dark:text-lime-400',
-      textOnBg: 'text-white dark:text-lime-950',
-      fill: 'fill-lime-600 dark:fill-lime-400',
-    };
-  }
-  if (rating >= 6.0) {
-    return {
-      bg: 'bg-yellow-400 dark:bg-yellow-500',
-      text: 'text-yellow-600 dark:text-yellow-400',
-      textOnBg: 'text-yellow-900 dark:text-yellow-950',
-      fill: 'fill-yellow-600 dark:fill-yellow-400',
-    };
-  }
-  if (rating >= 5.0) {
-    return {
-      bg: 'bg-amber-500 dark:bg-amber-500',
-      text: 'text-amber-600 dark:text-amber-400',
-      textOnBg: 'text-white dark:text-amber-950',
-      fill: 'fill-amber-600 dark:fill-amber-400',
-    };
-  }
-  if (rating >= 4.0) {
-    return {
-      bg: 'bg-orange-500 dark:bg-orange-600',
-      text: 'text-orange-600 dark:text-orange-400',
-      textOnBg: 'text-white',
-      fill: 'fill-orange-600 dark:fill-orange-400',
+      bg: 'bg-warning',
+      text: 'text-warning',
+      textOnBg: 'text-foreground',
+      fill: 'fill-warning',
     };
   }
   return {
-    bg: 'bg-red-500 dark:bg-red-600',
-    text: 'text-red-600 dark:text-red-400',
+    bg: 'bg-destructive',
+    text: 'text-destructive',
     textOnBg: 'text-white',
-    fill: 'fill-red-600 dark:fill-red-400',
+    fill: 'fill-destructive',
   };
 }
 

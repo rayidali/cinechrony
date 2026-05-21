@@ -43,7 +43,7 @@ export function UserAvatar() {
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          className="relative h-10 w-10 rounded-full p-0 border-[3px] border-black shadow-[4px_4px_0px_0px_#000] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200 overflow-hidden"
+          className="relative h-10 w-10 rounded-full p-0 border border-border shadow-lift transition-all duration-200 overflow-hidden"
         >
           <ProfileAvatar
             photoURL={userProfile?.photoURL}
@@ -55,7 +55,7 @@ export function UserAvatar() {
           />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56 border-[2px] border-black" align="end" forceMount>
+      <DropdownMenuContent className="w-56 border border-border" align="end" forceMount>
         <DropdownMenuLabel className="font-normal">
           <div className="flex flex-col space-y-1">
             <p className="text-sm font-medium leading-none">My Account</p>

@@ -33,7 +33,9 @@ export async function POST(request: NextRequest) {
 
   try {
     console.log('[API] Starting movie user data backfill...');
-    const result = await backfillMovieUserData('run-backfill-now');
+    // AUDIT.md 1.8: pass the real secret (route already authenticated the
+    // caller via x-admin-token); the sentinel string is no longer accepted.
+    const result = await backfillMovieUserData(process.env.ADMIN_SECRET || '');
 
     if (result.error) {
       return NextResponse.json({

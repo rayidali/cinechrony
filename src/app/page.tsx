@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowRight, Popcorn } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/components/theme-toggle';
 
 export default function LandingPage() {
@@ -27,56 +26,54 @@ export default function LandingPage() {
   }
 
   return (
-    <main className="min-h-screen font-body text-foreground flex flex-col">
+    <main className="min-h-screen bg-background text-foreground flex flex-col">
       {/* Theme toggle - top right */}
       <div className="absolute top-4 right-4 z-20">
         <ThemeToggle />
       </div>
 
       {/* Main content - centered splash screen style */}
-      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
-        {/* Logo and title */}
-        <div className="flex flex-col items-center mb-8">
-          <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-24 w-24 mb-6" />
-          <h1 className="text-5xl md:text-7xl font-headline font-bold tracking-tighter text-center">
-            Cinechrony
-          </h1>
-        </div>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12 text-center">
+        {/* Logo + lowercase wordmark */}
+        <img
+          src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+          alt="Cinechrony"
+          className="h-20 w-20 mb-7"
+        />
+        <div className="cc-eyebrow mb-3">EST · 2025 · SHARED WATCHLISTS</div>
+        <h1 className="font-headline font-bold text-6xl md:text-7xl lowercase tracking-[-0.05em] leading-none">
+          cinechrony
+        </h1>
 
-        {/* Tagline */}
-        <p className="text-lg md:text-xl text-muted-foreground text-center mb-4 max-w-md leading-relaxed">
-          letterboxd if it smoked a joint and chilled out, was more social and didn&apos;t have film bros using it
+        {/* Tagline — serif italic lead */}
+        <p className="cc-lead text-lg md:text-xl mt-5 max-w-md">
+          letterboxd if it smoked a joint, chilled out, and ditched the film bros
         </p>
-        <p className="text-base text-muted-foreground text-center mb-10 max-w-sm">
-          Create shared watchlists and finally answer &quot;what should we watch?&quot;
+        <p className="text-sm text-muted-foreground mt-3 max-w-sm">
+          finally answer &quot;what should we watch?&quot;
         </p>
 
-        {/* CTA Buttons - stacked for mobile feel */}
-        <div className="flex flex-col gap-4 w-full max-w-xs">
-          <Link href="/onboarding?skip_splash=true" className="w-full">
-            <Button
-              size="lg"
-              className="w-full text-lg py-7 rounded-full border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200 bg-primary text-primary-foreground hover:bg-primary/90 font-bold"
-            >
-              Get started
-              <ArrowRight className="ml-2 h-5 w-5" />
-            </Button>
+        {/* CTA Buttons */}
+        <div className="flex flex-col gap-3 w-full max-w-xs mt-9">
+          <Link
+            href="/onboarding?skip_splash=true"
+            className="w-full h-[52px] rounded-full bg-foreground text-background font-headline font-semibold text-base lowercase tracking-tight flex items-center justify-center gap-2 transition-transform active:scale-[0.98]"
+          >
+            get started
+            <ArrowRight className="h-4 w-4" strokeWidth={2} />
           </Link>
-          <Link href="/login" className="w-full">
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full text-lg py-7 rounded-full border-[3px] border-border shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200 bg-card font-bold"
-            >
-              Login
-            </Button>
+          <Link
+            href="/login"
+            className="w-full h-[52px] rounded-full border border-foreground text-foreground font-headline font-semibold text-base lowercase tracking-tight flex items-center justify-center transition-transform active:scale-[0.98]"
+          >
+            i have an account
           </Link>
         </div>
       </div>
 
       {/* Decorative popcorn at bottom */}
       <div className="pb-8 flex justify-center">
-        <Popcorn className="h-8 w-8 text-primary/50" />
+        <Popcorn className="h-8 w-8" strokeWidth={1.6} style={{ color: '#F58A1F' }} />
       </div>
     </main>
   );

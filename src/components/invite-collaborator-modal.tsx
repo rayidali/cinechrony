@@ -66,8 +66,8 @@ export function InviteCollaboratorModal({
 
       setIsLoadingInvites(true);
       try {
-        const result = await getListPendingInvites(user.uid, listOwnerId, listId);
-        setPendingInvites(result.invites || []);
+        const result = await getListPendingInvites(await user.getIdToken(), listOwnerId, listId);
+        setPendingInvites('invites' in result ? (result.invites || []) : []);
       } catch (error) {
         console.error('Failed to load pending invites:', error);
       } finally {
@@ -122,8 +122,8 @@ export function InviteCollaboratorModal({
 
     setIsInviting(true);
     try {
-      const result = await inviteToList(user.uid, listOwnerId, listId, inviteeId);
-      if (result.error) {
+      const result = await inviteToList(await user.getIdToken(), listOwnerId, listId, inviteeId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Invite Sent', description: 'User has been invited to collaborate.' });
@@ -131,8 +131,8 @@ export function InviteCollaboratorModal({
         setSearchResults([]);
         setStep('options');
         // Reload pending invites
-        const invitesResult = await getListPendingInvites(user.uid, listOwnerId, listId);
-        setPendingInvites(invitesResult.invites || []);
+        const invitesResult = await getListPendingInvites(await user.getIdToken(), listOwnerId, listId);
+        setPendingInvites('invites' in invitesResult ? (invitesResult.invites || []) : []);
       }
     } catch (error) {
       console.error('Failed to invite:', error);
@@ -147,8 +147,8 @@ export function InviteCollaboratorModal({
 
     setIsCreatingLink(true);
     try {
-      const result = await createInviteLink(user.uid, listOwnerId, listId);
-      if (result.error) {
+      const result = await createInviteLink(await user.getIdToken(), listOwnerId, listId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else if (result.inviteCode) {
         const link = `${window.location.origin}/invite/${result.inviteCode}`;
@@ -174,8 +174,8 @@ export function InviteCollaboratorModal({
     if (!user) return;
 
     try {
-      const result = await revokeInvite(user.uid, inviteId);
-      if (result.error) {
+      const result = await revokeInvite(await user.getIdToken(), inviteId);
+      if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
         toast({ title: 'Invite Cancelled', description: 'The invite has been revoked.' });
@@ -291,7 +291,7 @@ export function InviteCollaboratorModal({
                         className="flex items-center justify-between p-3 rounded-xl bg-secondary/30"
                       >
                         <div className="flex items-center gap-3">
-                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center border-2 border-dashed border-muted-foreground/30">
+                          <div className="h-10 w-10 rounded-full bg-muted flex items-center justify-center border border-dashed border-muted-foreground/30">
                             <UserPlus className="h-4 w-4 text-muted-foreground" />
                           </div>
                           <div>

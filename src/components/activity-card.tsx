@@ -3,13 +3,13 @@
 import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Heart, MessageCircle, Clock, Star, Eye, Plus } from 'lucide-react';
+import { Heart, Star, Eye, Plus, MessageCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
 import { likeActivity, unlikeActivity } from '@/app/actions';
+import { useAuth } from '@/firebase';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
-
-const TMDB_IMAGE_BASE_URL = 'https://image.tmdb.org/t/p/w342';
 
 type ActivityCardProps = {
   activity: Activity;
@@ -17,63 +17,46 @@ type ActivityCardProps = {
   onMovieClick?: (activity: Activity) => void;
 };
 
-// Get action text based on activity type
-function getActionText(activity: Activity): string {
-  switch (activity.type) {
-    case 'added':
-      return activity.listName ? `added to ${activity.listName}` : 'added to watchlist';
-    case 'rated':
-      return 'rated';
-    case 'watched':
-      return 'watched';
-    case 'reviewed':
-      return 'reviewed';
-    default:
-      return '';
-  }
-}
-
-// Get icon for activity type
+/** Lowercase verb for the activity pill. */
 function ActivityIcon({ type }: { type: Activity['type'] }) {
   switch (type) {
     case 'added':
-      return <Plus className="h-3.5 w-3.5" />;
+      return <Plus className="h-3 w-3" strokeWidth={1.8} />;
     case 'rated':
-      return <Star className="h-3.5 w-3.5" />;
+      return <Star className="h-3 w-3" strokeWidth={1.8} />;
     case 'watched':
-      return <Eye className="h-3.5 w-3.5" />;
+      return <Eye className="h-3 w-3" strokeWidth={1.8} />;
     case 'reviewed':
-      return <MessageCircle className="h-3.5 w-3.5" />;
+      return <MessageCircle className="h-3 w-3" strokeWidth={1.8} />;
     default:
       return null;
   }
 }
 
-// Activity type badge
+// Activity verb — v2: lowercase mono in a hairline pill.
 function ActivityBadge({ type }: { type: Activity['type'] }) {
-  const colorClasses = {
-    added: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-    rated: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
-    watched: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400',
-    reviewed: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
-  };
-
   return (
-    <span className={cn(
-      'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium uppercase tracking-wide',
-      colorClasses[type]
-    )}>
+    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
       <ActivityIcon type={type} />
       {type}
     </span>
   );
 }
 
+/**
+ * Activity card — design system v2 "editorial newsfeed".
+ *
+ * One event from one friend. The card is about your friend's behaviour, not a
+ * transactional moment — no watch-now CTAs, no genre pills, no star rows.
+ * Variant by type: added → list name (serif italic); rated → chip, no context;
+ * watched → atomic; reviewed → review snippet as a magazine pull-quote.
+ */
 export const ActivityCard = memo(function ActivityCard({
   activity,
   currentUserId,
   onMovieClick,
 }: ActivityCardProps) {
+  const auth = useAuth();
   const [isLiked, setIsLiked] = useState(
     currentUserId ? activity.likedBy?.includes(currentUserId) : false
   );
@@ -81,154 +64,149 @@ export const ActivityCard = memo(function ActivityCard({
   const [isPending, startTransition] = useTransition();
 
   const posterUrl = activity.moviePosterUrl || '/placeholder-poster.png';
-  const displayName = activity.username || activity.displayName || 'Someone';
+  // AUDIT.md 2.3b: prefer live profile fields; fall back to the denormalized
+  // snapshot captured at write time.
+  const live = useUserProfile(activity.userId);
+  const liveDisplayName = live?.displayName ?? activity.displayName ?? null;
+  const livePhotoURL = live?.photoURL ?? activity.photoURL ?? null;
+  const handle = activity.username ? `@${activity.username}` : liveDisplayName || 'someone';
   const profileUrl = activity.username ? `/profile/${activity.username}` : '#';
+  const avatarLetter = (activity.username || liveDisplayName || 'S').charAt(0).toUpperCase();
 
   const handleLike = () => {
     if (!currentUserId || isPending) return;
-
-    // Optimistic update
     const newIsLiked = !isLiked;
     setIsLiked(newIsLiked);
     setLikeCount((prev) => (newIsLiked ? prev + 1 : prev - 1));
 
     startTransition(async () => {
       try {
+        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (newIsLiked) {
-          await likeActivity(currentUserId, activity.id);
+          await likeActivity(idToken, activity.id);
         } else {
-          await unlikeActivity(currentUserId, activity.id);
+          await unlikeActivity(idToken, activity.id);
         }
-      } catch (error) {
-        // Revert on error
+      } catch {
         setIsLiked(!newIsLiked);
         setLikeCount((prev) => (newIsLiked ? prev - 1 : prev + 1));
       }
     });
   };
 
-  const handleMovieClick = () => {
-    onMovieClick?.(activity);
-  };
+  const handleMovieClick = () => onMovieClick?.(activity);
 
-  // Format timestamp
   const timeAgo = activity.createdAt
     ? formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true })
     : '';
 
   return (
-    <div className="bg-card rounded-2xl border-[3px] dark:border-2 border-border p-4 shadow-[4px_4px_0px_0px_hsl(var(--border))] dark:shadow-none">
-      {/* Header: Avatar, name, action, time */}
-      <div className="flex items-start gap-3 mb-3">
-        {/* User avatar */}
+    <div className="bg-card rounded-[20px] border border-border p-4 shadow-lift">
+      {/* Row 1 — who · what · when */}
+      <div className="flex items-center gap-2.5">
         <Link href={profileUrl} className="flex-shrink-0">
-          {activity.photoURL ? (
+          {livePhotoURL ? (
             <Image
-              src={activity.photoURL}
-              alt={displayName}
-              width={40}
-              height={40}
-              className="rounded-full border-2 border-border"
+              src={livePhotoURL}
+              alt={handle}
+              width={32}
+              height={32}
+              className="rounded-full border border-border object-cover w-8 h-8"
             />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center border-2 border-border">
-              <span className="text-sm font-bold">
-                {displayName.charAt(0).toUpperCase()}
-              </span>
+            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center border border-border">
+              <span className="font-headline font-bold text-xs">{avatarLetter}</span>
             </div>
           )}
         </Link>
 
-        {/* Action text */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={profileUrl}
-              className="font-semibold text-sm hover:underline truncate"
+              className="font-headline font-semibold text-sm tracking-tight hover:underline truncate"
             >
-              {displayName}
+              {handle}
             </Link>
             <ActivityBadge type={activity.type} />
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {getActionText(activity)} · {timeAgo}
-          </p>
+          <p className="cc-meta text-[10px] text-muted-foreground mt-0.5">{timeAgo}</p>
         </div>
 
-        {/* Rating badge for 'rated' type */}
-        {activity.type === 'rated' && activity.rating && (
-          <div
-            className="flex-shrink-0 px-2.5 py-1 rounded-lg font-bold text-sm"
-            style={getRatingStyle(activity.rating).background}
+        {/* rated → rating chip top-right, no context line */}
+        {activity.type === 'rated' && activity.rating != null && (
+          <span
+            className="flex-shrink-0 px-1.5 py-0.5 rounded font-headline font-bold text-xs tabular-nums"
+            style={{
+              ...getRatingStyle(activity.rating).background,
+              ...getRatingStyle(activity.rating).textOnBg,
+            }}
           >
-            <span style={getRatingStyle(activity.rating).text}>
-              {activity.rating.toFixed(1)}
-            </span>
-          </div>
+            {activity.rating.toFixed(1)}
+          </span>
         )}
       </div>
 
-      {/* Movie info - clickable */}
-      <button
-        onClick={handleMovieClick}
-        className="w-full text-left group"
-      >
-        <div className="flex gap-3">
-          {/* Poster */}
-          <div className="flex-shrink-0 w-16 aspect-[2/3] rounded-lg overflow-hidden border-2 border-border relative">
+      {/* Row 2 — the movie */}
+      <button onClick={handleMovieClick} className="w-full text-left group mt-3">
+        <div className="flex gap-3 items-start">
+          <div className="flex-shrink-0 w-12 aspect-[2/3] rounded-lg overflow-hidden border border-border relative">
             <Image
               src={posterUrl}
               alt={activity.movieTitle}
               fill
-              className="object-cover group-hover:scale-105 transition-transform"
-              sizes="64px"
+              className="object-cover"
+              sizes="48px"
             />
           </div>
 
-          {/* Title and details */}
-          <div className="flex-1 min-w-0 py-1">
-            <h3 className="font-semibold line-clamp-2 group-hover:text-primary transition-colors">
+          <div className="flex-1 min-w-0">
+            <h3 className="font-headline font-semibold text-[15px] lowercase tracking-tight leading-tight line-clamp-2 group-hover:text-primary transition-colors">
               {activity.movieTitle}
             </h3>
             {activity.movieYear && (
-              <p className="text-sm text-muted-foreground mt-0.5">
-                {activity.movieYear}
+              <p className="cc-meta text-[10px] text-muted-foreground mt-1">{activity.movieYear}</p>
+            )}
+
+            {/* reviewed → review snippet as a magazine pull-quote */}
+            {activity.type === 'reviewed' && activity.reviewText && (
+              <p className="font-serif italic text-[14px] leading-snug text-foreground mt-2 pl-2.5 border-l border-border line-clamp-2">
+                {activity.reviewText}
               </p>
             )}
-            {/* Review preview for 'reviewed' type */}
-            {activity.type === 'reviewed' && activity.reviewText && (
-              <p className="text-sm text-muted-foreground mt-2 line-clamp-2 italic">
-                "{activity.reviewText}"
+
+            {/* added → list name in serif italic */}
+            {activity.type === 'added' && activity.listName && (
+              <p className="font-serif italic text-[14px] text-muted-foreground mt-1.5">
+                to {activity.listName}
               </p>
             )}
           </div>
         </div>
       </button>
 
-      {/* Footer: Like button */}
-      <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50">
+      {/* Footer — like + reply, mono hairline */}
+      <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-border">
         <button
           onClick={handleLike}
           disabled={!currentUserId || isPending}
           className={cn(
-            'flex items-center gap-1.5 text-sm transition-colors',
-            isLiked
-              ? 'text-red-500'
-              : 'text-muted-foreground hover:text-red-500',
+            'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
+            isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
             (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
           )}
+          aria-label={isLiked ? 'Unlike' : 'Like'}
         >
-          <Heart
-            className={cn('h-4 w-4', isLiked && 'fill-current')}
-          />
-          <span>{likeCount > 0 ? likeCount : ''}</span>
+          <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
+          {likeCount > 0 && <span>{likeCount}</span>}
         </button>
 
-        {/* Time icon for mobile (shows relative time again) */}
-        <div className="flex items-center gap-1.5 text-xs text-muted-foreground ml-auto">
-          <Clock className="h-3.5 w-3.5" />
-          <span>{timeAgo}</span>
-        </div>
+        <button
+          onClick={handleMovieClick}
+          className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+        >
+          reply →
+        </button>
       </div>
     </div>
   );

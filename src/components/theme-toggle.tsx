@@ -25,7 +25,7 @@ export function ThemeToggle() {
       <Button
         variant="ghost"
         size="icon"
-        className="h-9 w-9 border-[2px] border-black dark:border-white rounded-lg"
+        className="h-9 w-9 border border-border dark:border-white rounded-lg"
       >
         <Sun className="h-4 w-4" />
       </Button>
@@ -38,14 +38,14 @@ export function ThemeToggle() {
         <Button
           variant="ghost"
           size="icon"
-          className="h-9 w-9 border-[2px] border-black dark:border-white rounded-lg"
+          className="h-9 w-9 border border-border dark:border-white rounded-lg"
         >
           <Sun className="h-4 w-4 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
           <Moon className="absolute h-4 w-4 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
           <span className="sr-only">Toggle theme</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="border-[2px] border-black dark:border-white">
+      <DropdownMenuContent align="end" className="border border-border dark:border-white">
         <DropdownMenuItem onClick={() => setTheme('light')}>
           <Sun className="mr-2 h-4 w-4" />
           Light

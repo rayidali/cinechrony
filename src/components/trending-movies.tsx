@@ -15,7 +15,7 @@ function TrendingSkeleton() {
     <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className="flex-shrink-0 w-28">
-          <div className="aspect-[2/3] rounded-xl bg-muted animate-pulse border-2 border-border" />
+          <div className="aspect-[2/3] rounded-xl bg-muted animate-pulse border border-border" />
           <div className="mt-2 h-3 bg-muted rounded animate-pulse w-3/4" />
           <div className="mt-1 h-2 bg-muted rounded animate-pulse w-1/2" />
         </div>
@@ -66,7 +66,7 @@ function TrendingMovieCard({
       onClick={() => onSelect(movie)}
       className="flex-shrink-0 w-28 text-left group"
     >
-      <div className="relative aspect-[2/3] rounded-xl overflow-hidden border-[3px] dark:border-2 border-border shadow-[3px_3px_0px_0px_hsl(var(--border))] dark:shadow-none group-active:shadow-none group-active:translate-x-0.5 group-active:translate-y-0.5 transition-all">
+      <div className="relative aspect-[2/3] rounded-[14px] overflow-hidden border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5">
         <Image
           src={posterUrl}
           alt={movie.title}
@@ -79,15 +79,17 @@ function TrendingMovieCard({
           <IMDbBadge rating={movie.imdbRating} />
         ) : movie.voteAverage > 0 ? (
           <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-            <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
+            <Star className="h-3 w-3 text-warning fill-warning" />
             <span className="text-[10px] font-bold text-white">
               {movie.voteAverage.toFixed(1)}
             </span>
           </div>
         ) : null}
       </div>
-      <p className="mt-2 text-sm font-medium line-clamp-1">{movie.title}</p>
-      <p className="text-xs text-muted-foreground">{year}</p>
+      <p className="mt-2 text-[13px] font-headline font-semibold lowercase tracking-tight line-clamp-1">
+        {movie.title}
+      </p>
+      <p className="cc-meta text-[11px] text-muted-foreground">{year}</p>
     </button>
   );
 }
@@ -147,11 +149,15 @@ export function TrendingMovies() {
 
   return (
     <section className="mb-6">
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2">
-          <Flame className="h-5 w-5 text-orange-500" />
-          <h2 className="text-lg font-headline font-bold">Trending Today</h2>
+      <div className="mb-4">
+        <div className="cc-eyebrow flex items-center gap-1.5">
+          <Flame className="h-3 w-3" strokeWidth={1.8} />
+          now showing
         </div>
+        <div className="h-px bg-border my-2.5" />
+        <h2 className="font-headline font-bold text-xl lowercase tracking-tight">
+          trending today
+        </h2>
       </div>
 
       {isLoading ? (

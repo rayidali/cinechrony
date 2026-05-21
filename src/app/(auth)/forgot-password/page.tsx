@@ -12,8 +12,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
 import { sendPasswordResetEmail } from 'firebase/auth';
 
-const retroInputClass = "border-[3px] border-border rounded-2xl shadow-[4px_4px_0px_0px_hsl(var(--border))] focus:shadow-[2px_2px_0px_0px_hsl(var(--border))] focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border-[3px] border-border rounded-full shadow-[4px_4px_0px_0px_hsl(var(--border))] active:shadow-none active:translate-x-1 active:translate-y-1 transition-all duration-200";
+const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
+const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 export default function ForgotPasswordPage() {
   const [email, setEmail] = useState('');
@@ -33,17 +33,24 @@ export default function ForgotPasswordPage() {
         description: "Check your inbox for password reset instructions.",
       });
     } catch (error: any) {
-      let message = "An unexpected error occurred.";
+      // AUDIT.md 2.10: never reveal whether an account exists. A non-existent
+      // account must be indistinguishable from a successful request.
       if (error.code === 'auth/user-not-found') {
-        message = "No account found with this email address.";
-      } else if (error.code === 'auth/invalid-email') {
-        message = "Please enter a valid email address.";
+        setEmailSent(true);
+        toast({
+          title: "Email Sent",
+          description: "Check your inbox for password reset instructions.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Reset Failed",
+          description:
+            error.code === 'auth/invalid-email'
+              ? "Please enter a valid email address."
+              : "An unexpected error occurred.",
+        });
       }
-      toast({
-        variant: "destructive",
-        title: "Reset Failed",
-        description: message,
-      });
     } finally {
       setIsLoading(false);
     }
@@ -57,12 +64,12 @@ export default function ForgotPasswordPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          Cinechrony
+        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
+          cinechrony
         </h1>
       </div>
 
-      <Card className="w-full max-w-sm bg-card rounded-2xl border-[3px] border-border shadow-[8px_8px_0px_0px_hsl(var(--border))]">
+      <Card className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-photo">
         <CardHeader>
           <CardTitle className="font-headline">Reset Password</CardTitle>
           <CardDescription>
@@ -107,7 +114,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Button
                 type="submit"
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="animate-spin" /> : 'Send Reset Link'}

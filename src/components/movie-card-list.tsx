@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { getRatingStyle } from '@/lib/utils';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 
 type MovieCardListProps = {
   movie: Movie;
@@ -45,15 +46,16 @@ export const MovieCardList = memo(function MovieCardList({
     [movie.notes]
   );
 
-  // Use denormalized user data from movie doc - no fetch needed!
+  // AUDIT.md 2.3b: live profile cache overrides the denormalized snapshot on
+  // the movie doc. Username immutable per 2.3a; not overridden.
   const isAddedByCurrentUser = movie.addedBy === user?.uid;
+  const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByName = useMemo(() => {
     if (isAddedByCurrentUser) {
       return user?.displayName || user?.email?.split('@')[0] || 'You';
     }
-    // Use denormalized data from movie doc
-    return movie.addedByDisplayName || movie.addedByUsername || 'Someone';
-  }, [isAddedByCurrentUser, user?.displayName, user?.email, movie.addedByDisplayName, movie.addedByUsername]);
+    return liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || 'Someone';
+  }, [isAddedByCurrentUser, user?.displayName, user?.email, liveAdder?.displayName, movie.addedByDisplayName, movie.addedByUsername]);
 
   // Build note author names using denormalized noteAuthors data
   const noteAuthorNames = useMemo(() => {
@@ -111,12 +113,12 @@ export const MovieCardList = memo(function MovieCardList({
 
   return (
     <div
-      className="group rounded-lg border-[2px] border-black shadow-[3px_3px_0px_0px_#000] bg-card cursor-pointer transition-all duration-200 md:hover:shadow-[1px_1px_0px_0px_#000] md:hover:translate-x-0.5 md:hover:translate-y-0.5 overflow-hidden"
+      className="group rounded-lg border border-border shadow-lift bg-card cursor-pointer transition-all duration-200 md:hover:shadow-press overflow-hidden"
       onClick={handleClick}
     >
       <div className="flex gap-3 p-3">
         {/* Poster thumbnail */}
-        <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-black">
+        <div className="relative w-16 h-24 flex-shrink-0 rounded overflow-hidden border border-border">
           <Image
             src={movie.posterUrl}
             alt={movie.title}
@@ -160,10 +162,8 @@ export const MovieCardList = memo(function MovieCardList({
         <div className="flex flex-col items-end justify-between">
           {/* Status badge */}
           <span
-            className={`px-2 py-0.5 rounded-full text-xs font-bold ${
-              movie.status === 'Watched'
-                ? 'bg-green-100 text-green-800'
-                : 'bg-yellow-100 text-yellow-800'
+            className={`inline-flex items-center px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase ${
+              movie.status === 'Watched' ? 'text-success' : 'text-muted-foreground'
             }`}
           >
             {movie.status}
