@@ -318,5 +318,14 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read, write: if false;
     }
+    // AUDIT.md 3.8: rate-limit counters — server-only, clients must never read
+    // or tamper with their own budget.
+    match /rate_limits/{limitId} {
+      allow read, write: if false;
+    }
+    // AUDIT.md (App Store §1.2): content reports — server-only.
+    match /reports/{reportId} {
+      allow read, write: if false;
+    }
   }
 }

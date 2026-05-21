@@ -6,6 +6,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { randomInt } from 'node:crypto';
 
 // AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
@@ -1265,6 +1266,10 @@ export async function followUser(idToken: string, followingId: string) {
   if (isAuthError(auth)) return auth;
   const followerId = auth.uid;
 
+  // AUDIT.md 3.8: cap scripted follow/notification spam.
+  const rl = await checkRateLimit(followerId, 'follow');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -1887,6 +1892,10 @@ export async function inviteToList(idToken: string, listOwnerId: string, listId:
   if (isAuthError(auth)) return auth;
   const inviterId = auth.uid;
 
+  // AUDIT.md 3.8: cap scripted invite spam.
+  const rl = await checkRateLimit(inviterId, 'invite');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -1996,6 +2005,10 @@ export async function createInviteLink(idToken: string, listOwnerId: string, lis
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const inviterId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted invite-link generation.
+  const rl = await checkRateLimit(inviterId, 'invite');
+  if (!rl.ok) return { error: rl.error };
 
   const db = getDb();
 
@@ -3214,6 +3227,10 @@ export async function createReview(
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
 
+  // AUDIT.md 3.8: cap scripted review/comment spam (+ @mention notifications).
+  const rl = await checkRateLimit(userId, 'review');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -3446,6 +3463,10 @@ export async function likeReview(idToken: string, reviewId: string) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted like/notification spam.
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
 
   const db = getDb();
 
@@ -5426,6 +5447,10 @@ export async function savePushSubscription(
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
 
+  // AUDIT.md 3.8: cap push-subscription churn.
+  const rl = await checkRateLimit(userId, 'pushSubscribe');
+  if (!rl.ok) return { error: rl.error };
+
   const db = getDb();
 
   try {
@@ -5905,6 +5930,10 @@ export async function likeActivity(idToken: string, activityId: string) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
+
+  // AUDIT.md 3.8: cap scripted like spam.
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
 
   const db = getDb();
 
