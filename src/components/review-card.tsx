@@ -2,7 +2,7 @@
 
 import { useState, memo, useMemo, Fragment } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Star } from 'lucide-react';
+import { Heart, MoreVertical, Trash2, Pencil, Star, Flag } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -14,7 +14,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { likeReview, unlikeReview, deleteReview } from '@/app/actions';
+import { likeReview, unlikeReview, deleteReview, reportContent } from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import type { Review } from '@/lib/types';
@@ -139,6 +139,25 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
     }
   };
 
+  // AUDIT.md (App Store §1.2): report this comment for moderator review.
+  const handleReport = async () => {
+    try {
+      const res = await reportContent(
+        await auth.currentUser?.getIdToken() ?? '',
+        'review',
+        review.id,
+        '',
+      );
+      if ('error' in res) {
+        toast({ variant: 'destructive', title: 'Error', description: res.error });
+      } else {
+        toast({ title: 'Reported', description: "Thanks — we'll review this." });
+      }
+    } catch {
+      toast({ variant: 'destructive', title: 'Error', description: 'Could not submit report.' });
+    }
+  };
+
   return (
     <div className={`flex gap-3 ${isReply ? 'py-2' : 'py-4'}`}>
       {/* User avatar */}
@@ -177,8 +196,9 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
             reviewed {timeAgo}
           </span>
 
-          {/* Options menu for owner */}
-          {isOwner && (
+          {/* Options menu — owner gets Edit/Delete; everyone else gets Report
+              (AUDIT.md App Store §1.2: UGC must be reportable). */}
+          {currentUserId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto">
@@ -186,18 +206,27 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="border-[2px] border-border rounded-xl">
-                <DropdownMenuItem onClick={() => onEdit?.(review)}>
-                  <Pencil className="h-4 w-4 mr-2" />
-                  Edit
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={handleDelete}
-                  className="text-destructive"
-                  disabled={isDeleting}
-                >
-                  <Trash2 className="h-4 w-4 mr-2" />
-                  Delete
-                </DropdownMenuItem>
+                {isOwner ? (
+                  <>
+                    <DropdownMenuItem onClick={() => onEdit?.(review)}>
+                      <Pencil className="h-4 w-4 mr-2" />
+                      Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onClick={handleDelete}
+                      className="text-destructive"
+                      disabled={isDeleting}
+                    >
+                      <Trash2 className="h-4 w-4 mr-2" />
+                      Delete
+                    </DropdownMenuItem>
+                  </>
+                ) : (
+                  <DropdownMenuItem onClick={handleReport}>
+                    <Flag className="h-4 w-4 mr-2" />
+                    Report
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
           )}

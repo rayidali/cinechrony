@@ -6002,3 +6002,44 @@ export async function unlikeActivity(idToken: string, activityId: string) {
     return { error: 'Failed to unlike activity.' };
   }
 }
+
+/**
+ * AUDIT.md (App Store §1.2 — User-Generated Content): lets a user report
+ * objectionable content (a review/comment, another user, or a list). Apple
+ * requires UGC apps to provide a reporting mechanism; reports land in the
+ * server-only `/reports` collection for the developer to review and act on.
+ *
+ * Rate-limited to stop report-spam / harassment-by-mass-report.
+ */
+export async function reportContent(
+  idToken: string,
+  contentType: 'review' | 'user' | 'list',
+  targetId: string,
+  reason: string,
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+
+  const rl = await checkRateLimit(auth.uid, 'report');
+  if (!rl.ok) return { error: rl.error };
+
+  if (!targetId || !['review', 'user', 'list'].includes(contentType)) {
+    return { error: 'Invalid report.' };
+  }
+
+  const db = getDb();
+  try {
+    await db.collection('reports').add({
+      reporterId: auth.uid,
+      contentType,
+      targetId,
+      reason: (reason || '').trim().slice(0, 1000),
+      status: 'pending', // pending → reviewed → actioned/dismissed
+      createdAt: FieldValue.serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('[reportContent] Failed:', error);
+    return { error: 'Failed to submit report.' };
+  }
+}
