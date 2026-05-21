@@ -64,8 +64,8 @@ export default function ForgotPasswordPage() {
 
       <div className="flex items-center gap-3 mb-6">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          Cinechrony
+        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
+          cinechrony
         </h1>
       </div>
 
@@ -114,7 +114,7 @@ export default function ForgotPasswordPage() {
               </div>
               <Button
                 type="submit"
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="animate-spin" /> : 'Send Reset Link'}

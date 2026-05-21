@@ -79,7 +79,7 @@ function TrendingMovieCard({
           <IMDbBadge rating={movie.imdbRating} />
         ) : movie.voteAverage > 0 ? (
           <div className="absolute bottom-1 left-1 flex items-center gap-0.5 bg-black/70 backdrop-blur-sm px-1.5 py-0.5 rounded-md">
-            <Star className="h-3 w-3 text-yellow-400 fill-yellow-400" />
+            <Star className="h-3 w-3 text-warning fill-warning" />
             <span className="text-[10px] font-bold text-white">
               {movie.voteAverage.toFixed(1)}
             </span>

@@ -376,7 +376,7 @@ export default function SettingsPage() {
                 )}
                 {ratingsCount > 0 && (
                   <div className="flex items-center gap-3">
-                    <Star className="h-5 w-5 text-yellow-500" />
+                    <Star className="h-5 w-5 text-muted-foreground" />
                     <span>{ratingsCount} with ratings</span>
                   </div>
                 )}

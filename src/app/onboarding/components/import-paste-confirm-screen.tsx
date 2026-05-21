@@ -135,7 +135,7 @@ export function ImportPasteConfirmScreen({
                       {item.match.release_date?.slice(0, 4) || 'Unknown year'}
                     </p>
                     {item.status === 'best_guess' && (
-                      <p className="text-xs text-yellow-600 dark:text-yellow-400">
+                      <p className="text-xs text-warning">
                         Best match for &quot;{item.parsed.title}&quot;
                       </p>
                     )}

@@ -114,8 +114,8 @@ function ResetPasswordContent() {
 
       <div className="flex items-center gap-3 mb-6">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tighter">
-          Cinechrony
+        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
+          cinechrony
         </h1>
       </div>
 
@@ -150,7 +150,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 onClick={() => router.push('/login')}
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
               >
                 Go to Login
               </Button>
@@ -167,7 +167,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 onClick={() => router.push('/forgot-password')}
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
               >
                 Request New Link
               </Button>
@@ -201,7 +201,7 @@ function ResetPasswordContent() {
               </div>
               <Button
                 type="submit"
-                className={`w-full ${retroButtonClass} bg-primary text-primary-foreground font-bold`}
+                className="w-full"
                 disabled={isLoading}
               >
                 {isLoading ? <Loader2 className="animate-spin" /> : 'Reset Password'}

@@ -568,7 +568,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                       </div>
                       {selectedMovie.rating && selectedMovie.rating > 0 && (
                         <div className="mt-2 text-sm">
-                          <span className="text-yellow-500">★</span>
+                          <span className="text-warning">★</span>
                           <span className="ml-1">{selectedMovie.rating.toFixed(1)}/10</span>
                         </div>
                       )}

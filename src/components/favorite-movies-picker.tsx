@@ -158,7 +158,7 @@ export function FavoriteMoviesPicker({
       <DialogContent className="max-w-lg border border-border shadow-photo">
         <DialogHeader>
           <DialogTitle className="text-xl font-headline flex items-center gap-2">
-            <Star className="h-5 w-5 text-yellow-500" />
+            <Star className="h-5 w-5 text-muted-foreground" />
             Top 5 Favorite Movies
           </DialogTitle>
         </DialogHeader>
