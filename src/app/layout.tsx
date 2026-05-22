@@ -1,4 +1,4 @@
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { Bricolage_Grotesque, Newsreader, Space_Mono } from 'next/font/google';
@@ -35,6 +35,16 @@ const spaceMono = Space_Mono({
   display: 'swap',
 });
 
+
+// iOS Safari tints its URL bar with `theme-color`; we want newsprint cream
+// so the chrome blends into the editorial page surface. The PWA manifest's
+// `theme_color` is set to the same value; this inline meta wins on the
+// first paint regardless of manifest caching. (Was `#facc15`, the v1
+// brutalist yellow — leftover that was showing up as a yellow band at the
+// top of fullscreen drawers when the keyboard was up.)
+export const viewport: Viewport = {
+  themeColor: '#f7f3e9',
+};
 
 export const metadata: Metadata = {
   title: 'Cinechrony',

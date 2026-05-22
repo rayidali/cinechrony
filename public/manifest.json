@@ -5,7 +5,7 @@
   "start_url": "/",
   "display": "standalone",
   "background_color": "#f7f3e9",
-  "theme_color": "#facc15",
+  "theme_color": "#f7f3e9",
   "icons": [
     {
       "src": "https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png",

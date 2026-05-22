@@ -164,8 +164,17 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const [tempRating, setTempRating] = useState<number>(7.5);
   const [tempPlace, setTempPlace] = useState('');
 
-  // Visible viewport — composer sits inside it so the toolbar is above the keyboard.
-  const [viewportHeight, setViewportHeight] = useState('100dvh');
+  // The composer pins itself to the visual viewport — not the layout
+  // viewport — so the surface always covers what the user can see, and the
+  // toolbar lands right above the iOS keyboard. We track BOTH `offsetTop`
+  // and `height`: on iOS, opening the keyboard moves the visual viewport's
+  // top edge down by `offsetTop` (so a plain `top: 0` would float above the
+  // visible area, with the lists/home page bleeding through below the
+  // drawer — exactly the bug we shipped before).
+  const [viewport, setViewport] = useState<{ top: number; height: string }>({
+    top: 0,
+    height: '100dvh',
+  });
 
   // ── Effects ────────────────────────────────────────────────────────────
 
@@ -173,10 +182,10 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     if (!isOpen) return;
     const vv = window.visualViewport;
     if (!vv) {
-      setViewportHeight('100dvh');
+      setViewport({ top: 0, height: '100dvh' });
       return;
     }
-    const update = () => setViewportHeight(`${vv.height}px`);
+    const update = () => setViewport({ top: vv.offsetTop, height: `${vv.height}px` });
     update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
@@ -527,8 +536,8 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   return (
     <div
-      className="fixed left-0 right-0 top-0 z-[70] bg-card flex flex-col animate-sheet-rise"
-      style={{ height: viewportHeight }}
+      className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
+      style={{ top: viewport.top, height: viewport.height }}
     >
       {/* ── Header — cancel · drafts(N) · post ─────────────────────── */}
       <div

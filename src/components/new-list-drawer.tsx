@@ -12,7 +12,6 @@ import {
   ChevronLeft,
   Search,
   Loader2,
-  Film,
 } from 'lucide-react';
 import { useUser } from '@/firebase';
 import {
@@ -71,8 +70,14 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
   const [friendQuery, setFriendQuery] = useState('');
   const [friendResults, setFriendResults] = useState<UserProfile[]>([]);
 
-  // Visible viewport — keyboard handling.
-  const [viewportHeight, setViewportHeight] = useState('100dvh');
+  // Pin the drawer to the visual viewport (not the layout viewport): track
+  // BOTH `offsetTop` and `height` so the surface follows the iOS keyboard.
+  // Without `offsetTop`, the drawer floats above the visible area when the
+  // keyboard opens and the page beneath bleeds through.
+  const [viewport, setViewport] = useState<{ top: number; height: string }>({
+    top: 0,
+    height: '100dvh',
+  });
 
   // ── Effects ────────────────────────────────────────────────────────────
 
@@ -80,10 +85,10 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
     if (!isOpen) return;
     const vv = window.visualViewport;
     if (!vv) {
-      setViewportHeight('100dvh');
+      setViewport({ top: 0, height: '100dvh' });
       return;
     }
-    const update = () => setViewportHeight(`${vv.height}px`);
+    const update = () => setViewport({ top: vv.offsetTop, height: `${vv.height}px` });
     update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
@@ -151,9 +156,11 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
   };
 
   const useAutoCover = () => {
+    // Committing to the mosaic — discard the staged upload (there's no UI
+    // path back to it, so holding it would just be confusing dead state).
+    // The user can re-upload if they change their mind.
     setCoverMode('auto');
-    // Don't clear coverPreview — let the user toggle back; we just won't
-    // upload it on submit when mode is 'auto'.
+    setCoverPreview(null);
   };
 
   // ── Friend invites ─────────────────────────────────────────────────────
@@ -272,8 +279,8 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
 
   return (
     <div
-      className="fixed left-0 right-0 top-0 z-[70] bg-card flex flex-col animate-sheet-rise"
-      style={{ height: viewportHeight }}
+      className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
+      style={{ top: viewport.top, height: viewport.height }}
     >
       {/* ── Header — cancel · create ─────────────────────────────────── */}
       <div
@@ -497,45 +504,27 @@ function CoverHero({
     );
   }
 
-  // Auto / empty state — dashed paper, three placeholder mosaic tiles +
-  // tap-to-upload affordance.
+  // Empty state — dashed paper, lead with the upload affordance, fall back
+  // the auto-mosaic explanation. The previous "mosaic of your first 3 films"
+  // copy described the default but didn't tell users they COULD upload
+  // their own cover — leading with the action makes the affordance obvious.
   return (
     <button
       onClick={onUpload}
-      className="relative aspect-[16/9] w-full rounded-[14px] border border-dashed border-border bg-background flex flex-col items-center justify-center active:opacity-70"
+      className="relative aspect-[16/9] w-full rounded-[14px] border border-dashed border-border bg-background flex flex-col items-center justify-center gap-2.5 active:opacity-70"
     >
-      {coverPreview && coverMode === 'auto' ? (
-        <div className="absolute inset-0 flex items-center justify-center px-6 opacity-30">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={coverPreview} alt="" className="w-full h-full object-cover rounded-[12px]" />
-        </div>
-      ) : null}
-      <div className="relative flex flex-col items-center gap-1.5 text-muted-foreground">
-        <div className="flex gap-1">
-          <MosaicTile />
-          <MosaicTile />
-          <MosaicTile />
-        </div>
-        <span className="font-serif italic text-[13px]">
-          {coverMode === 'auto'
-            ? 'mosaic of your first 3 films'
-            : 'tap to add a cover'}
-        </span>
+      <div className="flex items-center justify-center h-11 w-11 rounded-full bg-card border border-border text-foreground">
+        <ImageIcon className="h-5 w-5" strokeWidth={1.6} />
       </div>
-      {coverMode === 'auto' && (
-        <div className="absolute right-2.5 bottom-2.5">
-          <GlassPill icon={ImageIcon} label="upload" onClick={onUpload} dark />
-        </div>
-      )}
+      <div className="text-center px-6">
+        <p className="font-headline font-bold text-[15px] lowercase tracking-tight text-foreground">
+          upload a cover image
+        </p>
+        <p className="font-serif italic text-[12px] text-muted-foreground mt-0.5">
+          or skip — we&apos;ll mosaic your first 3 films
+        </p>
+      </div>
     </button>
-  );
-}
-
-function MosaicTile() {
-  return (
-    <div className="w-7 h-10 rounded-[3px] border border-dashed border-border bg-card flex items-center justify-center">
-      <Film className="h-3 w-3 text-muted-foreground/60" strokeWidth={1.6} />
-    </div>
   );
 }
 
