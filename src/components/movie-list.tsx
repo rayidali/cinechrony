@@ -287,8 +287,21 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
         renderEmptyState()
       )}
 
-      {/* Movie details modal for grid/list views */}
+      {/* Movie details modal for grid/list views.
+       *
+       * `key` is bound to the selected movie's ID so the modal is a FRESH
+       * instance every time it opens. Without this, navigating
+       * `/lists/[id]` → `/movie/[id]/comments` → back can revive the list
+       * page from Next's router cache; the modal's internal state
+       * (`mediaDetails`, `isLoadingDetails`, the fetch effect's `cancelled`
+       * flag) survives the round-trip. The reopen via the `openMovie`
+       * query param flips state in a way where the prior cancel can
+       * discard the new fetch and we end up rendering the modal with no
+       * details — the "info doesn't load" bug. Tying the lifecycle to the
+       * movie id makes every open a clean mount: effects always run, the
+       * TMDB fetch always lands. */}
       <MovieDetailsModal
+        key={selectedMovie?.id ?? 'no-movie-open'}
         movie={selectedMovie}
         isOpen={isModalOpen}
         onClose={handleCloseModal}

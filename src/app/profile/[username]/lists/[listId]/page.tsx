@@ -363,8 +363,13 @@ export default function PublicListPage() {
           </div>
         )}
 
-        {/* Movie Details Modal */}
+        {/* Movie Details Modal — `key` keyed to the selected movie's ID so
+            the modal mounts fresh every open. See the comment in
+            movie-list.tsx for the full reasoning (the openMovie return
+            flow from /comments could leave the modal with stale internal
+            state otherwise — TMDB details never loading on re-open). */}
         <PublicMovieDetailsModal
+          key={selectedMovie?.id ?? 'no-movie-open'}
           movie={selectedMovie}
           isOpen={isModalOpen}
           onClose={handleCloseModal}
