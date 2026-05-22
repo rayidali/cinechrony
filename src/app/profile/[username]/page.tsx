@@ -11,8 +11,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FollowButton } from '@/components/follow-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileListCard } from '@/components/profile-list-card';
+import { ProfileOverflowMenu } from '@/components/profile-overflow-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
+import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
 import {
   getUserByUsername,
@@ -50,6 +52,7 @@ const GHOST_PILL =
 
 export default function UserProfilePage() {
   const { user, isUserLoading } = useUser();
+  const { isBlocked } = useUserBlocksCache();
   const router = useRouter();
   const params = useParams();
   const username = params.username as string;
@@ -240,6 +243,29 @@ export default function UserProfilePage() {
     );
   }
 
+  // LAUNCH 0.5.5: a blocked relationship (either direction) makes the profile
+  // unavailable — no content, no interaction.
+  if (profile && isBlocked(profile.uid)) {
+    return (
+      <main className="min-h-screen text-foreground">
+        <div className="container mx-auto px-4 md:px-8 max-w-2xl">
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
+            <div className="cc-eyebrow">unavailable</div>
+            <h1 className="font-headline font-bold text-3xl lowercase tracking-tight mt-3">
+              this account is unavailable
+            </h1>
+            <p className="cc-lead text-[15px] text-muted-foreground mt-2">
+              you can&apos;t view this profile.
+            </p>
+            <Link href="/home" className="mt-5">
+              <Button>back home</Button>
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
   const stats: { label: string; value: number; onClick: () => void }[] = [
     { label: 'followers', value: profile.followersCount || 0, onClick: handleLoadFollowers },
     { label: 'following', value: profile.followingCount || 0, onClick: handleLoadFollowing },
@@ -265,7 +291,13 @@ export default function UserProfilePage() {
             <ChevronLeft className="h-4 w-4" strokeWidth={1.8} />
             back
           </button>
-          <ThemeToggle />
+          <div className="flex items-center gap-1">
+            <ProfileOverflowMenu
+              targetUserId={profile.uid}
+              targetUsername={profile.username || 'user'}
+            />
+            <ThemeToggle />
+          </div>
         </div>
 
         {/* Editorial header */}

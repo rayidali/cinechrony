@@ -857,8 +857,15 @@ export async function searchUsers(query: string, currentUserId?: string) {
     byUsername.docs.forEach(collect);
     byDisplayName.docs.forEach(collect);
 
+    // LAUNCH 0.5.5: blocked users (either direction) never appear in search.
+    let blockSet = new Set<string>();
+    if (currentUserId) {
+      blockSet = await getBlockSet(db, currentUserId);
+    }
+
     // Rank: exact @handle match > @handle prefix > alphabetical.
     const users = Array.from(usersMap.values())
+      .filter((u) => !blockSet.has(u.uid) && u.uid !== currentUserId)
       .sort((a, b) => {
         const au = (a.username || '').toLowerCase();
         const bu = (b.username || '').toLowerCase();
@@ -1277,6 +1284,11 @@ export async function followUser(idToken: string, followingId: string) {
   try {
     if (followerId === followingId) {
       return { error: "You can't follow yourself." };
+    }
+
+    // LAUNCH 0.5.5: a block in either direction severs interaction.
+    if (await isBlockedBetween(db, followerId, followingId)) {
+      return { error: 'Unable to follow this user.' };
     }
 
     // Check if already following
@@ -5582,32 +5594,37 @@ export async function getNotifications(userId: string, limit: number = 50) {
       .limit(limit)
       .get();
 
-    const notifications = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        type: data.type,
-        fromUserId: data.fromUserId,
-        fromUsername: data.fromUsername,
-        fromDisplayName: data.fromDisplayName,
-        fromPhotoUrl: data.fromPhotoUrl,
-        // Review context (optional)
-        reviewId: data.reviewId,
-        tmdbId: data.tmdbId,
-        mediaType: data.mediaType,
-        movieTitle: data.movieTitle,
-        previewText: data.previewText,
-        // List context (optional)
-        listId: data.listId,
-        listOwnerId: data.listOwnerId,
-        listName: data.listName,
-        inviteId: data.inviteId, // For accepting/declining list invites from notification
-        // State
-        read: data.read,
-        createdAt: data.createdAt?.toDate() || new Date(),
-      };
-    });
+    // LAUNCH 0.5.5: drop notifications from blocked users (either direction).
+    const blockSet = await getBlockSet(db, userId);
+
+    const notifications = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId,
+          type: data.type,
+          fromUserId: data.fromUserId,
+          fromUsername: data.fromUsername,
+          fromDisplayName: data.fromDisplayName,
+          fromPhotoUrl: data.fromPhotoUrl,
+          // Review context (optional)
+          reviewId: data.reviewId,
+          tmdbId: data.tmdbId,
+          mediaType: data.mediaType,
+          movieTitle: data.movieTitle,
+          previewText: data.previewText,
+          // List context (optional)
+          listId: data.listId,
+          listOwnerId: data.listOwnerId,
+          listName: data.listName,
+          inviteId: data.inviteId, // For accepting/declining list invites from notification
+          // State
+          read: data.read,
+          createdAt: data.createdAt?.toDate() || new Date(),
+        };
+      })
+      .filter((n) => !n.fromUserId || !blockSet.has(n.fromUserId));
 
     // Count unread
     const unreadCount = notifications.filter(n => !n.read).length;
@@ -6544,6 +6561,176 @@ export async function getFriendsWatching(
   } catch (error) {
     console.error('[getFriendsWatching] Failed:', error);
     return { cards: [], error: 'Failed to load friends-watching.' };
+  }
+}
+
+// ============================================
+// BLOCK — full mutual invisibility (LAUNCH 0.5.5)
+// ============================================
+
+/** True if a block exists in EITHER direction between two users. */
+async function isBlockedBetween(
+  db: FirebaseFirestore.Firestore,
+  a: string,
+  b: string,
+): Promise<boolean> {
+  const [ab, ba] = await Promise.all([
+    db.collection('blocks').doc(`${a}_${b}`).get(),
+    db.collection('blocks').doc(`${b}_${a}`).get(),
+  ]);
+  return ab.exists || ba.exists;
+}
+
+/** The set of uids invisible to `uid` — everyone they blocked + everyone who
+ *  blocked them. Used to filter server-side read surfaces. */
+async function getBlockSet(
+  db: FirebaseFirestore.Firestore,
+  uid: string,
+): Promise<Set<string>> {
+  const [iBlocked, blockedMe] = await Promise.all([
+    db.collection('blocks').where('blockerId', '==', uid).get(),
+    db.collection('blocks').where('blockedId', '==', uid).get(),
+  ]);
+  const set = new Set<string>();
+  iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
+  blockedMe.docs.forEach((d) => set.add(d.data().blockerId as string));
+  return set;
+}
+
+/**
+ * Block a user — full mutual invisibility. Also severs the relationship:
+ * drops any follow in both directions (fixing counts) and revokes pending
+ * invites between the two. Read-surface filtering is cross-cutting (see
+ * getBlockSet callers + the client blocks cache).
+ */
+export async function blockUser(idToken: string, blockedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const me = auth.uid;
+  if (!blockedId || blockedId === me) return { error: 'Invalid user.' };
+  const db = getDb();
+  try {
+    await db.collection('blocks').doc(`${me}_${blockedId}`).set({
+      blockerId: me,
+      blockedId,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Sever the follow relationship in BOTH directions.
+    const batch = db.batch();
+    for (const [a, b] of [[me, blockedId], [blockedId, me]] as const) {
+      const followingRef = db.collection('users').doc(a).collection('following').doc(b);
+      if ((await followingRef.get()).exists) {
+        batch.delete(followingRef);
+        batch.delete(db.collection('users').doc(b).collection('followers').doc(a));
+        batch.update(db.collection('users').doc(a), {
+          followingCount: FieldValue.increment(-1),
+        });
+        batch.update(db.collection('users').doc(b), {
+          followersCount: FieldValue.increment(-1),
+        });
+      }
+    }
+    await batch.commit();
+
+    // Revoke pending invites between the two (best-effort).
+    try {
+      const pending = await db.collection('invites').where('status', '==', 'pending').get();
+      const invBatch = db.batch();
+      let touched = false;
+      pending.docs.forEach((d) => {
+        const inv = d.data();
+        if (
+          (inv.inviterId === me && inv.inviteeId === blockedId) ||
+          (inv.inviterId === blockedId && inv.inviteeId === me)
+        ) {
+          invBatch.update(d.ref, { status: 'revoked' });
+          touched = true;
+        }
+      });
+      if (touched) await invBatch.commit();
+    } catch (err) {
+      console.error('[blockUser] invite revoke failed:', err);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[blockUser] Failed:', error);
+    return { error: 'Failed to block user.' };
+  }
+}
+
+/** Unblock a user. The relationship is not restored — they must re-follow. */
+export async function unblockUser(idToken: string, blockedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db.collection('blocks').doc(`${auth.uid}_${blockedId}`).delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unblockUser] Failed:', error);
+    return { error: 'Failed to unblock user.' };
+  }
+}
+
+/**
+ * The viewer's block context — `blockedIds` is the invisibility union (filter
+ * everything against it); `iBlocked` is who the viewer actively blocked (drives
+ * the settings unblock list).
+ */
+export async function getMyBlockContext(
+  idToken: string,
+): Promise<{ blockedIds: string[]; iBlocked: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { blockedIds: [], iBlocked: [], error: auth.error };
+  const db = getDb();
+  try {
+    const [iBlockedSnap, blockedMeSnap] = await Promise.all([
+      db.collection('blocks').where('blockerId', '==', auth.uid).get(),
+      db.collection('blocks').where('blockedId', '==', auth.uid).get(),
+    ]);
+    const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
+    const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);
+    return { blockedIds: [...new Set([...iBlocked, ...blockedMe])], iBlocked };
+  } catch (error) {
+    console.error('[getMyBlockContext] Failed:', error);
+    return { blockedIds: [], iBlocked: [], error: 'Failed to load block context.' };
+  }
+}
+
+/** Profiles for the viewer's blocked users — drives the settings unblock list. */
+export async function getBlockedUsers(
+  idToken: string,
+): Promise<{ users: UserProfile[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { users: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db.collection('blocks').where('blockerId', '==', auth.uid).get();
+    const ids = snap.docs.map((d) => d.data().blockedId as string);
+    if (ids.length === 0) return { users: [] };
+    const docs = await db.getAll(...ids.map((id) => db.collection('users').doc(id)));
+    const users = docs
+      .filter((d) => d.exists)
+      .map((d) => {
+        const u = d.data() || {};
+        return {
+          uid: d.id,
+          email: '',
+          displayName: u.displayName ?? null,
+          photoURL: u.photoURL ?? null,
+          username: u.username ?? null,
+          bio: u.bio ?? null,
+          createdAt: u.createdAt?.toDate?.() ?? new Date(),
+          followersCount: u.followersCount ?? 0,
+          followingCount: u.followingCount ?? 0,
+        } as UserProfile;
+      });
+    return { users };
+  } catch (error) {
+    console.error('[getBlockedUsers] Failed:', error);
+    return { users: [], error: 'Failed to load blocked users.' };
   }
 }
 

@@ -8,6 +8,7 @@ import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
 import { parseLetterboxdExport, importLetterboxdMovies, deleteUserAccount, getNotificationPreferences, updateNotificationPreferences } from '@/app/actions';
+import { BlockedUsersSection } from '@/components/blocked-users-section';
 import { signOut } from 'firebase/auth';
 import { useFirestore } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -653,6 +654,9 @@ export default function SettingsPage() {
             )}
           </div>
         </section>
+
+        {/* Blocked users (LAUNCH 0.5.5) */}
+        <BlockedUsersSection />
 
         {/* Danger Zone */}
         <section className="mt-12 pt-8 border-t border-destructive/30">

@@ -13,6 +13,7 @@ import {
 } from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
+import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
 import { RecommendationCard } from './recommendation-card';
@@ -132,6 +133,7 @@ export function ActivityFeed({
 }: ActivityFeedProps) {
   const auth = useAuth();
   const { isMuted } = useUserMutesCache();
+  const { isBlocked } = useUserBlocksCache();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [recSets, setRecSets] = useState<RecommendationSet[]>([]);
   const [fwCards, setFwCards] = useState<FWCard[]>([]);
@@ -290,12 +292,14 @@ export function ActivityFeed({
       const set = new Set(followingIds ?? []);
       list = list.filter((a) => set.has(a.userId));
     }
+    // Blocked users are invisible everywhere — even in the saved archive.
+    list = list.filter((a) => !isBlocked(a.userId));
     // Muted authors drop out of `all` / `friends` (the `saved` archive is kept).
     if (feedFilter !== 'saved') {
       list = list.filter((a) => !isMuted(a.userId));
     }
     return list;
-  }, [activities, feedFilter, followingIds, isMuted]);
+  }, [activities, feedFilter, followingIds, isMuted, isBlocked]);
 
   // Interleave recommendations + friends-watching — only in the `all` view;
   // `friends` stays a pure chronological friend feed, `saved` is the archive.

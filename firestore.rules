@@ -344,6 +344,11 @@ service cloud.firestore {
     match /notifications/{notificationId} {
       allow read, write: if false;
     }
+    // LAUNCH 0.5.5: block records — server-only. The client never reads /blocks
+    // directly; getMyBlockContext delivers the invisibility set instead.
+    match /blocks/{blockId} {
+      allow read, write: if false;
+    }
     // AUDIT.md 3.8: rate-limit counters — server-only, clients must never read
     // or tamper with their own budget.
     match /rate_limits/{limitId} {
