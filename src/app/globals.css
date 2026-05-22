@@ -163,6 +163,13 @@
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* Bottom-sheet rise — used by the post composer + new-list drawer. The
+   surface is opaque from frame 1 (no opacity fade), so the page below
+   never bleeds through during the transition. */
+@keyframes sheet-rise {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
 @keyframes marquee {
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
@@ -184,13 +191,17 @@
 .animate-fade-in {
   animation: fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+.animate-sheet-rise {
+  animation: sheet-rise 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
   .animate-float-delayed,
   .animate-rise,
   .animate-slide-up,
-  .animate-fade-in {
+  .animate-fade-in,
+  .animate-sheet-rise {
     animation: none;
   }
 }

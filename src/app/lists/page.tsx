@@ -311,12 +311,6 @@ export default function ListsPage() {
           )}
         </div>
 
-        {/* Editorial new-list creator (v3) */}
-        <NewListDrawer
-          isOpen={isCreateOpen}
-          onClose={() => setIsCreateOpen(false)}
-          onCreated={handleListCreated}
-        />
       </div>
 
         </main>
@@ -327,6 +321,17 @@ export default function ListsPage() {
 
       {/* BottomNav outside PullToRefresh to keep fixed positioning */}
       <BottomNav />
+
+      {/* Editorial new-list creator (v3) — MUST sit outside PullToRefresh so
+          position:fixed anchors to the viewport. PullToRefresh wraps its
+          children in a translateY container, which becomes the containing
+          block for any fixed descendant — anchoring it to the scrolled page
+          instead of the viewport and producing a half-rendered drawer. */}
+      <NewListDrawer
+        isOpen={isCreateOpen}
+        onClose={() => setIsCreateOpen(false)}
+        onCreated={handleListCreated}
+      />
     </>
   );
 }

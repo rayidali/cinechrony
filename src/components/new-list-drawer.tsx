@@ -272,7 +272,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
 
   return (
     <div
-      className="fixed left-0 right-0 top-0 z-[70] bg-card flex flex-col animate-fade-in"
+      className="fixed left-0 right-0 top-0 z-[70] bg-card flex flex-col animate-sheet-rise"
       style={{ height: viewportHeight }}
     >
       {/* ── Header — cancel · create ─────────────────────────────────── */}
