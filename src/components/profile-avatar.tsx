@@ -8,7 +8,7 @@ type ProfileAvatarProps = {
   displayName?: string | null;
   username?: string | null;
   email?: string | null;
-  size?: 'sm' | 'md' | 'lg' | 'xl';
+  size?: 'xs' | 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   onClick?: () => void;
   showEditHint?: boolean;
@@ -36,6 +36,7 @@ function getInitials(
 }
 
 const sizeClasses = {
+  xs: 'h-[22px] w-[22px] text-[10px]', // 22px — reply rows in the comments page
   sm: 'h-8 w-8 text-sm',
   md: 'h-10 w-10 text-lg',
   lg: 'h-16 w-16 text-2xl',
@@ -43,6 +44,7 @@ const sizeClasses = {
 };
 
 const borderClasses = {
+  xs: 'border',
   sm: 'border',
   md: 'border',
   lg: 'border',
@@ -50,6 +52,7 @@ const borderClasses = {
 };
 
 const shadowClasses = {
+  xs: 'shadow-press',
   sm: 'shadow-press',
   md: 'shadow-lift',
   lg: 'shadow-lift',
@@ -88,7 +91,13 @@ export function ProfileAvatar({
           alt={displayName || username || 'Profile picture'}
           fill
           className="object-cover"
-          sizes={size === 'xl' ? '128px' : size === 'lg' ? '64px' : size === 'md' ? '40px' : '32px'}
+          sizes={
+            size === 'xl' ? '128px'
+              : size === 'lg' ? '64px'
+              : size === 'md' ? '40px'
+              : size === 'xs' ? '22px'
+              : '32px'
+          }
         />
       ) : (
         <span className="font-bold text-primary-foreground">{initials}</span>

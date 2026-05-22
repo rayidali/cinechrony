@@ -214,7 +214,7 @@ export const ReviewsList = memo(function ReviewsList({
             )}
 
             {/* The rest */}
-            <div className="divide-y divide-border">
+            <div>
               {restReviews.map((review) => (
                 <ReviewCard
                   key={review.id}

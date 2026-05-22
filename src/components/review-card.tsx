@@ -1,9 +1,16 @@
 'use client';
 
-import { useState, memo, useMemo, Fragment } from 'react';
+import { useState, memo, useMemo } from 'react';
 import Link from 'next/link';
-import { Heart, MoreVertical, Trash2, Pencil, Flag } from 'lucide-react';
-import { getRatingStyle } from '@/lib/utils';
+import {
+  Heart,
+  MoreHorizontal,
+  Trash2,
+  Pencil,
+  Flag,
+  EyeOff,
+} from 'lucide-react';
+import { cn, getRatingStyle } from '@/lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
@@ -14,28 +21,27 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { likeReview, unlikeReview, deleteReview, reportContent } from '@/app/actions';
+import {
+  likeReview,
+  unlikeReview,
+  deleteReview,
+  reportContent,
+} from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import type { Review } from '@/lib/types';
 
 /**
- * Render text with @mentions as clickable profile links.
- * Zero network calls - just parses and renders.
+ * Render text with @mentions as clickable film-red profile links — no
+ * network calls, just a regex split.
  */
 function renderTextWithMentions(text: string): React.ReactNode {
   const mentionRegex = /@([a-zA-Z0-9_]+)/g;
   const parts: React.ReactNode[] = [];
   let lastIndex = 0;
   let match;
-
   while ((match = mentionRegex.exec(text)) !== null) {
-    // Add text before the mention
-    if (match.index > lastIndex) {
-      parts.push(text.slice(lastIndex, match.index));
-    }
-
-    // Add the mention as a link
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
     const username = match[1];
     parts.push(
       <Link
@@ -45,17 +51,11 @@ function renderTextWithMentions(text: string): React.ReactNode {
         onClick={(e) => e.stopPropagation()}
       >
         @{username}
-      </Link>
+      </Link>,
     );
-
     lastIndex = match.index + match[0].length;
   }
-
-  // Add remaining text after last mention
-  if (lastIndex < text.length) {
-    parts.push(text.slice(lastIndex));
-  }
-
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
   return parts.length > 0 ? parts : text;
 }
 
@@ -65,39 +65,64 @@ interface ReviewCardProps {
   onDelete?: (reviewId: string) => void;
   onEdit?: (review: Review) => void;
   onReply?: (review: Review) => void;
-  isReply?: boolean; // If true, this is a reply (renders more compact, no reply button)
+  /** True for reply rows — 36px indent, 22px avatar (1 level deep max). */
+  isReply?: boolean;
 }
 
-export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDelete, onEdit, onReply, isReply = false }: ReviewCardProps) {
+/**
+ * Review row — v3 ("consistent fonts, clear hierarchy").
+ *
+ * 3-column layout per `pattern-comments.html`: avatar (left, 32 / 22 px) —
+ * body (flex, byline + text + actions) — vertical heart column (right,
+ * count below). Hairline dividers between rows, no boxes. Replies get a
+ * 36px indent and a smaller avatar (1 level deep — matches production).
+ * Author-flagged spoilers shield the body behind a "tap to reveal" block.
+ */
+export const ReviewCard = memo(function ReviewCard({
+  review,
+  currentUserId,
+  onDelete,
+  onEdit,
+  onReply,
+  isReply = false,
+}: ReviewCardProps) {
   const { toast } = useToast();
   const auth = useAuth();
   const [likes, setLikes] = useState(review.likes);
   const [isLiked, setIsLiked] = useState(
-    currentUserId ? review.likedBy.includes(currentUserId) : false
+    currentUserId ? review.likedBy.includes(currentUserId) : false,
   );
   const [isLiking, setIsLiking] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  // v3: spoiler shield — body is hidden until the viewer taps.
+  const [spoilerRevealed, setSpoilerRevealed] = useState(false);
 
   const isOwner = currentUserId === review.userId;
   // AUDIT.md 2.3b: prefer live display name / photo from the cache, fall
   // back to the denormalized snapshot stamped onto the review at write time.
   const live = useUserProfile(review.userId);
   const liveDisplayName = live?.displayName ?? review.userDisplayName ?? null;
-  const livePhotoUrl    = live?.photoURL    ?? review.userPhotoUrl    ?? null;
-  const displayName = liveDisplayName || review.username || 'Anonymous';
-  const timeAgo = formatDistanceToNow(new Date(review.createdAt), { addSuffix: true });
+  const livePhotoUrl = live?.photoURL ?? review.userPhotoUrl ?? null;
+  const displayName = liveDisplayName || review.username || 'anonymous';
+  const timeAgo = formatDistanceToNow(new Date(review.createdAt), {
+    addSuffix: false,
+  });
   const replyCount = review.replyCount || 0;
 
-  // Get styles for the rating badge (using inline styles for consistency)
-  const ratingStyle = useMemo(() => getRatingStyle(review.ratingAtTime), [review.ratingAtTime]);
+  const ratingStyle = useMemo(
+    () => getRatingStyle(review.ratingAtTime),
+    [review.ratingAtTime],
+  );
 
   const handleLikeToggle = async () => {
     if (!currentUserId || isLiking) return;
-
     setIsLiking(true);
     try {
       if (isLiked) {
-        const result = await unlikeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        const result = await unlikeReview(
+          (await auth.currentUser?.getIdToken()) ?? '',
+          review.id,
+        );
         if ('error' in result) {
           toast({ variant: 'destructive', title: 'Error', description: result.error });
         } else {
@@ -105,7 +130,10 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
           setIsLiked(false);
         }
       } else {
-        const result = await likeReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+        const result = await likeReview(
+          (await auth.currentUser?.getIdToken()) ?? '',
+          review.id,
+        );
         if ('error' in result) {
           toast({ variant: 'destructive', title: 'Error', description: result.error });
         } else {
@@ -122,14 +150,16 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
 
   const handleDelete = async () => {
     if (!currentUserId || isDeleting) return;
-
     setIsDeleting(true);
     try {
-      const result = await deleteReview(await auth.currentUser?.getIdToken() ?? '', review.id);
+      const result = await deleteReview(
+        (await auth.currentUser?.getIdToken()) ?? '',
+        review.id,
+      );
       if ('error' in result) {
         toast({ variant: 'destructive', title: 'Error', description: result.error });
       } else {
-        toast({ title: 'Deleted', description: 'Your review has been deleted.' });
+        toast({ title: 'deleted.', description: 'your review has been deleted.' });
         onDelete?.(review.id);
       }
     } catch {
@@ -139,11 +169,10 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
     }
   };
 
-  // AUDIT.md (App Store §1.2): report this comment for moderator review.
   const handleReport = async () => {
     try {
       const res = await reportContent(
-        await auth.currentUser?.getIdToken() ?? '',
+        (await auth.currentUser?.getIdToken()) ?? '',
         'review',
         review.id,
         '',
@@ -151,58 +180,82 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
       if ('error' in res) {
         toast({ variant: 'destructive', title: 'Error', description: res.error });
       } else {
-        toast({ title: 'Reported', description: "Thanks — we'll review this." });
+        toast({ title: 'reported.', description: "thanks — we'll review this." });
       }
     } catch {
       toast({ variant: 'destructive', title: 'Error', description: 'Could not submit report.' });
     }
   };
 
+  const showShield = !!review.hasSpoiler && !spoilerRevealed;
+
   return (
-    <div className={`flex gap-3 ${isReply ? 'py-3 ml-3 pl-3 border-l border-border' : 'py-4'}`}>
-      {/* User avatar */}
+    <div
+      className={cn(
+        'flex gap-3 border-t border-border',
+        isReply ? 'pl-[36px] py-2.5' : 'py-3.5',
+      )}
+    >
+      {/* Avatar */}
       <Link href={`/profile/${review.username || ''}`} className="flex-shrink-0">
         <ProfileAvatar
           photoURL={livePhotoUrl}
           displayName={liveDisplayName}
           username={review.username}
-          size={isReply ? 'sm' : 'md'}
+          size={isReply ? 'xs' : 'sm'}
         />
       </Link>
 
-      {/* Review content */}
+      {/* Body */}
       <div className="flex-1 min-w-0">
-        {/* Header: username, rating, timestamp */}
-        <div className="flex items-center gap-2 flex-wrap">
+        {/* Byline — name · @handle · time · ⋯  | rating chip on the right edge */}
+        <div className="flex items-baseline gap-1.5 flex-wrap">
           <Link
             href={`/profile/${review.username || ''}`}
-            className="cc-meta text-[12px] text-foreground hover:underline"
+            className="font-headline font-bold text-[13px] tracking-[-0.01em] text-foreground hover:underline"
           >
-            {review.username ? `@${review.username}` : displayName}
+            {displayName}
           </Link>
-
-          <span className="cc-meta text-[11px] text-muted-foreground">· {timeAgo}</span>
-
-          {/* Rating chip — 3-bucket, sits on the byline */}
+          {review.username && (
+            <>
+              <span className="cc-meta text-[10px] text-muted-foreground">
+                @{review.username}
+              </span>
+              <span className="cc-meta text-[10px] text-muted-foreground">·</span>
+            </>
+          )}
+          <span className="cc-meta text-[10px] text-muted-foreground">
+            {timeAgo}
+          </span>
+          {/* Rating chip — right-edge of the byline */}
           {review.ratingAtTime !== null && review.ratingAtTime !== undefined && (
             <span
-              className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
+              className="ml-auto px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
               style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
             >
               {review.ratingAtTime.toFixed(1)}
             </span>
           )}
-
-          {/* Options menu — owner gets Edit/Delete; everyone else gets Report
-              (AUDIT.md App Store §1.2: UGC must be reportable). */}
+          {/* Discreet overflow — sits after the rating chip if present */}
           {currentUserId && (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-6 w-6 ml-auto">
-                  <MoreVertical className="h-4 w-4" />
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className={cn(
+                    'h-6 w-6 text-muted-foreground/70',
+                    review.ratingAtTime == null && 'ml-auto',
+                  )}
+                  aria-label="Comment options"
+                >
+                  <MoreHorizontal className="h-3.5 w-3.5" strokeWidth={1.8} />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="border border-border rounded-xl">
+              <DropdownMenuContent
+                align="end"
+                className="border border-border rounded-xl"
+              >
                 {isOwner ? (
                   <>
                     <DropdownMenuItem onClick={() => onEdit?.(review)}>
@@ -229,36 +282,68 @@ export const ReviewCard = memo(function ReviewCard({ review, currentUserId, onDe
           )}
         </div>
 
-        {/* Review text with @mentions as links */}
-        <p className="font-serif text-[15px] leading-relaxed mt-1.5 whitespace-pre-wrap break-words">
-          {renderTextWithMentions(review.text)}
-        </p>
-
-        {/* Actions: like, reply */}
-        <div className="flex items-center gap-4 mt-2.5">
+        {/* Body text — Newsreader 14/400 (not italic). Behind a spoiler
+            shield when the author flagged it. */}
+        {showShield ? (
           <button
-            onClick={handleLikeToggle}
-            disabled={!currentUserId || isLiking}
-            className={`flex items-center gap-1.5 cc-meta text-[11px] transition-colors disabled:opacity-50 ${
-              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground'
-            }`}
+            type="button"
+            onClick={() => setSpoilerRevealed(true)}
+            className="w-full mt-2 px-3.5 py-3 rounded-[10px] bg-card border border-dashed border-border text-center cc-meta text-[11px] text-muted-foreground active:opacity-70"
           >
-            <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-current' : ''}`} strokeWidth={1.8} />
-            {likes > 0 && <span>{likes}</span>}
+            <EyeOff
+              className="inline h-3 w-3 mr-1.5 align-text-bottom"
+              strokeWidth={1.8}
+            />
+            tap to reveal — spoilers
           </button>
+        ) : (
+          <p
+            className={cn(
+              'font-serif text-[14px] leading-[1.45] whitespace-pre-wrap break-words',
+              isReply ? 'mt-0.5 text-[13px]' : 'mt-1',
+            )}
+          >
+            {renderTextWithMentions(review.text)}
+          </p>
+        )}
 
-          {/* Reply — mono lowercase, subordinate to the like count */}
+        {/* Actions — mono lowercase, subordinate to the like count */}
+        <div className="flex items-center gap-4 mt-2 cc-meta text-[10px] text-muted-foreground">
           {onReply && (
             <button
               onClick={() => onReply(review)}
               disabled={!currentUserId}
-              className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="hover:text-foreground transition-colors disabled:opacity-50"
             >
-              reply{!isReply && replyCount > 0 && ` · ${replyCount}`}
+              reply
             </button>
+          )}
+          {!isReply && replyCount > 0 && (
+            <span className="text-muted-foreground/70">
+              · {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+            </span>
           )}
         </div>
       </div>
+
+      {/* Heart column — vertical, count below the icon */}
+      <button
+        onClick={handleLikeToggle}
+        disabled={!currentUserId || isLiking}
+        aria-label={isLiked ? 'Unlike' : 'Like'}
+        className={cn(
+          'flex flex-col items-center gap-0.5 pt-0.5 disabled:opacity-50 transition-colors',
+          isLiked ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
+        )}
+      >
+        <Heart
+          className={cn('h-4 w-4', isLiked && 'fill-current')}
+          strokeWidth={1.8}
+        />
+        {likes > 0 && (
+          <span className="cc-meta text-[9px] tabular-nums">{likes}</span>
+        )}
+      </button>
     </div>
   );
 });

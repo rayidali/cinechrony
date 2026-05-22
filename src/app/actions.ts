@@ -3471,7 +3471,8 @@ export async function createReview(
   moviePosterUrl: string | undefined,
   text: string,
   ratingAtTime?: number | null, // Optional: pass the current user rating to snapshot
-  parentId?: string | null // Optional: if replying to another review
+  parentId?: string | null, // Optional: if replying to another review
+  hasSpoiler?: boolean, // v3: author can hide the body behind a spoiler shield
 ) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
@@ -3521,6 +3522,7 @@ export async function createReview(
       likedBy: [],
       parentId: parentId || null, // Threading: null = top-level review
       replyCount: 0, // Threading: starts at 0, incremented when replies are added
+      hasSpoiler: !!hasSpoiler, // v3: author-flagged spoiler shield
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -3971,7 +3973,12 @@ export async function deleteReview(idToken: string, reviewId: string) {
 /**
  * Update a review (only by owner).
  */
-export async function updateReview(idToken: string, reviewId: string, text: string) {
+export async function updateReview(
+  idToken: string,
+  reviewId: string,
+  text: string,
+  hasSpoiler?: boolean,
+) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
@@ -3991,10 +3998,12 @@ export async function updateReview(idToken: string, reviewId: string, text: stri
       return { error: 'You can only edit your own reviews.' };
     }
 
-    await reviewRef.update({
+    const updates: Record<string, unknown> = {
       text: text.trim(),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+    if (typeof hasSpoiler === 'boolean') updates.hasSpoiler = hasSpoiler;
+    await reviewRef.update(updates);
 
     return { success: true };
   } catch (error) {
