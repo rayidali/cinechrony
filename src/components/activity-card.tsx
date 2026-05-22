@@ -11,6 +11,7 @@ import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
 import { BookmarkButton } from './bookmark-button';
+import { CardOverflowMenu } from './card-overflow-menu';
 
 type ActivityCardProps = {
   activity: Activity;
@@ -146,6 +147,18 @@ export const ActivityCard = memo(function ActivityCard({
             {activity.rating.toFixed(1)}
           </span>
         )}
+
+        <div className="flex-shrink-0">
+          <CardOverflowMenu
+            authorId={activity.userId}
+            authorUsername={activity.username}
+            itemType="activity"
+            itemId={activity.id}
+            movieTmdbId={activity.tmdbId}
+            movieTitle={activity.movieTitle}
+            mediaType={activity.mediaType}
+          />
+        </div>
       </div>
 
       {/* Row 2 — the movie */}
@@ -169,9 +182,9 @@ export const ActivityCard = memo(function ActivityCard({
               <p className="cc-meta text-[10px] text-muted-foreground mt-1">{activity.movieYear}</p>
             )}
 
-            {/* reviewed → review snippet as a magazine pull-quote */}
+            {/* reviewed → the review itself, as a film-red-ruled pull-quote */}
             {activity.type === 'reviewed' && activity.reviewText && (
-              <p className="font-serif italic text-[14px] leading-snug text-foreground mt-2 pl-2.5 border-l border-border line-clamp-2">
+              <p className="font-serif italic text-[14px] leading-snug text-foreground mt-2 pl-3 border-l-2 border-primary">
                 {activity.reviewText}
               </p>
             )}

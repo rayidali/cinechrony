@@ -6409,6 +6409,144 @@ export async function getSavedFeed(
   }
 }
 
+// ============================================
+// MUTE — feed-hide a user (Phase 6)
+// ============================================
+
+/** Mute a user — their cards stop showing in the viewer's feed. */
+export async function muteUser(idToken: string, mutedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  if (!mutedId || mutedId === auth.uid) return { error: 'Invalid user.' };
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('mutes').doc(mutedId)
+      .set({ mutedId, createdAt: FieldValue.serverTimestamp() });
+    return { success: true };
+  } catch (error) {
+    console.error('[muteUser] Failed:', error);
+    return { error: 'Failed to mute.' };
+  }
+}
+
+/** Unmute a previously muted user. */
+export async function unmuteUser(idToken: string, mutedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('mutes').doc(mutedId)
+      .delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unmuteUser] Failed:', error);
+    return { error: 'Failed to unmute.' };
+  }
+}
+
+/** The viewer's muted-user ids — powers the mutes cache. */
+export async function getMyMutes(idToken: string): Promise<{ mutedIds: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { mutedIds: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db.collection('users').doc(auth.uid).collection('mutes').get();
+    return { mutedIds: snap.docs.map((d) => d.id) };
+  } catch (error) {
+    console.error('[getMyMutes] Failed:', error);
+    return { mutedIds: [], error: 'Failed to load mutes.' };
+  }
+}
+
+// ============================================
+// FRIENDS ARE WATCHING — aggregated feed card (Phase 6)
+// ============================================
+
+/** A film 2+ followed users have recently touched — one aggregated hero card. */
+export type FriendsWatchingCard = {
+  tmdbId: number;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieYear: string;
+  mediaType: 'movie' | 'tv';
+  friends: { uid: string; username: string | null; displayName: string | null; photoURL: string | null }[];
+  avgRating: number | null;
+  reviewCount: number;
+};
+
+/**
+ * "Your circle is watching" — collapses recent followed-user activity by film.
+ * A film touched by 2+ distinct followed users becomes one aggregated card so
+ * the feed doesn't show the same title five times.
+ */
+export async function getFriendsWatching(
+  idToken: string,
+): Promise<{ cards: FriendsWatchingCard[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { cards: [], error: auth.error };
+  const db = getDb();
+  try {
+    const followingSnap = await db
+      .collection('users').doc(auth.uid).collection('following').get();
+    const followingIds = new Set(followingSnap.docs.map((d) => d.id));
+    if (followingIds.size === 0) return { cards: [] };
+
+    const recent = await db
+      .collection('activities')
+      .orderBy('createdAt', 'desc')
+      .limit(200)
+      .get();
+
+    const groups = new Map<number, FirebaseFirestore.DocumentData[]>();
+    recent.docs.forEach((doc) => {
+      const d = doc.data();
+      if (!followingIds.has(d.userId) || !d.tmdbId) return;
+      if (!groups.has(d.tmdbId)) groups.set(d.tmdbId, []);
+      groups.get(d.tmdbId)!.push(d);
+    });
+
+    const cards: FriendsWatchingCard[] = [];
+    for (const [tmdbId, acts] of groups) {
+      const friendUids = [...new Set(acts.map((a) => a.userId as string))];
+      if (friendUids.length < 2) continue;
+      const friends = friendUids.map((uid) => {
+        const a = acts.find((x) => x.userId === uid)!;
+        return {
+          uid,
+          username: a.username ?? null,
+          displayName: a.displayName ?? null,
+          photoURL: a.photoURL ?? null,
+        };
+      });
+      const ratings = acts
+        .map((a) => a.rating)
+        .filter((r): r is number => typeof r === 'number');
+      const first = acts[0];
+      cards.push({
+        tmdbId,
+        movieTitle: first.movieTitle ?? 'a film',
+        moviePosterUrl: first.moviePosterUrl ?? null,
+        movieYear: first.movieYear ?? '',
+        mediaType: first.mediaType === 'tv' ? 'tv' : 'movie',
+        friends,
+        avgRating: ratings.length
+          ? ratings.reduce((s, r) => s + r, 0) / ratings.length
+          : null,
+        reviewCount: acts.filter((a) => a.type === 'reviewed').length,
+      });
+    }
+    cards.sort((a, b) => b.friends.length - a.friends.length);
+    return { cards: cards.slice(0, 4) };
+  } catch (error) {
+    console.error('[getFriendsWatching] Failed:', error);
+    return { cards: [], error: 'Failed to load friends-watching.' };
+  }
+}
+
 /**
  * Like an activity.
  */

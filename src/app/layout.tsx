@@ -8,6 +8,7 @@ import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
 import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
 import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 import { UserBookmarksCacheProvider } from '@/contexts/user-bookmarks-cache';
+import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -72,7 +73,9 @@ export default function RootLayout({
               <UserRatingsCacheProvider>
                 <UserProfileCacheProvider>
                   <UserBookmarksCacheProvider>
-                    {children}
+                    <UserMutesCacheProvider>
+                      {children}
+                    </UserMutesCacheProvider>
                   </UserBookmarksCacheProvider>
                 </UserProfileCacheProvider>
               </UserRatingsCacheProvider>

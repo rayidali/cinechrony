@@ -7,12 +7,16 @@ import {
   getActivityFeed,
   getSavedFeed,
   getRecommendationsForUser,
+  getFriendsWatching,
   type RecommendationSet,
+  type FriendsWatchingCard as FWCard,
 } from '@/app/actions';
 import { useAuth } from '@/firebase';
+import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
 import { RecommendationCard } from './recommendation-card';
+import { FriendsWatchingCard } from './friends-watching-card';
 import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 type ActivityFeedProps = {
@@ -127,8 +131,10 @@ export function ActivityFeed({
   followingIds,
 }: ActivityFeedProps) {
   const auth = useAuth();
+  const { isMuted } = useUserMutesCache();
   const [activities, setActivities] = useState<Activity[]>([]);
   const [recSets, setRecSets] = useState<RecommendationSet[]>([]);
+  const [fwCards, setFwCards] = useState<FWCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -183,17 +189,22 @@ export function ActivityFeed({
     };
   }, [refreshKey, fetchPage]);
 
-  // "for you" recommendation sets — interleaved into the feed every 5 cards.
+  // "for you" recommendations + friends-watching — interleaved into the feed.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (!idToken) return;
-        const res = await getRecommendationsForUser(idToken);
-        if (!cancelled && 'sets' in res) setRecSets(res.sets ?? []);
+        const [recs, fw] = await Promise.all([
+          getRecommendationsForUser(idToken),
+          getFriendsWatching(idToken),
+        ]);
+        if (cancelled) return;
+        if ('sets' in recs) setRecSets(recs.sets ?? []);
+        if ('cards' in fw) setFwCards(fw.cards ?? []);
       } catch {
-        /* recommendations are non-critical */
+        /* recommendations + friends-watching are non-critical */
       }
     })();
     return () => {
@@ -274,16 +285,24 @@ export function ActivityFeed({
   // `friends` narrows to followed users. A client-side filter over the global
   // feed for now — Phase 9 replaces this with a server-side merged feed query.
   const visibleActivities = useMemo(() => {
-    if (feedFilter !== 'friends') return activities;
-    const set = new Set(followingIds ?? []);
-    return activities.filter((a) => set.has(a.userId));
-  }, [activities, feedFilter, followingIds]);
+    let list = activities;
+    if (feedFilter === 'friends') {
+      const set = new Set(followingIds ?? []);
+      list = list.filter((a) => set.has(a.userId));
+    }
+    // Muted authors drop out of `all` / `friends` (the `saved` archive is kept).
+    if (feedFilter !== 'saved') {
+      list = list.filter((a) => !isMuted(a.userId));
+    }
+    return list;
+  }, [activities, feedFilter, followingIds, isMuted]);
 
-  // Interleave "if you liked X" recommendations every 5 activity cards —
-  // only in the `all` view; `friends` stays pure friend activity.
+  // Interleave recommendations + friends-watching — only in the `all` view;
+  // `friends` stays a pure chronological friend feed, `saved` is the archive.
   const feedNodes = useMemo<ReactNode[]>(() => {
     const nodes: ReactNode[] = [];
     let recIdx = 0;
+    let fwIdx = 0;
     visibleActivities.forEach((activity, i) => {
       nodes.push(
         <ActivityCard
@@ -293,13 +312,25 @@ export function ActivityFeed({
           onMovieClick={handleMovieClick}
         />,
       );
-      if (feedFilter === 'all' && (i + 1) % 5 === 0 && recIdx < recSets.length) {
-        const set = recSets[recIdx++];
-        nodes.push(<RecommendationCard key={`rec_${set.basisTmdbId}`} set={set} />);
+      if (feedFilter !== 'all') return;
+      const pos = i + 1;
+      // friends-watching after #3, then every 8 cards
+      if ((pos === 3 || (pos > 3 && (pos - 3) % 8 === 0)) && fwIdx < fwCards.length) {
+        nodes.push(
+          <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
+        );
+        fwIdx++;
+      }
+      // recommendations every 5 cards
+      if (pos % 5 === 0 && recIdx < recSets.length) {
+        nodes.push(
+          <RecommendationCard key={`rec_${recSets[recIdx].basisTmdbId}`} set={recSets[recIdx]} />,
+        );
+        recIdx++;
       }
     });
     return nodes;
-  }, [visibleActivities, recSets, feedFilter, currentUserId, handleMovieClick]);
+  }, [visibleActivities, recSets, fwCards, feedFilter, currentUserId, handleMovieClick]);
 
   return (
     <section>
