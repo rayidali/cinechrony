@@ -2,19 +2,44 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
+import { Search, Users } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { getFollowing } from '@/app/actions';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { TrendingMovies } from '@/components/trending-movies';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
+import { SearchOverlay } from '@/components/search-overlay';
+import { FilterPills, type FilterPill } from '@/components/filter-pills';
 
+const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+
+/** Tabular date — `23.11.25`. */
+function formatToday(): string {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}.${mm}.${yy}`;
+}
+
+/**
+ * Home — the unified editorial feed (UX_PATTERNS.md "HOME").
+ *
+ * Topbar → search → filter pills → eyebrow/hairline/title → trending strip →
+ * the feed. More feed sources (posts, recommendations) and more filter pills
+ * (`saved`, `for you`, `trending`) fold in over the later Phase 0.5 steps.
+ */
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+
   const [refreshKey, setRefreshKey] = useState(0);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [feedFilter, setFeedFilter] = useState<'all' | 'friends'>('all');
+  const [followingIds, setFollowingIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -22,57 +47,110 @@ export default function HomePage() {
     }
   }, [user, isUserLoading, router]);
 
-  // Handle pull-to-refresh
+  // Following set powers the `friends` filter.
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    getFollowing(user.uid)
+      .then((res) => {
+        if (!cancelled) setFollowingIds((res.users ?? []).map((u) => u.uid));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
   const handleRefresh = useCallback(async () => {
-    // Increment refresh key to trigger ActivityFeed reload
     setRefreshKey((prev) => prev + 1);
-    // Small delay for visual feedback
     await new Promise((resolve) => setTimeout(resolve, 500));
   }, []);
 
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src={CINECHRONY_LOGO} alt="Loading" className="h-12 w-12 animate-float" />
       </div>
     );
   }
 
+  const pills: FilterPill[] = [
+    { id: 'all', label: 'all' },
+    { id: 'friends', label: 'friends', icon: Users },
+  ];
+
   return (
     <>
-      <PullToRefresh onRefresh={handleRefresh}>
-        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
+      <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
+        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8 md:pt-20">
           <div className="container mx-auto px-4 md:px-8 max-w-2xl">
-            {/* Header */}
-            <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60 py-4 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-border/50 mb-6">
-              <div className="flex justify-between items-center">
-                <div className="flex items-center gap-3">
-                  <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-9 w-9" />
-                  <h1 className="text-xl font-headline font-bold lowercase tracking-tight">cinechrony</h1>
+            {/* Topbar — sticky */}
+            <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-border/60">
+              <div
+                className="flex justify-between items-center"
+                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.875rem)', paddingBottom: '0.875rem' }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <img src={CINECHRONY_LOGO} alt="Cinechrony" className="h-8 w-8" />
+                  <span className="font-headline font-bold text-lg lowercase tracking-tight">
+                    cinechrony
+                  </span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1.5">
                   <NotificationBell />
-                  <ThemeToggle />
                   <UserAvatar />
                 </div>
               </div>
             </header>
 
-            {/* Trending Section */}
+            {/* Search trigger */}
+            <button
+              onClick={() => setSearchOpen(true)}
+              className="mt-4 w-full flex items-center gap-2.5 h-11 px-4 bg-card border border-border rounded-full shadow-press text-left transition-colors hover:border-foreground/30"
+            >
+              <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />
+              <span className="font-serif italic text-sm text-muted-foreground">
+                films, friends, lists…
+              </span>
+            </button>
+
+            {/* Feed filter pills */}
+            <div className="mt-3">
+              <FilterPills pills={pills} active={feedFilter} onChange={(id) => setFeedFilter(id as 'all' | 'friends')} />
+            </div>
+
+            {/* Page title block */}
+            <div className="mt-5 mb-6">
+              <div className="cc-eyebrow">{formatToday()}</div>
+              <div className="h-px bg-border my-2.5" />
+              <h1 className="font-headline font-bold text-[34px] leading-[0.92] lowercase tracking-tight">
+                home
+              </h1>
+            </div>
+
+            {/* Trending strip */}
             <TrendingMovies />
 
-            {/* Activity Feed */}
+            {/* The feed */}
             <div className="mb-4">
               <div className="cc-eyebrow">the feed</div>
               <div className="h-px bg-border mt-2.5" />
             </div>
-            <ActivityFeed currentUserId={user.uid} refreshKey={refreshKey} />
+            <ActivityFeed
+              currentUserId={user.uid}
+              refreshKey={refreshKey}
+              feedFilter={feedFilter}
+              followingIds={followingIds}
+            />
           </div>
         </main>
       </PullToRefresh>
 
       {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
       <BottomNav />
+
+      {/* Fullscreen search */}
+      <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
     </>
   );
 }

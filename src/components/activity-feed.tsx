@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { Sparkles, Loader2, Film, Plus } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { Loader2, Film, Users } from 'lucide-react';
 import Link from 'next/link';
 import { getActivityFeed } from '@/app/actions';
 import type { Activity, Movie } from '@/lib/types';
@@ -11,6 +11,10 @@ import { PublicMovieDetailsModal } from './public-movie-details-modal';
 type ActivityFeedProps = {
   currentUserId: string | null;
   refreshKey?: number; // Increment to trigger refresh
+  /** `friends` narrows the feed to people the viewer follows. */
+  feedFilter?: 'all' | 'friends';
+  /** UIDs the viewer follows — required for the `friends` filter. */
+  followingIds?: string[];
 };
 
 // Skeleton loader for initial load
@@ -60,23 +64,29 @@ function LoadingMore() {
   );
 }
 
-// Enhanced empty state
-function EmptyState() {
+// Empty state — editorial, per UX_PATTERNS microcopy bank.
+function EmptyState({ feedFilter }: { feedFilter: 'all' | 'friends' }) {
+  const isFriends = feedFilter === 'friends';
   return (
-    <div className="text-center py-16 px-4">
-      <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-primary/10 flex items-center justify-center">
-        <Film className="h-10 w-10 text-primary" />
+    <div className="text-center py-16 px-6">
+      <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-muted flex items-center justify-center">
+        {isFriends ? (
+          <Users className="h-7 w-7 text-muted-foreground" strokeWidth={1.5} />
+        ) : (
+          <Film className="h-7 w-7 text-muted-foreground" strokeWidth={1.5} />
+        )}
       </div>
-      <h3 className="font-headline font-bold text-xl mb-2">No activity yet</h3>
-      <p className="text-sm text-muted-foreground max-w-xs mx-auto mb-6">
-        Be the first to add a movie, rate something, or write a review. Your activity will show up here!
+      <p className="cc-lead text-[15px] text-muted-foreground max-w-[18rem] mx-auto mb-5">
+        {isFriends
+          ? 'your circle has been quiet. follow a few more people and the feed fills up.'
+          : "the credits aren't rolling yet — follow some friends and the feed starts."}
       </p>
       <Link
-        href="/add"
-        className="inline-flex items-center gap-2 px-5 py-2.5 bg-primary text-primary-foreground rounded-full font-medium text-sm shadow-lift hover:shadow-press transition-all"
+        href="/profile"
+        className="inline-flex items-center gap-2 px-5 py-2.5 border border-foreground rounded-full font-headline font-semibold text-sm lowercase tracking-tight transition-colors hover:bg-foreground hover:text-background"
       >
-        <Plus className="h-4 w-4" />
-        Add your first movie
+        <Users className="h-4 w-4" strokeWidth={1.8} />
+        find friends
       </Link>
     </div>
   );
@@ -91,7 +101,12 @@ function EndOfFeed() {
   );
 }
 
-export function ActivityFeed({ currentUserId, refreshKey = 0 }: ActivityFeedProps) {
+export function ActivityFeed({
+  currentUserId,
+  refreshKey = 0,
+  feedFilter = 'all',
+  followingIds,
+}: ActivityFeedProps) {
   const [activities, setActivities] = useState<Activity[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -200,23 +215,26 @@ export function ActivityFeed({ currentUserId, refreshKey = 0 }: ActivityFeedProp
     setSelectedMovie(null);
   }, []);
 
+  // `friends` narrows to followed users. A client-side filter over the global
+  // feed for now — Phase 9 replaces this with a server-side merged feed query.
+  const visibleActivities = useMemo(() => {
+    if (feedFilter !== 'friends') return activities;
+    const set = new Set(followingIds ?? []);
+    return activities.filter((a) => set.has(a.userId));
+  }, [activities, feedFilter, followingIds]);
+
   return (
     <section>
-      <div className="flex items-center gap-2 mb-4">
-        <Sparkles className="h-5 w-5 text-primary" />
-        <h2 className="text-lg font-headline font-bold">Activity</h2>
-      </div>
-
       {isLoading ? (
         <ActivitySkeleton />
       ) : error ? (
         <p className="text-sm text-muted-foreground py-4">{error}</p>
-      ) : activities.length === 0 ? (
-        <EmptyState />
+      ) : visibleActivities.length === 0 ? (
+        <EmptyState feedFilter={feedFilter} />
       ) : (
         <>
           <div className="space-y-4">
-            {activities.map((activity) => (
+            {visibleActivities.map((activity) => (
               <ActivityCard
                 key={activity.id}
                 activity={activity}
@@ -233,7 +251,7 @@ export function ActivityFeed({ currentUserId, refreshKey = 0 }: ActivityFeedProp
           {isLoadingMore && <LoadingMore />}
 
           {/* End of feed */}
-          {!hasMore && activities.length > 0 && <EndOfFeed />}
+          {!hasMore && visibleActivities.length > 0 && <EndOfFeed />}
         </>
       )}
 

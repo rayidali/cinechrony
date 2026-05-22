@@ -2,7 +2,7 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Search, Bookmark, User } from 'lucide-react';
+import { Home, Bookmark, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 interface NavItem {
@@ -12,9 +12,15 @@ interface NavItem {
   matchPaths?: string[];
 }
 
+/**
+ * Three tabs — `home · lists · profile`.
+ *
+ * The v1 `add` (search) tab is retired: search is a header icon on home, and
+ * adding a film happens contextually (the FAB inside a list, the post composer).
+ * See UX_PATTERNS.md — "HOME — the unified feed (3-tab architecture)".
+ */
 const navItems: NavItem[] = [
   { href: '/home', icon: Home, label: 'Home', matchPaths: ['/home'] },
-  { href: '/add', icon: Search, label: 'Add', matchPaths: ['/add'] },
   { href: '/lists', icon: Bookmark, label: 'Lists', matchPaths: ['/lists'] },
   { href: '/profile', icon: User, label: 'Profile', matchPaths: ['/profile'] },
 ];
