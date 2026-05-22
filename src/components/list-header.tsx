@@ -90,9 +90,13 @@ export function ListHeader({
 
   return (
     <div className="flex flex-col">
-      {/* Editorial title block — eyebrow → hairline → lowercase display title */}
+      {/* Editorial title block — eyebrow → hairline → lowercase display title.
+          Members can't like their own list, but they see the count here. */}
       <div className="cc-eyebrow">
         {listData?.isPublic ? 'PUBLIC LIST' : 'PRIVATE LIST'}
+        {listData?.isPublic && (listData?.likes ?? 0) > 0
+          ? ` · ${listData.likes} ${listData.likes === 1 ? 'LIKE' : 'LIKES'}`
+          : ''}
       </div>
       <div className="h-px bg-border my-3" />
       <div className="flex items-start justify-between gap-3">

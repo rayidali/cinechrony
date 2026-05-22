@@ -11,6 +11,8 @@ type ListLikeButtonProps = {
   listId: string;
   initialLikes: number;
   initialLikedBy: string[];
+  /** List members (owner + collaborators) — they can't like their own list. */
+  collaboratorIds?: string[];
   /** `detail` — outlined pill on the list view; `cover` — glass pill on a cover card. */
   variant?: 'detail' | 'cover';
   className?: string;
@@ -19,15 +21,16 @@ type ListLikeButtonProps = {
 /**
  * Like / unlike a public list (LAUNCH 0.5.1).
  *
- * Optimistic toggle — the heart fills sage when liked (the v2 like treatment,
- * matching reviews + activity). Disabled for signed-out viewers and for the
- * list owner (no liking your own shelf).
+ * Optimistic toggle — the heart fills sage when liked. A like is an outside
+ * endorsement, so it's read-only for the list's own members (owner OR
+ * collaborator) and for signed-out viewers — they still see the count.
  */
 export function ListLikeButton({
   listOwnerId,
   listId,
   initialLikes,
   initialLikedBy,
+  collaboratorIds,
   variant = 'detail',
   className,
 }: ListLikeButtonProps) {
@@ -40,8 +43,10 @@ export function ListLikeButton({
     user ? initialLikedBy.includes(user.uid) : false,
   );
 
-  const isOwner = user?.uid === listOwnerId;
-  const disabled = !user || isOwner || isPending;
+  const isMember =
+    !!user &&
+    (user.uid === listOwnerId || (collaboratorIds ?? []).includes(user.uid));
+  const disabled = !user || isMember || isPending;
 
   const handleToggle = () => {
     if (disabled) return;

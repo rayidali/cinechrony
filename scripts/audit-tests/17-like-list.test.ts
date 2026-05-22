@@ -108,14 +108,34 @@ test('liking a list notifies its owner', async () => {
   assert.equal(likeNotif?.listId, 'L1');
 });
 
+test('list members (owner + collaborator) cannot like their own list', async () => {
+  // Owner can't like their own list.
+  await seedList(alice.uid, 'OWN', true);
+  assert.deepEqual(await callActionAs(alice, likeList, alice.uid, 'OWN'), {
+    error: "You can't like a list you're part of.",
+  });
+
+  // A collaborator can't like a list they're on.
+  await adminDb()
+    .collection('users').doc(bob.uid)
+    .collection('lists').doc('COLLAB')
+    .set({
+      id: 'COLLAB', name: 'collab', ownerId: bob.uid, isPublic: true,
+      likes: 0, likedBy: [], collaboratorIds: [alice.uid],
+    });
+  assert.deepEqual(await callActionAs(alice, likeList, bob.uid, 'COLLAB'), {
+    error: "You can't like a list you're part of.",
+  });
+});
+
 test('the shared `like` rate-limit bucket trips', async () => {
-  // 60 likes/60s. Self-owned public lists keep the test fast (no notifications).
+  // 60 likes/60s — alice likes bob's lists (she's not a member of any).
   const COUNT = 62;
-  for (let i = 0; i < COUNT; i++) await seedList(alice.uid, `L${i}`, true);
-  let lastError: unknown = null;
+  for (let i = 0; i < COUNT; i++) await seedList(bob.uid, `L${i}`, true);
+  const results: any[] = [];
   for (let i = 0; i < COUNT; i++) {
-    const res = await callActionAs(alice, likeList, alice.uid, `L${i}`);
-    if (res?.error) lastError = res.error;
+    results.push(await callActionAs(alice, likeList, bob.uid, `L${i}`));
   }
-  assert.ok(lastError, 'rate limit tripped before all 62 likes went through');
+  assert.equal(results[0].success, true, 'the first like succeeds');
+  assert.ok(results[COUNT - 1].error, 'the 62nd like is rate-limited');
 });

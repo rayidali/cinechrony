@@ -3763,6 +3763,12 @@ export async function likeList(idToken: string, listOwnerId: string, listId: str
       if (!snap.exists) return { error: 'List not found.' as const };
       const data = snap.data() || {};
       if (data.isPublic !== true) return { error: 'Only public lists can be liked.' as const };
+      // A like is an outside endorsement — list members (owner or collaborator)
+      // can't like their own list. Also stops members gaming the showcase rank.
+      const collaboratorIds: string[] = data.collaboratorIds || [];
+      if (listOwnerId === userId || collaboratorIds.includes(userId)) {
+        return { error: "You can't like a list you're part of." as const };
+      }
       const likedBy: string[] = data.likedBy || [];
       if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
       tx.update(listRef, {

@@ -383,7 +383,14 @@ export default function UserProfilePage() {
               <div className="grid grid-cols-2 gap-4">
                 {lists.map((list) => {
                   const preview = listPreviews[list.id];
-                  const canLike = !!user && user.uid !== profile.uid;
+                  // A like is an outside endorsement — hide the heart from the
+                  // list's own members (owner + collaborators) and signed-out users.
+                  const isMember =
+                    !!user &&
+                    (user.uid === profile.uid ||
+                      (Array.isArray(list.collaboratorIds) &&
+                        list.collaboratorIds.includes(user.uid)));
+                  const canLike = !!user && !isMember;
                   return (
                     <ProfileListCard
                       key={list.id}
@@ -399,6 +406,7 @@ export default function UserProfilePage() {
                             variant="cover"
                             listOwnerId={list.ownerId || profile.uid}
                             listId={list.id}
+                            collaboratorIds={list.collaboratorIds}
                             initialLikes={list.likes ?? 0}
                             initialLikedBy={list.likedBy ?? []}
                           />

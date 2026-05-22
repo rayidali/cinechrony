@@ -125,7 +125,19 @@ export default function PublicListPage() {
           return;
         }
 
-        setList(listResult.list as MovieList);
+        const loadedList = listResult.list as MovieList;
+        // Collaborators get the editable view, same as the owner — members
+        // shouldn't land on the read-only page for a list they can edit.
+        if (
+          user &&
+          Array.isArray(loadedList?.collaboratorIds) &&
+          loadedList.collaboratorIds.includes(user.uid)
+        ) {
+          router.replace(`/lists/${listId}`);
+          return;
+        }
+
+        setList(loadedList);
         setMovies(listResult.movies as Movie[]);
       } catch (err) {
         console.error('Failed to load list:', err);
@@ -233,12 +245,14 @@ export default function PublicListPage() {
               </div>
             )}
 
-            {/* Like — only public lists, only for signed-in non-owners */}
+            {/* Like — public lists only. Read-only for members (a like is an
+                outside endorsement); collaborators never reach this page. */}
             {list && list.isPublic && (
               <div className="mb-3">
                 <ListLikeButton
                   listOwnerId={list.ownerId}
                   listId={list.id}
+                  collaboratorIds={list.collaboratorIds}
                   initialLikes={list.likes ?? 0}
                   initialLikedBy={list.likedBy ?? []}
                 />
