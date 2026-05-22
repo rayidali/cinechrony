@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FollowButton } from '@/components/follow-button';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ProfileListCard } from '@/components/profile-list-card';
+import { ListLikeButton } from '@/components/list-like-button';
 import { ProfileOverflowMenu } from '@/components/profile-overflow-menu';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
@@ -382,6 +383,7 @@ export default function UserProfilePage() {
               <div className="grid grid-cols-2 gap-4">
                 {lists.map((list) => {
                   const preview = listPreviews[list.id];
+                  const canLike = !!user && user.uid !== profile.uid;
                   return (
                     <ProfileListCard
                       key={list.id}
@@ -391,6 +393,17 @@ export default function UserProfilePage() {
                       coverImageUrl={list.coverImageUrl}
                       previewPosters={preview?.previewPosters ?? []}
                       onClick={() => router.push(`/profile/${username}/lists/${list.id}`)}
+                      likeButton={
+                        canLike ? (
+                          <ListLikeButton
+                            variant="cover"
+                            listOwnerId={list.ownerId || profile.uid}
+                            listId={list.id}
+                            initialLikes={list.likes ?? 0}
+                            initialLikedBy={list.likedBy ?? []}
+                          />
+                        ) : undefined
+                      }
                     />
                   );
                 })}

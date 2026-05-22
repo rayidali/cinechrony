@@ -1573,6 +1573,8 @@ export async function getUserPublicLists(userId: string) {
         collaboratorIds: data.collaboratorIds || [],
         coverImageUrl: data.coverImageUrl || null,
         movieCount: data.movieCount || 0,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,

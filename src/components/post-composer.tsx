@@ -19,6 +19,7 @@ import {
   searchUsers,
 } from '@/app/actions';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
+import { compressImage } from '@/lib/image-compress';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useToast } from '@/hooks/use-toast';
 import type { PostMedia, Post, SearchResult, UserProfile } from '@/lib/types';
@@ -189,12 +190,20 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
       (async () => {
         try {
+          // Images are downscaled + re-encoded before upload; video uploads
+          // as-is (browser transcoding isn't robust — see image-compress.ts).
+          const uploadFile = isVideo ? file : await compressImage(file);
           const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-          const res = await getPostMediaUploadUrl(idToken, file.name, file.type, file.size);
+          const res = await getPostMediaUploadUrl(
+            idToken,
+            uploadFile.name,
+            uploadFile.type,
+            uploadFile.size,
+          );
           if (res.error || !res.uploadUrl || !res.publicUrl) {
             throw new Error(res.error || 'upload failed');
           }
-          await uploadToR2(res.uploadUrl, file, (pct) => {
+          await uploadToR2(res.uploadUrl, uploadFile, (pct) => {
             setMedia((prev) =>
               prev.map((m) => (m.id === id ? { ...m, progress: pct } : m)),
             );
