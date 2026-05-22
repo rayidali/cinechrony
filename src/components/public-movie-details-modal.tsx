@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2,
@@ -26,6 +26,7 @@ import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { getImdbRating, getMovieReviews } from '@/app/actions';
 import { formatDistanceToNow } from 'date-fns';
 import { ImdbLogo } from './imdb-logo';
+import { SimilarMoviesRow } from './similar-movies-row';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -140,7 +141,7 @@ type PublicMovieDetailsModalProps = {
  * public lists viewed by non-collaborators.
  */
 export function PublicMovieDetailsModal({
-  movie,
+  movie: movieProp,
   isOpen,
   onClose,
   listId,
@@ -148,7 +149,17 @@ export function PublicMovieDetailsModal({
   returnPath,
 }: PublicMovieDetailsModalProps) {
   const router = useRouter();
+  // "more like this" can swap the modal to a different film in place — no
+  // modal stacking. `override` holds the swapped-in film; null = the prop.
+  const [override, setOverride] = useState<Movie | null>(null);
+  const movie = override ?? movieProp;
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
+
+  // Drop the override when the parent opens a different movie / the modal closes.
+  useEffect(() => {
+    setOverride(null);
+  }, [movieProp?.id, isOpen]);
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
@@ -277,7 +288,7 @@ export function PublicMovieDetailsModal({
           </div>
 
           {/* Scrollable — hero + content sheet */}
-          <div className="flex-1 min-h-0 overflow-y-auto">
+          <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
             {/* Hero */}
             <div className="relative w-full" style={{ height: 'clamp(240px, 42vh, 360px)', background: 'oklch(0.165 0.012 60)' }}>
               <Image
@@ -403,6 +414,18 @@ export function PublicMovieDetailsModal({
                     ))}
                   </div>
                 </section>
+              )}
+
+              {/* More like this — TMDB recommendations, swaps the modal in place */}
+              {tmdbId > 0 && (
+                <SimilarMoviesRow
+                  tmdbId={tmdbId}
+                  mediaType={movie.mediaType === 'tv' ? 'tv' : 'movie'}
+                  onPick={(picked) => {
+                    setOverride(picked);
+                    scrollRef.current?.scrollTo({ top: 0 });
+                  }}
+                />
               )}
 
               {/* Reviews — featured pull-quotes, then the full discussion */}

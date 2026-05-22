@@ -1,11 +1,13 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { Loader2, Film, Users } from 'lucide-react';
 import Link from 'next/link';
-import { getActivityFeed } from '@/app/actions';
+import { getActivityFeed, getRecommendationsForUser, type RecommendationSet } from '@/app/actions';
+import { useAuth } from '@/firebase';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
+import { RecommendationCard } from './recommendation-card';
 import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 type ActivityFeedProps = {
@@ -107,7 +109,9 @@ export function ActivityFeed({
   feedFilter = 'all',
   followingIds,
 }: ActivityFeedProps) {
+  const auth = useAuth();
   const [activities, setActivities] = useState<Activity[]>([]);
+  const [recSets, setRecSets] = useState<RecommendationSet[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
@@ -144,6 +148,24 @@ export function ActivityFeed({
 
     loadFeed();
   }, [refreshKey]);
+
+  // "for you" recommendation sets — interleaved into the feed every 5 cards.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
+        if (!idToken) return;
+        const res = await getRecommendationsForUser(idToken);
+        if (!cancelled && 'sets' in res) setRecSets(res.sets ?? []);
+      } catch {
+        /* recommendations are non-critical */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, refreshKey]);
 
   // Load more function
   const loadMore = useCallback(async () => {
@@ -223,6 +245,28 @@ export function ActivityFeed({
     return activities.filter((a) => set.has(a.userId));
   }, [activities, feedFilter, followingIds]);
 
+  // Interleave "if you liked X" recommendations every 5 activity cards —
+  // only in the `all` view; `friends` stays pure friend activity.
+  const feedNodes = useMemo<ReactNode[]>(() => {
+    const nodes: ReactNode[] = [];
+    let recIdx = 0;
+    visibleActivities.forEach((activity, i) => {
+      nodes.push(
+        <ActivityCard
+          key={activity.id}
+          activity={activity}
+          currentUserId={currentUserId}
+          onMovieClick={handleMovieClick}
+        />,
+      );
+      if (feedFilter === 'all' && (i + 1) % 5 === 0 && recIdx < recSets.length) {
+        const set = recSets[recIdx++];
+        nodes.push(<RecommendationCard key={`rec_${set.basisTmdbId}`} set={set} />);
+      }
+    });
+    return nodes;
+  }, [visibleActivities, recSets, feedFilter, currentUserId, handleMovieClick]);
+
   return (
     <section>
       {isLoading ? (
@@ -233,16 +277,7 @@ export function ActivityFeed({
         <EmptyState feedFilter={feedFilter} />
       ) : (
         <>
-          <div className="space-y-4">
-            {visibleActivities.map((activity) => (
-              <ActivityCard
-                key={activity.id}
-                activity={activity}
-                currentUserId={currentUserId}
-                onMovieClick={handleMovieClick}
-              />
-            ))}
-          </div>
+          <div className="space-y-4">{feedNodes}</div>
 
           {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} className="h-1" />

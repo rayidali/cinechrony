@@ -48,6 +48,8 @@ import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { ImdbLogo } from './imdb-logo';
+import { SimilarMoviesRow } from './similar-movies-row';
+import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -171,6 +173,8 @@ export function MovieDetailsModal({
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
+  // "more like this" pick — opens a read-only detail over this editable one.
+  const [similarPick, setSimilarPick] = useState<Movie | null>(null);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const [userRating, setUserRating] = useState<number | null>(null);
@@ -794,6 +798,15 @@ export function MovieDetailsModal({
                   )}
                 </section>
 
+                {/* More like this — opens the picked film read-only */}
+                {tmdbId > 0 && (
+                  <SimilarMoviesRow
+                    tmdbId={tmdbId}
+                    mediaType={movie.mediaType === 'tv' ? 'tv' : 'movie'}
+                    onPick={setSimilarPick}
+                  />
+                )}
+
                 {/* marginalia — notes from you + your collaborators */}
                 {listId && (
                   <section className="mt-6">
@@ -948,6 +961,13 @@ export function MovieDetailsModal({
         maxLength={500}
         singleLine={true}
         inputType="url"
+      />
+
+      {/* "more like this" pick — read-only detail layered over this one */}
+      <PublicMovieDetailsModal
+        movie={similarPick}
+        isOpen={!!similarPick}
+        onClose={() => setSimilarPick(null)}
       />
     </>
   );

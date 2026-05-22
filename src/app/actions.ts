@@ -6050,6 +6050,115 @@ export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; er
   }
 }
 
+/**
+ * Movies similar to a given title — TMDB `recommendations` (its own algorithm),
+ * falling back to `similar` (genre/keyword based) when recommendations is empty.
+ * Powers the "more like this" row on the movie-detail screen and the home
+ * "if you liked X" feed cards. Cached 24h.
+ */
+export async function getSimilarMovies(
+  tmdbId: number,
+  mediaType: 'movie' | 'tv' = 'movie',
+  limit = 12,
+): Promise<{ movies: TrendingMovie[]; error?: string }> {
+  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+  if (!TMDB_ACCESS_TOKEN) return { movies: [], error: 'TMDB not configured' };
+  if (!tmdbId || Number.isNaN(tmdbId)) return { movies: [] };
+
+  const type = mediaType === 'tv' ? 'tv' : 'movie';
+  const headers = {
+    Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
+    'Content-Type': 'application/json',
+  };
+
+  async function fetchEndpoint(endpoint: 'recommendations' | 'similar') {
+    const res = await fetch(
+      `https://api.themoviedb.org/3/${type}/${tmdbId}/${endpoint}?language=en-US&page=1`,
+      { headers, next: { revalidate: 86400 } },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  }
+
+  try {
+    let results = await fetchEndpoint('recommendations');
+    if (results.length === 0) results = await fetchEndpoint('similar');
+
+    const movies: TrendingMovie[] = results
+      .filter((m: { poster_path?: string | null }) => m.poster_path)
+      .slice(0, limit)
+      .map((m: Record<string, unknown>) => ({
+        id: m.id as number,
+        title: (m.title as string) || (m.name as string) || 'untitled',
+        posterPath: (m.poster_path as string) ?? null,
+        releaseDate: (m.release_date as string) || (m.first_air_date as string) || '',
+        voteAverage: (m.vote_average as number) ?? 0,
+        mediaType: (m.media_type === 'tv' || type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
+      }));
+    return { movies };
+  } catch (error) {
+    console.error('[getSimilarMovies] Failed:', error);
+    return { movies: [], error: 'Failed to fetch similar movies.' };
+  }
+}
+
+/** One "if you liked X" recommendation set for the home feed. */
+export type RecommendationSet = {
+  basisTmdbId: number;
+  basisTitle: string;
+  basisMediaType: 'movie' | 'tv';
+  reason: string;
+  recommendations: TrendingMovie[];
+};
+
+/**
+ * "For you" recommendation sets for the home feed.
+ *
+ * Bases each set on one of the viewer's most-recent loved films (rating >= 8)
+ * and pulls TMDB recommendations off it. Up to 3 sets so the feed can re-fire
+ * "if you liked X" with a different basis film every few cards.
+ */
+export async function getRecommendationsForUser(
+  idToken: string,
+): Promise<{ sets: RecommendationSet[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { sets: [], error: auth.error };
+  const userId = auth.uid;
+
+  try {
+    const { ratings } = await getUserRatings(userId, 40);
+    const seen = new Set<number>();
+    const bases = (ratings || [])
+      .filter((r) => typeof r.rating === 'number' && r.rating >= 8 && !!r.tmdbId)
+      .filter((r) => {
+        if (seen.has(r.tmdbId)) return false;
+        seen.add(r.tmdbId);
+        return true;
+      })
+      .slice(0, 3);
+
+    if (bases.length === 0) return { sets: [] };
+
+    const sets = await Promise.all(
+      bases.map(async (b): Promise<RecommendationSet> => {
+        const { movies } = await getSimilarMovies(b.tmdbId, b.mediaType || 'movie', 9);
+        return {
+          basisTmdbId: b.tmdbId,
+          basisTitle: b.movieTitle || 'a film you loved',
+          basisMediaType: (b.mediaType || 'movie') as 'movie' | 'tv',
+          reason: `more films in the orbit of ${(b.movieTitle || 'it').toLowerCase()}.`,
+          recommendations: movies,
+        };
+      }),
+    );
+    return { sets: sets.filter((s) => s.recommendations.length > 0) };
+  } catch (error) {
+    console.error('[getRecommendationsForUser] Failed:', error);
+    return { sets: [], error: 'Failed to build recommendations.' };
+  }
+}
+
 // ============================================
 // ACTIVITY FEED
 // ============================================
