@@ -36,6 +36,7 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   invite:        { limit: 20, windowMs: 60_000 },
   pushSubscribe: { limit: 10, windowMs: 60_000 },
   report:        { limit: 10, windowMs: 60_000 },
+  post:          { limit: 15, windowMs: 60_000 },
 };
 
 /**

@@ -297,7 +297,10 @@ export type NotificationType =
   | 'follow'
   | 'like'
   | 'list_invite'
-  | 'list_like'; // Someone liked one of your public lists
+  | 'list_like' // Someone liked one of your public lists
+  | 'post_tag' // Someone tagged you in a post
+  | 'post_like' // Someone liked your post
+  | 'post_comment'; // Someone commented on your post
 
 // Notification
 export type Notification = {
@@ -320,6 +323,8 @@ export type Notification = {
   listOwnerId?: string;
   listName?: string;
   inviteId?: string; // For accepting/declining invites from notification
+  // Post context (for post_tag / post_like / post_comment)
+  postId?: string;
   // State
   read: boolean;
   createdAt: Date;
@@ -378,5 +383,68 @@ export type Activity = {
   likes: number;
   likedBy: string[];
   // Timestamp
+  createdAt: Date;
+};
+
+// ---- User posts (LAUNCH 0.5.4) ----
+
+// One image or video attached to a post (stored on Cloudflare R2).
+export type PostMedia = {
+  type: 'image' | 'video';
+  url: string;
+  width?: number;
+  height?: number;
+};
+
+// A tagged user, denormalized onto the post (the N+1 pattern).
+export type TaggedUser = {
+  uid: string;
+  username: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+};
+
+// A Beli-style user post — free text + media, anchored to a film.
+export type Post = {
+  id: string;
+  authorId: string;
+  // Denormalized author (avoids per-post profile fetches)
+  authorUsername: string | null;
+  authorDisplayName: string | null;
+  authorPhotoURL: string | null;
+  text: string;
+  media: PostMedia[];
+  // Optional film this post is about
+  taggedMovie: {
+    tmdbId: number;
+    title: string;
+    posterUrl: string | null;
+    year: string;
+    mediaType: 'movie' | 'tv';
+  } | null;
+  taggedUserIds: string[];
+  taggedUsers: TaggedUser[]; // Denormalized
+  place: string | null; // Freeform venue text — never GPS
+  likes: number;
+  likedBy: string[];
+  commentCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  editedAt?: Date | null;
+};
+
+// A comment on a post — 1-level threading, mirrors Review.
+export type PostComment = {
+  id: string;
+  postId: string;
+  userId: string;
+  username: string | null;
+  userDisplayName: string | null;
+  userPhotoUrl: string | null;
+  text: string;
+  likes: number;
+  likedBy: string[];
+  parentId: string | null;
+  replyCount: number;
   createdAt: Date;
 };

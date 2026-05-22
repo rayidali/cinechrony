@@ -1,13 +1,16 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType } from '@/lib/types';
+import type {
+  SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType,
+  Post, PostMedia, TaggedUser,
+} from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 // AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
 // (applies ignoreUndefinedProperties once). The previous local copy here
@@ -6731,6 +6734,292 @@ export async function getBlockedUsers(
   } catch (error) {
     console.error('[getBlockedUsers] Failed:', error);
     return { users: [], error: 'Failed to load blocked users.' };
+  }
+}
+
+// ============================================
+// USER POSTS (LAUNCH 0.5.4)
+// ============================================
+
+const MAX_POST_MEDIA_BYTES = 200 * 1024 * 1024; // 200MB — Twitter-class
+const MAX_POST_TEXT = 2000;
+const MAX_POST_MEDIA = 6;
+
+/** Map a `posts` doc to the Post type. */
+function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
+  const d = doc.data() || {};
+  return {
+    id: doc.id,
+    authorId: d.authorId,
+    authorUsername: d.authorUsername ?? null,
+    authorDisplayName: d.authorDisplayName ?? null,
+    authorPhotoURL: d.authorPhotoURL ?? null,
+    text: d.text ?? '',
+    media: Array.isArray(d.media) ? d.media : [],
+    taggedMovie: d.taggedMovie ?? null,
+    taggedUserIds: d.taggedUserIds ?? [],
+    taggedUsers: d.taggedUsers ?? [],
+    place: d.place ?? null,
+    likes: d.likes ?? 0,
+    likedBy: d.likedBy ?? [],
+    commentCount: d.commentCount ?? 0,
+    createdAt: d.createdAt?.toDate?.() ?? new Date(),
+    updatedAt: d.updatedAt?.toDate?.() ?? new Date(),
+    editedAt: d.editedAt?.toDate?.() ?? null,
+  };
+}
+
+/**
+ * Issue a presigned R2 PUT URL so the client uploads post media (images +
+ * video, up to 200MB) DIRECTLY to R2 — large files never stream through a
+ * server action. Validates mime + size before signing.
+ */
+export async function getPostMediaUploadUrl(
+  idToken: string,
+  fileName: string,
+  contentType: string,
+  fileSize: number,
+): Promise<{ uploadUrl?: string; publicUrl?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { error: auth.error };
+
+  const isImage = contentType.startsWith('image/');
+  const isVideo = contentType.startsWith('video/');
+  if (!isImage && !isVideo) return { error: 'Only images and videos can be attached.' };
+  if (!fileSize || fileSize <= 0 || fileSize > MAX_POST_MEDIA_BYTES) {
+    return { error: 'That file is too large — 200MB max.' };
+  }
+
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const endpoint = process.env.R2_ENDPOINT;
+  const bucketName = process.env.R2_BUCKET_NAME;
+  const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+  if (!accessKeyId || !secretAccessKey || !endpoint || !bucketName || !publicBaseUrl) {
+    console.error('[getPostMediaUploadUrl] R2 not configured');
+    return { error: 'Media upload is not configured.' };
+  }
+
+  try {
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
+    });
+
+    const ext =
+      (fileName.split('.').pop() || (isVideo ? 'mp4' : 'jpg'))
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 8) || (isVideo ? 'mp4' : 'jpg');
+    const key = `posts/${auth.uid}/${randomUUID()}.${ext}`;
+
+    const uploadUrl = await getSignedUrl(
+      s3,
+      new PutObjectCommand({ Bucket: bucketName, Key: key, ContentType: contentType }),
+      { expiresIn: 600 },
+    );
+    return { uploadUrl, publicUrl: `${publicBaseUrl}/${key}` };
+  } catch (error) {
+    console.error('[getPostMediaUploadUrl] Failed:', error);
+    return { error: 'Failed to prepare the upload.' };
+  }
+}
+
+/** Resolve tagged-user ids → denormalized TaggedUser[], dropping blocks + self. */
+async function resolveTaggedUsers(
+  db: FirebaseFirestore.Firestore,
+  authorId: string,
+  ids: string[] | undefined,
+): Promise<TaggedUser[]> {
+  const blockSet = await getBlockSet(db, authorId);
+  const clean = [...new Set(ids || [])]
+    .filter((id) => id && id !== authorId && !blockSet.has(id))
+    .slice(0, 20);
+  if (clean.length === 0) return [];
+  const docs = await db.getAll(...clean.map((id) => db.collection('users').doc(id)));
+  return docs
+    .filter((d) => d.exists)
+    .map((d) => {
+      const t = d.data() || {};
+      return {
+        uid: d.id,
+        username: t.username ?? null,
+        displayName: t.displayName ?? null,
+        photoURL: t.photoURL ?? null,
+      };
+    });
+}
+
+/** Create a user post (LAUNCH 0.5.4). Tagged friends are notified. */
+export async function createPost(
+  idToken: string,
+  input: {
+    text?: string;
+    media?: PostMedia[];
+    taggedMovie?: Post['taggedMovie'];
+    taggedUserIds?: string[];
+    place?: string;
+  },
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const rl = await checkRateLimit(userId, 'post');
+  if (!rl.ok) return { error: rl.error };
+
+  const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
+  const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
+  const taggedMovie = input.taggedMovie || null;
+  const place = (input.place || '').trim().slice(0, 120) || null;
+
+  if (!text && media.length === 0 && !taggedMovie) {
+    return { error: 'Add a few words, a photo, or a film first.' };
+  }
+
+  const db = getDb();
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const u = userDoc.data() || {};
+    const taggedUsers = await resolveTaggedUsers(db, userId, input.taggedUserIds);
+
+    const postRef = db.collection('posts').doc();
+    await postRef.set({
+      id: postRef.id,
+      authorId: userId,
+      authorUsername: u.username ?? null,
+      authorDisplayName: u.displayName ?? null,
+      authorPhotoURL: u.photoURL ?? null,
+      text,
+      media,
+      taggedMovie,
+      taggedUserIds: taggedUsers.map((t) => t.uid),
+      taggedUsers,
+      place,
+      likes: 0,
+      likedBy: [],
+      commentCount: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Notify tagged friends — best-effort, post-commit.
+    for (const t of taggedUsers) {
+      try {
+        await db.collection('notifications').add({
+          userId: t.uid,
+          type: 'post_tag',
+          fromUserId: userId,
+          fromUsername: u.username ?? null,
+          fromDisplayName: u.displayName ?? null,
+          fromPhotoUrl: u.photoURL ?? null,
+          postId: postRef.id,
+          previewText: text.slice(0, 100),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('[createPost] tag notification failed:', err);
+      }
+    }
+
+    return { success: true, postId: postRef.id };
+  } catch (error) {
+    console.error('[createPost] Failed:', error);
+    return { error: 'Failed to create post.' };
+  }
+}
+
+/** Edit a post (owner only). */
+export async function updatePost(
+  idToken: string,
+  postId: string,
+  input: {
+    text?: string;
+    media?: PostMedia[];
+    taggedMovie?: Post['taggedMovie'];
+    taggedUserIds?: string[];
+    place?: string;
+  },
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const snap = await ref.get();
+    if (!snap.exists) return { error: 'Post not found.' };
+    if (snap.data()?.authorId !== auth.uid) {
+      return { error: 'You can only edit your own posts.' };
+    }
+    const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
+    const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
+    const taggedMovie = input.taggedMovie || null;
+    const place = (input.place || '').trim().slice(0, 120) || null;
+    if (!text && media.length === 0 && !taggedMovie) {
+      return { error: 'A post needs words, a photo, or a film.' };
+    }
+    const taggedUsers = await resolveTaggedUsers(db, auth.uid, input.taggedUserIds);
+    await ref.update({
+      text,
+      media,
+      taggedMovie,
+      taggedUserIds: taggedUsers.map((t) => t.uid),
+      taggedUsers,
+      place,
+      updatedAt: FieldValue.serverTimestamp(),
+      editedAt: FieldValue.serverTimestamp(),
+    });
+    return { success: true };
+  } catch (error) {
+    console.error('[updatePost] Failed:', error);
+    return { error: 'Failed to update post.' };
+  }
+}
+
+/** Delete a post (owner only). */
+export async function deletePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const snap = await ref.get();
+    if (!snap.exists) return { error: 'Post not found.' };
+    if (snap.data()?.authorId !== auth.uid) {
+      return { error: 'You can only delete your own posts.' };
+    }
+    await ref.delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[deletePost] Failed:', error);
+    return { error: 'Failed to delete post.' };
+  }
+}
+
+/** Fetch a single post — block-aware (returns null across a block). */
+export async function getPost(
+  postId: string,
+  viewerIdToken?: string,
+): Promise<{ post: Post | null; error?: string }> {
+  const db = getDb();
+  try {
+    const snap = await db.collection('posts').doc(postId).get();
+    if (!snap.exists) return { post: null };
+    const post = postFromDoc(snap);
+    if (viewerIdToken) {
+      const viewer = await verifyCaller(viewerIdToken);
+      if (!isAuthError(viewer) && (await isBlockedBetween(db, viewer.uid, post.authorId))) {
+        return { post: null };
+      }
+    }
+    return { post };
+  } catch (error) {
+    console.error('[getPost] Failed:', error);
+    return { post: null, error: 'Failed to load post.' };
   }
 }
 

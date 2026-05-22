@@ -349,6 +349,15 @@ service cloud.firestore {
     match /blocks/{blockId} {
       allow read, write: if false;
     }
+    // LAUNCH 0.5.4: user posts + their comments — server-only. All reads go
+    // through getHomeFeed / getPost (block-filtered); all writes through the
+    // post server actions (Admin SDK).
+    match /posts/{postId} {
+      allow read, write: if false;
+      match /comments/{commentId} {
+        allow read, write: if false;
+      }
+    }
     // AUDIT.md 3.8: rate-limit counters — server-only, clients must never read
     // or tamper with their own budget.
     match /rate_limits/{limitId} {
