@@ -209,28 +209,112 @@ export async function ensureUserProfile(idToken: string, email: string, displayN
 // --- LIST OPERATIONS ---
 
 /**
- * Creates a new list for a user.
+ * Creates a new list (v3 editorial creator — `pattern-new-list.html`).
+ *
+ * Back-compat: the 3rd arg can still be a plain `isPublic: boolean` for old
+ * call sites. New callers pass an options object with description, cover
+ * settings, and collaborator invites in one shot.
+ *
+ * v3 defaults: **private** unless explicitly made public; cover renders as a
+ * 3-poster mosaic (`coverMode: 'auto'`) until the owner uploads one.
  */
-export async function createList(idToken: string, name: string, isPublic: boolean = true) {
+export async function createList(
+  idToken: string,
+  name: string,
+  isPublicOrOptions:
+    | boolean
+    | {
+        isPublic?: boolean;
+        description?: string;
+        coverMode?: 'auto' | 'custom';
+        coverImageUrl?: string;
+        collaboratorInvites?: Array<{ uid: string; username?: string | null }>;
+      } = {},
+) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
 
-  const db = getDb();
+  // Normalize legacy `boolean` arg vs new options object.
+  const opts =
+    typeof isPublicOrOptions === 'boolean'
+      ? { isPublic: isPublicOrOptions }
+      : isPublicOrOptions;
 
+  const trimmedName = name.trim();
+  if (!trimmedName) return { error: 'A list needs a name.' };
+  if (trimmedName.length > 80) return { error: 'List name is too long.' };
+
+  const isPublic = opts.isPublic ?? false; // v3 default: private.
+  const description = (opts.description || '').trim().slice(0, 280) || null;
+  const coverImageUrl = opts.coverImageUrl || null;
+  // 'auto' unless a custom cover was uploaded.
+  const coverMode: 'auto' | 'custom' = coverImageUrl ? 'custom' : opts.coverMode ?? 'auto';
+  // Up to 9 collaborator invites at creation time (owner + 9 = 10-member cap).
+  const invites = Array.isArray(opts.collaboratorInvites)
+    ? opts.collaboratorInvites.slice(0, 9)
+    : [];
+
+  const db = getDb();
   try {
     const listRef = db.collection('users').doc(userId).collection('lists').doc();
     await listRef.set({
       id: listRef.id,
-      name: name.trim(),
+      name: trimmedName,
+      ...(description ? { description } : {}),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       isDefault: false,
-      isPublic: isPublic,
+      isPublic,
       ownerId: userId,
+      coverMode,
+      ...(coverImageUrl ? { coverImageUrl } : {}),
       likes: 0,
       likedBy: [],
     });
+
+    // Fan out collaborator invites — best-effort, post-commit. Each invite is
+    // a /invites doc + a list_invite notification for the invitee.
+    if (invites.length > 0) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        const inviterUsername = userDoc.data()?.username ?? null;
+        const inviterDisplayName = userDoc.data()?.displayName ?? null;
+        const inviterPhotoUrl = userDoc.data()?.photoURL ?? null;
+        for (const invitee of invites) {
+          if (!invitee?.uid || invitee.uid === userId) continue;
+          const inviteRef = db.collection('invites').doc();
+          await inviteRef.set({
+            id: inviteRef.id,
+            listId: listRef.id,
+            listName: trimmedName,
+            listOwnerId: userId,
+            inviterId: userId,
+            inviterUsername,
+            inviteeId: invitee.uid,
+            inviteeUsername: invitee.username ?? null,
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          await db.collection('notifications').add({
+            userId: invitee.uid,
+            type: 'list_invite',
+            fromUserId: userId,
+            fromUsername: inviterUsername,
+            fromDisplayName: inviterDisplayName,
+            fromPhotoUrl: inviterPhotoUrl,
+            inviteId: inviteRef.id,
+            listId: listRef.id,
+            listOwnerId: userId,
+            listName: trimmedName,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[createList] invite fan-out failed:', err);
+      }
+    }
 
     revalidatePath('/lists');
     return { success: true, listId: listRef.id };
@@ -1604,6 +1688,8 @@ export type LovedListCard = {
   ownerUsername: string | null;
   ownerDisplayName: string | null;
   coverImageUrl: string;
+  /** v3: when 'auto', render the mosaic even if coverImageUrl is set. */
+  coverMode: 'auto' | 'custom' | null;
   movieCount: number;
   likes: number;
   previewPosters: string[];
@@ -1647,6 +1733,7 @@ async function hydrateListCards(
         ownerUsername: owner?.username || null,
         ownerDisplayName: owner?.displayName || null,
         coverImageUrl: d.coverImageUrl || '',
+        coverMode: (d.coverMode as 'auto' | 'custom' | undefined) ?? null,
         movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
         likes: d.likes || 0,
         previewPosters,
@@ -6884,14 +6971,25 @@ async function resolveTaggedUsers(
     });
 }
 
-/** Create a user post (LAUNCH 0.5.4). Tagged friends are notified. */
+/**
+ * Create a user post (LAUNCH 0.5.4).
+ *
+ * v3 rules (per `pattern-post-composer.html`):
+ *  - **A film is required** — every post is anchored to a movie/TV title.
+ *  - The optional `rating` becomes the user's official /ratings entry for
+ *    that title (posts are now the unified review+rating surface).
+ *  - Friends are mentioned inline via `@username` in `text`; the parser
+ *    notifies them. `taggedUserIds` is still accepted for legacy callers but
+ *    is not used by the v3 composer.
+ */
 export async function createPost(
   idToken: string,
   input: {
     text?: string;
     media?: PostMedia[];
     taggedMovie?: Post['taggedMovie'];
-    taggedUserIds?: string[];
+    rating?: number | null;
+    taggedUserIds?: string[]; // legacy v2 callers — v3 uses inline @mentions
     place?: string;
   },
 ) {
@@ -6907,14 +7005,28 @@ export async function createPost(
   const taggedMovie = input.taggedMovie || null;
   const place = (input.place || '').trim().slice(0, 120) || null;
 
-  if (!text && media.length === 0 && !taggedMovie) {
-    return { error: 'Add a few words, a photo, or a film first.' };
+  // v3: posts MUST be about a film. Words alone don't count.
+  if (!taggedMovie || !taggedMovie.tmdbId) {
+    return { error: 'Pin a film to post.' };
+  }
+  if (!text && media.length === 0) {
+    return { error: 'Write something or attach a photo.' };
+  }
+
+  // Validate + round the optional rating.
+  let rating: number | null = null;
+  if (typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+    if (input.rating < 1 || input.rating > 10) {
+      return { error: 'Rating must be between 1.0 and 10.0.' };
+    }
+    rating = Math.round(input.rating * 10) / 10;
   }
 
   const db = getDb();
   try {
     const userDoc = await db.collection('users').doc(userId).get();
     const u = userDoc.data() || {};
+    // Legacy taggedUserIds — only resolve if the caller provided them.
     const taggedUsers = await resolveTaggedUsers(db, userId, input.taggedUserIds);
 
     const postRef = db.collection('posts').doc();
@@ -6927,6 +7039,7 @@ export async function createPost(
       text,
       media,
       taggedMovie,
+      rating,
       taggedUserIds: taggedUsers.map((t) => t.uid),
       taggedUsers,
       place,
@@ -6937,7 +7050,34 @@ export async function createPost(
       updatedAt: FieldValue.serverTimestamp(),
     });
 
-    // Notify tagged friends — best-effort, post-commit.
+    // Unify the rating with /ratings — the post IS the user's rating event
+    // now. Done best-effort: if it fails the post still stands.
+    if (rating !== null) {
+      try {
+        const ratingId = `${userId}_${taggedMovie.tmdbId}`;
+        const ratingRef = db.collection('ratings').doc(ratingId);
+        const existing = await ratingRef.get();
+        const ratingData = {
+          id: ratingId,
+          userId,
+          tmdbId: taggedMovie.tmdbId,
+          mediaType: taggedMovie.mediaType,
+          movieTitle: taggedMovie.title,
+          moviePosterUrl: taggedMovie.posterUrl || null,
+          rating,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (existing.exists) {
+          await ratingRef.update(ratingData);
+        } else {
+          await ratingRef.set({ ...ratingData, createdAt: FieldValue.serverTimestamp() });
+        }
+      } catch (err) {
+        console.error('[createPost] rating upsert failed:', err);
+      }
+    }
+
+    // Legacy v2: notify users in the taggedUserIds list.
     for (const t of taggedUsers) {
       try {
         await db.collection('notifications').add({
@@ -6957,6 +7097,48 @@ export async function createPost(
       }
     }
 
+    // v3: notify users @-mentioned in the body (skip ones already notified
+    // via the legacy taggedUserIds path).
+    try {
+      const mentions = extractMentions(text);
+      const alreadyNotified = new Set(taggedUsers.map((t) => t.uid));
+      if (mentions.length > 0) {
+        const lookups = await Promise.all(
+          mentions.map((username) =>
+            db
+              .collection('users')
+              .where('usernameLower', '==', username.toLowerCase())
+              .limit(1)
+              .get(),
+          ),
+        );
+        const previewText = text.slice(0, 100) + (text.length > 100 ? '...' : '');
+        for (const snap of lookups) {
+          if (snap.empty) continue;
+          const doc = snap.docs[0];
+          const mentionedUserId = doc.id;
+          if (mentionedUserId === userId) continue;
+          if (alreadyNotified.has(mentionedUserId)) continue;
+          const prefs = doc.data()?.notificationPreferences;
+          if (prefs && prefs.mentions === false) continue;
+          await db.collection('notifications').add({
+            userId: mentionedUserId,
+            type: 'post_tag',
+            fromUserId: userId,
+            fromUsername: u.username ?? null,
+            fromDisplayName: u.displayName ?? null,
+            fromPhotoUrl: u.photoURL ?? null,
+            postId: postRef.id,
+            previewText,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[createPost] @mention notifications failed:', err);
+    }
+
     return { success: true, postId: postRef.id };
   } catch (error) {
     console.error('[createPost] Failed:', error);
@@ -6964,7 +7146,7 @@ export async function createPost(
   }
 }
 
-/** Edit a post (owner only). */
+/** Edit a post (owner only). Mirrors v3 createPost rules. */
 export async function updatePost(
   idToken: string,
   postId: string,
@@ -6972,6 +7154,7 @@ export async function updatePost(
     text?: string;
     media?: PostMedia[];
     taggedMovie?: Post['taggedMovie'];
+    rating?: number | null;
     taggedUserIds?: string[];
     place?: string;
   },
@@ -6990,20 +7173,60 @@ export async function updatePost(
     const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
     const taggedMovie = input.taggedMovie || null;
     const place = (input.place || '').trim().slice(0, 120) || null;
-    if (!text && media.length === 0 && !taggedMovie) {
-      return { error: 'A post needs words, a photo, or a film.' };
+    if (!taggedMovie || !taggedMovie.tmdbId) {
+      return { error: 'Pin a film to post.' };
     }
+    if (!text && media.length === 0) {
+      return { error: 'Write something or attach a photo.' };
+    }
+
+    let rating: number | null = null;
+    if (typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+      if (input.rating < 1 || input.rating > 10) {
+        return { error: 'Rating must be between 1.0 and 10.0.' };
+      }
+      rating = Math.round(input.rating * 10) / 10;
+    }
+
     const taggedUsers = await resolveTaggedUsers(db, auth.uid, input.taggedUserIds);
     await ref.update({
       text,
       media,
       taggedMovie,
+      rating,
       taggedUserIds: taggedUsers.map((t) => t.uid),
       taggedUsers,
       place,
       updatedAt: FieldValue.serverTimestamp(),
       editedAt: FieldValue.serverTimestamp(),
     });
+
+    // Mirror createPost: a rating edit also flows into /ratings.
+    if (rating !== null) {
+      try {
+        const ratingId = `${auth.uid}_${taggedMovie.tmdbId}`;
+        const ratingRef = db.collection('ratings').doc(ratingId);
+        const existing = await ratingRef.get();
+        const ratingData = {
+          id: ratingId,
+          userId: auth.uid,
+          tmdbId: taggedMovie.tmdbId,
+          mediaType: taggedMovie.mediaType,
+          movieTitle: taggedMovie.title,
+          moviePosterUrl: taggedMovie.posterUrl || null,
+          rating,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (existing.exists) {
+          await ratingRef.update(ratingData);
+        } else {
+          await ratingRef.set({ ...ratingData, createdAt: FieldValue.serverTimestamp() });
+        }
+      } catch (err) {
+        console.error('[updatePost] rating upsert failed:', err);
+      }
+    }
+
     return { success: true };
   } catch (error) {
     console.error('[updatePost] Failed:', error);

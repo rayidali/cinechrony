@@ -398,6 +398,7 @@ export default function UserProfilePage() {
                       isPublic
                       movieCount={preview?.movieCount ?? 0}
                       coverImageUrl={list.coverImageUrl}
+                      coverMode={list.coverMode}
                       previewPosters={preview?.previewPosters ?? []}
                       onClick={() => router.push(`/profile/${username}/lists/${list.id}`)}
                       likeButton={

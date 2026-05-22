@@ -179,8 +179,9 @@ function ListMiniCard({ list, onSelect }: { list: LovedListCard; onSelect: () =>
       className="flex-shrink-0 w-[132px] text-left bg-card border border-border rounded-[12px] overflow-hidden shadow-lift transition-transform duration-200 active:scale-[0.97]"
     >
       <div className="aspect-[4/3] overflow-hidden bg-border">
-        {list.coverImageUrl ? (
-          // A custom list cover takes precedence over the poster mosaic.
+        {/* v3: `coverMode === 'auto'` flips us back to the mosaic even when
+            an old coverImageUrl is still on the doc. */}
+        {list.coverImageUrl && list.coverMode !== 'auto' ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={list.coverImageUrl} alt="" className="w-full h-full object-cover" />
         ) : list.previewPosters.length > 0 ? (

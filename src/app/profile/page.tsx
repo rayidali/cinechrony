@@ -512,6 +512,7 @@ export default function MyProfilePage() {
                           isPublic={list.isPublic !== false}
                           movieCount={preview?.movieCount ?? list.movieCount ?? 0}
                           coverImageUrl={list.coverImageUrl}
+                          coverMode={list.coverMode}
                           previewPosters={preview?.previewPosters ?? []}
                           updatedLabel={shortDate(list.updatedAt) ? `updated ${shortDate(list.updatedAt)}` : undefined}
                           onClick={() => router.push(`/lists/${list.id}`)}

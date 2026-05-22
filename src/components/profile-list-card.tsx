@@ -11,6 +11,9 @@ interface ProfileListCardProps {
   ownerName?: string;
   movieCount: number;
   coverImageUrl?: string;
+  /** v3: when `auto`, the cover is rendered as the poster mosaic even if a
+   *  stale coverImageUrl is set. */
+  coverMode?: 'auto' | 'custom';
   previewPosters?: string[];
   /** Accepted for call-site compatibility — not rendered in the v2 card. */
   updatedLabel?: string;
@@ -35,12 +38,13 @@ export function ProfileListCard({
   ownerName,
   movieCount,
   coverImageUrl,
+  coverMode,
   previewPosters = [],
   onClick,
   children,
   likeButton,
 }: ProfileListCardProps) {
-  const hasCustomCover = !!coverImageUrl;
+  const hasCustomCover = !!coverImageUrl && coverMode !== 'auto';
   const hasPosters = previewPosters.length > 0;
 
   const eyebrow = [

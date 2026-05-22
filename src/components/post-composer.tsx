@@ -5,29 +5,37 @@ import Image from 'next/image';
 import {
   ImagePlus,
   Film,
-  Users,
+  AtSign,
   MapPin,
+  Star,
   X,
   Search,
   Loader2,
+  Trash2,
+  ChevronLeft,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import {
   createPost,
   getPostMediaUploadUrl,
   searchUsers,
+  getUserRating,
 } from '@/app/actions';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useToast } from '@/hooks/use-toast';
+import { cn, getRatingStyle } from '@/lib/utils';
 import type { PostMedia, Post, SearchResult, UserProfile } from '@/lib/types';
-import { cn } from '@/lib/utils';
 
-const DRAFT_KEY = 'cinechrony-post-draft';
+// ─── Constants ───────────────────────────────────────────────────────────
+const DRAFTS_KEY = 'cinechrony-post-drafts';
 const MAX_MEDIA = 6;
+const MAX_TEXT = 280;
+const AUTOSAVE_MS = 5000;
 
+// ─── Types ───────────────────────────────────────────────────────────────
 type MediaItem = {
   id: string;
   kind: 'image' | 'video';
@@ -39,6 +47,47 @@ type MediaItem = {
 
 type TaggedMovie = NonNullable<Post['taggedMovie']>;
 
+type Draft = {
+  id: string;
+  text: string;
+  taggedMovie: TaggedMovie | null;
+  rating: number | null;
+  place: string;
+  updatedAt: number;
+};
+
+// Which sub-picker is open. `null` = the normal compose surface.
+type Sheet = null | 'film' | 'mention' | 'location' | 'rating' | 'drafts';
+
+type PostComposerProps = {
+  isOpen: boolean;
+  onClose: () => void;
+  onPosted?: (postId: string) => void;
+};
+
+// ─── localStorage helpers ────────────────────────────────────────────────
+function loadDrafts(): Draft[] {
+  try {
+    const raw = localStorage.getItem(DRAFTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+function saveDrafts(drafts: Draft[]) {
+  try {
+    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
+  } catch {
+    /* quota — ignore */
+  }
+}
+function newDraftId(): string {
+  return `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+// ─── Upload helper ───────────────────────────────────────────────────────
 /** PUT a file to a presigned R2 URL with upload progress. */
 function uploadToR2(
   url: string,
@@ -61,18 +110,28 @@ function uploadToR2(
   });
 }
 
-type PostComposerProps = {
-  isOpen: boolean;
-  onClose: () => void;
-  onPosted?: (postId: string) => void;
-};
-
 /**
- * Fullscreen post composer (LAUNCH 0.5.4) — an X-style compose surface: the
- * text area fills the screen and is focused on open (keyboard straight up),
- * the action toolbar sits right above the keyboard. Multi image/video upload
- * (direct to R2 via presigned URLs), a movie tag, friend tags, a freeform
- * place. Autosaves a draft to localStorage.
+ * Post composer — v3 ("twitter-shaped, cinechrony-skinned").
+ *
+ * The composer is the FAB destination on /home. Rules from the v3 design
+ * (`pattern-post-composer.html`):
+ *  - Every post is anchored to a film. The body leads with a dashed "pin a
+ *    film · what's this about?" row that converts to a filled card on pick.
+ *    All 4 toolbar tools (image · @ · location · rating) are disabled until
+ *    a film is pinned.
+ *  - 280-char limit; counter tints amber at 250, marker over.
+ *  - Friends are tagged via inline @mentions in the body (no separate chip
+ *    list). The @ tool opens an inline user search → inserts `@username `
+ *    at the cursor.
+ *  - The rating chip lives in the body, indented under the avatar. Adding
+ *    a rating *also* upserts the user's /ratings entry for the pinned film
+ *    (createPost handles this server-side).
+ *  - Drafts auto-save every 5 s into localStorage. The "drafts (N)" link
+ *    in the header opens the drafts list (resume / delete).
+ *
+ * Layout: a fixed-position bone surface sized to `window.visualViewport`
+ * so the action toolbar sits right above the iOS keyboard instead of
+ * behind it. The textarea autofocuses on open.
  */
 export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const { user } = useUser();
@@ -81,27 +140,35 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
+  const lastCaretRef = useRef<number>(0);
   const [, startTransition] = useTransition();
 
+  // Core post state
   const [text, setText] = useState('');
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [taggedMovie, setTaggedMovie] = useState<TaggedMovie | null>(null);
-  const [taggedUsers, setTaggedUsers] = useState<UserProfile[]>([]);
+  const [rating, setRating] = useState<number | null>(null);
   const [place, setPlace] = useState('');
   const [isPosting, setIsPosting] = useState(false);
 
-  // Inline search panels
-  const [movieQuery, setMovieQuery] = useState('');
-  const [movieResults, setMovieResults] = useState<SearchResult[]>([]);
-  const [movieSearchOpen, setMovieSearchOpen] = useState(false);
-  const [friendQuery, setFriendQuery] = useState('');
-  const [friendResults, setFriendResults] = useState<UserProfile[]>([]);
-  const [friendSearchOpen, setFriendSearchOpen] = useState(false);
-  // The composer sizes to the *visible* viewport so the action toolbar sits
-  // right above the keyboard instead of behind it.
+  // Drafts
+  const [drafts, setDrafts] = useState<Draft[]>([]);
+  const [draftId, setDraftId] = useState<string | null>(null);
+
+  // Sub-picker state
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [filmQuery, setFilmQuery] = useState('');
+  const [filmResults, setFilmResults] = useState<SearchResult[]>([]);
+  const [mentionQuery, setMentionQuery] = useState('');
+  const [mentionResults, setMentionResults] = useState<UserProfile[]>([]);
+  const [tempRating, setTempRating] = useState<number>(7.5);
+  const [tempPlace, setTempPlace] = useState('');
+
+  // Visible viewport — composer sits inside it so the toolbar is above the keyboard.
   const [viewportHeight, setViewportHeight] = useState('100dvh');
 
-  // Track the visible viewport (shrinks when the keyboard opens).
+  // ── Effects ────────────────────────────────────────────────────────────
+
   useEffect(() => {
     if (!isOpen) return;
     const vv = window.visualViewport;
@@ -119,85 +186,119 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     };
   }, [isOpen]);
 
-  // Load the saved draft + lock body scroll + focus the text on open.
+  // On open: load drafts, lock body scroll, focus the textarea.
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY);
-      if (raw) {
-        const d = JSON.parse(raw);
-        setText(d.text || '');
-        setPlace(d.place || '');
-        setTaggedMovie(d.taggedMovie || null);
-        setTaggedUsers(d.taggedUsers || []);
-      }
-    } catch {
-      /* ignore a malformed draft */
-    }
-    // Drop straight into writing — keyboard up, cursor ready.
-    const focusTimer = setTimeout(() => textRef.current?.focus(), 150);
+    setDrafts(loadDrafts());
+    const focusTimer = setTimeout(() => textRef.current?.focus(), 180);
     return () => {
       clearTimeout(focusTimer);
       document.body.style.overflow = '';
     };
   }, [isOpen]);
 
-  // Autosave the draft (media excluded — files can't serialize).
+  // Autosave every AUTOSAVE_MS while the composer is open. We DON'T autosave
+  // media — File objects can't survive a JSON round-trip.
   useEffect(() => {
     if (!isOpen) return;
-    const hasContent = text.trim() || place.trim() || taggedMovie || taggedUsers.length;
-    if (hasContent) {
-      localStorage.setItem(
-        DRAFT_KEY,
-        JSON.stringify({ text, place, taggedMovie, taggedUsers }),
-      );
-    } else {
-      localStorage.removeItem(DRAFT_KEY);
-    }
-  }, [isOpen, text, place, taggedMovie, taggedUsers]);
+    const hasContent =
+      text.trim() || place.trim() || taggedMovie || rating !== null;
+    if (!hasContent) return;
 
-  // Debounced movie search.
+    const timer = setTimeout(() => {
+      let id = draftId;
+      if (!id) {
+        id = newDraftId();
+        setDraftId(id);
+      }
+      setDrafts((prev) => {
+        const next = prev.filter((d) => d.id !== id);
+        next.unshift({
+          id: id!,
+          text,
+          taggedMovie,
+          rating,
+          place,
+          updatedAt: Date.now(),
+        });
+        const trimmed = next.slice(0, 20); // cap at 20 drafts
+        saveDrafts(trimmed);
+        return trimmed;
+      });
+    }, AUTOSAVE_MS);
+
+    return () => clearTimeout(timer);
+  }, [isOpen, text, place, taggedMovie, rating, draftId]);
+
+  // When a film is pinned: prefill the rating tray default with the user's
+  // existing /ratings entry — only adopt it into the post if the user opens
+  // the rating sheet (so a pin doesn't silently inherit a rating).
   useEffect(() => {
-    if (!movieSearchOpen) return;
-    const q = movieQuery.trim();
+    if (!taggedMovie || !user) return;
+    let cancelled = false;
+    getUserRating(user.uid, taggedMovie.tmdbId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res?.rating?.rating) setTempRating(res.rating.rating);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [taggedMovie, user]);
+
+  // Debounced film search.
+  useEffect(() => {
+    if (sheet !== 'film') return;
+    const q = filmQuery.trim();
     if (q.length < 2) {
-      setMovieResults([]);
+      setFilmResults([]);
       return;
     }
     const t = setTimeout(() => {
-      searchTmdbMulti(q, 9).then(setMovieResults).catch(() => {});
-    }, 320);
+      searchTmdbMulti(q, 12).then(setFilmResults).catch(() => {});
+    }, 280);
     return () => clearTimeout(t);
-  }, [movieQuery, movieSearchOpen]);
+  }, [filmQuery, sheet]);
 
   // Debounced friend search.
   useEffect(() => {
-    if (!friendSearchOpen || !user) return;
-    const q = friendQuery.trim();
-    if (q.length < 2) {
-      setFriendResults([]);
+    if (sheet !== 'mention' || !user) return;
+    const q = mentionQuery.trim();
+    if (q.length < 1) {
+      setMentionResults([]);
       return;
     }
     const t = setTimeout(() => {
       searchUsers(q, user.uid)
-        .then((r) => setFriendResults(r.users ?? []))
+        .then((r) => setMentionResults(r.users ?? []))
         .catch(() => {});
-    }, 320);
+    }, 280);
     return () => clearTimeout(t);
-  }, [friendQuery, friendSearchOpen, user]);
+  }, [mentionQuery, sheet, user]);
+
+  // ── Reset ──────────────────────────────────────────────────────────────
 
   const resetAll = useCallback(() => {
+    setMedia((prev) => {
+      prev.forEach((m) => URL.revokeObjectURL(m.localUrl));
+      return [];
+    });
     setText('');
-    setMedia([]);
     setTaggedMovie(null);
-    setTaggedUsers([]);
+    setRating(null);
     setPlace('');
-    setMovieSearchOpen(false);
-    setFriendSearchOpen(false);
-    setMovieQuery('');
-    setFriendQuery('');
+    setSheet(null);
+    setFilmQuery('');
+    setFilmResults([]);
+    setMentionQuery('');
+    setMentionResults([]);
+    setTempPlace('');
+    setDraftId(null);
   }, []);
+
+  // ── File upload ────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
     if (!files || !user) return;
@@ -217,8 +318,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
       (async () => {
         try {
-          // Images are downscaled + re-encoded before upload; video uploads
-          // as-is (browser transcoding isn't robust — see image-compress.ts).
           const uploadFile = isVideo ? file : await compressImage(file);
           const idToken = (await auth.currentUser?.getIdToken()) ?? '';
           const res = await getPostMediaUploadUrl(
@@ -267,15 +366,119 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     });
   };
 
+  // ── Tools ──────────────────────────────────────────────────────────────
+
+  const pinFilm = (r: SearchResult) => {
+    setTaggedMovie({
+      tmdbId: r.tmdbId ?? Number(r.id),
+      title: r.title,
+      posterUrl: r.posterUrl ?? null,
+      year: r.year === 'N/A' ? '' : r.year,
+      mediaType: r.mediaType,
+    });
+    setSheet(null);
+    setFilmQuery('');
+    setFilmResults([]);
+    setTimeout(() => textRef.current?.focus(), 60);
+  };
+
+  const openMentionPicker = () => {
+    if (!taggedMovie) return;
+    if (textRef.current) {
+      lastCaretRef.current = textRef.current.selectionStart ?? text.length;
+    }
+    setMentionQuery('');
+    setMentionResults([]);
+    setSheet('mention');
+  };
+
+  const insertMention = (u: UserProfile) => {
+    if (!u.username) return;
+    const caret = Math.max(0, Math.min(lastCaretRef.current, text.length));
+    const before = text.slice(0, caret);
+    const after = text.slice(caret);
+    const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
+    const trail = after.length === 0 || /^\s/.test(after) ? ' ' : ' ';
+    const inserted = `${lead}@${u.username}${trail}`;
+    const next = before + inserted + after;
+    if (next.length > MAX_TEXT) {
+      toast({ variant: 'destructive', title: 'message would exceed 280 chars' });
+      return;
+    }
+    setText(next);
+    setSheet(null);
+    setTimeout(() => {
+      const ta = textRef.current;
+      if (!ta) return;
+      const pos = caret + inserted.length;
+      ta.focus();
+      ta.setSelectionRange(pos, pos);
+    }, 40);
+  };
+
+  const openRatingPicker = () => {
+    if (!taggedMovie) return;
+    setTempRating(rating ?? tempRating ?? 7.5);
+    setSheet('rating');
+  };
+  const applyRating = () => {
+    setRating(Math.round(tempRating * 10) / 10);
+    setSheet(null);
+  };
+  const clearRating = () => {
+    setRating(null);
+    setSheet(null);
+  };
+
+  const openLocationPicker = () => {
+    if (!taggedMovie) return;
+    setTempPlace(place);
+    setSheet('location');
+  };
+  const applyLocation = () => {
+    setPlace(tempPlace.trim().slice(0, 120));
+    setSheet(null);
+    setTimeout(() => textRef.current?.focus(), 60);
+  };
+
+  const openImagePicker = () => {
+    if (!taggedMovie || media.length >= MAX_MEDIA) return;
+    fileInputRef.current?.click();
+  };
+
+  // ── Drafts ─────────────────────────────────────────────────────────────
+
+  const loadDraft = (d: Draft) => {
+    setText(d.text);
+    setTaggedMovie(d.taggedMovie);
+    setRating(d.rating);
+    setPlace(d.place);
+    setDraftId(d.id);
+    setMedia([]);
+    setSheet(null);
+    setTimeout(() => textRef.current?.focus(), 60);
+  };
+  const deleteDraft = (id: string) => {
+    setDrafts((prev) => {
+      const next = prev.filter((d) => d.id !== id);
+      saveDrafts(next);
+      return next;
+    });
+    if (draftId === id) setDraftId(null);
+  };
+
+  // ── Submission ─────────────────────────────────────────────────────────
+
   const uploading = media.some((m) => m.status === 'uploading');
   const doneMedia = media.filter((m) => m.status === 'done' && m.media);
   const canPost =
     !isPosting &&
     !uploading &&
-    (text.trim().length > 0 || doneMedia.length > 0 || !!taggedMovie);
+    !!taggedMovie &&
+    (text.trim().length > 0 || doneMedia.length > 0);
 
   const handlePost = () => {
-    if (!canPost || !user) return;
+    if (!canPost || !user || !taggedMovie) return;
     setIsPosting(true);
     startTransition(async () => {
       try {
@@ -284,14 +487,18 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           text: text.trim(),
           media: doneMedia.map((m) => m.media!),
           taggedMovie,
-          taggedUserIds: taggedUsers.map((u) => u.uid),
+          rating,
           place: place.trim(),
         });
         if (res && 'error' in res && res.error) {
           toast({ variant: 'destructive', title: 'Error', description: res.error });
           setIsPosting(false);
         } else {
-          localStorage.removeItem(DRAFT_KEY);
+          if (draftId) {
+            const remaining = drafts.filter((d) => d.id !== draftId);
+            saveDrafts(remaining);
+            setDrafts(remaining);
+          }
           toast({ title: 'posted.' });
           const postId = (res as { postId?: string }).postId;
           resetAll();
@@ -306,148 +513,250 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     });
   };
 
-  const pickMovie = (r: SearchResult) => {
-    setTaggedMovie({
-      tmdbId: r.tmdbId ?? Number(r.id),
-      title: r.title,
-      posterUrl: r.posterUrl ?? null,
-      year: r.year === 'N/A' ? '' : r.year,
-      mediaType: r.mediaType,
-    });
-    setMovieSearchOpen(false);
-    setMovieQuery('');
-    setTimeout(() => textRef.current?.focus(), 80);
-  };
-
-  const toggleFriend = (u: UserProfile) => {
-    setTaggedUsers((prev) =>
-      prev.some((x) => x.uid === u.uid)
-        ? prev.filter((x) => x.uid !== u.uid)
-        : [...prev, u],
-    );
-  };
+  // ── Render ─────────────────────────────────────────────────────────────
 
   if (!isOpen) return null;
 
-  const searchOpen = movieSearchOpen || friendSearchOpen;
+  const bodyHidden = sheet === 'film' || sheet === 'mention' || sheet === 'drafts';
+  const charCount = text.length;
+  const charCountClass =
+    charCount > MAX_TEXT
+      ? 'text-destructive'
+      : charCount >= 250
+        ? 'text-amber-600'
+        : 'text-muted-foreground';
+  const showDraftsLink = drafts.length > 0;
 
   return (
     <div
-      className="fixed left-0 right-0 top-0 z-[70] bg-background flex flex-col animate-fade-in"
+      className="fixed left-0 right-0 top-0 z-[70] bg-card flex flex-col animate-fade-in"
       style={{ height: viewportHeight }}
     >
-      {/* Header */}
+      {/* ── Header — cancel · drafts(N) · post ─────────────────────── */}
       <div
         className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
       >
         <button
           onClick={onClose}
-          aria-label="Close"
-          className="h-9 w-9 -ml-1.5 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
+          className="cc-meta text-[12px] text-muted-foreground active:text-foreground transition-colors"
         >
-          <X className="h-5 w-5" strokeWidth={1.8} />
+          cancel
         </button>
+        {showDraftsLink ? (
+          <button
+            onClick={() => setSheet('drafts')}
+            className="cc-meta text-[11px] text-muted-foreground active:text-foreground transition-colors"
+          >
+            drafts ({drafts.length})
+          </button>
+        ) : (
+          <span />
+        )}
         <button
           onClick={handlePost}
           disabled={!canPost}
           className={cn(
-            'h-9 px-6 rounded-full font-headline font-bold text-sm lowercase tracking-tight transition-all',
+            'h-9 px-5 rounded-full font-headline font-bold text-[12px] lowercase tracking-tight transition-all',
             canPost
               ? 'bg-primary text-white shadow-fab active:scale-[0.97]'
-              : 'bg-muted text-muted-foreground cursor-not-allowed',
+              : 'bg-muted text-muted-foreground/55 cursor-not-allowed',
           )}
         >
           {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'post'}
         </button>
       </div>
 
-      {/* Body */}
+      {/* ── Body or full-replacement picker ─────────────────────────── */}
       <div className="flex-1 overflow-y-auto">
-        {searchOpen ? (
-          <div className="px-4">
-            {movieSearchOpen && (
-              <InlineSearch
-                placeholder="search a film…"
-                query={movieQuery}
-                onQuery={setMovieQuery}
-                onClose={() => setMovieSearchOpen(false)}
+        {sheet === 'film' && (
+          <FullPicker
+            placeholder="search a film…"
+            query={filmQuery}
+            onQuery={setFilmQuery}
+            onBack={() => setSheet(null)}
+          >
+            {filmResults.map((r) => (
+              <button
+                key={`${r.mediaType}_${r.id}`}
+                onClick={() => pinFilm(r)}
+                className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60"
               >
-                {movieResults.map((r) => (
-                  <button
-                    key={`${r.mediaType}_${r.id}`}
-                    onClick={() => pickMovie(r)}
-                    className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
-                  >
-                    <div className="relative w-8 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
-                    </div>
-                    <span className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                      {r.title}
-                    </span>
-                    {r.year !== 'N/A' && (
-                      <span className="cc-meta text-[11px] text-muted-foreground ml-auto">
-                        {r.year}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </InlineSearch>
+                <div className="relative w-9 h-[54px] rounded overflow-hidden bg-muted flex-shrink-0">
+                  {r.posterUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
+                    {r.title}
+                  </p>
+                  {r.year !== 'N/A' && (
+                    <p className="cc-meta text-[10px] text-muted-foreground">
+                      {r.year} · {r.mediaType === 'tv' ? 'tv' : 'film'}
+                    </p>
+                  )}
+                </div>
+              </button>
+            ))}
+            {filmQuery.trim().length >= 2 && filmResults.length === 0 && (
+              <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
+                no matches.
+              </p>
             )}
-            {friendSearchOpen && (
-              <InlineSearch
-                placeholder="tag friends…"
-                query={friendQuery}
-                onQuery={setFriendQuery}
-                onClose={() => setFriendSearchOpen(false)}
+          </FullPicker>
+        )}
+
+        {sheet === 'mention' && (
+          <FullPicker
+            placeholder="tag a friend…"
+            query={mentionQuery}
+            onQuery={setMentionQuery}
+            onBack={() => setSheet(null)}
+          >
+            {mentionResults.map((u) => (
+              <button
+                key={u.uid}
+                onClick={() => insertMention(u)}
+                className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60"
               >
-                {friendResults.map((u) => {
-                  const tagged = taggedUsers.some((x) => x.uid === u.uid);
-                  return (
-                    <button
-                      key={u.uid}
-                      onClick={() => toggleFriend(u)}
-                      className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
-                    >
-                      <ProfileAvatar
-                        photoURL={u.photoURL}
-                        displayName={u.displayName}
-                        username={u.username}
-                        size="sm"
-                      />
-                      <span className="font-headline font-semibold text-sm tracking-tight truncate">
-                        @{u.username}
-                      </span>
-                      {tagged && (
-                        <span className="cc-meta text-[10px] text-success ml-auto">tagged</span>
-                      )}
-                    </button>
-                  );
-                })}
-              </InlineSearch>
+                <ProfileAvatar
+                  photoURL={u.photoURL}
+                  displayName={u.displayName}
+                  username={u.username}
+                  size="sm"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="font-headline font-semibold text-sm tracking-tight truncate">
+                    {u.displayName || u.username || 'user'}
+                  </p>
+                  <p className="cc-meta text-[10px] text-muted-foreground truncate">
+                    @{u.username}
+                  </p>
+                </div>
+              </button>
+            ))}
+            {mentionQuery.trim().length >= 1 && mentionResults.length === 0 && (
+              <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
+                nobody by that name.
+              </p>
             )}
-          </div>
-        ) : (
-          <div className="flex gap-3 px-4 pt-4 min-h-full">
-            <ProfileAvatar
-              photoURL={myProfile?.photoURL ?? user?.photoURL}
-              displayName={myProfile?.displayName ?? user?.displayName}
-              username={myProfile?.username ?? null}
-              size="md"
-            />
-            <div className="flex-1 flex flex-col pb-4 min-w-0">
+          </FullPicker>
+        )}
+
+        {sheet === 'drafts' && (
+          <DraftsList
+            drafts={drafts}
+            onPick={loadDraft}
+            onDelete={deleteDraft}
+            onBack={() => setSheet(null)}
+          />
+        )}
+
+        {!bodyHidden && (
+          <div className="px-4 pt-3">
+            {/* Pin-a-film row */}
+            {taggedMovie ? (
+              <button
+                onClick={() => setSheet('film')}
+                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-background text-left active:opacity-70"
+              >
+                <div className="relative w-10 h-[60px] rounded-md overflow-hidden bg-muted flex-shrink-0">
+                  {taggedMovie.posterUrl && (
+                    <Image
+                      src={taggedMovie.posterUrl}
+                      alt=""
+                      fill
+                      className="object-cover"
+                      sizes="40px"
+                    />
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-headline font-semibold text-[13px] lowercase tracking-tight truncate">
+                    {taggedMovie.title}
+                  </p>
+                  {taggedMovie.year && (
+                    <p className="cc-meta text-[10px] text-muted-foreground">
+                      {taggedMovie.year}
+                    </p>
+                  )}
+                </div>
+                <span className="cc-meta text-[10px] text-primary">change</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setSheet('film')}
+                className="w-full flex items-center gap-3 p-3 rounded-xl border border-dashed border-border text-left active:opacity-70"
+              >
+                <div className="w-9 h-[54px] rounded-md border border-dashed border-border bg-background flex items-center justify-center flex-shrink-0">
+                  <Film className="h-4 w-4 text-muted-foreground" strokeWidth={1.6} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-serif italic text-[13px] text-muted-foreground leading-tight">
+                    <span className="font-headline font-bold not-italic text-foreground">
+                      pin a film
+                    </span>{' '}
+                    · what&apos;s this about?
+                  </p>
+                </div>
+              </button>
+            )}
+
+            {/* Author + textarea */}
+            <div className="flex gap-3 mt-3 items-start">
+              <ProfileAvatar
+                photoURL={myProfile?.photoURL ?? user?.photoURL}
+                displayName={myProfile?.displayName ?? user?.displayName}
+                username={myProfile?.username ?? null}
+                size="md"
+              />
               <textarea
                 ref={textRef}
                 value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="what did you watch?"
-                className="w-full flex-1 min-h-[140px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-relaxed placeholder:text-muted-foreground placeholder:italic"
+                onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT + 20))}
+                onSelect={(e) =>
+                  (lastCaretRef.current =
+                    (e.target as HTMLTextAreaElement).selectionStart ?? text.length)
+                }
+                placeholder="what did you watch tonight?"
+                rows={3}
+                className="flex-1 min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45] placeholder:text-muted-foreground placeholder:italic placeholder:font-light"
               />
+            </div>
 
-              {/* media grid */}
+            {/* Attachments — indented to the avatar column */}
+            <div className="pl-[52px] mt-2">
+              {rating !== null && (
+                <button
+                  onClick={openRatingPicker}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mr-2 mb-2"
+                  style={{
+                    ...getRatingStyle(rating).background,
+                    ...getRatingStyle(rating).textOnBg,
+                  }}
+                >
+                  <Star className="h-3 w-3 fill-current" strokeWidth={2} />
+                  <span className="font-headline font-bold text-[12px]">
+                    {rating.toFixed(1)}
+                  </span>
+                  <span
+                    role="button"
+                    aria-label="Remove rating"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRating(null);
+                    }}
+                    className="ml-0.5 opacity-80 inline-flex items-center"
+                  >
+                    <X className="h-3 w-3" strokeWidth={2} />
+                  </span>
+                </button>
+              )}
+
               {media.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 mt-3">
+                <div className="grid grid-cols-3 gap-2 mt-1 mb-2">
                   {media.map((m) => (
                     <div
                       key={m.id}
@@ -472,7 +781,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                       <button
                         onClick={() => removeMedia(m.id)}
                         aria-label="Remove"
-                        className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                        className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/55 backdrop-blur-sm text-white flex items-center justify-center"
                       >
                         <X className="h-3.5 w-3.5" strokeWidth={2} />
                       </button>
@@ -481,106 +790,80 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                 </div>
               )}
 
-              {/* attached movie */}
-              {taggedMovie && (
-                <div className="flex items-center gap-3 mt-3 p-2.5 rounded-xl border border-border bg-card">
-                  <div className="relative w-10 h-[60px] rounded-md overflow-hidden bg-muted flex-shrink-0">
-                    {taggedMovie.posterUrl && (
-                      <Image
-                        src={taggedMovie.posterUrl}
-                        alt=""
-                        fill
-                        className="object-cover"
-                        sizes="40px"
-                      />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                      {taggedMovie.title}
-                    </p>
-                    {taggedMovie.year && (
-                      <p className="cc-meta text-[11px] text-muted-foreground">
-                        {taggedMovie.year}
-                      </p>
-                    )}
-                  </div>
+              {place.trim() && (
+                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px] text-foreground mr-2 mb-2">
+                  <MapPin className="h-3 w-3 text-muted-foreground" strokeWidth={1.8} />
+                  {place}
                   <button
-                    onClick={() => setTaggedMovie(null)}
-                    aria-label="Remove film"
-                    className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
+                    onClick={() => setPlace('')}
+                    aria-label="Remove location"
+                    className="ml-0.5 text-muted-foreground"
                   >
-                    <X className="h-4 w-4" strokeWidth={1.8} />
+                    <X className="h-3 w-3" strokeWidth={2} />
                   </button>
-                </div>
-              )}
-
-              {/* tagged friends */}
-              {taggedUsers.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mt-3">
-                  {taggedUsers.map((u) => (
-                    <button
-                      key={u.uid}
-                      onClick={() => toggleFriend(u)}
-                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px]"
-                    >
-                      @{u.username || 'user'}
-                      <X className="h-3 w-3" strokeWidth={2} />
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {/* place */}
-              {(place !== '' || taggedMovie || media.length > 0) && (
-                <div className="flex items-center gap-2 mt-3">
-                  <MapPin
-                    className="h-4 w-4 text-muted-foreground flex-shrink-0"
-                    strokeWidth={1.8}
-                  />
-                  <input
-                    value={place}
-                    onChange={(e) => setPlace(e.target.value)}
-                    placeholder="add a place (optional)"
-                    className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
-                  />
-                </div>
+                </span>
               )}
             </div>
           </div>
         )}
       </div>
 
-      {/* Action toolbar — sits right above the keyboard */}
+      {/* ── Trays (rating / location) — compact, above toolbar ────────── */}
+      {sheet === 'rating' && (
+        <RatingTray
+          value={tempRating}
+          onChange={setTempRating}
+          onClear={clearRating}
+          onApply={applyRating}
+          onClose={() => setSheet(null)}
+        />
+      )}
+      {sheet === 'location' && (
+        <LocationTray
+          value={tempPlace}
+          onChange={setTempPlace}
+          onApply={applyLocation}
+          onClose={() => setSheet(null)}
+        />
+      )}
+
+      {/* ── Toolbar ─────────────────────────────────────────────────── */}
       <div
-        className="flex-shrink-0 flex items-center gap-1 px-3 border-t border-border bg-background"
-        style={{ paddingTop: '0.4rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.4rem)' }}
+        className="flex-shrink-0 flex items-center justify-between gap-2 px-4 border-t border-border bg-background"
+        style={{ paddingTop: '0.5rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
       >
-        <ToolbarButton
-          icon={ImagePlus}
-          label="media"
-          active={false}
-          disabled={media.length >= MAX_MEDIA}
-          onClick={() => fileInputRef.current?.click()}
-        />
-        <ToolbarButton
-          icon={Film}
-          label="film"
-          active={movieSearchOpen}
-          onClick={() => {
-            setMovieSearchOpen((v) => !v);
-            setFriendSearchOpen(false);
-          }}
-        />
-        <ToolbarButton
-          icon={Users}
-          label="friends"
-          active={friendSearchOpen}
-          onClick={() => {
-            setFriendSearchOpen((v) => !v);
-            setMovieSearchOpen(false);
-          }}
-        />
+        <div className="flex items-center gap-2">
+          <ToolButton
+            icon={ImagePlus}
+            label="add a photo or video"
+            disabled={!taggedMovie || media.length >= MAX_MEDIA}
+            onClick={openImagePicker}
+          />
+          <ToolButton
+            icon={AtSign}
+            label="tag a friend"
+            disabled={!taggedMovie}
+            active={sheet === 'mention'}
+            onClick={openMentionPicker}
+          />
+          <ToolButton
+            icon={MapPin}
+            label="add a place"
+            disabled={!taggedMovie}
+            active={sheet === 'location'}
+            onClick={openLocationPicker}
+          />
+          <ToolButton
+            icon={Star}
+            label="rate this film"
+            disabled={!taggedMovie}
+            active={sheet === 'rating'}
+            onClick={openRatingPicker}
+          />
+        </div>
+        <span className={cn('cc-meta text-[10px] tabular-nums', charCountClass)}>
+          {charCount > 0 ? `${charCount} / ${MAX_TEXT}` : MAX_TEXT}
+        </span>
         <input
           ref={fileInputRef}
           type="file"
@@ -594,7 +877,9 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   );
 }
 
-function ToolbarButton({
+// ─── Sub-components ─────────────────────────────────────────────────────
+
+function ToolButton({
   icon: Icon,
   label,
   onClick,
@@ -611,50 +896,223 @@ function ToolbarButton({
     <button
       onClick={onClick}
       disabled={disabled}
+      aria-label={label}
       className={cn(
-        'flex items-center gap-1.5 px-3 py-2 rounded-full cc-meta text-[11px] lowercase transition-colors',
+        'h-9 w-9 rounded-full border flex items-center justify-center transition-all',
         disabled
-          ? 'text-muted-foreground/40'
+          ? 'border-border bg-card text-muted-foreground/40 cursor-not-allowed'
           : active
-            ? 'text-primary'
-            : 'text-muted-foreground hover:text-foreground',
+            ? 'border-primary bg-primary/10 text-primary'
+            : 'border-border bg-card text-primary active:scale-90',
       )}
     >
       <Icon className="h-4 w-4" strokeWidth={1.8} />
-      {label}
     </button>
   );
 }
 
-function InlineSearch({
+function FullPicker({
   placeholder,
   query,
   onQuery,
-  onClose,
+  onBack,
   children,
 }: {
   placeholder: string;
   query: string;
   onQuery: (q: string) => void;
-  onClose: () => void;
+  onBack: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <div className="mt-4 rounded-xl border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-3 h-11 border-b border-border bg-card">
-        <Search className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-3 h-12 border-b border-border">
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          className="h-8 w-8 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-muted"
+        >
+          <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+        </button>
+        <div className="flex-1 flex items-center gap-2 h-9 px-3 rounded-full border border-border bg-background">
+          <Search className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            placeholder={placeholder}
+            className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+          />
+        </div>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
+    </div>
+  );
+}
+
+function RatingTray({
+  value,
+  onChange,
+  onClear,
+  onApply,
+  onClose,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  onClear: () => void;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  const style = getRatingStyle(value);
+  return (
+    <div className="flex-shrink-0 px-4 pt-3 pb-3 border-t border-border bg-card">
+      <div className="flex items-center justify-between mb-2">
+        <span className="cc-eyebrow">your rating</span>
+        <div className="flex items-center gap-3">
+          <button onClick={onClear} className="cc-meta text-[11px] text-muted-foreground">
+            clear
+          </button>
+          <button onClick={onClose} aria-label="Close" className="text-muted-foreground">
+            <X className="h-4 w-4" strokeWidth={1.8} />
+          </button>
+        </div>
+      </div>
+      <div className="flex items-center gap-3">
         <input
-          autoFocus
-          value={query}
-          onChange={(e) => onQuery(e.target.value)}
-          placeholder={placeholder}
-          className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+          type="range"
+          min={1}
+          max={10}
+          step={0.5}
+          value={value}
+          onChange={(e) => onChange(parseFloat(e.target.value))}
+          className="flex-1 accent-primary"
         />
-        <button onClick={onClose} aria-label="Close search" className="text-muted-foreground">
+        <div
+          className="h-9 min-w-[44px] px-2.5 rounded-full flex items-center justify-center font-headline font-bold text-[13px]"
+          style={{ ...style.background, ...style.textOnBg }}
+        >
+          {value.toFixed(1)}
+        </div>
+      </div>
+      <div className="flex justify-end mt-3">
+        <button
+          onClick={onApply}
+          className="h-9 px-5 rounded-full bg-primary text-white font-headline font-bold text-[12px] lowercase tracking-tight shadow-fab active:scale-[0.97]"
+        >
+          add rating
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LocationTray({
+  value,
+  onChange,
+  onApply,
+  onClose,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  onApply: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex-shrink-0 px-4 pt-3 pb-3 border-t border-border bg-card">
+      <div className="flex items-center justify-between mb-2">
+        <span className="cc-eyebrow">where</span>
+        <button onClick={onClose} aria-label="Close" className="text-muted-foreground">
           <X className="h-4 w-4" strokeWidth={1.8} />
         </button>
       </div>
-      <div className="px-3 max-h-72 overflow-y-auto">{children}</div>
+      <div className="flex items-center gap-2 h-10 px-3 rounded-full border border-border bg-background">
+        <MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+        <input
+          autoFocus
+          value={value}
+          onChange={(e) => onChange(e.target.value.slice(0, 120))}
+          onKeyDown={(e) => e.key === 'Enter' && onApply()}
+          placeholder="alamo · brooklyn"
+          className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+        />
+      </div>
+      <div className="flex justify-end mt-3">
+        <button
+          onClick={onApply}
+          className="h-9 px-5 rounded-full bg-primary text-white font-headline font-bold text-[12px] lowercase tracking-tight shadow-fab active:scale-[0.97]"
+        >
+          add place
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DraftsList({
+  drafts,
+  onPick,
+  onDelete,
+  onBack,
+}: {
+  drafts: Draft[];
+  onPick: (d: Draft) => void;
+  onDelete: (id: string) => void;
+  onBack: () => void;
+}) {
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-3 h-12 border-b border-border">
+        <button
+          onClick={onBack}
+          aria-label="Back"
+          className="h-8 w-8 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-muted"
+        >
+          <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+        </button>
+        <span className="font-headline font-bold text-[14px] lowercase tracking-tight">
+          drafts
+        </span>
+      </div>
+      <div className="flex-1 overflow-y-auto px-4 py-3">
+        {drafts.length === 0 ? (
+          <p className="font-serif italic text-sm text-muted-foreground py-8 text-center">
+            no drafts saved.
+          </p>
+        ) : (
+          drafts.map((d) => (
+            <div
+              key={d.id}
+              className="flex items-start gap-3 py-3 border-b border-border last:border-b-0"
+            >
+              <button
+                onClick={() => onPick(d)}
+                className="flex-1 min-w-0 text-left active:opacity-60"
+              >
+                {d.taggedMovie && (
+                  <p className="cc-eyebrow text-primary mb-1">
+                    re: {d.taggedMovie.title}
+                  </p>
+                )}
+                <p className="font-serif text-[14px] leading-snug line-clamp-3 text-foreground">
+                  {d.text || (
+                    <span className="text-muted-foreground italic">(no text yet)</span>
+                  )}
+                </p>
+                <p className="cc-meta text-[10px] text-muted-foreground mt-1">
+                  {new Date(d.updatedAt).toLocaleString()}
+                </p>
+              </button>
+              <button
+                onClick={() => onDelete(d.id)}
+                aria-label="Delete draft"
+                className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted"
+              >
+                <Trash2 className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }

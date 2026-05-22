@@ -226,11 +226,12 @@ export const PostCard = memo(function PostCard({
           </button>
         )}
 
-        {/* Tagged friends */}
-        {post.taggedUsers.length > 0 && (
+        {/* Tagged friends — legacy v2 posts only. v3 composer uses inline
+            @-mentions in the text and doesn't write this list. */}
+        {(post.taggedUsers?.length ?? 0) > 0 && (
           <p className="cc-meta text-[11px] text-muted-foreground mt-2.5">
             with{' '}
-            {post.taggedUsers.map((t, i) => (
+            {post.taggedUsers!.map((t, i) => (
               <span key={t.uid}>
                 {i > 0 && ', '}
                 <Link href={`/profile/${t.username}`} className="hover:text-foreground">
@@ -269,9 +270,9 @@ export const PostCard = memo(function PostCard({
             <BookmarkButton itemType="post" itemId={post.id} />
           </div>
 
-          {post.taggedUsers.length > 0 && (
+          {(post.taggedUsers?.length ?? 0) > 0 && (
             <span className="cc-meta text-[10px] text-muted-foreground">
-              {post.taggedUsers.length} tagged
+              {post.taggedUsers!.length} tagged
             </span>
           )}
         </div>

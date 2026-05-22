@@ -34,7 +34,9 @@ export function ListCard({
   likeButton,
 }: ListCardProps) {
   const movieCount = list.movieCount ?? 0;
-  const hasCustomCover = !!list.coverImageUrl;
+  // v3: `coverMode: 'auto'` overrides any stale coverImageUrl — the owner
+  // has explicitly opted into the auto mosaic.
+  const hasCustomCover = !!list.coverImageUrl && list.coverMode !== 'auto';
   const hasPosters = previewPosters.length > 0;
 
   const eyebrow = [

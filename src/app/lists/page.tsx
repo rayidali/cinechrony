@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Loader2, Film, Users, ImageIcon, X } from 'lucide-react';
+import { Plus, Loader2, Film, Users } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -11,19 +11,11 @@ import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { Fab } from '@/components/fab';
+import { NewListDrawer } from '@/components/new-list-drawer';
 import { collection, orderBy, query } from 'firebase/firestore';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import {
-  Dialog,
-  DialogContent,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
-import { createList, ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview, uploadListCover, updateListCover } from '@/app/actions';
+import { ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
 
 // Preview data for list cards
@@ -38,8 +30,6 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
-const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
 
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
@@ -48,15 +38,11 @@ export default function ListsPage() {
   const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [newListName, setNewListName] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
   const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
   const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
-  const [newListCoverPreview, setNewListCoverPreview] = useState<string | null>(null);
-  const createCoverInputRef = useRef<HTMLInputElement>(null);
 
   // Query for user's lists
   const listsQuery = useMemoFirebase(() => {
@@ -174,106 +160,13 @@ export default function ListsPage() {
     fetchCollabPreviews();
   }, [collaborativeLists]);
 
-  const handleCreateList = async () => {
-    // Prevent double submission
-    if (!user || !newListName.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-    try {
-      const result = await createList(await user.getIdToken(), newListName);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-        return;
-      }
-
-      // If a cover image was selected, upload it
-      if (newListCoverPreview && result.listId) {
-        try {
-          const base64Data = newListCoverPreview.split(',')[1];
-          const mimeMatch = newListCoverPreview.match(/data:([^;]+);/);
-          const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-          const ext = mimeType.split('/')[1] || 'jpg';
-
-          const idToken = await user.getIdToken();
-          const uploadResult = await uploadListCover(
-            idToken,
-            user.uid,
-            result.listId,
-            base64Data,
-            `cover.${ext}`,
-            mimeType
-          );
-
-          if (uploadResult.error) {
-            console.error('Cover upload failed:', uploadResult.error);
-            toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
-          } else if (uploadResult.url) {
-            await updateListCover(idToken, user.uid, result.listId, uploadResult.url);
-          }
-        } catch (coverError) {
-          console.error('Cover upload error:', coverError);
-          toast({ variant: 'destructive', title: 'Cover upload failed', description: 'List created but cover image could not be uploaded.' });
-        }
-      }
-
-      toast({ title: 'List Created', description: `"${newListName}" has been created.` });
-      setNewListName('');
-      setNewListCoverPreview(null);
+  const handleListCreated = useCallback(
+    (listId: string) => {
       setIsCreateOpen(false);
-      if (result.listId) {
-        router.push(`/lists/${result.listId}`);
-      }
-    } catch (error) {
-      console.error('Create list error:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to create list. Please try again.' });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Compress image for create list cover
-  const compressImage = (file: File): Promise<string> => {
-    return new Promise((resolve, reject) => {
-      const img = new window.Image();
-      img.onload = () => {
-        const maxWidth = 1200;
-        const maxHeight = 1500;
-        let { width, height } = img;
-
-        if (width > maxWidth || height > maxHeight) {
-          const ratio = Math.min(maxWidth / width, maxHeight / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-          reject(new Error('Could not get canvas context'));
-          return;
-        }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.85));
-      };
-      img.onerror = () => reject(new Error('Failed to load image'));
-      img.src = URL.createObjectURL(file);
-    });
-  };
-
-  const handleCreateCoverSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      try {
-        const compressedDataUrl = await compressImage(file);
-        setNewListCoverPreview(compressedDataUrl);
-      } catch (error) {
-        console.error('Failed to compress image:', error);
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to process image.' });
-      }
-    }
-  };
+      router.push(`/lists/${listId}`);
+    },
+    [router],
+  );
 
   const handleCardClick = useCallback((listId: string, e: React.MouseEvent, ownerId?: string) => {
     if (ownerId) {
@@ -373,10 +266,13 @@ export default function ListsPage() {
                 <Film className="h-12 w-12 text-muted-foreground mb-4" />
                 <h3 className="font-headline text-xl font-bold mb-2 lowercase tracking-tight">no lists yet</h3>
                 <p className="text-muted-foreground mb-4 cc-lead">your first watchlist is one tap away.</p>
-                <Button onClick={() => setIsCreateOpen(true)} className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold`}>
-                  <Plus className="h-5 w-5 mr-2" />
-                  Create List
-                </Button>
+                <button
+                  onClick={() => setIsCreateOpen(true)}
+                  className="inline-flex items-center gap-2 h-10 px-5 rounded-full bg-primary text-white font-headline font-bold text-sm lowercase tracking-tight shadow-fab active:scale-[0.97]"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2} />
+                  new list
+                </button>
               </CardContent>
             </Card>
           )}
@@ -415,75 +311,12 @@ export default function ListsPage() {
           )}
         </div>
 
-        {/* Create List Dialog */}
-        <Dialog open={isCreateOpen} onOpenChange={(open) => {
-          setIsCreateOpen(open);
-          if (!open) {
-            setNewListCoverPreview(null);
-            setNewListName('');
-          }
-        }}>
-          <DialogContent className="border border-border rounded-2xl shadow-photo">
-            <DialogHeader>
-              <DialogTitle className="font-headline text-center">Create New List</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              {/* Cover image picker - clickable */}
-              <input
-                type="file"
-                ref={createCoverInputRef}
-                accept="image/*"
-                className="hidden"
-                onChange={handleCreateCoverSelect}
-              />
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => createCoverInputRef.current?.click()}
-                  className="relative w-32 aspect-[4/5] rounded-xl overflow-hidden bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400 flex items-center justify-center border border-dashed border-white/50 transition-transform active:scale-95"
-                >
-                  {newListCoverPreview ? (
-                    <>
-                      <img src={newListCoverPreview} alt="Cover preview" className="absolute inset-0 w-full h-full object-cover" />
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setNewListCoverPreview(null);
-                        }}
-                        className="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/50 flex items-center justify-center"
-                      >
-                        <X className="h-4 w-4 text-white" />
-                      </button>
-                    </>
-                  ) : (
-                    <div className="flex flex-col items-center gap-1">
-                      <ImageIcon className="h-8 w-8 text-white/70" />
-                      <span className="text-xs text-white/70">Add Cover</span>
-                    </div>
-                  )}
-                </button>
-              </div>
-              <Input
-                placeholder="e.g., Horror Movies, Date Night..."
-                value={newListName}
-                onChange={(e) => setNewListName(e.target.value)}
-                className={`${retroInputClass} text-center`}
-                onKeyDown={(e) => e.key === 'Enter' && handleCreateList()}
-                autoFocus
-              />
-            </div>
-            <DialogFooter className="sm:justify-center">
-              <Button
-                onClick={handleCreateList}
-                disabled={!newListName.trim() || isSubmitting}
-                className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold w-full`}
-              >
-                {isSubmitting ? <Loader2 className="animate-spin" /> : 'Create'}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        {/* Editorial new-list creator (v3) */}
+        <NewListDrawer
+          isOpen={isCreateOpen}
+          onClose={() => setIsCreateOpen(false)}
+          onCreated={handleListCreated}
+        />
       </div>
 
         </main>

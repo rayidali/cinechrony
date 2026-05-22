@@ -270,7 +270,10 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
                   <div className="h-px bg-border mt-2.5 mb-1.5" />
                   <ul>
                     {lists.map((list) => {
-                      const cover = list.coverImageUrl || list.previewPosters[0];
+                      // v3: a list owner can opt back into the mosaic (coverMode='auto')
+                      // even with a stale coverImageUrl — honor that choice here.
+                      const useCustom = list.coverImageUrl && list.coverMode !== 'auto';
+                      const cover = useCustom ? list.coverImageUrl : list.previewPosters[0];
                       return (
                         <li key={list.id}>
                           <button
