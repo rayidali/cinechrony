@@ -1,9 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
-import { Loader2, Film, Users } from 'lucide-react';
+import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
-import { getActivityFeed, getRecommendationsForUser, type RecommendationSet } from '@/app/actions';
+import {
+  getActivityFeed,
+  getSavedFeed,
+  getRecommendationsForUser,
+  type RecommendationSet,
+} from '@/app/actions';
 import { useAuth } from '@/firebase';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
@@ -13,8 +18,8 @@ import { PublicMovieDetailsModal } from './public-movie-details-modal';
 type ActivityFeedProps = {
   currentUserId: string | null;
   refreshKey?: number; // Increment to trigger refresh
-  /** `friends` narrows the feed to people the viewer follows. */
-  feedFilter?: 'all' | 'friends';
+  /** `friends` narrows to followed users; `saved` shows the bookmarks feed. */
+  feedFilter?: 'all' | 'saved' | 'friends';
   /** UIDs the viewer follows — required for the `friends` filter. */
   followingIds?: string[];
 };
@@ -67,7 +72,19 @@ function LoadingMore() {
 }
 
 // Empty state — editorial, per UX_PATTERNS microcopy bank.
-function EmptyState({ feedFilter }: { feedFilter: 'all' | 'friends' }) {
+function EmptyState({ feedFilter }: { feedFilter: 'all' | 'saved' | 'friends' }) {
+  if (feedFilter === 'saved') {
+    return (
+      <div className="text-center py-16 px-6">
+        <div className="w-16 h-16 mx-auto mb-5 rounded-full bg-muted flex items-center justify-center">
+          <Bookmark className="h-7 w-7 text-muted-foreground" strokeWidth={1.5} />
+        </div>
+        <p className="cc-lead text-[15px] text-muted-foreground max-w-[18rem] mx-auto">
+          nothing saved yet. tap the bookmark on a card to start your archive.
+        </p>
+      </div>
+    );
+  }
   const isFriends = feedFilter === 'friends';
   return (
     <div className="text-center py-16 px-6">
@@ -125,13 +142,27 @@ export function ActivityFeed({
   // Ref for infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Load initial feed (and refresh when refreshKey changes)
+  // Fetch one page — the `saved` filter reads the bookmarks feed instead.
+  const fetchPage = useCallback(
+    async (pageCursor?: string) => {
+      if (feedFilter === 'saved') {
+        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
+        return getSavedFeed(idToken, pageCursor);
+      }
+      return getActivityFeed(pageCursor);
+    },
+    [feedFilter, auth],
+  );
+
+  // Load initial feed (refresh on refreshKey; reload when the filter changes).
   useEffect(() => {
+    let cancelled = false;
     async function loadFeed() {
       try {
         setIsLoading(true);
         setError(null);
-        const result = await getActivityFeed();
+        const result = await fetchPage();
+        if (cancelled) return;
         if (result.error) {
           setError(result.error);
         } else {
@@ -140,14 +171,17 @@ export function ActivityFeed({
           setCursor(result.nextCursor || null);
         }
       } catch (err) {
-        setError('Failed to load activity feed');
+        if (!cancelled) setError('Failed to load activity feed');
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setIsLoading(false);
       }
     }
 
     loadFeed();
-  }, [refreshKey]);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey, fetchPage]);
 
   // "for you" recommendation sets — interleaved into the feed every 5 cards.
   useEffect(() => {
@@ -173,7 +207,7 @@ export function ActivityFeed({
 
     try {
       setIsLoadingMore(true);
-      const result = await getActivityFeed(cursor);
+      const result = await fetchPage(cursor);
       if (result.error) {
         setError(result.error);
       } else {
@@ -186,7 +220,7 @@ export function ActivityFeed({
     } finally {
       setIsLoadingMore(false);
     }
-  }, [cursor, hasMore, isLoadingMore]);
+  }, [cursor, hasMore, isLoadingMore, fetchPage]);
 
   // Infinite scroll with Intersection Observer
   useEffect(() => {

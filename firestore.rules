@@ -231,6 +231,16 @@ service cloud.firestore {
         // Others can read to check if they're followed
         allow read: if isSignedIn();
       }
+
+      /**
+       * @path /users/{userId}/bookmarks/{bookmarkId}
+       * The owner's personal "saved" archive. The owner reads it directly (the
+       * bookmarks cache); writes go through saveItem/unsaveItem (Admin SDK).
+       */
+      match /bookmarks/{bookmarkId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     // ------------------------------------------------------------------------

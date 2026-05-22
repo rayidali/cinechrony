@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Users } from 'lucide-react';
+import { Search, Users, Bookmark } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { getFollowing } from '@/app/actions';
 import { UserAvatar } from '@/components/user-avatar';
@@ -38,7 +38,7 @@ export default function HomePage() {
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [feedFilter, setFeedFilter] = useState<'all' | 'friends'>('all');
+  const [feedFilter, setFeedFilter] = useState<'all' | 'saved' | 'friends'>('all');
   const [followingIds, setFollowingIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -76,6 +76,7 @@ export default function HomePage() {
 
   const pills: FilterPill[] = [
     { id: 'all', label: 'all' },
+    { id: 'saved', label: 'saved', icon: Bookmark },
     { id: 'friends', label: 'friends', icon: Users },
   ];
 
@@ -116,7 +117,11 @@ export default function HomePage() {
 
             {/* Feed filter pills */}
             <div className="mt-3">
-              <FilterPills pills={pills} active={feedFilter} onChange={(id) => setFeedFilter(id as 'all' | 'friends')} />
+              <FilterPills
+                pills={pills}
+                active={feedFilter}
+                onChange={(id) => setFeedFilter(id as 'all' | 'saved' | 'friends')}
+              />
             </div>
 
             {/* Page title block */}

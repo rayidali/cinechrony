@@ -6219,6 +6219,34 @@ async function createActivity(
   }
 }
 
+/** Map an `activities` collection doc to the Activity type. */
+function activityFromDoc(
+  doc: FirebaseFirestore.DocumentSnapshot,
+): Activity {
+  const data = doc.data() || {};
+  return {
+    id: doc.id,
+    userId: data.userId,
+    username: data.username,
+    displayName: data.displayName,
+    photoURL: data.photoURL,
+    type: data.type,
+    tmdbId: data.tmdbId,
+    movieTitle: data.movieTitle,
+    moviePosterUrl: data.moviePosterUrl,
+    movieYear: data.movieYear,
+    mediaType: data.mediaType,
+    rating: data.rating,
+    reviewText: data.reviewText,
+    reviewId: data.reviewId,
+    listId: data.listId,
+    listName: data.listName,
+    likes: data.likes || 0,
+    likedBy: data.likedBy || [],
+    createdAt: data.createdAt?.toDate?.() || new Date(),
+  };
+}
+
 /**
  * Get global activity feed with pagination.
  */
@@ -6249,30 +6277,7 @@ export async function getActivityFeed(
     const hasMore = docs.length > limit;
     const activitiesData = hasMore ? docs.slice(0, limit) : docs;
 
-    const activities: Activity[] = activitiesData.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        username: data.username,
-        displayName: data.displayName,
-        photoURL: data.photoURL,
-        type: data.type,
-        tmdbId: data.tmdbId,
-        movieTitle: data.movieTitle,
-        moviePosterUrl: data.moviePosterUrl,
-        movieYear: data.movieYear,
-        mediaType: data.mediaType,
-        rating: data.rating,
-        reviewText: data.reviewText,
-        reviewId: data.reviewId,
-        listId: data.listId,
-        listName: data.listName,
-        likes: data.likes || 0,
-        likedBy: data.likedBy || [],
-        createdAt: data.createdAt?.toDate() || new Date(),
-      };
-    });
+    const activities: Activity[] = activitiesData.map(activityFromDoc);
 
     return {
       activities,
@@ -6282,6 +6287,125 @@ export async function getActivityFeed(
   } catch (error) {
     console.error('[getActivityFeed] Failed:', error);
     return { activities: [], hasMore: false, error: 'Failed to fetch activity feed' };
+  }
+}
+
+// ============================================
+// BOOKMARKS — the `saved` feed (LAUNCH 0.5 / Phase 5)
+// ============================================
+
+const SAVEABLE_TYPES = ['activity', 'post'] as const;
+
+/** Save a feed item to the viewer's personal archive. Deterministic doc id. */
+export async function saveItem(idToken: string, itemType: string, itemId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  if (!SAVEABLE_TYPES.includes(itemType as (typeof SAVEABLE_TYPES)[number]) || !itemId) {
+    return { error: 'Invalid item.' };
+  }
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks').doc(`${itemType}_${itemId}`)
+      .set({ itemType, itemId, savedAt: FieldValue.serverTimestamp() });
+    return { success: true };
+  } catch (error) {
+    console.error('[saveItem] Failed:', error);
+    return { error: 'Failed to save.' };
+  }
+}
+
+/** Remove a saved item. */
+export async function unsaveItem(idToken: string, itemType: string, itemId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks').doc(`${itemType}_${itemId}`)
+      .delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unsaveItem] Failed:', error);
+    return { error: 'Failed to unsave.' };
+  }
+}
+
+/** All bookmark keys (`{type}_{id}`) for the viewer — powers the bookmarks cache. */
+export async function getMyBookmarks(idToken: string): Promise<{ keys: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { keys: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks')
+      .orderBy('savedAt', 'desc')
+      .limit(1000)
+      .get();
+    return { keys: snap.docs.map((d) => d.id) };
+  } catch (error) {
+    console.error('[getMyBookmarks] Failed:', error);
+    return { keys: [], error: 'Failed to load bookmarks.' };
+  }
+}
+
+/**
+ * The `saved` filter feed — re-hydrated saved items, newest-saved first.
+ * Returns the same shape as getActivityFeed so the feed UI is interchangeable.
+ * Dangling bookmarks (deleted sources) are skipped.
+ */
+export async function getSavedFeed(
+  idToken: string,
+  cursor?: string,
+  limit = 20,
+): Promise<{ activities: Activity[]; hasMore: boolean; nextCursor?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { activities: [], hasMore: false, error: auth.error };
+  const db = getDb();
+  try {
+    const bookmarksCol = db.collection('users').doc(auth.uid).collection('bookmarks');
+    let q = bookmarksCol.orderBy('savedAt', 'desc').limit(limit + 1);
+    if (cursor) {
+      const curDoc = await bookmarksCol.doc(cursor).get();
+      if (curDoc.exists) q = q.startAfter(curDoc);
+    }
+    const snap = await q.get();
+    const hasMore = snap.docs.length > limit;
+    const docs = hasMore ? snap.docs.slice(0, limit) : snap.docs;
+
+    // Re-hydrate activity bookmarks (posts join the saved feed in Phase 9).
+    const activityIds = docs
+      .filter((d) => d.data().itemType === 'activity')
+      .map((d) => d.data().itemId as string);
+    const byId = new Map<string, Activity>();
+    if (activityIds.length) {
+      const fetched = await db.getAll(
+        ...activityIds.map((id) => db.collection('activities').doc(id)),
+      );
+      fetched.forEach((s) => {
+        if (s.exists) byId.set(s.id, activityFromDoc(s));
+      });
+    }
+
+    const activities: Activity[] = [];
+    for (const d of docs) {
+      const data = d.data();
+      if (data.itemType === 'activity') {
+        const a = byId.get(data.itemId);
+        if (a) activities.push(a);
+      }
+    }
+    return {
+      activities,
+      hasMore,
+      nextCursor: hasMore ? docs[docs.length - 1]?.id : undefined,
+    };
+  } catch (error) {
+    console.error('[getSavedFeed] Failed:', error);
+    return { activities: [], hasMore: false, error: 'Failed to load saved items.' };
   }
 }
 

@@ -10,6 +10,7 @@ import { likeActivity, unlikeActivity } from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
+import { BookmarkButton } from './bookmark-button';
 
 type ActivityCardProps = {
   activity: Activity;
@@ -185,21 +186,25 @@ export const ActivityCard = memo(function ActivityCard({
         </div>
       </button>
 
-      {/* Footer — like + reply, mono hairline */}
+      {/* Footer — like + save on the left, reply on the right */}
       <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-border">
-        <button
-          onClick={handleLike}
-          disabled={!currentUserId || isPending}
-          className={cn(
-            'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
-            isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
-            (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
-          )}
-          aria-label={isLiked ? 'Unlike' : 'Like'}
-        >
-          <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
-          {likeCount > 0 && <span>{likeCount}</span>}
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleLike}
+            disabled={!currentUserId || isPending}
+            className={cn(
+              'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
+              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
+              (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
+            )}
+            aria-label={isLiked ? 'Unlike' : 'Like'}
+          >
+            <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
+            {likeCount > 0 && <span>{likeCount}</span>}
+          </button>
+
+          <BookmarkButton itemType="activity" itemId={activity.id} />
+        </div>
 
         <button
           onClick={handleMovieClick}
