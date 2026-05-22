@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache';
 import type {
   SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType,
-  Post, PostMedia, TaggedUser,
+  Post, PostMedia, TaggedUser, PostComment,
 } from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
@@ -7175,6 +7175,243 @@ export async function unlikePost(idToken: string, postId: string) {
   } catch (error) {
     console.error('[unlikePost] Failed:', error);
     return { error: 'Failed to unlike post.' };
+  }
+}
+
+// ============================================
+// POST COMMENTS (LAUNCH 0.5.4 — Phase 10)
+// ============================================
+
+const MAX_COMMENT_TEXT = 1000;
+
+/** Comment on a post (or reply to a comment — 1 level deep). */
+export async function createPostComment(
+  idToken: string,
+  postId: string,
+  text: string,
+  parentId?: string | null,
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const rl = await checkRateLimit(userId, 'review');
+  if (!rl.ok) return { error: rl.error };
+
+  const trimmed = (text || '').trim().slice(0, MAX_COMMENT_TEXT);
+  if (!trimmed) return { error: 'Write something first.' };
+
+  const db = getDb();
+  try {
+    const postRef = db.collection('posts').doc(postId);
+    const postSnap = await postRef.get();
+    if (!postSnap.exists) return { error: 'Post not found.' };
+    const post = postSnap.data() || {};
+
+    // LAUNCH 0.5.5: no commenting across a block.
+    if (await isBlockedBetween(db, userId, post.authorId)) {
+      return { error: 'You can’t comment on this post.' };
+    }
+
+    const userDoc = await db.collection('users').doc(userId).get();
+    const u = userDoc.data() || {};
+    const commentRef = postRef.collection('comments').doc();
+    await commentRef.set({
+      id: commentRef.id,
+      postId,
+      userId,
+      username: u.username ?? null,
+      userDisplayName: u.displayName ?? null,
+      userPhotoUrl: u.photoURL ?? null,
+      text: trimmed,
+      likes: 0,
+      likedBy: [],
+      parentId: parentId || null,
+      replyCount: 0,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Counts.
+    if (parentId) {
+      try {
+        await postRef.collection('comments').doc(parentId).update({
+          replyCount: FieldValue.increment(1),
+        });
+      } catch (err) {
+        console.error('[createPostComment] replyCount bump failed:', err);
+      }
+    } else {
+      await postRef.update({ commentCount: FieldValue.increment(1) });
+    }
+
+    // Notify the post author (top-level) or the parent comment author (reply).
+    let recipientId: string | null = post.authorId ?? null;
+    if (parentId) {
+      try {
+        const parent = await postRef.collection('comments').doc(parentId).get();
+        recipientId = (parent.data()?.userId as string) ?? null;
+      } catch {
+        /* fall back to the post author */
+      }
+    }
+    if (recipientId && recipientId !== userId) {
+      try {
+        await db.collection('notifications').add({
+          userId: recipientId,
+          type: 'post_comment',
+          fromUserId: userId,
+          fromUsername: u.username ?? null,
+          fromDisplayName: u.displayName ?? null,
+          fromPhotoUrl: u.photoURL ?? null,
+          postId,
+          previewText: trimmed.slice(0, 100),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('[createPostComment] notification failed:', err);
+      }
+    }
+
+    return { success: true, commentId: commentRef.id };
+  } catch (error) {
+    console.error('[createPostComment] Failed:', error);
+    return { error: 'Failed to post comment.' };
+  }
+}
+
+/** All comments on a post (flat, oldest-first), block-filtered. */
+export async function getPostComments(
+  postId: string,
+  viewerIdToken?: string,
+): Promise<{ comments: PostComment[]; error?: string }> {
+  const db = getDb();
+  try {
+    let blockSet = new Set<string>();
+    if (viewerIdToken) {
+      const v = await verifyCaller(viewerIdToken);
+      if (!isAuthError(v)) blockSet = await getBlockSet(db, v.uid);
+    }
+    const snap = await db
+      .collection('posts').doc(postId)
+      .collection('comments')
+      .orderBy('createdAt', 'asc')
+      .limit(300)
+      .get();
+    const comments: PostComment[] = snap.docs
+      .map((d) => {
+        const c = d.data();
+        return {
+          id: d.id,
+          postId,
+          userId: c.userId,
+          username: c.username ?? null,
+          userDisplayName: c.userDisplayName ?? null,
+          userPhotoUrl: c.userPhotoUrl ?? null,
+          text: c.text ?? '',
+          likes: c.likes ?? 0,
+          likedBy: c.likedBy ?? [],
+          parentId: c.parentId ?? null,
+          replyCount: c.replyCount ?? 0,
+          createdAt: c.createdAt?.toDate?.() ?? new Date(),
+        };
+      })
+      .filter((c) => !blockSet.has(c.userId));
+    return { comments };
+  } catch (error) {
+    console.error('[getPostComments] Failed:', error);
+    return { comments: [], error: 'Failed to load comments.' };
+  }
+}
+
+/** Delete a post comment — the comment's author or the post's author. */
+export async function deletePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const postRef = db.collection('posts').doc(postId);
+    const commentRef = postRef.collection('comments').doc(commentId);
+    const [postSnap, commentSnap] = await Promise.all([postRef.get(), commentRef.get()]);
+    if (!commentSnap.exists) return { error: 'Comment not found.' };
+    const comment = commentSnap.data() || {};
+    const isCommentAuthor = comment.userId === auth.uid;
+    const isPostAuthor = postSnap.data()?.authorId === auth.uid;
+    if (!isCommentAuthor && !isPostAuthor) {
+      return { error: 'You can only delete your own comments.' };
+    }
+    await commentRef.delete();
+    if (comment.parentId) {
+      try {
+        await postRef.collection('comments').doc(comment.parentId).update({
+          replyCount: FieldValue.increment(-1),
+        });
+      } catch {
+        /* parent may be gone */
+      }
+    } else {
+      await postRef.update({ commentCount: FieldValue.increment(-1) });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('[deletePostComment] Failed:', error);
+    return { error: 'Failed to delete comment.' };
+  }
+}
+
+/** Like a post comment (transactional). */
+export async function likePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Comment not found.' as const };
+      const likedBy: string[] = snap.data()?.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, newLikes: (snap.data()?.likes || 0) + 1 };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[likePostComment] Failed:', error);
+    return { error: 'Failed to like comment.' };
+  }
+}
+
+/** Unlike a post comment. */
+export async function unlikePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Comment not found.' as const };
+      const likedBy: string[] = snap.data()?.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (snap.data()?.likes || 1) - 1) };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[unlikePostComment] Failed:', error);
+    return { error: 'Failed to unlike comment.' };
   }
 }
 

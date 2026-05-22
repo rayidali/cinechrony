@@ -3,6 +3,7 @@
 import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
@@ -19,8 +20,6 @@ type PostCardProps = {
   post: Post;
   currentUserId: string | null;
   onDeleted?: (postId: string) => void;
-  /** Tapping the comment count — opens the post's comments (Phase 10). */
-  onOpenComments?: (post: Post) => void;
 };
 
 /**
@@ -32,10 +31,10 @@ export const PostCard = memo(function PostCard({
   post,
   currentUserId,
   onDeleted,
-  onOpenComments,
 }: PostCardProps) {
   const { user } = useUser();
   const auth = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
   const [, startTransition] = useTransition();
 
@@ -260,7 +259,7 @@ export const PostCard = memo(function PostCard({
             </button>
 
             <button
-              onClick={() => onOpenComments?.(post)}
+              onClick={() => router.push(`/post/${post.id}`)}
               className="flex items-center gap-1.5 cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             >
               <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.8} />
