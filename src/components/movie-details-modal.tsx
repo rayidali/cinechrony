@@ -12,7 +12,6 @@ import {
   Youtube,
   Clock,
   Calendar,
-  Star,
   ChevronLeft,
   MoreHorizontal,
   Plus,
@@ -23,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -31,7 +30,7 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getImdbRating } from '@/app/actions';
+import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getImdbRating, getMovieReviews } from '@/app/actions';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -47,6 +46,8 @@ import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
+import { formatDistanceToNow } from 'date-fns';
+import { ImdbLogo } from './imdb-logo';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -169,6 +170,7 @@ export function MovieDetailsModal({
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const [userRating, setUserRating] = useState<number | null>(null);
@@ -296,6 +298,27 @@ export function MovieDetailsModal({
     }
     fetchUserRating();
   }, [movie?.id, isOpen, user?.uid, tmdbId]);
+
+  // Fetch the most-liked reviews for the in-modal preview (non-critical).
+  useEffect(() => {
+    if (!isOpen || !tmdbId) {
+      setReviewPreviews([]);
+      return;
+    }
+    let cancelled = false;
+    setReviewPreviews([]);
+    (async () => {
+      try {
+        const result = await getMovieReviews(tmdbId, 'likes', 2);
+        if (!cancelled) setReviewPreviews((result.reviews ?? []) as Review[]);
+      } catch {
+        /* the preview is non-critical — leave it empty on failure */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tmdbId, isOpen]);
 
   // Fetch movie/TV details when modal opens - simplified dependencies
   useEffect(() => {
@@ -594,14 +617,9 @@ export function MovieDetailsModal({
                   className="object-cover"
                   sizes="100vw"
                 />
-                {/* scrim — top for control legibility, bottom for the title */}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/80" />
-                <Drawer.Title
-                  className="absolute bottom-7 left-5 right-5 font-headline font-bold text-white text-3xl lowercase tracking-tight leading-[0.95]"
-                  style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
-                >
-                  {movie.title}
-                </Drawer.Title>
+                {/* scrim — keeps the glassy controls legible; the title now
+                    lives only once, in the content sheet below */}
+                <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/45" />
               </div>
 
               {/* Content sheet — slides up over the bottom of the hero */}
@@ -619,10 +637,10 @@ export function MovieDetailsModal({
                   {movie.mediaType === 'tv' ? 'tv series' : 'film'}
                 </span>
 
-                {/* title */}
-                <h2 className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
+                {/* title — also the drawer's accessible title */}
+                <Drawer.Title className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
                   {movie.title}
-                </h2>
+                </Drawer.Title>
 
                 {/* metric chips — runtime · imdb · year */}
                 <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 cc-meta text-xs text-foreground">
@@ -640,13 +658,13 @@ export function MovieDetailsModal({
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1.5 hover:text-primary transition-colors"
                       >
-                        <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                        imdb {mediaDetails.imdbRating}
+                        <ImdbLogo className="h-3.5" />
+                        {mediaDetails.imdbRating}
                       </a>
                     ) : (
                       <span className="inline-flex items-center gap-1.5">
-                        <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                        imdb {mediaDetails.imdbRating}
+                        <ImdbLogo className="h-3.5" />
+                        {mediaDetails.imdbRating}
                       </span>
                     )
                   )}
@@ -733,21 +751,47 @@ export function MovieDetailsModal({
                   />
                 </section>
 
-                {/* reviews — link through to the full discussion */}
+                {/* reviews — featured pull-quotes, then the full discussion */}
                 <section className="mt-6">
                   <div className="cc-eyebrow">reviews</div>
                   <div className="h-px bg-border my-3" />
-                  <button
-                    onClick={handleOpenFullComments}
-                    className="w-full flex items-center justify-between gap-3 group"
-                  >
-                    <span className="font-serif italic text-[15px] text-muted-foreground text-left">
-                      read what people are saying…
-                    </span>
-                    <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
-                      see all →
-                    </span>
-                  </button>
+                  {reviewPreviews.length > 0 ? (
+                    <div className="space-y-4">
+                      {reviewPreviews.map((review) => (
+                        <button
+                          key={review.id}
+                          onClick={handleOpenFullComments}
+                          className="block w-full text-left pl-3 border-l-2 border-border"
+                        >
+                          <p className="font-serif italic text-[15px] leading-snug text-foreground line-clamp-3">
+                            “{review.text}”
+                          </p>
+                          <p className="cc-meta text-[10px] text-muted-foreground mt-1.5">
+                            — @{review.username || 'user'} ·{' '}
+                            {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
+                          </p>
+                        </button>
+                      ))}
+                      <button
+                        onClick={handleOpenFullComments}
+                        className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                      >
+                        see all reviews →
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={handleOpenFullComments}
+                      className="w-full flex items-center justify-between gap-3 group"
+                    >
+                      <span className="font-serif italic text-[15px] text-muted-foreground text-left">
+                        be the first to review…
+                      </span>
+                      <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
+                        see all →
+                      </span>
+                    </button>
+                  )}
                 </section>
 
                 {/* marginalia — notes from you + your collaborators */}

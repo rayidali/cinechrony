@@ -6,7 +6,7 @@
    Cinechrony Design System v2 — Editorial cinema.
    Newsprint cream paper, cinema-black ink, soft lifts,
    lowercase display headlines, a serif body, tabular dates.
-   One brutalist survivor: the yellow FAB.
+   The FAB is a soft film-red pill (v1's yellow sticker retired).
 
    Color tokens are stored as BARE oklch components
    ("lightness chroma hue") so Tailwind can compose opacity:
@@ -81,6 +81,9 @@
     --shadow-photo: 0 2px 4px oklch(0.16 0.01 60 / 0.06),
                     0 16px 40px oklch(0.16 0.01 60 / 0.10);
     --shadow-stamp: 3px 3px 0 0 oklch(0.165 0.012 60);
+    /* FAB — soft film-red lift. The v2 FAB dropped the brutalist stamp. */
+    --shadow-fab:   0 4px 12px oklch(var(--cc-film-red) / 0.35),
+                    0 1px 2px oklch(0.16 0.01 60 / 0.10);
   }
 
   .dark {
@@ -130,6 +133,8 @@
     --shadow-photo: 0 4px 12px rgba(0,0,0,0.4),
                     0 24px 56px rgba(0,0,0,0.5);
     --shadow-stamp: 3px 3px 0 0 oklch(0.92 0.012 78);
+    --shadow-fab:   0 4px 14px oklch(0.72 0.16 35 / 0.42),
+                    0 1px 3px rgba(0,0,0,0.5);
   }
 }
 

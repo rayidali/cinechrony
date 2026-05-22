@@ -95,6 +95,7 @@ export default {
         photo: 'var(--shadow-photo)',
         press: 'var(--shadow-press)',
         stamp: 'var(--shadow-stamp)',
+        fab: 'var(--shadow-fab)',
       },
       keyframes: {
         'accordion-down': {
