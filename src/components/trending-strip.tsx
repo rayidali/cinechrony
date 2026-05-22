@@ -178,12 +178,24 @@ function ListMiniCard({ list, onSelect }: { list: LovedListCard; onSelect: () =>
       onClick={onSelect}
       className="flex-shrink-0 w-[132px] text-left bg-card border border-border rounded-[12px] overflow-hidden shadow-lift transition-transform duration-200 active:scale-[0.97]"
     >
-      <div className="aspect-[4/3] grid grid-cols-[2fr_1fr] gap-px bg-border">
-        <MosaicTile src={big} />
-        <div className="grid grid-rows-2 gap-px">
-          <MosaicTile src={rest[0]} />
-          <MosaicTile src={rest[1]} />
-        </div>
+      <div className="aspect-[4/3] overflow-hidden bg-border">
+        {list.coverImageUrl ? (
+          // A custom list cover takes precedence over the poster mosaic.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={list.coverImageUrl} alt="" className="w-full h-full object-cover" />
+        ) : list.previewPosters.length > 0 ? (
+          <div className="w-full h-full grid grid-cols-[2fr_1fr] gap-px">
+            <MosaicTile src={big} />
+            <div className="grid grid-rows-2 gap-px">
+              <MosaicTile src={rest[0]} />
+              <MosaicTile src={rest[1]} />
+            </div>
+          </div>
+        ) : (
+          <div className="w-full h-full bg-muted flex items-center justify-center">
+            <Film className="h-5 w-5 text-muted-foreground/50" strokeWidth={1.4} />
+          </div>
+        )}
       </div>
       <div className="px-2.5 py-2">
         <div className="cc-eyebrow text-[8px] truncate">

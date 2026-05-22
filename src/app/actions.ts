@@ -6109,7 +6109,6 @@ export async function getSimilarMovies(
   try {
     let results = await fetchEndpoint('recommendations');
     if (results.length === 0) results = await fetchEndpoint('similar');
-    console.log(`[getSimilarMovies] ${type}/${tmdbId} → ${results.length} raw results`);
 
     const movies: TrendingMovie[] = results
       .filter((m: { poster_path?: string | null }) => m.poster_path)
@@ -6169,11 +6168,6 @@ export async function getRecommendationsForUser(
     if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
     if (bases.length === 0) bases = rated.slice(0, 1);
 
-    console.log(
-      `[recs] uid=${userId} ratings=${(ratings || []).length} usable=${rated.length} ` +
-        `bases=${bases.length} basisIds=[${bases.map((b) => b.tmdbId).join(',')}]`,
-    );
-
     if (bases.length === 0) return { sets: [] };
 
     const sets = await Promise.all(
@@ -6188,13 +6182,7 @@ export async function getRecommendationsForUser(
         };
       }),
     );
-    const built = sets.filter((s) => s.recommendations.length > 0);
-    console.log(
-      `[recs] built ${built.length}/${sets.length} sets — rec counts [${sets
-        .map((s) => s.recommendations.length)
-        .join(',')}]`,
-    );
-    return { sets: built };
+    return { sets: sets.filter((s) => s.recommendations.length > 0) };
   } catch (error) {
     console.error('[getRecommendationsForUser] Failed:', error);
     return { sets: [], error: 'Failed to build recommendations.' };
