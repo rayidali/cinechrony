@@ -150,8 +150,41 @@
 > **Moderation is now a hard dependency.** Free-form text + photos is real
 > UGC — it raises the App Store §1.2 bar well above today's structured
 > activity. Before posts ship: posts must be **reportable** (extend
-> `reportContent`) and authors **blockable** — that is **D.0.1**, which must
-> be promoted out of Phase D. **Posts and D.0.1 ship together or not at all.**
+> `reportContent`) and authors **blockable** — see **0.5.5** below.
+> **Posts and 0.5.5 ship together or not at all.**
+
+### 0.5.5 — Block a user
+
+> Required for any UGC app (App Store §1.2) and the safety floor under
+> 0.5.4's posts. "Block" here means **full mutual invisibility** — a blocked
+> user can't see anything you do, you don't see them, and neither can
+> interact with the other. (Was D.0.1; pulled forward — posts can't ship
+> without it.)
+
+- [ ] **0.5.5.1** Data: a block relationship queryable **both directions** —
+  when A blocks B, B's read paths must know too. A top-level `/blocks`
+  collection (`{blockerId, blockedId, createdAt}`) or a denormalized pair;
+  a per-session blocked-set cache for O(1) filtering.
+- [ ] **0.5.5.2** Server actions `blockUser` / `unblockUser` (verifyCaller).
+  Blocking also **severs the relationship**: drop any follow in both
+  directions, revoke pending invites between the two, stop notifications.
+- [ ] **0.5.5.3** Enforcement is **cross-cutting** — every read surface
+  filters the blocked-set (this is the real cost, not the action itself):
+  profile (→ a not-found / blocked state), public lists, the activity feed
+  + posts, reviews / comments, followers / following lists, user search,
+  notifications. Both directions.
+- [ ] **0.5.5.4** Interaction severance — a blocked user can't follow you,
+  like or comment on your content, tag you in a post, or invite you to a
+  list. Enforce in the server actions; back it with `firestore.rules` where
+  the rules layer can.
+- [ ] **0.5.5.5** UI: a `block` action in the ⋯ overflow on another user's
+  profile (UX_PATTERNS already calls for this); an unblock list in settings;
+  offer "block too" from the report flow.
+- [ ] **0.5.5.6 — Test:** after a block — the blocked user can't load your
+  profile, lists, posts, or comments, can't find you in search, can't
+  follow / tag / like you; you don't see them either; unblock restores; a
+  forged token can't block on someone else's behalf. Add to
+  `scripts/audit-tests/`.
 
 ### Don't
 
@@ -159,7 +192,8 @@
 - ❌ Rank by all-time cumulative likes (it ossifies).
 - ❌ Ship the showcase before there's content to fill it.
 - ❌ Invent a new like data model — reuse the review/activity like shape.
-- ❌ Ship user posts before D.0.1 (report + block) is in place.
+- ❌ Ship user posts before 0.5.5 (block) + reporting are in place.
+- ❌ A half-block that only hides comments — it must filter every read surface.
 - ❌ GPS / maps / distance for `place` — freeform text only.
 
 ---
@@ -416,7 +450,7 @@ Same conventions as the audit tracker:
 - [x] **Content reporting (§1.2)** — DONE in the audit: `reportContent` action + Report button on reviews + server-only `/reports` collection.
 - [x] **`/privacy` route exists** — built in the audit with an accurate draft. Final legal copy still pending → D.4.1.
 - [x] **TMDB attribution** — DONE: shown in `/settings` ("uses the TMDB API but is not endorsed or certified by TMDB").
-- [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** The Report half is done; Apple also requires a way to *block* a user. Build `blockUser`/`unblockUser` (writes `/users/{uid}/blocked/{blockedUid}`), maintain a client blocked-set, filter blocked authors out of the comments list (and ideally feed + search). Needed before submission, NOT before TestFlight.
+- [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** Spec'd and pulled forward to **0.5.5** (posts depend on it). This line stays as the submission checkpoint — confirm 0.5.5 has shipped before you submit. The Report half (`reportContent`) is already done.
 - [ ] **D.0.2 — Error monitoring (Sentry).** At launch scale you need to know what's breaking. Sign up, get a DSN, wire `@sentry/nextjs`. ~1h once the DSN exists. (Replaces the audit's "no observability" gap.)
 - [ ] **D.0.3 — Moderation contact email** — a published address (e.g. `support@cinechrony.com`) for abuse reports; referenced by the privacy policy and §1.2.
 
@@ -551,7 +585,7 @@ Same conventions as the audit tracker:
 | 13 | Apple review iterations | — |
 | 14 | **Launch** | — |
 
-~**14 weeks** of remaining work. Phase 0 (the redesign) is done and merged. Phase 0.5 adds ~3 weeks of discovery work pre-launch — user posts (0.5.4) is the heavy part, and it carries D.0.1 (report + block) with it. Add 2-4 weeks of buffer for Apple review cycles + the Swift learning curve + the unexpected.
+~**14 weeks** of remaining work. Phase 0 (the redesign) is done and merged. Phase 0.5 adds ~3 weeks of discovery work pre-launch — user posts (0.5.4) is the heavy part, and it carries blocking (0.5.5) with it. Add 2-4 weeks of buffer for Apple review cycles + the Swift learning curve + the unexpected.
 
 ---
 
@@ -563,4 +597,5 @@ Same conventions as the audit tracker:
 | 2026-05-21 | 0 | Plan | Added Phase 0 — full UI redesign (scope B), sequenced first. AUDIT.md Phases 0-2 complete; redesign now leads the launch. |
 | 2026-05-21 | 0 | Done | Phase 0 implemented in full — v2 editorial-cinema redesign + the UX patterns (movie detail, activity feed, notes, profile, comments, add, discover surfaces). Merged to main (PR #77). |
 | 2026-05-21 | 0.5 | Plan | Added Phase 0.5 — Discover: liked public lists + an editorial loved-lists showcase + merging home/search into one Discover page. Pulled forward to pre-launch. |
-| 2026-05-21 | 0.5 | Plan | Added 0.5.4 — user posts in the feed (Beli-style: text + photos + movie/friend tags + optional freeform place). Makes D.0.1 (report + block) a hard dependency — posts and D.0.1 ship together. |
+| 2026-05-21 | 0.5 | Plan | Added 0.5.4 — user posts in the feed (Beli-style: text + photos + movie/friend tags + optional freeform place). Makes blocking a hard dependency — posts and 0.5.5 ship together. |
+| 2026-05-21 | 0.5 | Plan | Added 0.5.5 — block a user (full mutual invisibility — filters every read surface, both directions). Pulled forward from D.0.1; D.0.1 is now the pre-submission checkpoint. |
