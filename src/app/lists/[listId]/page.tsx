@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
+import { Fab } from '@/components/fab';
 import { getCollaborativeLists } from '@/app/actions';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
 
@@ -335,14 +336,13 @@ export default function ListDetailPage() {
 
       {/* FAB for adding movies */}
       {canEdit && effectiveOwnerId && (
-        <button
+        <Fab
+          icon={Plus}
+          label="add"
+          ariaLabel="Add movie"
+          className="z-40"
           onClick={() => setIsAddMovieOpen(true)}
-          className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-40 h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)] border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp hover:translate-x-px hover:translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none flex items-center justify-center gap-2 transition-all duration-200 font-headline font-bold lowercase tracking-tight"
-          aria-label="Add movie"
-        >
-          <Plus className="h-5 w-5" strokeWidth={2.5} />
-          <span>Add</span>
-        </button>
+        />
       )}
 
       {/* Add Movie Modal */}

@@ -498,7 +498,7 @@ export default function MyProfilePage() {
                 isLoadingLists ? (
                   <div className="grid grid-cols-2 gap-4">
                     {[1, 2].map((i) => (
-                      <div key={i} className="aspect-[4/3] bg-secondary rounded-2xl border border-border animate-pulse" />
+                      <div key={i} className="aspect-[4/5] bg-secondary rounded-[20px] border border-border animate-pulse" />
                     ))}
                   </div>
                 ) : lists && lists.length > 0 ? (

@@ -10,6 +10,7 @@ import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListCard } from '@/components/list-card';
 import { PullToRefresh } from '@/components/pull-to-refresh';
+import { Fab } from '@/components/fab';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -489,13 +490,7 @@ export default function ListsPage() {
       </PullToRefresh>
 
       {/* Floating Action Button - outside PullToRefresh to keep fixed positioning */}
-      <button
-        onClick={() => setIsCreateOpen(true)}
-        className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50 h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)] border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp hover:translate-x-px hover:translate-y-px active:translate-x-[3px] active:translate-y-[3px] active:shadow-none flex items-center justify-center gap-2 transition-all duration-200 font-headline font-bold lowercase tracking-tight"
-      >
-        <Plus className="h-5 w-5" strokeWidth={2.5} />
-        <span>New List</span>
-      </button>
+      <Fab icon={Plus} label="new list" onClick={() => setIsCreateOpen(true)} />
 
       {/* BottomNav outside PullToRefresh to keep fixed positioning */}
       <BottomNav />

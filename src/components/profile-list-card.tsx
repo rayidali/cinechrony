@@ -1,7 +1,8 @@
 'use client';
 
 import { ReactNode } from 'react';
-import { Film } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Lock, Globe, Users, Film } from 'lucide-react';
 
 interface ProfileListCardProps {
   name: string;
@@ -11,98 +12,138 @@ interface ProfileListCardProps {
   movieCount: number;
   coverImageUrl?: string;
   previewPosters?: string[];
+  /** Accepted for call-site compatibility — not rendered in the v2 card. */
   updatedLabel?: string;
   onClick?: (e: React.MouseEvent) => void;
   children?: ReactNode;
 }
 
 /**
- * Mosaic list cover — design system v2, profile surface only.
+ * Profile list cover — design system v2.
  *
- * Richer than the lists-screen cover: a 2-up mosaic (one big poster + two
- * stacked) gives a far more legible read of someone's catalogue when you're
- * scanning their shelf. Editorial meta block below — eyebrow, lowercase
- * display name, tabular date. See preview/pattern-profile.html.
+ * Now visually identical to the lists-screen `ListCard`: a tall 4:5 portrait
+ * card with a fanned-poster stack and an editorial text block. The earlier
+ * 4:3 mosaic read as "squarish" sitting next to the lists page — this unifies
+ * the two surfaces so a list looks the same wherever it appears.
  */
 export function ProfileListCard({
   name,
-  isPublic,
-  isCollaborative,
+  isPublic = true,
+  isCollaborative = false,
   ownerName,
   movieCount,
   coverImageUrl,
   previewPosters = [],
-  updatedLabel,
   onClick,
   children,
 }: ProfileListCardProps) {
-  const posters = previewPosters.slice(0, 3);
+  const hasCustomCover = !!coverImageUrl;
+  const hasPosters = previewPosters.length > 0;
+
   const eyebrow = [
-    isCollaborative
-      ? ownerName
-        ? `SHARED · WITH @${ownerName.toUpperCase()}`
-        : 'SHARED'
-      : isPublic
-        ? 'PUBLIC'
-        : 'PRIVATE',
-    `${movieCount} ${movieCount === 1 ? 'FILM' : 'FILMS'}`,
-  ].join(' · ');
+    isCollaborative ? 'SHARED LIST' : isPublic ? 'PUBLIC LIST' : 'PRIVATE LIST',
+    isCollaborative && ownerName ? `BY @${ownerName.toUpperCase()}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
 
   return (
     <div className="relative cursor-pointer group" onClick={onClick}>
-      <div className="rounded-2xl border border-border bg-card shadow-lift overflow-hidden transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5">
-        {/* Cover — custom image, poster mosaic, or dashed empty */}
-        <div className="relative aspect-[4/3]">
-          {children && (
-            <div
-              className="absolute top-2 right-2 z-10"
-              onClick={(e) => e.stopPropagation()}
-            >
-              {children}
-            </div>
-          )}
+      <div
+        className={cn(
+          'relative aspect-[4/5] rounded-[20px] overflow-hidden',
+          'bg-card border border-border shadow-lift',
+          'flex flex-col p-3.5',
+          'transition-all duration-200',
+          'group-hover:shadow-photo group-hover:-translate-y-0.5'
+        )}
+      >
+        {/* Dropdown menu / overlay control in top-right */}
+        {children && (
+          <div
+            className="absolute top-2.5 right-2.5 z-10"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {children}
+          </div>
+        )}
 
-          {coverImageUrl ? (
+        {/* Visual area */}
+        <div className="relative flex-1 flex items-center justify-center mb-3 min-h-0">
+          {hasCustomCover ? (
             <img
               src={coverImageUrl}
               alt={name}
-              className="absolute inset-0 w-full h-full object-cover"
+              className="absolute inset-0 w-full h-full object-cover rounded-[14px]"
             />
-          ) : posters.length === 0 ? (
-            <div className="absolute inset-0 flex items-center justify-center bg-background text-muted-foreground">
-              <Film className="h-7 w-7" strokeWidth={1.4} />
-            </div>
+          ) : hasPosters ? (
+            <PosterFan posters={previewPosters} />
           ) : (
-            <div className="absolute inset-0 grid grid-cols-[2fr_1fr] gap-px bg-border">
-              <div className="bg-background overflow-hidden">
-                <img src={posters[0]} alt="" className="w-full h-full object-cover" />
-              </div>
-              <div className="grid grid-rows-2 gap-px">
-                {[posters[1], posters[2]].map((p, i) => (
-                  <div key={i} className="bg-background overflow-hidden">
-                    {p ? (
-                      <img src={p} alt="" className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full bg-muted" />
-                    )}
-                  </div>
-                ))}
-              </div>
+            <div className="absolute inset-0 rounded-[14px] border border-dashed border-border bg-background flex items-center justify-center text-muted-foreground">
+              <Film className="h-7 w-7" strokeWidth={1.4} />
             </div>
           )}
         </div>
 
-        {/* Editorial meta */}
-        <div className="p-3">
+        {/* Editorial text block */}
+        <div className="flex-shrink-0">
           <div className="cc-eyebrow truncate">{eyebrow}</div>
-          <h3 className="font-headline font-bold text-[15px] lowercase tracking-tight leading-tight mt-1 line-clamp-1">
+          <h3 className="mt-1.5 font-headline font-bold text-[17px] leading-[1.1] lowercase tracking-tight line-clamp-2">
             {name}
           </h3>
-          {updatedLabel && (
-            <p className="cc-meta text-[10px] text-muted-foreground mt-1">{updatedLabel}</p>
-          )}
+          <div className="mt-1.5 flex items-center justify-between cc-meta text-[11px] text-muted-foreground">
+            <span>
+              {movieCount} {movieCount === 1 ? 'film' : 'films'}
+            </span>
+            {isCollaborative ? (
+              <Users className="h-3.5 w-3.5" strokeWidth={1.6} />
+            ) : isPublic ? (
+              <Globe className="h-3.5 w-3.5" strokeWidth={1.6} />
+            ) : (
+              <Lock className="h-3.5 w-3.5" strokeWidth={1.6} />
+            )}
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Fanned stack of up to 3 posters, editorial-calm. */
+function PosterFan({ posters }: { posters: string[] }) {
+  const displayPosters = posters.slice(0, 3);
+  const count = displayPosters.length;
+
+  return (
+    <div className="absolute inset-0 flex items-center justify-center">
+      {displayPosters.map((poster, index) => {
+        let transform = '';
+        if (count === 1) {
+          transform = 'rotate(0deg) translateY(-4%)';
+        } else if (count === 2) {
+          transform =
+            index === 0
+              ? 'rotate(-5deg) translate(-12%, -2%)'
+              : 'rotate(4deg) translate(12%, -2%)';
+        } else {
+          transform =
+            index === 0
+              ? 'rotate(-7deg) translate(-22%, -3%)'
+              : index === 1
+                ? 'rotate(5deg) translate(22%, -3%)'
+                : 'rotate(-1deg) translate(0, -12%)';
+        }
+
+        return (
+          <img
+            key={index}
+            src={poster}
+            alt=""
+            className="absolute h-[88%] aspect-[2/3] object-cover rounded-lg shadow-press"
+            style={{ transform, zIndex: index }}
+          />
+        );
+      })}
     </div>
   );
 }

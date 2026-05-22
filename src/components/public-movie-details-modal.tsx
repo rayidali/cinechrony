@@ -13,18 +13,19 @@ import {
   Tv,
   ChevronLeft,
   Clock,
-  Star,
   Calendar,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast } from '@/lib/types';
+import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
-import { getImdbRating } from '@/app/actions';
+import { getImdbRating, getMovieReviews } from '@/app/actions';
+import { formatDistanceToNow } from 'date-fns';
+import { ImdbLogo } from './imdb-logo';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -150,6 +151,7 @@ export function PublicMovieDetailsModal({
   const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
   const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
+  const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
 
   // Use shared hook for viewport height (fixes iOS Safari issue)
   const drawerHeight = useViewportHeight(92);
@@ -213,6 +215,27 @@ export function PublicMovieDetailsModal({
     loadDetails();
   }, [movie?.id, isOpen, mediaDetailsForId, mediaDetails, isLoadingDetails]);
 
+  // Fetch the most-liked reviews for the in-modal preview (non-critical).
+  useEffect(() => {
+    if (!isOpen || !tmdbId) {
+      setReviewPreviews([]);
+      return;
+    }
+    let cancelled = false;
+    setReviewPreviews([]);
+    (async () => {
+      try {
+        const result = await getMovieReviews(tmdbId, 'likes', 2);
+        if (!cancelled) setReviewPreviews((result.reviews ?? []) as Review[]);
+      } catch {
+        /* the preview is non-critical — leave it empty on failure */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [tmdbId, isOpen]);
+
   if (!movie) return null;
 
   const parsedVideo = parseVideoUrl(movie.socialLink);
@@ -265,13 +288,9 @@ export function PublicMovieDetailsModal({
                 className="object-cover"
                 sizes="100vw"
               />
-              <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/80" />
-              <Drawer.Title
-                className="absolute bottom-7 left-5 right-5 font-headline font-bold text-white text-3xl lowercase tracking-tight leading-[0.95]"
-                style={{ textShadow: '0 1px 8px rgba(0,0,0,0.55)' }}
-              >
-                {movie.title}
-              </Drawer.Title>
+              {/* scrim — keeps the glassy control legible; the title now
+                  lives only once, in the content sheet below */}
+              <div className="absolute inset-0 bg-gradient-to-b from-black/35 via-transparent to-black/45" />
             </div>
 
             {/* Content sheet */}
@@ -287,9 +306,9 @@ export function PublicMovieDetailsModal({
                 {movie.mediaType === 'tv' ? 'tv series' : 'film'}
               </span>
 
-              <h2 className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
+              <Drawer.Title className="font-headline font-bold text-2xl lowercase tracking-tight leading-[0.95] mt-2.5">
                 {movie.title}
-              </h2>
+              </Drawer.Title>
 
               {/* Metric chips */}
               <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mt-3 cc-meta text-xs text-foreground">
@@ -307,13 +326,13 @@ export function PublicMovieDetailsModal({
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-1.5 hover:text-primary transition-colors"
                     >
-                      <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                      imdb {mediaDetails.imdbRating}
+                      <ImdbLogo className="h-3.5" />
+                      {mediaDetails.imdbRating}
                     </a>
                   ) : (
                     <span className="inline-flex items-center gap-1.5">
-                      <Star className="h-3.5 w-3.5 text-muted-foreground" strokeWidth={1.6} />
-                      imdb {mediaDetails.imdbRating}
+                      <ImdbLogo className="h-3.5" />
+                      {mediaDetails.imdbRating}
                     </span>
                   )
                 )}
@@ -386,21 +405,47 @@ export function PublicMovieDetailsModal({
                 </section>
               )}
 
-              {/* Reviews link */}
+              {/* Reviews — featured pull-quotes, then the full discussion */}
               <section className="mt-6">
                 <div className="cc-eyebrow">reviews</div>
                 <div className="h-px bg-border my-3" />
-                <button
-                  onClick={handleOpenFullComments}
-                  className="w-full flex items-center justify-between gap-3 group"
-                >
-                  <span className="font-serif italic text-[15px] text-muted-foreground text-left">
-                    read what people are saying…
-                  </span>
-                  <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
-                    see all →
-                  </span>
-                </button>
+                {reviewPreviews.length > 0 ? (
+                  <div className="space-y-4">
+                    {reviewPreviews.map((review) => (
+                      <button
+                        key={review.id}
+                        onClick={handleOpenFullComments}
+                        className="block w-full text-left pl-3 border-l-2 border-border"
+                      >
+                        <p className="font-serif italic text-[15px] leading-snug text-foreground line-clamp-3">
+                          “{review.text}”
+                        </p>
+                        <p className="cc-meta text-[10px] text-muted-foreground mt-1.5">
+                          — @{review.username || 'user'} ·{' '}
+                          {formatDistanceToNow(new Date(review.createdAt), { addSuffix: true })}
+                        </p>
+                      </button>
+                    ))}
+                    <button
+                      onClick={handleOpenFullComments}
+                      className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                    >
+                      see all reviews →
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleOpenFullComments}
+                    className="w-full flex items-center justify-between gap-3 group"
+                  >
+                    <span className="font-serif italic text-[15px] text-muted-foreground text-left">
+                      be the first to review…
+                    </span>
+                    <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
+                      see all →
+                    </span>
+                  </button>
+                )}
               </section>
 
               {/* The attached clip */}

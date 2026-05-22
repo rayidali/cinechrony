@@ -336,13 +336,14 @@ type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
 > v1 was chunky neo-brutalist (3px black borders, hard 4×4 offset shadows,
 > dot-grid paper). v2 is **editorial cinema**: newsprint cream paper, cinema-
 > black ink, soft lifts, lowercase display headlines, a serif body, tabular
-> dates. One v1 element survived: the **yellow FAB**.
+> dates. Even the FAB — v1's last brutalist holdout — is now a calm
+> film-red pill.
 
 **Foundations** (tokens in `src/app/globals.css`, oklch; bound in `tailwind.config.ts`):
 - Surfaces: `bg-background` (newsprint cream), `bg-card` (bone). No dot grid.
 - Borders: `border border-border` — a hairline, ~1px low-opacity. No 3px black.
 - Shadows: `shadow-lift` (default card), `shadow-photo` (hero photo cards),
-  `shadow-press` (inputs). `shadow-stamp` is the FAB-only hard 3×3 offset.
+  `shadow-press` (inputs), `shadow-fab` (the soft film-red FAB lift).
 - Typography: `font-headline` = Bricolage Grotesque (display, **lowercase**),
   `font-body` = Newsreader (serif), `font-mono` = Space Mono (data).
 - Accent: `--primary` is film red — reserved for the one hero CTA + focus
@@ -357,18 +358,16 @@ type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
   see `getRatingStyle()` in `src/lib/utils.ts`.
 - No emoji in product copy. The voice does the playfulness; visuals stay calm.
 
-**The FAB** — the lone brutalist survivor. Yellow, 2.5px ink border, hard
-`shadow-stamp`, press transform. One per screen, max. Don't replicate its
-treatment elsewhere.
+**The FAB** — a film-red pill: white icon + lowercase label, no border, a
+soft red-tinted lift (`shadow-fab`). One per screen, bottom-right. The v1
+yellow brutalist sticker is retired; yellow is now a tertiary highlight only.
+Use the shared `<Fab>` component — don't hand-roll one.
 ```typescript
-<button className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50
-  h-12 px-5 rounded-full bg-[oklch(0.88_0.18_95)] text-[oklch(0.22_0.05_70)]
-  border-[2.5px] border-[oklch(0.165_0.012_60)] shadow-stamp
-  active:translate-x-[3px] active:translate-y-[3px] active:shadow-none
-  flex items-center gap-2 font-headline font-bold lowercase">
-  <Plus className="h-5 w-5" strokeWidth={2.5} />
-  <span>Add</span>
-</button>
+import { Fab } from '@/components/fab';
+import { Plus } from 'lucide-react';
+
+<Fab icon={Plus} label="add" onClick={...} />        // inside a list
+<Fab icon={Plus} label="new list" onClick={...} />   // lists screen
 ```
 
 The full design system package (README.md + `colors_and_type.css` + UI kit)
