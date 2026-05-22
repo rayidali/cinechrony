@@ -277,10 +277,17 @@ export function ActivityFeed({
   }, [items, feedFilter, followingIds, isMuted, isBlocked]);
 
   // Interleave recommendations + friends-watching (only in the `all` view).
+  // The first recommendation lands within the first scroll — by card 3, or at
+  // the end of a short feed so sparse feeds still surface discovery; then
+  // every 6. Friends-watching is staggered (first at 6, then every 9) so two
+  // non-friend cards never sit back-to-back.
   const feedNodes = useMemo<ReactNode[]>(() => {
     const nodes: ReactNode[] = [];
     let recIdx = 0;
     let fwIdx = 0;
+    const total = visibleItems.length;
+    const firstRecAt = Math.min(3, total);
+    const firstFwAt = Math.min(6, total);
     visibleItems.forEach((item, i) => {
       if (item.kind === 'post') {
         nodes.push(
@@ -303,17 +310,23 @@ export function ActivityFeed({
       }
       if (feedFilter !== 'all') return;
       const pos = i + 1;
-      if ((pos === 3 || (pos > 3 && (pos - 3) % 8 === 0)) && fwIdx < fwCards.length) {
-        nodes.push(
-          <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
-        );
-        fwIdx++;
-      }
-      if (pos % 5 === 0 && recIdx < recSets.length) {
+      if (
+        recIdx < recSets.length &&
+        (pos === firstRecAt || (pos > firstRecAt && (pos - firstRecAt) % 6 === 0))
+      ) {
         nodes.push(
           <RecommendationCard key={`rec_${recSets[recIdx].basisTmdbId}`} set={recSets[recIdx]} />,
         );
         recIdx++;
+      }
+      if (
+        fwIdx < fwCards.length &&
+        (pos === firstFwAt || (pos > firstFwAt && (pos - firstFwAt) % 9 === 0))
+      ) {
+        nodes.push(
+          <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
+        );
+        fwIdx++;
       }
     });
     return nodes;
@@ -326,7 +339,18 @@ export function ActivityFeed({
       ) : error ? (
         <p className="text-sm text-muted-foreground py-4">{error}</p>
       ) : visibleItems.length === 0 ? (
-        <EmptyState feedFilter={feedFilter} />
+        <>
+          <EmptyState feedFilter={feedFilter} />
+          {/* An empty feed but the viewer has loved films → still offer
+              discovery, the moment it matters most. */}
+          {feedFilter === 'all' && recSets.length > 0 && (
+            <div className="space-y-4 mt-2">
+              {recSets.map((set) => (
+                <RecommendationCard key={`rec_${set.basisTmdbId}`} set={set} />
+              ))}
+            </div>
+          )}
+        </>
       ) : (
         <>
           <div className="space-y-4">{feedNodes}</div>

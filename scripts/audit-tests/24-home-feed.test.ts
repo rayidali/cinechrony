@@ -116,3 +116,24 @@ test('a forged token cannot like a post', async () => {
   await seedPost('p1', bob.uid, 9_000);
   assert.ok('error' in (await callActionWithRawToken('', likePost, 'p1')));
 });
+
+test('getHomeFeed carries only rated/reviewed activities — not added/watched', async () => {
+  const seedTyped = (id: string, type: string, atMs: number) =>
+    adminDb().collection('activities').doc(id).set({
+      userId: bob.uid, type, tmdbId: 1, movieTitle: id, moviePosterUrl: null,
+      movieYear: '2024', mediaType: 'movie', likes: 0, likedBy: [],
+      createdAt: new Date(atMs),
+    });
+  await seedTyped('rated-act', 'rated', 4_000);
+  await seedTyped('reviewed-act', 'reviewed', 3_000);
+  await seedTyped('added-act', 'added', 2_000);
+  await seedTyped('watched-act', 'watched', 1_000);
+
+  const res = await callActionAs(alice, getHomeFeed);
+  const ids = res.items
+    .filter((i: any) => i.kind === 'activity')
+    .map((i: any) => i.activity.id);
+  assert.ok(ids.includes('rated-act') && ids.includes('reviewed-act'));
+  assert.ok(!ids.includes('added-act'), 'added activities stay out of the feed');
+  assert.ok(!ids.includes('watched-act'), 'watched activities stay out of the feed');
+});

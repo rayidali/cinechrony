@@ -7064,16 +7064,24 @@ export async function getHomeFeed(
       actQ = actQ.where('createdAt', '<', cursorDate);
       postQ = postQ.where('createdAt', '<', cursorDate);
     }
+    // Over-fetch activities — only `rated`/`reviewed` survive the type filter
+    // below, so a `limit+1` fetch would routinely under-fill a page.
     const [actSnap, postSnap] = await Promise.all([
-      actQ.limit(limit + 1).get(),
+      actQ.limit(limit * 2 + 1).get(),
       postQ.limit(limit + 1).get(),
     ]);
 
     const merged = [
-      ...actSnap.docs.map((d) => {
-        const a = activityFromDoc(d);
-        return { item: { kind: 'activity' as const, activity: a }, ts: a.createdAt.getTime(), authorId: a.userId };
-      }),
+      ...actSnap.docs
+        .map((d) => activityFromDoc(d))
+        // The home feed carries opinions only — a rating is a verdict, a review
+        // is a take. `added`/`watched` are low-signal logging and stay out.
+        .filter((a) => a.type === 'rated' || a.type === 'reviewed')
+        .map((a) => ({
+          item: { kind: 'activity' as const, activity: a },
+          ts: a.createdAt.getTime(),
+          authorId: a.userId,
+        })),
       ...postSnap.docs.map((d) => {
         const p = postFromDoc(d);
         return { item: { kind: 'post' as const, post: p }, ts: p.createdAt.getTime(), authorId: p.authorId };
