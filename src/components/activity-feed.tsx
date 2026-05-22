@@ -4,51 +4,51 @@ import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } fro
 import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
 import {
-  getActivityFeed,
+  getHomeFeed,
   getSavedFeed,
   getRecommendationsForUser,
   getFriendsWatching,
   type RecommendationSet,
   type FriendsWatchingCard as FWCard,
+  type FeedItem,
 } from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Activity, Movie } from '@/lib/types';
 import { ActivityCard } from './activity-card';
+import { PostCard } from './post-card';
 import { RecommendationCard } from './recommendation-card';
 import { FriendsWatchingCard } from './friends-watching-card';
 import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 type ActivityFeedProps = {
   currentUserId: string | null;
-  refreshKey?: number; // Increment to trigger refresh
+  refreshKey?: number;
   /** `friends` narrows to followed users; `saved` shows the bookmarks feed. */
   feedFilter?: 'all' | 'saved' | 'friends';
   /** UIDs the viewer follows — required for the `friends` filter. */
   followingIds?: string[];
 };
 
-// Skeleton loader for initial load
-function ActivitySkeleton() {
+const feedItemAuthor = (item: FeedItem) =>
+  item.kind === 'activity' ? item.activity.userId : item.post.authorId;
+const feedItemId = (item: FeedItem) =>
+  item.kind === 'activity' ? `a_${item.activity.id}` : `p_${item.post.id}`;
+
+// Skeleton loader for the initial load.
+function FeedSkeleton() {
   return (
     <div className="space-y-4">
       {[1, 2, 3].map((i) => (
-        <div
-          key={i}
-          className="bg-card rounded-2xl border dark:border border-border p-4 shadow-lift"
-        >
-          {/* Header */}
+        <div key={i} className="bg-card rounded-2xl border border-border p-4 shadow-lift">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
             <div className="flex-1">
               <div className="h-4 bg-muted rounded animate-pulse w-24 mb-1" />
               <div className="h-3 bg-muted rounded animate-pulse w-16" />
             </div>
-            <div className="h-6 w-16 bg-muted rounded-full animate-pulse" />
           </div>
-
-          {/* Content */}
           <div className="flex gap-3">
             <div className="w-16 aspect-[2/3] rounded-lg bg-muted animate-pulse" />
             <div className="flex-1">
@@ -56,18 +56,12 @@ function ActivitySkeleton() {
               <div className="h-3 bg-muted rounded animate-pulse w-1/4" />
             </div>
           </div>
-
-          {/* Footer */}
-          <div className="flex items-center gap-4 mt-3 pt-3 border-t border-border/50">
-            <div className="h-4 w-12 bg-muted rounded animate-pulse" />
-          </div>
         </div>
       ))}
     </div>
   );
 }
 
-// Loading indicator for infinite scroll
 function LoadingMore() {
   return (
     <div className="flex justify-center py-6">
@@ -116,15 +110,19 @@ function EmptyState({ feedFilter }: { feedFilter: 'all' | 'saved' | 'friends' })
   );
 }
 
-// End of feed indicator
 function EndOfFeed() {
   return (
-    <div className="text-center py-6 text-sm text-muted-foreground">
-      You're all caught up!
+    <div className="text-center py-6 cc-lead text-sm text-muted-foreground italic">
+      — you&apos;re all caught up —
     </div>
   );
 }
 
+/**
+ * The home feed — the unified, paginated stream of system activities + user
+ * posts (getHomeFeed), with recommendation and friends-watching cards
+ * interleaved. The `saved` filter swaps in the bookmarks feed.
+ */
 export function ActivityFeed({
   currentUserId,
   refreshKey = 0,
@@ -134,7 +132,7 @@ export function ActivityFeed({
   const auth = useAuth();
   const { isMuted } = useUserMutesCache();
   const { isBlocked } = useUserBlocksCache();
-  const [activities, setActivities] = useState<Activity[]>([]);
+  const [items, setItems] = useState<FeedItem[]>([]);
   const [recSets, setRecSets] = useState<RecommendationSet[]>([]);
   const [fwCards, setFwCards] = useState<FWCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -143,29 +141,27 @@ export function ActivityFeed({
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal state
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Ref for infinite scroll sentinel
   const sentinelRef = useRef<HTMLDivElement>(null);
 
-  // Fetch one page — the `saved` filter reads the bookmarks feed instead.
+  // Fetch one page — `saved` reads the bookmarks feed, everything else the
+  // merged home feed (activities + posts).
   const fetchPage = useCallback(
     async (pageCursor?: string) => {
-      if (feedFilter === 'saved') {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        return getSavedFeed(idToken, pageCursor);
-      }
-      return getActivityFeed(pageCursor);
+      const idToken = (await auth.currentUser?.getIdToken()) ?? '';
+      return feedFilter === 'saved'
+        ? getSavedFeed(idToken, pageCursor)
+        : getHomeFeed(idToken, pageCursor);
     },
     [feedFilter, auth],
   );
 
-  // Load initial feed (refresh on refreshKey; reload when the filter changes).
+  // Initial load (refresh on refreshKey; reload when the filter changes).
   useEffect(() => {
     let cancelled = false;
-    async function loadFeed() {
+    (async () => {
       try {
         setIsLoading(true);
         setError(null);
@@ -174,18 +170,16 @@ export function ActivityFeed({
         if (result.error) {
           setError(result.error);
         } else {
-          setActivities(result.activities);
+          setItems(result.items);
           setHasMore(result.hasMore);
           setCursor(result.nextCursor || null);
         }
-      } catch (err) {
-        if (!cancelled) setError('Failed to load activity feed');
+      } catch {
+        if (!cancelled) setError('Failed to load the feed');
       } finally {
         if (!cancelled) setIsLoading(false);
       }
-    }
-
-    loadFeed();
+    })();
     return () => {
       cancelled = true;
     };
@@ -206,7 +200,7 @@ export function ActivityFeed({
         if ('sets' in recs) setRecSets(recs.sets ?? []);
         if ('cards' in fw) setFwCards(fw.cards ?? []);
       } catch {
-        /* recommendations + friends-watching are non-critical */
+        /* non-critical */
       }
     })();
     return () => {
@@ -214,56 +208,41 @@ export function ActivityFeed({
     };
   }, [auth, refreshKey]);
 
-  // Load more function
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;
-
     try {
       setIsLoadingMore(true);
       const result = await fetchPage(cursor);
       if (result.error) {
         setError(result.error);
       } else {
-        setActivities((prev) => [...prev, ...result.activities]);
+        setItems((prev) => [...prev, ...result.items]);
         setHasMore(result.hasMore);
         setCursor(result.nextCursor || null);
       }
-    } catch (err) {
-      setError('Failed to load more activities');
+    } catch {
+      setError('Failed to load more');
     } finally {
       setIsLoadingMore(false);
     }
   }, [cursor, hasMore, isLoadingMore, fetchPage]);
 
-  // Infinite scroll with Intersection Observer
+  // Infinite scroll.
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel) return;
-
     const observer = new IntersectionObserver(
-      (entries) => {
-        const [entry] = entries;
-        if (entry.isIntersecting && hasMore && !isLoadingMore && !isLoading) {
-          loadMore();
-        }
+      ([entry]) => {
+        if (entry.isIntersecting && hasMore && !isLoadingMore && !isLoading) loadMore();
       },
-      {
-        root: null, // viewport
-        rootMargin: '100px', // trigger 100px before reaching bottom
-        threshold: 0,
-      }
+      { root: null, rootMargin: '100px', threshold: 0 },
     );
-
     observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
+    return () => observer.disconnect();
   }, [hasMore, isLoadingMore, isLoading, loadMore]);
 
-  // Handle movie click - open modal
   const handleMovieClick = useCallback((activity: Activity) => {
-    const movieForModal: Movie = {
+    setSelectedMovie({
       id: `activity_${activity.id}`,
       title: activity.movieTitle,
       year: activity.movieYear || '',
@@ -273,59 +252,63 @@ export function ActivityFeed({
       status: 'To Watch',
       mediaType: activity.mediaType,
       tmdbId: activity.tmdbId,
-    };
-
-    setSelectedMovie(movieForModal);
+    });
     setIsModalOpen(true);
   }, []);
 
-  const handleCloseModal = useCallback(() => {
-    setIsModalOpen(false);
-    setSelectedMovie(null);
+  const handlePostDeleted = useCallback((postId: string) => {
+    setItems((prev) =>
+      prev.filter((it) => !(it.kind === 'post' && it.post.id === postId)),
+    );
   }, []);
 
-  // `friends` narrows to followed users. A client-side filter over the global
-  // feed for now — Phase 9 replaces this with a server-side merged feed query.
-  const visibleActivities = useMemo(() => {
-    let list = activities;
+  // Filter — block always; mute on all/friends; friends narrows to follows.
+  const visibleItems = useMemo(() => {
+    let list = items;
     if (feedFilter === 'friends') {
       const set = new Set(followingIds ?? []);
-      list = list.filter((a) => set.has(a.userId));
+      list = list.filter((it) => set.has(feedItemAuthor(it)));
     }
-    // Blocked users are invisible everywhere — even in the saved archive.
-    list = list.filter((a) => !isBlocked(a.userId));
-    // Muted authors drop out of `all` / `friends` (the `saved` archive is kept).
+    list = list.filter((it) => !isBlocked(feedItemAuthor(it)));
     if (feedFilter !== 'saved') {
-      list = list.filter((a) => !isMuted(a.userId));
+      list = list.filter((it) => !isMuted(feedItemAuthor(it)));
     }
     return list;
-  }, [activities, feedFilter, followingIds, isMuted, isBlocked]);
+  }, [items, feedFilter, followingIds, isMuted, isBlocked]);
 
-  // Interleave recommendations + friends-watching — only in the `all` view;
-  // `friends` stays a pure chronological friend feed, `saved` is the archive.
+  // Interleave recommendations + friends-watching (only in the `all` view).
   const feedNodes = useMemo<ReactNode[]>(() => {
     const nodes: ReactNode[] = [];
     let recIdx = 0;
     let fwIdx = 0;
-    visibleActivities.forEach((activity, i) => {
-      nodes.push(
-        <ActivityCard
-          key={activity.id}
-          activity={activity}
-          currentUserId={currentUserId}
-          onMovieClick={handleMovieClick}
-        />,
-      );
+    visibleItems.forEach((item, i) => {
+      if (item.kind === 'post') {
+        nodes.push(
+          <PostCard
+            key={feedItemId(item)}
+            post={item.post}
+            currentUserId={currentUserId}
+            onDeleted={handlePostDeleted}
+          />,
+        );
+      } else {
+        nodes.push(
+          <ActivityCard
+            key={feedItemId(item)}
+            activity={item.activity}
+            currentUserId={currentUserId}
+            onMovieClick={handleMovieClick}
+          />,
+        );
+      }
       if (feedFilter !== 'all') return;
       const pos = i + 1;
-      // friends-watching after #3, then every 8 cards
       if ((pos === 3 || (pos > 3 && (pos - 3) % 8 === 0)) && fwIdx < fwCards.length) {
         nodes.push(
           <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
         );
         fwIdx++;
       }
-      // recommendations every 5 cards
       if (pos % 5 === 0 && recIdx < recSets.length) {
         nodes.push(
           <RecommendationCard key={`rec_${recSets[recIdx].basisTmdbId}`} set={recSets[recIdx]} />,
@@ -334,36 +317,32 @@ export function ActivityFeed({
       }
     });
     return nodes;
-  }, [visibleActivities, recSets, fwCards, feedFilter, currentUserId, handleMovieClick]);
+  }, [visibleItems, recSets, fwCards, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
 
   return (
     <section>
       {isLoading ? (
-        <ActivitySkeleton />
+        <FeedSkeleton />
       ) : error ? (
         <p className="text-sm text-muted-foreground py-4">{error}</p>
-      ) : visibleActivities.length === 0 ? (
+      ) : visibleItems.length === 0 ? (
         <EmptyState feedFilter={feedFilter} />
       ) : (
         <>
           <div className="space-y-4">{feedNodes}</div>
-
-          {/* Infinite scroll sentinel */}
           <div ref={sentinelRef} className="h-1" />
-
-          {/* Loading indicator */}
           {isLoadingMore && <LoadingMore />}
-
-          {/* End of feed */}
-          {!hasMore && visibleActivities.length > 0 && <EndOfFeed />}
+          {!hasMore && visibleItems.length > 0 && <EndOfFeed />}
         </>
       )}
 
-      {/* Movie Details Modal */}
       <PublicMovieDetailsModal
         movie={selectedMovie}
         isOpen={isModalOpen}
-        onClose={handleCloseModal}
+        onClose={() => {
+          setIsModalOpen(false);
+          setSelectedMovie(null);
+        }}
       />
     </section>
   );

@@ -13,6 +13,7 @@ import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
 import { FilterPills, type FilterPill } from '@/components/filter-pills';
+import { PostFab } from '@/components/post-fab';
 
 const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
@@ -150,6 +151,9 @@ export default function HomePage() {
           </div>
         </main>
       </PullToRefresh>
+
+      {/* Post FAB — tap to compose, long-press for the action sheet */}
+      {feedFilter !== 'saved' && <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />}
 
       {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
       <BottomNav />

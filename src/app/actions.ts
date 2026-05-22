@@ -6373,17 +6373,17 @@ export async function getMyBookmarks(idToken: string): Promise<{ keys: string[];
 }
 
 /**
- * The `saved` filter feed — re-hydrated saved items, newest-saved first.
- * Returns the same shape as getActivityFeed so the feed UI is interchangeable.
+ * The `saved` filter feed — re-hydrated saved items (activities + posts),
+ * newest-saved first. Returns the FeedItem shape so the feed UI is shared.
  * Dangling bookmarks (deleted sources) are skipped.
  */
 export async function getSavedFeed(
   idToken: string,
   cursor?: string,
   limit = 20,
-): Promise<{ activities: Activity[]; hasMore: boolean; nextCursor?: string; error?: string }> {
+): Promise<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string }> {
   const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return { activities: [], hasMore: false, error: auth.error };
+  if (isAuthError(auth)) return { items: [], hasMore: false, error: auth.error };
   const db = getDb();
   try {
     const bookmarksCol = db.collection('users').doc(auth.uid).collection('bookmarks');
@@ -6396,36 +6396,51 @@ export async function getSavedFeed(
     const hasMore = snap.docs.length > limit;
     const docs = hasMore ? snap.docs.slice(0, limit) : snap.docs;
 
-    // Re-hydrate activity bookmarks (posts join the saved feed in Phase 9).
     const activityIds = docs
       .filter((d) => d.data().itemType === 'activity')
       .map((d) => d.data().itemId as string);
-    const byId = new Map<string, Activity>();
+    const postIds = docs
+      .filter((d) => d.data().itemType === 'post')
+      .map((d) => d.data().itemId as string);
+
+    const activityById = new Map<string, Activity>();
+    const postById = new Map<string, Post>();
     if (activityIds.length) {
       const fetched = await db.getAll(
         ...activityIds.map((id) => db.collection('activities').doc(id)),
       );
       fetched.forEach((s) => {
-        if (s.exists) byId.set(s.id, activityFromDoc(s));
+        if (s.exists) activityById.set(s.id, activityFromDoc(s));
+      });
+    }
+    if (postIds.length) {
+      const fetched = await db.getAll(
+        ...postIds.map((id) => db.collection('posts').doc(id)),
+      );
+      fetched.forEach((s) => {
+        if (s.exists) postById.set(s.id, postFromDoc(s));
       });
     }
 
-    const activities: Activity[] = [];
+    const items: FeedItem[] = [];
     for (const d of docs) {
       const data = d.data();
       if (data.itemType === 'activity') {
-        const a = byId.get(data.itemId);
-        if (a) activities.push(a);
+        const a = activityById.get(data.itemId);
+        if (a) items.push({ kind: 'activity', activity: a });
+      } else if (data.itemType === 'post') {
+        const p = postById.get(data.itemId);
+        if (p) items.push({ kind: 'post', post: p });
       }
     }
     return {
-      activities,
+      items,
       hasMore,
       nextCursor: hasMore ? docs[docs.length - 1]?.id : undefined,
     };
   } catch (error) {
     console.error('[getSavedFeed] Failed:', error);
-    return { activities: [], hasMore: false, error: 'Failed to load saved items.' };
+    return { items: [], hasMore: false, error: 'Failed to load saved items.' };
   }
 }
 
@@ -7023,6 +7038,146 @@ export async function getPost(
   }
 }
 
+/** A heterogeneous home-feed entry — a system activity or a user post. */
+export type FeedItem =
+  | { kind: 'activity'; activity: Activity }
+  | { kind: 'post'; post: Post };
+
+/**
+ * The unified home feed — merges /activities + /posts chronologically with a
+ * timestamp cursor, and drops blocked users (either direction) server-side.
+ */
+export async function getHomeFeed(
+  idToken: string,
+  cursor?: string,
+  limit = 20,
+): Promise<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string }> {
+  const db = getDb();
+  try {
+    const auth = await verifyCaller(idToken);
+    const blockSet = isAuthError(auth) ? new Set<string>() : await getBlockSet(db, auth.uid);
+    const cursorDate = cursor ? new Date(cursor) : null;
+
+    let actQ = db.collection('activities').orderBy('createdAt', 'desc');
+    let postQ = db.collection('posts').orderBy('createdAt', 'desc');
+    if (cursorDate) {
+      actQ = actQ.where('createdAt', '<', cursorDate);
+      postQ = postQ.where('createdAt', '<', cursorDate);
+    }
+    const [actSnap, postSnap] = await Promise.all([
+      actQ.limit(limit + 1).get(),
+      postQ.limit(limit + 1).get(),
+    ]);
+
+    const merged = [
+      ...actSnap.docs.map((d) => {
+        const a = activityFromDoc(d);
+        return { item: { kind: 'activity' as const, activity: a }, ts: a.createdAt.getTime(), authorId: a.userId };
+      }),
+      ...postSnap.docs.map((d) => {
+        const p = postFromDoc(d);
+        return { item: { kind: 'post' as const, post: p }, ts: p.createdAt.getTime(), authorId: p.authorId };
+      }),
+    ]
+      .filter((x) => !blockSet.has(x.authorId))
+      .sort((a, b) => b.ts - a.ts);
+
+    const hasMore = merged.length > limit;
+    const page = merged.slice(0, limit);
+    const nextCursor =
+      hasMore && page.length > 0
+        ? new Date(page[page.length - 1].ts).toISOString()
+        : undefined;
+    return { items: page.map((x) => x.item), hasMore, nextCursor };
+  } catch (error) {
+    console.error('[getHomeFeed] Failed:', error);
+    return { items: [], hasMore: false, error: 'Failed to load the feed.' };
+  }
+}
+
+/** Like a post. Mirrors the hardened likeReview pattern. */
+export async function likePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Post not found.' as const };
+      const d = snap.data() || {};
+      const likedBy: string[] = d.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, postData: d, newLikes: (d.likes || 0) + 1 };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+
+    if (tx.postData?.authorId && tx.postData.authorId !== userId) {
+      try {
+        const authorDoc = await db.collection('users').doc(tx.postData.authorId).get();
+        const prefs = authorDoc.data()?.notificationPreferences;
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const l = likerDoc.data();
+          await db.collection('notifications').add({
+            userId: tx.postData.authorId,
+            type: 'post_like',
+            fromUserId: userId,
+            fromUsername: l?.username ?? null,
+            fromDisplayName: l?.displayName ?? null,
+            fromPhotoUrl: l?.photoURL ?? null,
+            postId,
+            previewText: (tx.postData.text || '').slice(0, 100),
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[likePost] notification failed:', err);
+      }
+    }
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[likePost] Failed:', error);
+    return { error: 'Failed to like post.' };
+  }
+}
+
+/** Unlike a post. */
+export async function unlikePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Post not found.' as const };
+      const d = snap.data() || {};
+      const likedBy: string[] = d.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (d.likes || 1) - 1) };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[unlikePost] Failed:', error);
+    return { error: 'Failed to unlike post.' };
+  }
+}
+
 /**
  * Like an activity.
  */
@@ -7113,7 +7268,7 @@ export async function unlikeActivity(idToken: string, activityId: string) {
  */
 export async function reportContent(
   idToken: string,
-  contentType: 'review' | 'user' | 'list',
+  contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment',
   targetId: string,
   reason: string,
 ) {

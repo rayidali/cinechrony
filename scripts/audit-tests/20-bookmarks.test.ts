@@ -66,9 +66,10 @@ test('getSavedFeed re-hydrates saved activities, newest-saved first', async () =
   await callActionAs(alice, saveItem, 'activity', 'A1');
   await callActionAs(alice, saveItem, 'activity', 'A2'); // saved later → first
   const feed = await callActionAs(alice, getSavedFeed);
-  assert.equal(feed.activities.length, 2);
-  assert.equal(feed.activities[0].id, 'A2');
-  assert.equal(feed.activities[1].id, 'A1');
+  assert.equal(feed.items.length, 2);
+  assert.equal(feed.items[0].kind, 'activity');
+  assert.equal(feed.items[0].activity.id, 'A2');
+  assert.equal(feed.items[1].activity.id, 'A1');
 });
 
 test('getSavedFeed skips a dangling bookmark (deleted source)', async () => {
@@ -76,7 +77,7 @@ test('getSavedFeed skips a dangling bookmark (deleted source)', async () => {
   await callActionAs(alice, saveItem, 'activity', 'A1');
   await adminDb().collection('activities').doc('A1').delete();
   const feed = await callActionAs(alice, getSavedFeed);
-  assert.deepEqual(feed.activities, []);
+  assert.deepEqual(feed.items, []);
 });
 
 test('a forged token cannot save', async () => {
