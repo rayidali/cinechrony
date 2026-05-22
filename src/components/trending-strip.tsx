@@ -16,17 +16,13 @@ import type { Movie } from '@/lib/types';
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
 
-type StripItem =
-  | { kind: 'film'; film: TrendingMovie }
-  | { kind: 'list'; list: LovedListCard };
-
 /**
- * TRENDING NOW — one horizontal strip that mixes trending films with the
- * loved-lists showcase, the way the unified-home design composes them
- * (UX_PATTERNS.md — "films + featured lists MIXED in the same scroll").
+ * The home discovery rows — two distinct editorial sections:
+ *  · TRENDING NOW — trending films (TMDB trending/day).
+ *  · THE COLLECTION — the loved-lists showcase (LAUNCH 0.5.2, cold-start gated).
  *
- * Films come from TMDB trending/day; lists from the recency-weighted
- * loved-lists query (LAUNCH 0.5.2), which is cold-start gated server-side.
+ * Films and lists are different kinds of object, so they get their own row +
+ * header rather than one mixed scroll — it reads cleaner and scans faster.
  */
 export function TrendingStrip() {
   const router = useRouter();
@@ -95,38 +91,37 @@ export function TrendingStrip() {
 
   if (films.length === 0 && lists.length === 0) return null;
 
-  // Interleave — a list mini-card after every 2 films.
-  const items: StripItem[] = [];
-  let li = 0;
-  films.forEach((film, i) => {
-    items.push({ kind: 'film', film });
-    if ((i + 1) % 2 === 0 && li < lists.length) {
-      items.push({ kind: 'list', list: lists[li++] });
-    }
-  });
-  while (li < lists.length) items.push({ kind: 'list', list: lists[li++] });
-
   return (
-    <section className="mb-7">
-      <div className="cc-eyebrow">trending now</div>
-      <div className="h-px bg-border mt-2.5 mb-3.5" />
-      <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
-        {items.map((item) =>
-          item.kind === 'film' ? (
-            <FilmCard
-              key={`film_${item.film.id}`}
-              film={item.film}
-              onSelect={() => openFilm(item.film)}
-            />
-          ) : (
-            <ListMiniCard
-              key={`list_${item.list.id}`}
-              list={item.list}
-              onSelect={() => openList(item.list)}
-            />
-          ),
-        )}
-      </div>
+    <>
+      {/* TRENDING NOW — films */}
+      {films.length > 0 && (
+        <section className="mb-7">
+          <div className="cc-eyebrow">trending now</div>
+          <div className="h-px bg-border mt-2.5 mb-3.5" />
+          <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+            {films.map((film) => (
+              <FilmCard key={`film_${film.id}`} film={film} onSelect={() => openFilm(film)} />
+            ))}
+          </div>
+        </section>
+      )}
+
+      {/* THE COLLECTION — loved lists, their own row */}
+      {lists.length > 0 && (
+        <section className="mb-7">
+          <div className="cc-eyebrow">the collection</div>
+          <div className="h-px bg-border mt-2.5 mb-3.5" />
+          <div className="flex gap-2.5 overflow-x-auto scrollbar-hide -mx-4 px-4 pb-1">
+            {lists.map((list) => (
+              <ListMiniCard
+                key={`list_${list.id}`}
+                list={list}
+                onSelect={() => openList(list)}
+              />
+            ))}
+          </div>
+        </section>
+      )}
 
       <PublicMovieDetailsModal
         movie={selectedMovie}
@@ -136,7 +131,7 @@ export function TrendingStrip() {
           setSelectedMovie(null);
         }}
       />
-    </section>
+    </>
   );
 }
 

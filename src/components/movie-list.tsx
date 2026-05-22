@@ -13,6 +13,8 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Grid3X3, List, LayoutGrid, AlignLeft } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
+import { ListControls } from './list-controls';
+import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
 
 type ViewMode = 'grid' | 'list' | 'cards' | 'annotated';
 
@@ -31,6 +33,8 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const router = useRouter();
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -76,9 +80,10 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     setSelectedMovie(null);
   }, []);
 
+  // status tab + search + sort. A search query searches the whole list.
   const filteredMovies = useMemo(
-    () => initialMovies.filter((movie) => movie.status === filter),
-    [initialMovies, filter]
+    () => arrangeListMovies(initialMovies, { query: search, status: filter, sort }),
+    [initialMovies, search, filter, sort]
   );
 
   // Render grid view skeleton
@@ -109,16 +114,23 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     </div>
   );
 
-  // Render empty state
-  const renderEmptyState = () => (
-    <div className="text-center py-16 border border-dashed border-border rounded-lg bg-secondary">
-      <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
-      <h3 className="font-headline text-2xl font-bold">All clear!</h3>
-      <p className="text-muted-foreground mt-2">
-        There are no movies in the &apos;{filter}&apos; list.
-      </p>
-    </div>
-  );
+  // Render empty state — search-aware copy.
+  const renderEmptyState = () => {
+    const searching = search.trim().length > 0;
+    return (
+      <div className="text-center py-16 border border-dashed border-border rounded-lg bg-secondary">
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
+        <h3 className="font-headline text-2xl font-bold lowercase">
+          {searching ? 'nothing matches' : 'all clear'}
+        </h3>
+        <p className="text-muted-foreground mt-2">
+          {searching
+            ? `no films in this list match "${search.trim()}".`
+            : `There are no movies in the '${filter}' list.`}
+        </p>
+      </div>
+    );
+  };
 
   // Render grid view
   const renderGridView = () => (
@@ -247,9 +259,18 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
         </div>
       </div>
 
+      {/* Search + sort */}
+      <ListControls
+        query={search}
+        onQueryChange={setSearch}
+        sort={sort}
+        onSortChange={setSort}
+      />
+
       {/* Movie count */}
       <p className="cc-meta text-xs text-muted-foreground mb-4">
         {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
+        {search.trim() ? ` matching “${search.trim()}”` : ''}
       </p>
 
       {/* Movie display */}

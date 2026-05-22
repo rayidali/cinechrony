@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -21,6 +21,8 @@ import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal
 import { GridViewHint } from '@/components/grid-view-hint';
 import { BottomNav } from '@/components/bottom-nav';
 import { ListLikeButton } from '@/components/list-like-button';
+import { ListControls } from '@/components/list-controls';
+import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
 import {
   getUserByUsername,
   getPublicListMovies,
@@ -45,6 +47,8 @@ export default function PublicListPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -136,7 +140,11 @@ export default function PublicListPage() {
     }
   }, [username, listId, user, router]);
 
-  const filteredMovies = movies.filter((movie) => movie.status === filter);
+  // status tab + search + sort. A search query searches the whole list.
+  const filteredMovies = useMemo(
+    () => arrangeListMovies(movies, { query: search, status: filter, sort }),
+    [movies, search, filter, sort],
+  );
 
   if (isLoading) {
     return (
@@ -290,9 +298,18 @@ export default function PublicListPage() {
           </div>
         </div>
 
+        {/* Search + sort */}
+        <ListControls
+          query={search}
+          onQueryChange={setSearch}
+          sort={sort}
+          onSortChange={setSort}
+        />
+
         {/* Movie count */}
         <p className="text-sm text-muted-foreground mb-4">
           {filteredMovies.length} {filteredMovies.length === 1 ? 'movie' : 'movies'}
+          {search.trim() ? ` matching “${search.trim()}”` : ''}
         </p>
 
         {/* Movies Display */}
@@ -321,9 +338,13 @@ export default function PublicListPage() {
         ) : (
           <div className="text-center py-16 border border-dashed border-border rounded-2xl bg-secondary">
             <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
-            <h3 className="font-headline text-2xl font-bold">No movies here</h3>
+            <h3 className="font-headline text-2xl font-bold lowercase">
+              {search.trim() ? 'nothing matches' : 'no movies here'}
+            </h3>
             <p className="text-muted-foreground mt-2">
-              There are no movies in the &apos;{filter}&apos; list.
+              {search.trim()
+                ? `no films in this list match "${search.trim()}".`
+                : `There are no movies in the '${filter}' list.`}
             </p>
           </div>
         )}
