@@ -12,6 +12,8 @@ interface ListCardProps {
   children?: ReactNode; // For dropdown menu etc.
   isCollaborative?: boolean;
   ownerName?: string;
+  /** Optional like control (e.g. <ListLikeButton variant="cover">) — bottom-left of the cover. */
+  likeButton?: ReactNode;
 }
 
 /**
@@ -29,6 +31,7 @@ export function ListCard({
   children,
   isCollaborative = false,
   ownerName,
+  likeButton,
 }: ListCardProps) {
   const movieCount = list.movieCount ?? 0;
   const hasCustomCover = !!list.coverImageUrl;
@@ -76,6 +79,11 @@ export function ListCard({
             <div className="absolute inset-0 rounded-[14px] border border-dashed border-border bg-background flex items-center justify-center text-muted-foreground">
               <Film className="h-7 w-7" strokeWidth={1.4} />
             </div>
+          )}
+
+          {/* Like control — bottom-left glass pill over the cover */}
+          {likeButton && (
+            <div className="absolute bottom-2 left-2 z-10">{likeButton}</div>
           )}
         </div>
 

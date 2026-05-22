@@ -20,6 +20,7 @@ import { PublicMovieListItem } from '@/components/public-movie-list-item';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
 import { GridViewHint } from '@/components/grid-view-hint';
 import { BottomNav } from '@/components/bottom-nav';
+import { ListLikeButton } from '@/components/list-like-button';
 import {
   getUserByUsername,
   getPublicListMovies,
@@ -224,7 +225,19 @@ export default function PublicListPage() {
               </div>
             )}
 
-            <p className="text-muted-foreground text-center">
+            {/* Like — only public lists, only for signed-in non-owners */}
+            {list && list.isPublic && (
+              <div className="mb-3">
+                <ListLikeButton
+                  listOwnerId={list.ownerId}
+                  listId={list.id}
+                  initialLikes={list.likes ?? 0}
+                  initialLikedBy={list.likedBy ?? []}
+                />
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground text-center">
               Viewing {owner?.displayName || owner?.username}&apos;s list (read-only)
             </p>
           </div>

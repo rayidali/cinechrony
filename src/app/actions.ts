@@ -225,6 +225,8 @@ export async function createList(idToken: string, name: string, isPublic: boolea
       isDefault: false,
       isPublic: isPublic,
       ownerId: userId,
+      likes: 0,
+      likedBy: [],
     });
 
     revalidatePath('/lists');
@@ -1640,10 +1642,14 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
     const serializedList = {
       id: listDoc.id,
       name: listData?.name,
+      description: listData?.description || '',
       isDefault: listData?.isDefault || false,
       isPublic: listData?.isPublic || false,
       ownerId: listData?.ownerId,
       collaboratorIds: listData?.collaboratorIds || [],
+      coverImageUrl: listData?.coverImageUrl || '',
+      likes: listData?.likes || 0,
+      likedBy: listData?.likedBy || [],
       createdAt: listData?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
       updatedAt: listData?.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
     };
@@ -3570,6 +3576,113 @@ export async function unlikeReview(idToken: string, reviewId: string) {
   } catch (error) {
     console.error('[unlikeReview] Failed:', error);
     return { error: 'Failed to unlike review.' };
+  }
+}
+
+/**
+ * Like a public list (LAUNCH 0.5.1).
+ *
+ * Mirrors `likeReview`: verifyCaller → rate-limit → transactional
+ * read-check-write. Only public lists are likeable. `likes`/`likedBy`/
+ * `lastLikedAt` are server-only — `firestore.rules` blocks the owner from
+ * editing them so counts can't be forged.
+ */
+export async function likeList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // Reuse the shared `like` rate-limit bucket (AUDIT.md 3.8).
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(listRef);
+      if (!snap.exists) return { error: 'List not found.' as const };
+      const data = snap.data() || {};
+      if (data.isPublic !== true) return { error: 'Only public lists can be liked.' as const };
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(listRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+        lastLikedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true as const, listData: data, newLikes: (data.likes || 0) + 1 };
+    });
+    if ('error' in txResult) return { error: txResult.error as string };
+
+    // Notify the owner — post-commit, best-effort, never self.
+    if (listOwnerId && listOwnerId !== userId) {
+      try {
+        const ownerDoc = await db.collection('users').doc(listOwnerId).get();
+        const prefs = ownerDoc.data()?.notificationPreferences;
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const likerData = likerDoc.data();
+          await db.collection('notifications').add({
+            userId: listOwnerId,
+            type: 'list_like',
+            fromUserId: userId,
+            fromUsername: likerData?.username || null,
+            fromDisplayName: likerData?.displayName || null,
+            fromPhotoUrl: likerData?.photoURL || null,
+            listId,
+            listOwnerId,
+            listName: txResult.listData?.name || 'your list',
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[likeList] Failed to create notification:', err);
+      }
+    }
+
+    return { success: true, likes: txResult.newLikes };
+  } catch (error) {
+    console.error('[likeList] Failed:', error);
+    return { error: 'Failed to like list.' };
+  }
+}
+
+/**
+ * Unlike a public list (LAUNCH 0.5.1). `lastLikedAt` is intentionally left
+ * untouched — unliking is not "activity" that should refresh recency.
+ */
+export async function unlikeList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(listRef);
+      if (!snap.exists) return { error: 'List not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      tx.update(listRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 1) - 1) };
+    });
+    if ('error' in txResult) return { error: txResult.error as string };
+
+    return { success: true, likes: txResult.newLikes };
+  } catch (error) {
+    console.error('[unlikeList] Failed:', error);
+    return { error: 'Failed to unlike list.' };
   }
 }
 

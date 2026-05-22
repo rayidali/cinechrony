@@ -165,6 +165,12 @@ export default function NotificationsPage() {
         // Go to pending invites (lists page will show pending invites)
         router.push('/lists');
         break;
+      case 'list_like':
+        // Go to the liked list (the recipient is its owner)
+        if (notification.listId) {
+          router.push(`/lists/${notification.listId}`);
+        }
+        break;
       case 'mention':
       case 'reply':
       case 'like':
@@ -293,6 +299,9 @@ export default function NotificationsPage() {
                     {notification.type === 'list_invite' && (
                       <>invited you to join <span className="font-medium">{notification.listName}</span></>
                     )}
+                    {notification.type === 'list_like' && (
+                      <>liked your list <span className="font-medium">{notification.listName}</span></>
+                    )}
                   </p>
                   {notification.previewText && (
                     <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
@@ -337,6 +346,7 @@ export default function NotificationsPage() {
                   {notification.type === 'mention' && <AtSign className="h-4 w-4 text-primary" />}
                   {notification.type === 'reply' && <MessageSquare className="h-4 w-4 text-primary" />}
                   {notification.type === 'like' && <Heart className="h-4 w-4 text-red-500" />}
+                  {notification.type === 'list_like' && <Heart className="h-4 w-4 text-success fill-success" />}
                   {notification.type === 'follow' && <UserPlus className="h-4 w-4 text-green-500" />}
                   {notification.type === 'list_invite' && <Users className="h-4 w-4 text-blue-500" />}
                 </div>

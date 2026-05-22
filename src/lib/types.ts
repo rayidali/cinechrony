@@ -92,6 +92,10 @@ export type MovieList = {
   collaboratorIds?: string[]; // Users who can edit this list (max 10 total including owner)
   coverImageUrl?: string; // Optional custom cover image for the list
   movieCount?: number; // Cached count of movies in the list
+  // Likes — server-managed (likeList/unlikeList only). Public lists can be liked.
+  likes?: number;
+  likedBy?: string[];
+  lastLikedAt?: Date; // Recency anchor for the loved-lists showcase ranking
 };
 
 // List member role
@@ -287,7 +291,13 @@ export type UserRating = {
 };
 
 // Notification types
-export type NotificationType = 'mention' | 'reply' | 'follow' | 'like' | 'list_invite';
+export type NotificationType =
+  | 'mention'
+  | 'reply'
+  | 'follow'
+  | 'like'
+  | 'list_invite'
+  | 'list_like'; // Someone liked one of your public lists
 
 // Notification
 export type Notification = {

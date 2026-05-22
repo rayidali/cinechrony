@@ -122,8 +122,14 @@ service cloud.firestore {
                  resource.data.collaboratorIds.hasAny([request.auth.uid]);
         }
 
-        // Owner can do anything
-        allow read, write: if isOwner(userId);
+        // Owner: full read, create/delete. Updates are allowed for everything
+        // EXCEPT the server-managed like fields — likes/likedBy/lastLikedAt are
+        // written only by the likeList/unlikeList server actions (Admin SDK),
+        // so the owner can't inflate their own list's like count.
+        allow read, create, delete: if isOwner(userId);
+        allow update: if isOwner(userId)
+          && !request.resource.data.diff(resource.data)
+                .affectedKeys().hasAny(['likes', 'likedBy', 'lastLikedAt']);
 
         // Public lists can be read by anyone
         allow read: if resource.data.isPublic == true;
