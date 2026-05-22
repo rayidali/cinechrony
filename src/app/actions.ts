@@ -1578,6 +1578,146 @@ export async function getUserPublicLists(userId: string) {
 }
 
 /**
+ * A public list rendered as a discovery card (showcase + list search).
+ */
+export type LovedListCard = {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerUsername: string | null;
+  ownerDisplayName: string | null;
+  coverImageUrl: string;
+  movieCount: number;
+  likes: number;
+  previewPosters: string[];
+};
+
+/**
+ * Turn raw list docs into discovery cards — batch-fetches owner profiles and
+ * up to 4 preview posters per list. Shared by getLovedLists + searchPublicLists.
+ */
+async function hydrateListCards(
+  db: FirebaseFirestore.Firestore,
+  docs: FirebaseFirestore.QueryDocumentSnapshot[],
+): Promise<LovedListCard[]> {
+  const ownerIds = [...new Set(docs.map((d) => d.data().ownerId).filter(Boolean))];
+  const ownerDocs = ownerIds.length
+    ? await db.getAll(...ownerIds.map((id) => db.collection('users').doc(id)))
+    : [];
+  const ownerById = new Map(ownerDocs.map((s) => [s.id, s.data()]));
+
+  return Promise.all(
+    docs.map(async (doc) => {
+      const d = doc.data();
+      const ownerId: string = d.ownerId;
+      const owner = ownerById.get(ownerId);
+      const moviesSnap = await db
+        .collection('users').doc(ownerId)
+        .collection('lists').doc(doc.id)
+        .collection('movies')
+        .orderBy('createdAt', 'desc')
+        .limit(4)
+        .get();
+      const previewPosters: string[] = [];
+      moviesSnap.forEach((m) => {
+        const p = m.data().posterUrl;
+        if (typeof p === 'string' && p) previewPosters.push(p);
+      });
+      return {
+        id: doc.id,
+        name: d.name || 'untitled list',
+        ownerId,
+        ownerUsername: owner?.username || null,
+        ownerDisplayName: owner?.displayName || null,
+        coverImageUrl: d.coverImageUrl || '',
+        movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
+        likes: d.likes || 0,
+        previewPosters,
+      };
+    }),
+  );
+}
+
+/**
+ * The loved-lists showcase (LAUNCH 0.5.2).
+ *
+ * Collection-group query over every public list, candidate set ordered by raw
+ * `likes`, then re-ranked in memory by a recency-weighted "hot" score so a list
+ * that camped the top months ago can't ossify there. Editorial — not a
+ * leaderboard, no ranks.
+ *
+ * Cold-start gated: returns `{ lists: [], gated: true }` until at least
+ * MIN_LOVED_LISTS public lists have been liked, so it never renders empty.
+ */
+export async function getLovedLists(limit = 12) {
+  const MIN_LOVED_LISTS = 3;
+  const db = getDb();
+  try {
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .where('likes', '>', 0)
+      .orderBy('likes', 'desc')
+      .limit(60)
+      .get();
+
+    if (snap.size < MIN_LOVED_LISTS) {
+      return { lists: [] as LovedListCard[], gated: true };
+    }
+
+    const now = Date.now();
+    const ranked = snap.docs
+      .map((doc) => {
+        const d = doc.data();
+        const likes: number = d.likes || 0;
+        const lastMs =
+          d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
+        const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
+        // Recency-weighted: likes decay as a list goes quiet.
+        return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((r) => r.doc);
+
+    const lists = await hydrateListCards(db, ranked);
+    return { lists, gated: false };
+  } catch (error) {
+    console.error('[getLovedLists] Failed:', error);
+    return { lists: [] as LovedListCard[], gated: false, error: 'Failed to load loved lists.' };
+  }
+}
+
+/**
+ * Search public lists by name (LAUNCH 0.5.3 — the Home search overlay).
+ *
+ * In-memory substring match over the public-list collection group. Fine while
+ * the dataset is small (the launch-plan's stated approach); swap to a
+ * `nameLower` prefix index if list volume grows.
+ */
+export async function searchPublicLists(query: string, limit = 12) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return { lists: [] as LovedListCard[] };
+  const db = getDb();
+  try {
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .limit(150)
+      .get();
+    const matches = snap.docs
+      .filter((doc) => String(doc.data().name || '').toLowerCase().includes(q))
+      .sort((a, b) => (b.data().likes || 0) - (a.data().likes || 0))
+      .slice(0, limit);
+    const lists = await hydrateListCards(db, matches);
+    return { lists };
+  } catch (error) {
+    console.error('[searchPublicLists] Failed:', error);
+    return { lists: [] as LovedListCard[], error: 'Failed to search lists.' };
+  }
+}
+
+/**
  * Get movies from a list.
  * Allows access if: list is public, viewer is owner, or viewer is collaborator.
  */

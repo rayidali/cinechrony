@@ -8,7 +8,7 @@ import { getFollowing } from '@/app/actions';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
-import { TrendingMovies } from '@/components/trending-movies';
+import { TrendingStrip } from '@/components/trending-strip';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -128,8 +128,8 @@ export default function HomePage() {
               </h1>
             </div>
 
-            {/* Trending strip */}
-            <TrendingMovies />
+            {/* Trending strip — films + loved lists, mixed */}
+            <TrendingStrip />
 
             {/* The feed */}
             <div className="mb-4">

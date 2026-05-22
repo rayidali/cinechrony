@@ -3,8 +3,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { ChevronLeft, Search, Loader2, X, Film, Tv } from 'lucide-react';
-import { searchUsers } from '@/app/actions';
+import { ChevronLeft, Search, Loader2, X, Film, Tv, ListVideo } from 'lucide-react';
+import { searchUsers, searchPublicLists, type LovedListCard } from '@/app/actions';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { useUser } from '@/firebase';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -32,6 +32,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
   const [query, setQuery] = useState('');
   const [films, setFilms] = useState<SearchResult[]>([]);
   const [people, setPeople] = useState<UserProfile[]>([]);
+  const [lists, setLists] = useState<LovedListCard[]>([]);
   const [isSearching, setIsSearching] = useState(false);
 
   // Film detail modal
@@ -55,6 +56,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
       setQuery('');
       setFilms([]);
       setPeople([]);
+      setLists([]);
     }
   }, [isOpen]);
 
@@ -62,12 +64,14 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
     async (q: string) => {
       setIsSearching(true);
       try {
-        const [filmResults, peopleResults] = await Promise.all([
+        const [filmResults, peopleResults, listResults] = await Promise.all([
           searchTmdbMulti(q),
           user ? searchUsers(q, user.uid) : Promise.resolve({ users: [] as UserProfile[] }),
+          searchPublicLists(q),
         ]);
         setFilms(filmResults);
         setPeople(peopleResults.users ?? []);
+        setLists(listResults.lists ?? []);
       } catch (error) {
         console.error('[search] failed:', error);
       } finally {
@@ -83,6 +87,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
     if (q.length < 2) {
       setFilms([]);
       setPeople([]);
+      setLists([]);
       setIsSearching(false);
       return;
     }
@@ -113,10 +118,17 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
     router.push(`/profile/${username}`);
   };
 
+  const openList = (list: LovedListCard) => {
+    if (!list.ownerUsername) return;
+    onClose();
+    router.push(`/profile/${list.ownerUsername}/lists/${list.id}`);
+  };
+
   if (!isOpen) return null;
 
   const hasQuery = query.trim().length >= 2;
-  const isEmpty = hasQuery && !isSearching && films.length === 0 && people.length === 0;
+  const noResults = films.length === 0 && people.length === 0 && lists.length === 0;
+  const isEmpty = hasQuery && !isSearching && noResults;
 
   return (
     <>
@@ -139,7 +151,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
               ref={inputRef}
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="films, tv, friends…"
+              placeholder="films, friends, lists…"
               className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm text-foreground placeholder:text-muted-foreground"
               autoComplete="off"
               autoCorrect="off"
@@ -166,7 +178,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
                 find a film, a show, or someone to follow.
               </p>
             </div>
-          ) : isSearching && films.length === 0 && people.length === 0 ? (
+          ) : isSearching && noResults ? (
             <div className="flex justify-center pt-28">
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
@@ -248,6 +260,49 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
                         </button>
                       </li>
                     ))}
+                  </ul>
+                </section>
+              )}
+
+              {lists.length > 0 && (
+                <section className="pt-7">
+                  <div className="cc-eyebrow">lists</div>
+                  <div className="h-px bg-border mt-2.5 mb-1.5" />
+                  <ul>
+                    {lists.map((list) => {
+                      const cover = list.coverImageUrl || list.previewPosters[0];
+                      return (
+                        <li key={list.id}>
+                          <button
+                            onClick={() => openList(list)}
+                            className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60 transition-opacity"
+                          >
+                            <div className="flex-shrink-0 h-11 w-11 rounded-lg overflow-hidden border border-border bg-muted flex items-center justify-center">
+                              {cover ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={cover} alt="" className="w-full h-full object-cover" />
+                              ) : (
+                                <ListVideo className="h-4 w-4 text-muted-foreground" strokeWidth={1.6} />
+                              )}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
+                                {list.name}
+                              </p>
+                              <p className="cc-meta text-[11px] text-muted-foreground truncate">
+                                {list.ownerUsername ? `@${list.ownerUsername}` : 'a curator'} ·{' '}
+                                {list.movieCount} {list.movieCount === 1 ? 'film' : 'films'}
+                              </p>
+                            </div>
+                            {list.likes > 0 && (
+                              <span className="cc-meta text-[10px] text-muted-foreground flex-shrink-0">
+                                {list.likes} {list.likes === 1 ? 'like' : 'likes'}
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </section>
               )}
