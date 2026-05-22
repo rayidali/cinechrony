@@ -6137,9 +6137,10 @@ export type RecommendationSet = {
 /**
  * "For you" recommendation sets for the home feed.
  *
- * Bases each set on one of the viewer's most-recent loved films (rating >= 8)
- * and pulls TMDB recommendations off it. Up to 3 sets so the feed can re-fire
- * "if you liked X" with a different basis film every few cards.
+ * Bases each set on a film the viewer rated, preferring loved films
+ * (>= 8) but tiering down so anyone with rating history gets recommendations:
+ * loved (>= 8, up to 3) → liked (>= 6.5, up to 2) → the single most-recent
+ * rating. Each set is TMDB recommendations off that basis film.
  */
 export async function getRecommendationsForUser(
   idToken: string,
@@ -6150,15 +6151,19 @@ export async function getRecommendationsForUser(
 
   try {
     const { ratings } = await getUserRatings(userId, 40);
+    // getUserRatings is ordered by updatedAt desc, so this stays recency-first.
     const seen = new Set<number>();
-    const bases = (ratings || [])
-      .filter((r) => typeof r.rating === 'number' && r.rating >= 8 && !!r.tmdbId)
-      .filter((r) => {
-        if (seen.has(r.tmdbId)) return false;
-        seen.add(r.tmdbId);
-        return true;
-      })
-      .slice(0, 3);
+    const rated = (ratings || []).filter((r) => {
+      if (typeof r.rating !== 'number' || !r.tmdbId || seen.has(r.tmdbId)) return false;
+      seen.add(r.tmdbId);
+      return true;
+    });
+
+    // Tiered: loved → liked → whatever's most recent. The feature stays alive
+    // for cautious raters who rarely hand out an 8.
+    let bases = rated.filter((r) => r.rating >= 8).slice(0, 3);
+    if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
+    if (bases.length === 0) bases = rated.slice(0, 1);
 
     if (bases.length === 0) return { sets: [] };
 
