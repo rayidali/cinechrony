@@ -287,3 +287,17 @@ RootLayout (layout.tsx)
 2. **Real-time Queries**: Must use `useMemoFirebase` for stable references
 3. **Server Actions**: Return `{ error }` or `{ success, data }` pattern
 4. **Revalidation**: Call `revalidatePath()` after mutations if using RSC
+
+---
+
+## Home / Discover Rebuild (Phase 0.5 — May 2026)
+
+- **Bottom nav is 3 tabs** — `home · lists · profile`. The `/add` route still
+  exists but is out of nav; search is the header overlay on `/home`.
+- **`/home`** rebuilt — topbar, search trigger, filter pills, editorial title,
+  trending strip, the merged feed (activities + user posts), the post FAB.
+- **`/post/[postId]`** (new) — a user post + its 1-level comment thread + a
+  sticky composer.
+- New server actions live in `actions.ts` under the USER POSTS, POST COMMENTS,
+  BOOKMARKS, MUTE, BLOCK, and FRIENDS ARE WATCHING sections. See the root
+  `CLAUDE.md` "Home / Discover Rebuild" section for the full list.

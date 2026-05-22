@@ -441,3 +441,30 @@ Features:
 5. Use `cn()` for conditional classes
 6. Follow neo-brutalist styling conventions
 7. Test on iOS Safari if using modals/inputs
+
+---
+
+## Home / Discover Rebuild Components (May 2026)
+
+New components from the Phase 0.5 rebuild:
+
+- `search-overlay.tsx` — fullscreen search (films/TV via TMDB, people, lists).
+- `filter-pills.tsx` — the home feed filter row (`all · saved · friends · for you · trending`).
+- `trending-strip.tsx` — TRENDING NOW: trending films + loved-list mini-cards, mixed.
+- `list-like-button.tsx` — like a public list (detail + cover variants).
+- `similar-movies-row.tsx` — "more like this" on the movie-detail modals.
+- `recommendation-card.tsx` — "if you liked X" feed card (per-poster `+ to a list`).
+- `add-to-list-sheet.tsx` — the shared "which list?" bottom sheet.
+- `friends-watching-card.tsx` — the aggregated "your circle is watching" hero card.
+- `card-overflow-menu.tsx` — the per-card ⋯ Vaul action sheet.
+- `bookmark-button.tsx` — the save toggle (fills sage when saved).
+- `post-card.tsx` — a user post in the feed.
+- `post-composer.tsx` — fullscreen post composer (image+video upload, drafts).
+- `post-fab.tsx` — the film-red post FAB (tap → composer, long-press → action sheet).
+- `profile-overflow-menu.tsx` — block / report on another user's profile.
+- `blocked-users-section.tsx` — the Settings unblock list.
+
+`activity-feed.tsx` is now the unified home feed — it consumes a `FeedItem[]`
+(activities + posts) from `getHomeFeed`/`getSavedFeed` and interleaves
+recommendation + friends-watching cards. `trending-movies.tsx` was removed
+(superseded by `trending-strip.tsx`). `<Fab>` gained `onLongPress`.

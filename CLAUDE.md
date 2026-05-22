@@ -540,3 +540,48 @@ See `firestore.rules` for complete rules. Key principles:
 - Uses non-passive touch event listeners to allow `preventDefault()`
 - Added `disabled` prop for when modals are open
 - Now available on all main pages: Home, Lists, Individual List, Profile, Notifications
+
+---
+
+## Home / Discover Rebuild — Phase 0.5 (May 2026)
+
+Branch `feat/home-discover-rebuild`. The home page was rebuilt as the unified
+editorial feed and the bottom nav cut to **3 tabs** (`home · lists · profile`)
+— the `/add` search tab is retired (search is a header overlay; `/add` still
+works as a route but is out of nav).
+
+### New collections / fields
+- **`/posts/{postId}`** — user posts: `text`, `media[]` (image/video on R2),
+  `taggedMovie`, `taggedUserIds[]` + denormalized `taggedUsers[]`, `place`,
+  `likes`/`likedBy`, `commentCount`. Server-only. `/posts/{id}/comments/{id}` —
+  1-level threaded comments.
+- **`/blocks/{blockerId}_{blockedId}`** — block records, server-only. The
+  client gets the invisibility union via `getMyBlockContext`.
+- **`users/{uid}/bookmarks/{type}_{id}`** — the saved archive (owner-read).
+- **`users/{uid}/mutes/{mutedId}`** — muted users (owner-read).
+- List docs gained `likes` / `likedBy` / `lastLikedAt` (server-managed —
+  `firestore.rules` blocks the owner from editing them).
+
+### Key server actions (`src/app/actions.ts`)
+- Likes: `likeList`/`unlikeList`, `likePost`/`unlikePost`, `likePostComment`.
+- Discover: `getLovedLists` (recency-weighted, cold-start gated),
+  `searchPublicLists`, `getSimilarMovies` + `getRecommendationsForUser` (TMDB),
+  `getFriendsWatching`.
+- Feed: `getHomeFeed` (merges /activities + /posts, timestamp cursor, block
+  filtered), `getSavedFeed`.
+- Posts: `getPostMediaUploadUrl` (presigned R2 PUT — images + video ≤200MB),
+  `createPost`/`updatePost`/`deletePost`, `createPostComment` + friends.
+- Safety: `blockUser`/`unblockUser`/`getMyBlockContext`, `muteUser`/`unmuteUser`,
+  `saveItem`/`unsaveItem`.
+
+### New cache providers (`src/contexts/`)
+`UserBookmarksCacheProvider`, `UserMutesCacheProvider`, `UserBlocksCacheProvider`
+— each loads its set once for O(1) lookup, mirroring `UserRatingsCacheProvider`.
+
+### Notes
+- The `nearby` feed pill was dropped (needs GPS, which `LAUNCH.md` forbids).
+  Five pills ship: `all · saved · friends · for you · trending`.
+- All audit tests green (126/126) — the redesign did not regress the
+  security suite. New tests: `scripts/audit-tests/17`–`25`.
+
+*Last updated: May 2026*
