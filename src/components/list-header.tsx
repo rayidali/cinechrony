@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { Loader2, Pencil } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { ListLikeButton } from '@/components/list-like-button';
 import { useUser } from '@/firebase';
 import { getListMembers } from '@/app/actions';
 import { useListMembersCache } from '@/contexts/list-members-cache';
@@ -90,13 +91,9 @@ export function ListHeader({
 
   return (
     <div className="flex flex-col">
-      {/* Editorial title block — eyebrow → hairline → lowercase display title.
-          Members can't like their own list, but they see the count here. */}
+      {/* Editorial title block — eyebrow → hairline → lowercase display title. */}
       <div className="cc-eyebrow">
         {listData?.isPublic ? 'PUBLIC LIST' : 'PRIVATE LIST'}
-        {listData?.isPublic && (listData?.likes ?? 0) > 0
-          ? ` · ${listData.likes} ${listData.likes === 1 ? 'LIKE' : 'LIKES'}`
-          : ''}
       </div>
       <div className="h-px bg-border my-3" />
       <div className="flex items-start justify-between gap-3">
@@ -120,6 +117,19 @@ export function ListHeader({
         <p className="cc-lead text-[17px] mt-3 max-w-xl">
           {listData.description}
         </p>
+      )}
+
+      {/* Like count — read-only for members; a stale like stays removable. */}
+      {listData?.isPublic && (
+        <div className="mt-4">
+          <ListLikeButton
+            listOwnerId={listOwnerId}
+            listId={listId}
+            collaboratorIds={listData.collaboratorIds}
+            initialLikes={listData.likes ?? 0}
+            initialLikedBy={listData.likedBy ?? []}
+          />
+        </div>
       )}
 
       {/* Tappable Collaborator Bar */}

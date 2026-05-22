@@ -22,8 +22,9 @@ type ListLikeButtonProps = {
  * Like / unlike a public list (LAUNCH 0.5.1).
  *
  * Optimistic toggle — the heart fills sage when liked. A like is an outside
- * endorsement, so it's read-only for the list's own members (owner OR
- * collaborator) and for signed-out viewers — they still see the count.
+ * endorsement, so a list's own members (owner OR collaborator) can't ADD a
+ * like — but if they have a stale one they CAN remove it (self-healing).
+ * Signed-out viewers just see the count.
  */
 export function ListLikeButton({
   listOwnerId,
@@ -46,7 +47,9 @@ export function ListLikeButton({
   const isMember =
     !!user &&
     (user.uid === listOwnerId || (collaboratorIds ?? []).includes(user.uid));
-  const disabled = !user || isMember || isPending;
+  // Members can't add a like, but can remove a stale one — so they're only
+  // blocked when they aren't currently liking it.
+  const disabled = !user || isPending || (isMember && !isLiked);
 
   const handleToggle = () => {
     if (disabled) return;

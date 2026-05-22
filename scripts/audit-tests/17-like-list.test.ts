@@ -128,6 +128,22 @@ test('list members (owner + collaborator) cannot like their own list', async () 
   });
 });
 
+test('a member can still remove a stale like (self-heal)', async () => {
+  // alice collaborates on bob's list AND has a leftover like in likedBy.
+  await adminDb()
+    .collection('users').doc(bob.uid)
+    .collection('lists').doc('STALE')
+    .set({
+      id: 'STALE', name: 'stale', ownerId: bob.uid, isPublic: true,
+      likes: 1, likedBy: [alice.uid], collaboratorIds: [alice.uid],
+    });
+  const res = await callActionAs(alice, unlikeList, bob.uid, 'STALE');
+  assert.equal(res.success, true);
+  const d = await listDoc(bob.uid, 'STALE');
+  assert.equal(d?.likes, 0);
+  assert.deepEqual(d?.likedBy, []);
+});
+
 test('the shared `like` rate-limit bucket trips', async () => {
   // 60 likes/60s — alice likes bob's lists (she's not a member of any).
   const COUNT = 62;
