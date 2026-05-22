@@ -44,6 +44,126 @@
 
 ---
 
+## Phase 0.5 — Discover: liked lists + the home/search merge
+
+> **Pulled forward to pre-launch** (owner's call — works soon, after Phase 0).
+> Cinechrony has no way to surface great *lists* or new *people* outside your
+> follow graph. Three connected pieces: liking public lists, an editorial
+> showcase of loved lists, and merging home + search into one **Discover**
+> page that houses it. Can run alongside / just before Phase A.
+>
+> **Brand guardrail:** this is a *showcase*, not a leaderboard. The design
+> system explicitly rejects gamification — no #1/#2 ranks, no trophies, no
+> XP. Frame it editorially ("loved this week"), the way a magazine runs a
+> "what we're into" page. Cinechrony surfaces great lists; it doesn't crown
+> winners.
+
+### 0.5.1 — Like public lists
+
+- [ ] **0.5.1.1** Data: add `likes` (number) + `likedBy` (string[]) to the
+  list document — mirror the existing review/activity like shape.
+- [ ] **0.5.1.2** Server actions `likeList` / `unlikeList` — clone the
+  `likeReview` / `likeActivity` pattern: `verifyCaller`, transactional count
+  update, reuse the `like` rate-limit key. Only public lists are likeable.
+- [ ] **0.5.1.3** `firestore.rules`: `likes` / `likedBy` are server-only
+  writes (same as reviews/activities) — clients can't tamper with counts.
+- [ ] **0.5.1.4** UI: a heart on the public list view + the list cover card.
+  Optimistic toggle, fills sage when liked (matches the v2 like treatment).
+- [ ] **0.5.1.5** Notification to the list owner — new `list_like`
+  notification type, reuses the existing notification system.
+- [ ] **0.5.1.6 — Test:** like / unlike as an authed user; forged token
+  rejected; count holds under a concurrent burst; private lists not likeable;
+  rate limit trips. Add to `scripts/audit-tests/`.
+
+### 0.5.2 — The loved-lists showcase
+
+- [ ] **0.5.2.1** Rank by a **recency-weighted trending score**, not all-time
+  cumulative likes — otherwise the first popular list camps the top forever
+  and nothing new breaks in. Likes decay with age (the HN/Reddit "hot"
+  formula). Store `trendingScore` on the list, recomputed by a small
+  scheduled job — or on read while the dataset is small.
+- [ ] **0.5.2.2** Editorial presentation — a wall of `THE COLLECTION · loved
+  this week` covers, no numbered ranks. Tap a cover → the public list; tap
+  the curator → their profile (people-discovery is the real payoff — it
+  grows the follow graph).
+- [ ] **0.5.2.3** **Cold-start gate:** don't render the showcase into an empty
+  room. Gate it behind a minimum (e.g. ≥ N public lists with ≥ 1 like) so it
+  never looks dead at launch. Liking (0.5.1) ships regardless — it works fine
+  small.
+- [ ] **0.5.2.4 — Test:** showcase returns only public lists, ordered by
+  trending score; the gate hides it below threshold; mass self-likes have
+  limited payoff thanks to decay + rate limiting.
+
+### 0.5.3 — Merge home + search → one Discover page
+
+- [ ] **0.5.3.1** Collapse `/home` and `/add` (search) into a single
+  **Discover** surface: search field at the top, then trending movies, the
+  loved-lists showcase, and the activity feed — one destination for "what
+  should we watch?".
+- [ ] **0.5.3.2** Re-decide the bottom nav. `/add` was the search tab; with
+  search folded into Discover that slot frees up — pick the 4 nav slots
+  deliberately (Discover · Lists · ? · Profile).
+- [ ] **0.5.3.3** Keep the Phase 0 editorial composition — eyebrow → hairline
+  → lowercase section titles (`NOW SHOWING`, `THE COLLECTION`, `THE FEED`).
+- [ ] **0.5.3.4 — Test:** search still works end-to-end; trending + showcase
+  + feed all load; bottom nav routes correctly; pull-to-refresh intact.
+
+### 0.5.4 — User posts in the feed (the Beli-style update)
+
+> The biggest piece of this phase. Today the activity feed is only *system
+> events* (added / rated / watched / reviewed). This adds a **user-authored
+> post** — free text + photos + an optional movie tag, friend tags ("watched
+> with @x and @y") and an optional place. A short Beli/Twitter-style update,
+> anchored to a film.
+
+- [ ] **0.5.4.1** Data: a post document — `authorId`, `text`, `imageUrls[]`,
+  `taggedMovie` (tmdbId + title + poster), `taggedUserIds[]`, `place`
+  (freeform string, optional), `createdAt`, `likes` / `likedBy`. Decide: a
+  new `/posts` collection the feed query merges in, or a `type: 'posted'` on
+  `/activities`. Keep author fields denormalized (the project's N+1 pattern).
+- [ ] **0.5.4.2** Composer — full-screen, editorial: serif text area,
+  multi-photo picker (reuse the R2 upload path from `uploadAvatar` /
+  `uploadListCover`), a movie-tag search (reuse TMDB search), a friend tagger
+  (reuse `searchUsers`), an optional `place` field.
+- [ ] **0.5.4.3** Anchor posts to a film — strongly encourage the movie tag.
+  A post with no film is just a tweet; with one it's a Cinechrony post. The
+  card leads with the tagged poster.
+- [ ] **0.5.4.4** Feed rendering — a distinct, larger post card alongside the
+  small system-activity cards: avatar + name + place + time, photos, serif
+  text, the tagged movie, tagged friends as chips. Likes; comments reuse the
+  review/threading system (or likes-only for v1, comments next).
+- [ ] **0.5.4.5** Tagged friends get a notification ("@x tagged you in a
+  post") — reuses the notification system. Compose entry point (FAB) on the
+  Discover page.
+- [ ] **0.5.4.6 — Test:** create a post (text only / with photos / with movie
+  + friend tags / with place); appears in the feed; tagged users notified;
+  like works; forged token can't post; post is reportable; a blocked
+  author's posts are hidden. Add to `scripts/audit-tests/`.
+
+> **Location — read this.** `UX_PATTERNS.md` explicitly says the feed has
+> **no location data** ("Cinechrony is not a location-aware app"). Honour the
+> spirit: `place` is an **optional freeform line** ("at the prince charles
+> cinema") — **not** GPS, not a map, not distance/proximity, not "people near
+> you." A typed venue is a nice social detail; a location-aware app is a
+> different product. Owner to confirm this reading.
+>
+> **Moderation is now a hard dependency.** Free-form text + photos is real
+> UGC — it raises the App Store §1.2 bar well above today's structured
+> activity. Before posts ship: posts must be **reportable** (extend
+> `reportContent`) and authors **blockable** — that is **D.0.1**, which must
+> be promoted out of Phase D. **Posts and D.0.1 ship together or not at all.**
+
+### Don't
+
+- ❌ A numbered/ranked leaderboard with trophies or "#1" — editorial showcase only.
+- ❌ Rank by all-time cumulative likes (it ossifies).
+- ❌ Ship the showcase before there's content to fill it.
+- ❌ Invent a new like data model — reuse the review/activity like shape.
+- ❌ Ship user posts before D.0.1 (report + block) is in place.
+- ❌ GPS / maps / distance for `place` — freeform text only.
+
+---
+
 ## How we test (carries over from `AUDIT.md`)
 
 Same conventions as the audit tracker:
@@ -419,9 +539,9 @@ Same conventions as the audit tracker:
 
 | Week | Primary work | Parallel |
 |------|--------------|----------|
-| 1 | Phase 0.1-0.2 (UI direction locked + design system codified) | E.1-E.2 (account setup) |
-| 2-3 | Phase 0.3-0.4 (screen-by-screen redesign + QA) | E.1-E.2 (account setup) |
-| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | — |
+| — | Phase 0 — UI redesign (scope B) + UX patterns · **done, merged to main** | — |
+| 1-3 | Phase 0.5 — Discover (liked lists + showcase + user posts + home/search merge) | E.1-E.2 (account setup) |
+| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | E.1-E.2 (account setup) |
 | 6 | Phase A.4-A.5 (client migration + static export) | E.3 (n8n) |
 | 7 | Phase B (Capacitor wrap) | E.3 (n8n) |
 | 8-9 | Phase C.1-C.3 (Share Extension + AI) | E.4-E.5 (Remotion + pipeline) |
@@ -431,7 +551,7 @@ Same conventions as the audit tracker:
 | 13 | Apple review iterations | — |
 | 14 | **Launch** | — |
 
-~**14 weeks** if everything goes smoothly. Add 2-4 weeks of buffer for Apple review cycles + Swift learning curve + the unexpected. The redesign adds ~3 weeks up front — that's the cost of scope B; it pays for itself by C.7 and D not rebuilding UI.
+~**14 weeks** of remaining work. Phase 0 (the redesign) is done and merged. Phase 0.5 adds ~3 weeks of discovery work pre-launch — user posts (0.5.4) is the heavy part, and it carries D.0.1 (report + block) with it. Add 2-4 weeks of buffer for Apple review cycles + the Swift learning curve + the unexpected.
 
 ---
 
@@ -441,3 +561,6 @@ Same conventions as the audit tracker:
 |------|-------|------|-------|
 | 2026-05-15 | — | Plan | Launch plan created. AUDIT.md Phase 1 still pending — must complete before Phase A starts. |
 | 2026-05-21 | 0 | Plan | Added Phase 0 — full UI redesign (scope B), sequenced first. AUDIT.md Phases 0-2 complete; redesign now leads the launch. |
+| 2026-05-21 | 0 | Done | Phase 0 implemented in full — v2 editorial-cinema redesign + the UX patterns (movie detail, activity feed, notes, profile, comments, add, discover surfaces). Merged to main (PR #77). |
+| 2026-05-21 | 0.5 | Plan | Added Phase 0.5 — Discover: liked public lists + an editorial loved-lists showcase + merging home/search into one Discover page. Pulled forward to pre-launch. |
+| 2026-05-21 | 0.5 | Plan | Added 0.5.4 — user posts in the feed (Beli-style: text + photos + movie/friend tags + optional freeform place). Makes D.0.1 (report + block) a hard dependency — posts and D.0.1 ship together. |
