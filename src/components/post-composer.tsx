@@ -3,7 +3,6 @@
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react';
 import Image from 'next/image';
 import {
-  ChevronLeft,
   ImagePlus,
   Film,
   Users,
@@ -21,6 +20,7 @@ import {
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useToast } from '@/hooks/use-toast';
 import type { PostMedia, Post, SearchResult, UserProfile } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -68,13 +68,16 @@ type PostComposerProps = {
 };
 
 /**
- * Fullscreen post composer (LAUNCH 0.5.4) — serif text, multi image/video
- * upload (direct to R2 via presigned URLs), a movie tag, friend tags, and a
- * freeform place. Autosaves a draft to localStorage as you type.
+ * Fullscreen post composer (LAUNCH 0.5.4) — an X-style compose surface: the
+ * text area fills the screen and is focused on open (keyboard straight up),
+ * the action toolbar sits right above the keyboard. Multi image/video upload
+ * (direct to R2 via presigned URLs), a movie tag, friend tags, a freeform
+ * place. Autosaves a draft to localStorage.
  */
 export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const { user } = useUser();
   const auth = useAuth();
+  const myProfile = useUserProfile(user?.uid ?? '');
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<HTMLTextAreaElement>(null);
@@ -94,8 +97,29 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const [friendQuery, setFriendQuery] = useState('');
   const [friendResults, setFriendResults] = useState<UserProfile[]>([]);
   const [friendSearchOpen, setFriendSearchOpen] = useState(false);
+  // The composer sizes to the *visible* viewport so the action toolbar sits
+  // right above the keyboard instead of behind it.
+  const [viewportHeight, setViewportHeight] = useState('100dvh');
 
-  // Load the saved draft + lock body scroll while open.
+  // Track the visible viewport (shrinks when the keyboard opens).
+  useEffect(() => {
+    if (!isOpen) return;
+    const vv = window.visualViewport;
+    if (!vv) {
+      setViewportHeight('100dvh');
+      return;
+    }
+    const update = () => setViewportHeight(`${vv.height}px`);
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, [isOpen]);
+
+  // Load the saved draft + lock body scroll + focus the text on open.
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
@@ -111,7 +135,10 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     } catch {
       /* ignore a malformed draft */
     }
+    // Drop straight into writing — keyboard up, cursor ready.
+    const focusTimer = setTimeout(() => textRef.current?.focus(), 150);
     return () => {
+      clearTimeout(focusTimer);
       document.body.style.overflow = '';
     };
   }, [isOpen]);
@@ -289,6 +316,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     });
     setMovieSearchOpen(false);
     setMovieQuery('');
+    setTimeout(() => textRef.current?.focus(), 80);
   };
 
   const toggleFriend = (u: UserProfile) => {
@@ -301,11 +329,16 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   if (!isOpen) return null;
 
+  const searchOpen = movieSearchOpen || friendSearchOpen;
+
   return (
-    <div className="fixed inset-0 z-[70] bg-background flex flex-col animate-fade-in">
+    <div
+      className="fixed left-0 right-0 top-0 z-[70] bg-background flex flex-col animate-fade-in"
+      style={{ height: viewportHeight }}
+    >
       {/* Header */}
       <div
-        className="flex items-center justify-between px-4 border-b border-border"
+        className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
       >
         <button
@@ -313,15 +346,15 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           aria-label="Close"
           className="h-9 w-9 -ml-1.5 rounded-full flex items-center justify-center hover:bg-muted transition-colors"
         >
-          <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+          <X className="h-5 w-5" strokeWidth={1.8} />
         </button>
         <button
           onClick={handlePost}
           disabled={!canPost}
           className={cn(
-            'h-9 px-5 rounded-full font-headline font-bold text-sm lowercase tracking-tight transition-colors',
+            'h-9 px-6 rounded-full font-headline font-bold text-sm lowercase tracking-tight transition-all',
             canPost
-              ? 'bg-foreground text-background'
+              ? 'bg-primary text-white shadow-fab active:scale-[0.97]'
               : 'bg-muted text-muted-foreground cursor-not-allowed',
           )}
         >
@@ -330,199 +363,210 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto px-4 pb-24">
-        {/* author + text */}
-        <div className="flex gap-3 pt-4">
-          <ProfileAvatar
-            photoURL={user?.photoURL}
-            displayName={user?.displayName}
-            username={null}
-            size="md"
-          />
-          <textarea
-            ref={textRef}
-            value={text}
-            onChange={(e) => {
-              setText(e.target.value);
-              const el = e.target;
-              el.style.height = 'auto';
-              el.style.height = `${el.scrollHeight}px`;
-            }}
-            placeholder="what did you watch?"
-            rows={3}
-            className="flex-1 bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-relaxed placeholder:text-muted-foreground placeholder:italic mt-1"
-          />
-        </div>
-
-        {/* media grid */}
-        {media.length > 0 && (
-          <div className="grid grid-cols-3 gap-2 mt-3">
-            {media.map((m) => (
-              <div
-                key={m.id}
-                className="relative aspect-square rounded-xl overflow-hidden border border-border bg-muted"
+      <div className="flex-1 overflow-y-auto">
+        {searchOpen ? (
+          <div className="px-4">
+            {movieSearchOpen && (
+              <InlineSearch
+                placeholder="search a film…"
+                query={movieQuery}
+                onQuery={setMovieQuery}
+                onClose={() => setMovieSearchOpen(false)}
               >
-                {m.kind === 'video' ? (
-                  <video src={m.localUrl} className="w-full h-full object-cover" muted />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
-                )}
-                {m.status === 'uploading' && (
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <span className="cc-meta text-[11px] text-white">{m.progress}%</span>
-                  </div>
-                )}
-                {m.status === 'error' && (
-                  <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                    <span className="cc-meta text-[10px] text-white">failed</span>
-                  </div>
-                )}
-                <button
-                  onClick={() => removeMedia(m.id)}
-                  aria-label="Remove"
-                  className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center"
-                >
-                  <X className="h-3.5 w-3.5" strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* attached movie */}
-        {taggedMovie && (
-          <div className="flex items-center gap-3 mt-3 p-2.5 rounded-xl border border-border bg-card">
-            <div className="relative w-10 h-[60px] rounded-md overflow-hidden bg-muted flex-shrink-0">
-              {taggedMovie.posterUrl && (
-                <Image src={taggedMovie.posterUrl} alt="" fill className="object-cover" sizes="40px" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                {taggedMovie.title}
-              </p>
-              {taggedMovie.year && (
-                <p className="cc-meta text-[11px] text-muted-foreground">{taggedMovie.year}</p>
-              )}
-            </div>
-            <button
-              onClick={() => setTaggedMovie(null)}
-              aria-label="Remove film"
-              className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
-            >
-              <X className="h-4 w-4" strokeWidth={1.8} />
-            </button>
-          </div>
-        )}
-
-        {/* tagged friends */}
-        {taggedUsers.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 mt-3">
-            {taggedUsers.map((u) => (
-              <button
-                key={u.uid}
-                onClick={() => toggleFriend(u)}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px]"
+                {movieResults.map((r) => (
+                  <button
+                    key={`${r.mediaType}_${r.id}`}
+                    onClick={() => pickMovie(r)}
+                    className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
+                  >
+                    <div className="relative w-8 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
+                    </div>
+                    <span className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
+                      {r.title}
+                    </span>
+                    {r.year !== 'N/A' && (
+                      <span className="cc-meta text-[11px] text-muted-foreground ml-auto">
+                        {r.year}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </InlineSearch>
+            )}
+            {friendSearchOpen && (
+              <InlineSearch
+                placeholder="tag friends…"
+                query={friendQuery}
+                onQuery={setFriendQuery}
+                onClose={() => setFriendSearchOpen(false)}
               >
-                @{u.username || 'user'}
-                <X className="h-3 w-3" strokeWidth={2} />
-              </button>
-            ))}
+                {friendResults.map((u) => {
+                  const tagged = taggedUsers.some((x) => x.uid === u.uid);
+                  return (
+                    <button
+                      key={u.uid}
+                      onClick={() => toggleFriend(u)}
+                      className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
+                    >
+                      <ProfileAvatar
+                        photoURL={u.photoURL}
+                        displayName={u.displayName}
+                        username={u.username}
+                        size="sm"
+                      />
+                      <span className="font-headline font-semibold text-sm tracking-tight truncate">
+                        @{u.username}
+                      </span>
+                      {tagged && (
+                        <span className="cc-meta text-[10px] text-success ml-auto">tagged</span>
+                      )}
+                    </button>
+                  );
+                })}
+              </InlineSearch>
+            )}
           </div>
-        )}
-
-        {/* place */}
-        {place !== '' || taggedMovie || media.length > 0 ? (
-          <div className="flex items-center gap-2 mt-3">
-            <MapPin className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />
-            <input
-              value={place}
-              onChange={(e) => setPlace(e.target.value)}
-              placeholder="add a place (optional)"
-              className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+        ) : (
+          <div className="flex gap-3 px-4 pt-4 min-h-full">
+            <ProfileAvatar
+              photoURL={myProfile?.photoURL ?? user?.photoURL}
+              displayName={myProfile?.displayName ?? user?.displayName}
+              username={myProfile?.username ?? null}
+              size="md"
             />
-          </div>
-        ) : null}
+            <div className="flex-1 flex flex-col pb-4 min-w-0">
+              <textarea
+                ref={textRef}
+                value={text}
+                onChange={(e) => setText(e.target.value)}
+                placeholder="what did you watch?"
+                className="w-full flex-1 min-h-[140px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-relaxed placeholder:text-muted-foreground placeholder:italic"
+              />
 
-        {/* inline movie search */}
-        {movieSearchOpen && (
-          <InlineSearch
-            placeholder="search a film…"
-            query={movieQuery}
-            onQuery={setMovieQuery}
-            onClose={() => setMovieSearchOpen(false)}
-          >
-            {movieResults.map((r) => (
-              <button
-                key={`${r.mediaType}_${r.id}`}
-                onClick={() => pickMovie(r)}
-                className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
-              >
-                <div className="relative w-8 h-12 rounded overflow-hidden bg-muted flex-shrink-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
+              {/* media grid */}
+              {media.length > 0 && (
+                <div className="grid grid-cols-3 gap-2 mt-3">
+                  {media.map((m) => (
+                    <div
+                      key={m.id}
+                      className="relative aspect-square rounded-xl overflow-hidden border border-border bg-muted"
+                    >
+                      {m.kind === 'video' ? (
+                        <video src={m.localUrl} className="w-full h-full object-cover" muted />
+                      ) : (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
+                      )}
+                      {m.status === 'uploading' && (
+                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                          <span className="cc-meta text-[11px] text-white">{m.progress}%</span>
+                        </div>
+                      )}
+                      {m.status === 'error' && (
+                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                          <span className="cc-meta text-[10px] text-white">failed</span>
+                        </div>
+                      )}
+                      <button
+                        onClick={() => removeMedia(m.id)}
+                        aria-label="Remove"
+                        className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/60 text-white flex items-center justify-center"
+                      >
+                        <X className="h-3.5 w-3.5" strokeWidth={2} />
+                      </button>
+                    </div>
+                  ))}
                 </div>
-                <span className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                  {r.title}
-                </span>
-                {r.year !== 'N/A' && (
-                  <span className="cc-meta text-[11px] text-muted-foreground ml-auto">{r.year}</span>
-                )}
-              </button>
-            ))}
-          </InlineSearch>
-        )}
+              )}
 
-        {/* inline friend search */}
-        {friendSearchOpen && (
-          <InlineSearch
-            placeholder="tag friends…"
-            query={friendQuery}
-            onQuery={setFriendQuery}
-            onClose={() => setFriendSearchOpen(false)}
-          >
-            {friendResults.map((u) => {
-              const tagged = taggedUsers.some((x) => x.uid === u.uid);
-              return (
-                <button
-                  key={u.uid}
-                  onClick={() => toggleFriend(u)}
-                  className="w-full flex items-center gap-3 py-2 text-left active:opacity-60"
-                >
-                  <ProfileAvatar
-                    photoURL={u.photoURL}
-                    displayName={u.displayName}
-                    username={u.username}
-                    size="sm"
+              {/* attached movie */}
+              {taggedMovie && (
+                <div className="flex items-center gap-3 mt-3 p-2.5 rounded-xl border border-border bg-card">
+                  <div className="relative w-10 h-[60px] rounded-md overflow-hidden bg-muted flex-shrink-0">
+                    {taggedMovie.posterUrl && (
+                      <Image
+                        src={taggedMovie.posterUrl}
+                        alt=""
+                        fill
+                        className="object-cover"
+                        sizes="40px"
+                      />
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
+                      {taggedMovie.title}
+                    </p>
+                    {taggedMovie.year && (
+                      <p className="cc-meta text-[11px] text-muted-foreground">
+                        {taggedMovie.year}
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => setTaggedMovie(null)}
+                    aria-label="Remove film"
+                    className="h-7 w-7 rounded-full flex items-center justify-center text-muted-foreground hover:bg-muted"
+                  >
+                    <X className="h-4 w-4" strokeWidth={1.8} />
+                  </button>
+                </div>
+              )}
+
+              {/* tagged friends */}
+              {taggedUsers.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-3">
+                  {taggedUsers.map((u) => (
+                    <button
+                      key={u.uid}
+                      onClick={() => toggleFriend(u)}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px]"
+                    >
+                      @{u.username || 'user'}
+                      <X className="h-3 w-3" strokeWidth={2} />
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* place */}
+              {(place !== '' || taggedMovie || media.length > 0) && (
+                <div className="flex items-center gap-2 mt-3">
+                  <MapPin
+                    className="h-4 w-4 text-muted-foreground flex-shrink-0"
+                    strokeWidth={1.8}
                   />
-                  <span className="font-headline font-semibold text-sm tracking-tight truncate">
-                    @{u.username}
-                  </span>
-                  {tagged && (
-                    <span className="cc-meta text-[10px] text-success ml-auto">tagged</span>
-                  )}
-                </button>
-              );
-            })}
-          </InlineSearch>
+                  <input
+                    value={place}
+                    onChange={(e) => setPlace(e.target.value)}
+                    placeholder="add a place (optional)"
+                    className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+                  />
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Action toolbar */}
+      {/* Action toolbar — sits right above the keyboard */}
       <div
-        className="flex items-center gap-1 px-3 border-t border-border bg-background"
-        style={{ paddingTop: '0.5rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+        className="flex-shrink-0 flex items-center gap-1 px-3 border-t border-border bg-background"
+        style={{ paddingTop: '0.4rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.4rem)' }}
       >
         <ToolbarButton
           icon={ImagePlus}
           label="media"
+          active={false}
           disabled={media.length >= MAX_MEDIA}
           onClick={() => fileInputRef.current?.click()}
         />
         <ToolbarButton
           icon={Film}
           label="film"
+          active={movieSearchOpen}
           onClick={() => {
             setMovieSearchOpen((v) => !v);
             setFriendSearchOpen(false);
@@ -531,6 +575,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         <ToolbarButton
           icon={Users}
           label="friends"
+          active={friendSearchOpen}
           onClick={() => {
             setFriendSearchOpen((v) => !v);
             setMovieSearchOpen(false);
@@ -553,11 +598,13 @@ function ToolbarButton({
   icon: Icon,
   label,
   onClick,
+  active,
   disabled,
 }: {
   icon: typeof Film;
   label: string;
   onClick: () => void;
+  active?: boolean;
   disabled?: boolean;
 }) {
   return (
@@ -566,7 +613,11 @@ function ToolbarButton({
       disabled={disabled}
       className={cn(
         'flex items-center gap-1.5 px-3 py-2 rounded-full cc-meta text-[11px] lowercase transition-colors',
-        disabled ? 'text-muted-foreground/40' : 'text-muted-foreground hover:text-foreground',
+        disabled
+          ? 'text-muted-foreground/40'
+          : active
+            ? 'text-primary'
+            : 'text-muted-foreground hover:text-foreground',
       )}
     >
       <Icon className="h-4 w-4" strokeWidth={1.8} />
@@ -603,7 +654,7 @@ function InlineSearch({
           <X className="h-4 w-4" strokeWidth={1.8} />
         </button>
       </div>
-      <div className="px-3 max-h-64 overflow-y-auto">{children}</div>
+      <div className="px-3 max-h-72 overflow-y-auto">{children}</div>
     </div>
   );
 }
