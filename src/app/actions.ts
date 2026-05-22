@@ -7014,17 +7014,16 @@ export async function createPost(
   const taggedMovie = input.taggedMovie || null;
   const place = (input.place || '').trim().slice(0, 120) || null;
 
-  // v3: posts MUST be about a film. Words alone don't count.
-  if (!taggedMovie || !taggedMovie.tmdbId) {
-    return { error: 'Pin a film to post.' };
-  }
-  if (!text && media.length === 0) {
-    return { error: 'Write something or attach a photo.' };
+  // A post needs at least one of: a pinned film, text, or media.
+  // The composer still leads with "pin a film" — it's the encouraged path —
+  // but a film-less observation ("what should we watch tonight?") is allowed.
+  if (!taggedMovie && !text && media.length === 0) {
+    return { error: 'Add a few words, a photo, or a film first.' };
   }
 
-  // Validate + round the optional rating.
+  // Validate + round the optional rating. Only meaningful with a pinned film.
   let rating: number | null = null;
-  if (typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+  if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
     if (input.rating < 1 || input.rating > 10) {
       return { error: 'Rating must be between 1.0 and 10.0.' };
     }
@@ -7060,8 +7059,10 @@ export async function createPost(
     });
 
     // Unify the rating with /ratings — the post IS the user's rating event
-    // now. Done best-effort: if it fails the post still stands.
-    if (rating !== null) {
+    // now. Done best-effort: if it fails the post still stands. (Rating is
+    // gated on taggedMovie above; this `&& taggedMovie` is for the type
+    // narrower's benefit.)
+    if (rating !== null && taggedMovie) {
       try {
         const ratingId = `${userId}_${taggedMovie.tmdbId}`;
         const ratingRef = db.collection('ratings').doc(ratingId);
@@ -7182,15 +7183,12 @@ export async function updatePost(
     const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
     const taggedMovie = input.taggedMovie || null;
     const place = (input.place || '').trim().slice(0, 120) || null;
-    if (!taggedMovie || !taggedMovie.tmdbId) {
-      return { error: 'Pin a film to post.' };
-    }
-    if (!text && media.length === 0) {
-      return { error: 'Write something or attach a photo.' };
+    if (!taggedMovie && !text && media.length === 0) {
+      return { error: 'A post needs words, a photo, or a film.' };
     }
 
     let rating: number | null = null;
-    if (typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+    if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
       if (input.rating < 1 || input.rating > 10) {
         return { error: 'Rating must be between 1.0 and 10.0.' };
       }
@@ -7211,7 +7209,7 @@ export async function updatePost(
     });
 
     // Mirror createPost: a rating edit also flows into /ratings.
-    if (rating !== null) {
+    if (rating !== null && taggedMovie) {
       try {
         const ratingId = `${auth.uid}_${taggedMovie.tmdbId}`;
         const ratingRef = db.collection('ratings').doc(ratingId);

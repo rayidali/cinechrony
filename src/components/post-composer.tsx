@@ -383,7 +383,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   };
 
   const openMentionPicker = () => {
-    if (!taggedMovie) return;
     if (textRef.current) {
       lastCaretRef.current = textRef.current.selectionStart ?? text.length;
     }
@@ -431,7 +430,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   };
 
   const openLocationPicker = () => {
-    if (!taggedMovie) return;
     setTempPlace(place);
     setSheet('location');
   };
@@ -442,7 +440,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   };
 
   const openImagePicker = () => {
-    if (!taggedMovie || media.length >= MAX_MEDIA) return;
+    if (media.length >= MAX_MEDIA) return;
     fileInputRef.current?.click();
   };
 
@@ -471,14 +469,14 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   const uploading = media.some((m) => m.status === 'uploading');
   const doneMedia = media.filter((m) => m.status === 'done' && m.media);
+  // A post needs at least one of: a pinned film, text, or media.
   const canPost =
     !isPosting &&
     !uploading &&
-    !!taggedMovie &&
-    (text.trim().length > 0 || doneMedia.length > 0);
+    (!!taggedMovie || text.trim().length > 0 || doneMedia.length > 0);
 
   const handlePost = () => {
-    if (!canPost || !user || !taggedMovie) return;
+    if (!canPost || !user) return;
     setIsPosting(true);
     startTransition(async () => {
       try {
@@ -698,7 +696,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                     <span className="font-headline font-bold not-italic text-foreground">
                       pin a film
                     </span>{' '}
-                    · what&apos;s this about?
+                    · optional, but more fun
                   </p>
                 </div>
               </button>
@@ -836,23 +834,23 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           <ToolButton
             icon={ImagePlus}
             label="add a photo or video"
-            disabled={!taggedMovie || media.length >= MAX_MEDIA}
+            disabled={media.length >= MAX_MEDIA}
             onClick={openImagePicker}
           />
           <ToolButton
             icon={AtSign}
             label="tag a friend"
-            disabled={!taggedMovie}
             active={sheet === 'mention'}
             onClick={openMentionPicker}
           />
           <ToolButton
             icon={MapPin}
             label="add a place"
-            disabled={!taggedMovie}
             active={sheet === 'location'}
             onClick={openLocationPicker}
           />
+          {/* Rating is the one tool that genuinely needs a film — you can't
+              rate "nothing." It enables the moment a film is pinned. */}
           <ToolButton
             icon={Star}
             label="rate this film"
