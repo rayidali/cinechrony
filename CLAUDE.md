@@ -584,4 +584,77 @@ works as a route but is out of nav).
 - All audit tests green (126/126) — the redesign did not regress the
   security suite. New tests: `scripts/audit-tests/17`–`25`.
 
+---
+
+## v3 "editorial cinema" polish (May 2026, late)
+
+Post-Phase-0.5 polish layered on top of the Discover rebuild. The post
+composer, new-list creator, and `/movie/[tmdbId]/comments` page were
+rebuilt to the v3 spec (see the Design System section above). Behavior
+changes worth knowing:
+
+- **Pinning a film on a post is optional.** `createPost` accepts any of
+  text / media / film; `rating` is only honored when a film is pinned
+  and upserts `/ratings/{userId}_{tmdbId}` server-side.
+- **List covers — `coverMode: 'auto' | 'custom'`** on `MovieList`. `auto`
+  means the cover is the 3-poster mosaic of the first films; `custom`
+  means a `coverImageUrl` was uploaded. Render sites (list-card,
+  profile-list-card, trending-strip, search-overlay) all respect this.
+- **`hasSpoiler` on `Review`** with a tap-to-reveal shield in the review
+  card. Set from a toggle in the comments-page composer.
+- The v1 yellow brutalist `theme_color` was retired in `public/manifest.json`
+  (now newsprint cream) AND mirrored as a Next 15 `viewport.themeColor`
+  export in `src/app/layout.tsx` so the iOS PWA URL-bar tint matches the
+  cream page surface from the first paint.
+
+---
+
+## Modal back-navigation contract (May 2026, late)
+
+`/movie/[tmdbId]/comments` builds its "back" navigation off two URL
+params — `returnPath` and `returnMovieId` — and lands the user at
+`<returnPath>?openMovie=<id>`. The destination page is expected to
+reopen the modal in response. Three pieces had to land for that to
+work robustly across every route + iOS PWA:
+
+### 1. Fresh-mount key on every modal call site
+Every `<PublicMovieDetailsModal>` / `<MovieDetailsModal>` is rendered
+with `key={selectedMovie?.id ?? 'no-movie-open'}` so reopening yields a
+clean React instance rather than reviving stale `useState` from the
+router cache.
+
+### 2. Module-level TMDB cache — `src/lib/tmdb-details-cache.ts`
+iOS PWA silently aborts inflight `fetch()` calls during the back-nav
+transition window, which was leaving the second open with no
+`mediaDetails` (and an empty "more like this" strip). The cache parks
+both payloads at the JS module level — survives React component
+remounts AND SPA page navigations. Second open is a synchronous hit.
+
+- `getCachedDetails(mediaType, tmdbId)` / `getMovieOrTVDetails(...)` for
+  the detail payload (used by `movie-details-modal.tsx` and
+  `public-movie-details-modal.tsx`).
+- `getCachedSimilar(mediaType, tmdbId)` / `getSimilarWithCache(...)` for
+  the "more like this" row (used by `similar-movies-row.tsx`). Only
+  non-empty results are cached — an empty array on this endpoint is
+  almost always a transport miss, not real "no recs."
+
+### 3. `MovieModalProvider` — `src/contexts/movie-modal-context.tsx`
+Pages where the modal is opened from multiple tiles (`/home`,
+`/post/[postId]`) couldn't honor the `openMovie` return contract because
+no single component owned the modal. The provider hoists one shared
+`<PublicMovieDetailsModal>` to the page level; descendants call
+`useMovieModal().openMovie(movie)`; on open, the full Movie is written
+to `sessionStorage` keyed by id; an effect watches `?openMovie=` and
+rehydrates from sessionStorage on return.
+
+**Adding a route that opens the movie modal:**
+- Single tile / centralized modal → render `<PublicMovieDetailsModal>`
+  directly with `key={selectedMovie?.id}` and own the `openMovie` effect.
+  Examples: `MovieList` (`/lists/[listId]`),
+  `/profile/[username]/lists/[listId]`.
+- Multiple tiles → wrap the page in
+  `<MovieModalProvider returnPath="/yourpath">`; tiles call
+  `useMovieModal().openMovie(movie)`. The provider handles the return
+  flow. Examples: `/home`, `/post/[postId]`.
+
 *Last updated: May 2026*

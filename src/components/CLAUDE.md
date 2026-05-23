@@ -468,3 +468,40 @@ New components from the Phase 0.5 rebuild:
 (activities + posts) from `getHomeFeed`/`getSavedFeed` and interleaves
 recommendation + friends-watching cards. `trending-movies.tsx` was removed
 (superseded by `trending-strip.tsx`). `<Fab>` gained `onLongPress`.
+
+---
+
+## Modal back-nav architecture (May 2026, late)
+
+The owned-list and public-list detail modals (`movie-details-modal.tsx`,
+`public-movie-details-modal.tsx`) live behind two new pieces that make
+the `/movie/[tmdbId]/comments` round-trip survive iOS PWA's back-nav
+fetch aborts AND work across multi-tile pages like `/home`. See the
+"Modal back-navigation contract" section in the root `CLAUDE.md` for the
+full reasoning — the summary:
+
+### `src/lib/tmdb-details-cache.ts` — module-level TMDB cache
+- `getMovieOrTVDetails(mediaType, tmdbId)` — fetch-or-cache for the
+  detail payload (`fetchMovieDetails`/`fetchTVDetails` were merged here).
+- `getCachedDetails(mediaType, tmdbId)` — sync lookup used by modals to
+  seed `useState` on first render so a reopen paints with no loading
+  flash.
+- `getSimilarWithCache(mediaType, tmdbId)` — same pattern for the "more
+  like this" strip (`SimilarMoviesRow` consumes this).
+- `getCachedSimilar(mediaType, tmdbId)` — sync sibling for the similar
+  cache. Only non-empty results are cached.
+
+### `src/contexts/movie-modal-context.tsx` — `MovieModalProvider`
+For pages where many tiles open the modal. Provider owns one shared
+`<PublicMovieDetailsModal>`, exposes `openMovie(movie)` via
+`useMovieModal()`, persists the Movie in `sessionStorage` for round-trip
+rehydration, and handles `?openMovie=Y` on return from `/comments`.
+
+Wraps `/home` and `/post/[postId]` today.
+
+### Modal call-site convention
+Render the modal with `key={selectedMovie?.id ?? 'no-movie-open'}` so
+every open is a fresh React instance — defends against the Next.js
+router cache reviving stale state on back navigation. Both
+`MovieList`, `/profile/[username]/lists/[listId]`, and the
+`MovieModalProvider` follow this.
