@@ -193,13 +193,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   useEffect(() => {
     if (!isOpen) return;
-    // While the iOS file picker is up: do NOT track visualViewport
-    // changes. iOS dismisses the keyboard for the action sheet, which
-    // would otherwise resize the composer to full screen mid-sheet — the
-    // user sees the composer pop bigger, then the sheet float over a
-    // much larger dimmed area. Freezing the last keyboard-up dimensions
-    // keeps the composer at the size it was when the user tapped photo+.
-    if (pickerOpen) return;
     const vv = window.visualViewport;
     if (!vv) {
       setViewport({ top: 0, height: '100dvh' });
@@ -213,7 +206,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       vv.removeEventListener('resize', update);
       vv.removeEventListener('scroll', update);
     };
-  }, [isOpen, pickerOpen]);
+  }, [isOpen]);
 
   // On open: load drafts, lock body scroll, focus the textarea.
   //
