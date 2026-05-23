@@ -628,7 +628,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       </div>
 
       {/* ── Body or full-replacement picker ─────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
         {sheet === 'film' && (
           <FullPicker
             placeholder="search a film…"
@@ -715,7 +715,18 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         )}
 
         {!bodyHidden && (
-          <div className="px-4 pt-3">
+          // Body fills the visual viewport via flex. The textarea row below
+          // is the `flex-1` here — it expands to fill whatever vertical room
+          // the body has. Why this matters: when iOS opens the native file
+          // action sheet (image+ button), it dismisses the keyboard. The
+          // visual viewport then jumps to full height. Without a fill-the-
+          // body textarea, the gap from the textarea's 100px down to the
+          // toolbar is a giant cream void, and iOS draws its action sheet
+          // floating in the middle of it — looks broken. Making the
+          // textarea claim that space turns it into a normal "writing
+          // surface," and the action sheet now floats over something
+          // intentional-looking.
+          <div className="px-4 pt-3 flex-1 flex flex-col min-h-0">
             {/* Pin-a-film row */}
             {taggedMovie ? (
               <button
@@ -764,8 +775,11 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
               </button>
             )}
 
-            {/* Author + textarea */}
-            <div className="flex gap-3 mt-3 items-start">
+            {/* Author + textarea — row grows to fill the body (see comment
+                on the wrapper above for why). `items-start` keeps the
+                avatar pinned to the top; `self-stretch` on the textarea
+                overrides that for itself so it actually fills the row. */}
+            <div className="flex gap-3 mt-3 items-start flex-1 min-h-0">
               <ProfileAvatar
                 photoURL={myProfile?.photoURL ?? user?.photoURL}
                 displayName={myProfile?.displayName ?? user?.displayName}
@@ -782,13 +796,12 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                     (e.target as HTMLTextAreaElement).selectionStart ?? text.length)
                 }
                 placeholder="what did you watch tonight?"
-                rows={3}
-                className="flex-1 min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45] placeholder:text-muted-foreground placeholder:italic placeholder:font-light"
+                className="flex-1 self-stretch min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45] placeholder:text-muted-foreground placeholder:italic placeholder:font-light"
               />
             </div>
 
             {/* Attachments — indented to the avatar column */}
-            <div className="pl-[52px] mt-2">
+            <div className="pl-[52px] mt-2 flex-shrink-0">
               {rating !== null && (
                 <button
                   onClick={openRatingPicker}
