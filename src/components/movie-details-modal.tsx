@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition, useEffect, useMemo } from 'react';
+import { useState, useTransition, useEffect, useMemo, useRef } from 'react';
 import {
   Loader2,
   Trash2,
@@ -260,12 +260,15 @@ export function MovieDetailsModal({
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
-  // Reset state when movie ID changes (not status changes)
+  // Reset state when movie ID changes (not status changes).
+  // NOTE: we deliberately do NOT zero `mediaDetails` here — the fetch effect
+  // below owns that state and races against this reset if both fire on the
+  // same render (a fresh-mount triggered by the parent's `key` prop). The
+  // loader uses a ref counter so a stale result can't overwrite a newer one;
+  // it's the single source of truth for `mediaDetails`.
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
-      setMediaDetails(null);
-      setMediaDetailsForId(null);
       setLocalStatus(movie.status);
       setUserRating(null);
       setShowRateOnWatchModal(false);
@@ -324,43 +327,56 @@ export function MovieDetailsModal({
     };
   }, [tmdbId, isOpen]);
 
-  // Fetch movie/TV details when modal opens - simplified dependencies
+  // Fetch movie/TV details whenever the modal is open with a movie whose
+  // details we don't already have. This is the single source of truth for
+  // `mediaDetails` / `mediaDetailsForId` / `isLoadingDetails`.
+  //
+  // We use a ref-counter instead of the old closure `cancelled` flag. Each
+  // call gets a monotonically-increasing `myCallId`; only the most recent
+  // call is allowed to land its result. This is bulletproof against any
+  // re-render race — including the openMovie-from-/comments return flow that
+  // was leaving the modal with stale internal state under the closure
+  // approach.
+  //
+  // The dependency on `mediaDetailsForId` is intentional: it makes this a
+  // self-healing safety net. If for any reason `mediaDetails` ends up out of
+  // sync with the open movie (e.g. an in-flight fetch was discarded), the
+  // mismatch fires the effect again and re-loads.
+  const loadDetailsCallRef = useRef(0);
   useEffect(() => {
     if (!movie || !isOpen) return;
+    if (mediaDetailsForId === movie.id) return; // already have it for this movie
 
-    // Capture movie reference for async closure
-    const currentMovie = movie;
-    let cancelled = false;
+    const myCallId = ++loadDetailsCallRef.current;
+    const targetMovie = movie;
 
-    async function loadDetails() {
+    (async () => {
       setIsLoadingDetails(true);
+
       let tmdbIdLocal: number;
-      if (currentMovie.tmdbId) {
-        tmdbIdLocal = currentMovie.tmdbId;
+      if (targetMovie.tmdbId) {
+        tmdbIdLocal = targetMovie.tmdbId;
       } else {
-        const idMatch = currentMovie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(currentMovie.id, 10);
+        const idMatch = targetMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+        tmdbIdLocal = idMatch
+          ? parseInt(idMatch[1], 10)
+          : parseInt(targetMovie.id, 10);
       }
 
+      let details: MediaDetails | null = null;
       if (!isNaN(tmdbIdLocal)) {
-        const details = currentMovie.mediaType === 'tv'
+        details = targetMovie.mediaType === 'tv'
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
-        if (!cancelled) {
-          setMediaDetails(details);
-          setMediaDetailsForId(currentMovie.id);
-        }
       }
-      if (!cancelled) {
-        setIsLoadingDetails(false);
-      }
-    }
-    loadDetails();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [movie?.id, isOpen]); // Only depends on movie ID and modal open state
+      // Only land this result if we're still the latest call.
+      if (loadDetailsCallRef.current !== myCallId) return;
+      setMediaDetails(details);
+      setMediaDetailsForId(targetMovie.id);
+      setIsLoadingDetails(false);
+    })();
+  }, [movie?.id, isOpen, mediaDetailsForId]);
 
   if (!movie || !user) return null;
 

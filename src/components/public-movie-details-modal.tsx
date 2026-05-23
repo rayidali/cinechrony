@@ -170,16 +170,6 @@ export function PublicMovieDetailsModal({
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
-  // Reset state when movie changes
-  useEffect(() => {
-    if (movie) {
-      if (mediaDetailsForId !== movie.id) {
-        setMediaDetails(null);
-        setMediaDetailsForId(null);
-      }
-    }
-  }, [movie?.id, mediaDetailsForId]);
-
   // Navigate to full-screen comments page
   const handleOpenFullComments = () => {
     if (!movie) return;
@@ -199,32 +189,46 @@ export function PublicMovieDetailsModal({
     router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
   };
 
-  // Fetch movie/TV details when modal opens
+  // Fetch movie/TV details. Single source of truth for `mediaDetails`. Uses
+  // a ref counter (last-call-wins) instead of a closure `cancelled` flag —
+  // bulletproof against any re-render race. Self-heals: depending on
+  // `mediaDetailsForId` means a mismatch with the open movie re-fires the
+  // load. See the matching effect in movie-details-modal.tsx for the full
+  // reasoning (the openMovie-from-/comments return flow).
+  const loadDetailsCallRef = useRef(0);
   useEffect(() => {
-    async function loadDetails() {
-      if (!movie || !isOpen || isLoadingDetails) return;
-      if (mediaDetailsForId === movie.id && mediaDetails) return;
+    if (!movie || !isOpen) return;
+    if (mediaDetailsForId === movie.id) return;
 
+    const myCallId = ++loadDetailsCallRef.current;
+    const targetMovie = movie;
+
+    (async () => {
       setIsLoadingDetails(true);
+
       let tmdbIdLocal: number;
-      if (movie.tmdbId) {
-        tmdbIdLocal = movie.tmdbId;
+      if (targetMovie.tmdbId) {
+        tmdbIdLocal = targetMovie.tmdbId;
       } else {
-        const idMatch = movie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(movie.id, 10);
+        const idMatch = targetMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+        tmdbIdLocal = idMatch
+          ? parseInt(idMatch[1], 10)
+          : parseInt(targetMovie.id, 10);
       }
 
+      let details: MediaDetails | null = null;
       if (!isNaN(tmdbIdLocal)) {
-        const details = movie.mediaType === 'tv'
+        details = targetMovie.mediaType === 'tv'
           ? await fetchTVDetails(tmdbIdLocal)
           : await fetchMovieDetails(tmdbIdLocal);
-        setMediaDetails(details);
-        setMediaDetailsForId(movie.id);
       }
+
+      if (loadDetailsCallRef.current !== myCallId) return;
+      setMediaDetails(details);
+      setMediaDetailsForId(targetMovie.id);
       setIsLoadingDetails(false);
-    }
-    loadDetails();
-  }, [movie?.id, isOpen, mediaDetailsForId, mediaDetails, isLoadingDetails]);
+    })();
+  }, [movie?.id, isOpen, mediaDetailsForId]);
 
   // Fetch the most-liked reviews for the in-modal preview (non-critical).
   useEffect(() => {
