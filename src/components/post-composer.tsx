@@ -13,6 +13,7 @@ import {
   Loader2,
   Trash2,
   ChevronLeft,
+  Play,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import {
@@ -23,6 +24,7 @@ import {
 } from '@/app/actions';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
+import { captureVideoPoster } from '@/lib/video-poster';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useToast } from '@/hooks/use-toast';
@@ -196,13 +198,29 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   }, [isOpen]);
 
   // On open: load drafts, lock body scroll, focus the textarea.
+  //
+  // The focus call MUST stay synchronous to the FAB-click user-gesture chain
+  // — iOS Safari only opens the soft keyboard when `.focus()` is reached
+  // before the gesture's event loop ends. Any `setTimeout` past 0 typically
+  // loses that context, and the composer opens with the keyboard down →
+  // the toolbar then sits at the bottom of the screen, out of thumb reach.
+  // We focus immediately on this effect's first synchronous pass, then
+  // double-tap with a microtask + a short timer to defend against the
+  // animate-sheet-rise stealing focus during its commit.
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
     setDrafts(loadDrafts());
-    const focusTimer = setTimeout(() => textRef.current?.focus(), 180);
+
+    textRef.current?.focus({ preventScroll: true });
+    queueMicrotask(() => textRef.current?.focus({ preventScroll: true }));
+    const refocus = window.setTimeout(
+      () => textRef.current?.focus({ preventScroll: true }),
+      120,
+    );
+
     return () => {
-      clearTimeout(focusTimer);
+      window.clearTimeout(refocus);
       document.body.style.overflow = '';
     };
   }, [isOpen]);
@@ -343,6 +361,37 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
               prev.map((m) => (m.id === id ? { ...m, progress: pct } : m)),
             );
           });
+
+          // For videos: capture and upload a JPEG poster frame so the feed
+          // tile can render `<video poster=…>` instead of the browser's grey
+          // default placeholder. Best-effort — a poster failure does NOT
+          // fail the video upload.
+          let thumbnailUrl: string | undefined;
+          if (isVideo) {
+            try {
+              const posterBlob = await captureVideoPoster(file);
+              if (posterBlob) {
+                const posterFile = new File(
+                  [posterBlob],
+                  `poster_${id}.jpg`,
+                  { type: 'image/jpeg' },
+                );
+                const posterRes = await getPostMediaUploadUrl(
+                  idToken,
+                  posterFile.name,
+                  posterFile.type,
+                  posterFile.size,
+                );
+                if (posterRes.uploadUrl && posterRes.publicUrl) {
+                  await uploadToR2(posterRes.uploadUrl, posterFile, () => {});
+                  thumbnailUrl = posterRes.publicUrl;
+                }
+              }
+            } catch (err) {
+              console.warn('[post-composer] poster capture failed:', err);
+            }
+          }
+
           setMedia((prev) =>
             prev.map((m) =>
               m.id === id
@@ -350,7 +399,11 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                     ...m,
                     status: 'done',
                     progress: 100,
-                    media: { type: isVideo ? 'video' : 'image', url: res.publicUrl! },
+                    media: {
+                      type: isVideo ? 'video' : 'image',
+                      url: res.publicUrl!,
+                      ...(thumbnailUrl ? { thumbnailUrl } : {}),
+                    },
                   }
                 : m,
             ),
@@ -722,6 +775,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
               <textarea
                 ref={textRef}
                 value={text}
+                autoFocus
                 onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT + 20))}
                 onSelect={(e) =>
                   (lastCaretRef.current =
@@ -762,41 +816,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                 </button>
               )}
 
-              {media.length > 0 && (
-                <div className="grid grid-cols-3 gap-2 mt-1 mb-2">
-                  {media.map((m) => (
-                    <div
-                      key={m.id}
-                      className="relative aspect-square rounded-xl overflow-hidden border border-border bg-muted"
-                    >
-                      {m.kind === 'video' ? (
-                        <video src={m.localUrl} className="w-full h-full object-cover" muted />
-                      ) : (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
-                      )}
-                      {m.status === 'uploading' && (
-                        <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                          <span className="cc-meta text-[11px] text-white">{m.progress}%</span>
-                        </div>
-                      )}
-                      {m.status === 'error' && (
-                        <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
-                          <span className="cc-meta text-[10px] text-white">failed</span>
-                        </div>
-                      )}
-                      <button
-                        onClick={() => removeMedia(m.id)}
-                        aria-label="Remove"
-                        className="absolute top-1 right-1 h-6 w-6 rounded-full bg-black/55 backdrop-blur-sm text-white flex items-center justify-center"
-                      >
-                        <X className="h-3.5 w-3.5" strokeWidth={2} />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               {place.trim() && (
                 <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px] text-foreground mr-2 mb-2">
                   <MapPin className="h-3 w-3 text-muted-foreground" strokeWidth={1.8} />
@@ -834,12 +853,81 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         />
       )}
 
-      {/* ── Toolbar ─────────────────────────────────────────────────── */}
+      {/* ── Media strip — sits directly above the toolbar, twitter-style.
+            Attached photos/videos live HERE, not buried in the post body,
+            so the user can see them at the same time as the toolbar that
+            adds more. Horizontal scroll keeps the strip compact even with
+            6 items. */}
+      {media.length > 0 && (
+        <div className="flex-shrink-0 border-t border-border bg-background px-3 pt-2 pb-1.5">
+          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
+            {media.map((m) => (
+              <div
+                key={m.id}
+                className="relative h-[68px] w-[68px] flex-shrink-0 rounded-[10px] overflow-hidden border border-border bg-muted"
+              >
+                {m.kind === 'video' ? (
+                  <>
+                    <video
+                      src={m.localUrl}
+                      className="w-full h-full object-cover"
+                      muted
+                      playsInline
+                      preload="metadata"
+                    />
+                    {/* tiny play badge so it's obviously a video, not a photo */}
+                    <div className="absolute bottom-1 left-1 h-4 w-4 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                      <Play className="h-2.5 w-2.5 text-white ml-0.5" fill="currentColor" strokeWidth={0} />
+                    </div>
+                  </>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
+                )}
+                {m.status === 'uploading' && (
+                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                    <span className="cc-meta text-[11px] text-white tabular-nums">
+                      {m.progress}%
+                    </span>
+                  </div>
+                )}
+                {m.status === 'error' && (
+                  <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
+                    <span className="cc-meta text-[10px] text-white">failed</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeMedia(m.id)}
+                  aria-label="Remove"
+                  className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center"
+                >
+                  <X className="h-3 w-3" strokeWidth={2.5} />
+                </button>
+              </div>
+            ))}
+            {media.length < MAX_MEDIA && (
+              <button
+                onClick={openImagePicker}
+                aria-label="Add more"
+                className="h-[68px] w-[68px] flex-shrink-0 rounded-[10px] border border-dashed border-border bg-card flex flex-col items-center justify-center text-muted-foreground active:opacity-70"
+              >
+                <ImagePlus className="h-5 w-5" strokeWidth={1.6} />
+                <span className="cc-meta text-[9px] mt-0.5">more</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── Toolbar — 44px touch targets, anchored just above the keyboard
+            via visualViewport tracking. Buttons are borderless film-red
+            glyphs (twitter-shape, cinechrony-skin); the post button has
+            already done its work in the header. */}
       <div
-        className="flex-shrink-0 flex items-center justify-between gap-2 px-4 border-t border-border bg-background"
-        style={{ paddingTop: '0.5rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.5rem)' }}
+        className="flex-shrink-0 flex items-center justify-between gap-1 px-3 border-t border-border bg-background"
+        style={{ paddingTop: '0.375rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.375rem)' }}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center">
           <ToolButton
             icon={ImagePlus}
             label="add a photo or video"
@@ -868,7 +956,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
             onClick={openRatingPicker}
           />
         </div>
-        <span className={cn('cc-meta text-[10px] tabular-nums', charCountClass)}>
+        <span className={cn('cc-meta text-[11px] tabular-nums px-2', charCountClass)}>
           {charCount > 0 ? `${charCount} / ${MAX_TEXT}` : MAX_TEXT}
         </span>
         <input
@@ -905,15 +993,15 @@ function ToolButton({
       disabled={disabled}
       aria-label={label}
       className={cn(
-        'h-9 w-9 rounded-full border flex items-center justify-center transition-all',
+        'h-11 w-11 rounded-full flex items-center justify-center transition-all',
         disabled
-          ? 'border-border bg-card text-muted-foreground/40 cursor-not-allowed'
+          ? 'text-muted-foreground/35 cursor-not-allowed'
           : active
-            ? 'border-primary bg-primary/10 text-primary'
-            : 'border-border bg-card text-primary active:scale-90',
+            ? 'bg-primary/12 text-primary'
+            : 'text-primary hover:bg-primary/8 active:bg-primary/14 active:scale-92',
       )}
     >
-      <Icon className="h-4 w-4" strokeWidth={1.8} />
+      <Icon className="h-5 w-5" strokeWidth={1.85} />
     </button>
   );
 }

@@ -1,10 +1,10 @@
 'use client';
 
-import { memo, useState, useTransition } from 'react';
+import { memo, useRef, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag } from 'lucide-react';
+import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag, Play, Film } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
 import { likePost, unlikePost, deletePost, reportContent } from '@/app/actions';
@@ -189,12 +189,7 @@ export const PostCard = memo(function PostCard({
                 )}
               >
                 {m.type === 'video' ? (
-                  <video
-                    src={m.url}
-                    controls
-                    preload="metadata"
-                    className="w-full h-full object-cover"
-                  />
+                  <VideoTile src={m.url} posterUrl={m.thumbnailUrl} />
                 ) : (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={m.url} alt="" className="w-full h-full object-cover" />
@@ -281,3 +276,80 @@ export const PostCard = memo(function PostCard({
     </>
   );
 });
+
+/**
+ * Inline video tile.
+ *
+ * If `posterUrl` is set (post created after client-side poster capture
+ * shipped), it's used as the `<video poster=…>` — the feed paints the
+ * real first frame, no grey default. Tap → swaps to native controls and
+ * autoplays inline.
+ *
+ * If `posterUrl` is NOT set (legacy post from before the capture, or a
+ * capture that failed gracefully), we render an INTENTIONALLY-styled
+ * dark placeholder with a centered play badge instead of falling back to
+ * the bare `<video>` element. iOS PWA shows the bare element as a grey
+ * box with the system play icon — looks broken — so a styled placeholder
+ * is the better failure mode. Tap mounts the real video element on top.
+ */
+function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+
+  const start = () => {
+    setPlaying(true);
+    // play() must run after the controls-rendering commit so iOS doesn't
+    // hand the gesture to its own poster-tap default.
+    requestAnimationFrame(() => {
+      const v = videoRef.current;
+      if (!v) return;
+      const p = v.play();
+      if (p && typeof p.catch === 'function') p.catch(() => setPlaying(false));
+    });
+  };
+
+  return (
+    <div className="relative w-full h-full bg-foreground/85">
+      {/* Once the user taps, the real video element mounts and takes over.
+          Until then we render nothing media-wise: either the poster (set
+          via `poster` attribute) OR the dark surface from the wrapper bg. */}
+      {(playing || posterUrl) && (
+        <video
+          ref={videoRef}
+          src={src}
+          poster={posterUrl}
+          preload="none"
+          playsInline
+          controls={playing}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          className="w-full h-full object-cover"
+        />
+      )}
+
+      {/* Idle state — centered play badge over the poster (or the dark
+          fallback surface). A small `Film` glyph in the corner declares
+          "this is a video" at a glance, even on a tiny grid tile. */}
+      {!playing && (
+        <button
+          type="button"
+          onClick={start}
+          aria-label="Play video"
+          className="absolute inset-0 flex items-center justify-center bg-black/15 group"
+        >
+          <div className="h-14 w-14 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center group-active:scale-95 transition-transform">
+            <Play
+              className="h-6 w-6 text-white ml-0.5"
+              fill="currentColor"
+              strokeWidth={0}
+            />
+          </div>
+          <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm text-white cc-meta text-[9px] lowercase tracking-wider">
+            <Film className="h-2.5 w-2.5" strokeWidth={2} />
+            video
+          </span>
+        </button>
+      )}
+    </div>
+  );
+}
