@@ -153,6 +153,17 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const [place, setPlace] = useState('');
   const [isPosting, setIsPosting] = useState(false);
 
+  // True while iOS is showing the native file action sheet
+  // ("Photo Library / Take Photo or Video / Choose Files"). iOS does NOT
+  // dim the underlying page when it presents this sheet for an `<input
+  // type=file>` — so the sheet appears to float in cream nothingness over
+  // the composer's bone background. Every other iOS modal the user has
+  // ever seen has a dark scrim behind it, so the bare version reads as
+  // broken. We render our own scrim while this flag is true; iOS draws
+  // its native sheet on top (native UI always paints above web), and the
+  // sheet now has visual context.
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   // Drafts
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -222,7 +233,31 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     return () => {
       window.clearTimeout(refocus);
       document.body.style.overflow = '';
+      setPickerOpen(false);
     };
+  }, [isOpen]);
+
+  // Listen for `cancel` on the file input — fires in Safari 16.4+ when
+  // the user dismisses the action sheet or photo picker without picking
+  // anything. React's input element types don't expose `onCancel` as a
+  // JSX prop, so we attach it directly. The tap-to-dismiss on the scrim
+  // is the fallback for older Safari versions that don't fire this.
+  //
+  // On dismiss we also refocus the textarea so iOS re-shows the
+  // keyboard, which shrinks the visualViewport back to the smaller
+  // keyboard-up size. Without that the composer stays expanded after
+  // the sheet dismisses, exposing the cream void until the user taps
+  // back into the field manually.
+  useEffect(() => {
+    if (!isOpen) return;
+    const input = fileInputRef.current;
+    if (!input) return;
+    const handleCancel = () => {
+      setPickerOpen(false);
+      textRef.current?.focus({ preventScroll: true });
+    };
+    input.addEventListener('cancel', handleCancel);
+    return () => input.removeEventListener('cancel', handleCancel);
   }, [isOpen]);
 
   // Autosave every AUTOSAVE_MS while the composer is open. We DON'T autosave
@@ -328,6 +363,11 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   // ── File upload ────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
+    setPickerOpen(false);
+    // Bring the keyboard back so the composer shrinks to its keyboard-up
+    // size; otherwise the cream void below the new media strip is
+    // exposed until the user taps the field manually.
+    textRef.current?.focus({ preventScroll: true });
     if (!files || !user) return;
     const room = MAX_MEDIA - media.length;
     const picked = Array.from(files).slice(0, Math.max(0, room));
@@ -503,6 +543,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   const openImagePicker = () => {
     if (media.length >= MAX_MEDIA) return;
+    setPickerOpen(true);
     fileInputRef.current?.click();
   };
 
@@ -588,10 +629,25 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const showDraftsLink = drafts.length > 0;
 
   return (
-    <div
-      className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
-      style={{ top: viewport.top, height: viewport.height }}
-    >
+    <>
+      {/* Full-screen backdrop in the same `bg-card` (bone) tone as the
+          composer body. This is a safety net against the iOS
+          keyboard-dismiss race: when the user taps photo+, iOS animates
+          the keyboard down in ~100ms and the visualViewport resizes —
+          but our `vv.resize` listener fires asynchronously, so React's
+          state update lags by 100–300ms. During that lag the composer
+          is still at its old keyboard-up size and the area iOS just
+          freed up (where the keyboard was) would expose the home page
+          beneath. With this backdrop sitting at z-[69] in the same bone
+          color, the lag is invisible — the user just sees continuous
+          bone. Once React catches up, the composer covers the backdrop
+          again. No bleed-through, ever. */}
+      <div className="fixed inset-0 z-[69] bg-card" aria-hidden />
+
+      <div
+        className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
+        style={{ top: viewport.top, height: viewport.height }}
+      >
       {/* ── Header — cancel · drafts(N) · post ─────────────────────── */}
       <div
         className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
@@ -628,7 +684,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       </div>
 
       {/* ── Body or full-replacement picker ─────────────────────────── */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
         {sheet === 'film' && (
           <FullPicker
             placeholder="search a film…"
@@ -715,7 +771,13 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         )}
 
         {!bodyHidden && (
-          <div className="px-4 pt-3">
+          // Body is `flex-1 flex flex-col` so children can claim
+          // vertical space proportionally. The textarea row inside takes
+          // `flex-1` to fill — that's what makes tap-to-focus work on
+          // the entire cream area and what gives the centered
+          // empty-state prompt a region to center within. See the
+          // textarea row's comment for the empty-state design.
+          <div className="px-4 pt-3 flex-1 flex flex-col min-h-0">
             {/* Pin-a-film row */}
             {taggedMovie ? (
               <button
@@ -764,8 +826,25 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
               </button>
             )}
 
-            {/* Author + textarea */}
-            <div className="flex gap-3 mt-3 items-start">
+            {/* Author + textarea row.
+                ──────────────────────
+                The row is `flex-1` so it grows to fill the body (writing
+                surface is the body). `items-start` pins the avatar at the
+                top; `self-stretch` on the textarea overrides that for
+                itself so it fills the row vertically and tap-to-focus
+                works anywhere in the cream area.
+
+                The native textarea placeholder is gone — we render a
+                centered prompt INSIDE this row instead. Why: a native
+                placeholder anchors at the top of the textarea, with the
+                rest of the cream below it reading as a void. Centering
+                "what did you watch tonight?" inside the writing area
+                turns that cream into intentional negative space — the
+                question sits in the middle of the page like a
+                pull-quote, not orphaned at the top. As soon as the user
+                types anything, the prompt disappears and the textarea
+                takes over normally. */}
+            <div className="flex gap-3 mt-3 items-start flex-1 min-h-0 relative">
               <ProfileAvatar
                 photoURL={myProfile?.photoURL ?? user?.photoURL}
                 displayName={myProfile?.displayName ?? user?.displayName}
@@ -781,14 +860,28 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                   (lastCaretRef.current =
                     (e.target as HTMLTextAreaElement).selectionStart ?? text.length)
                 }
-                placeholder="what did you watch tonight?"
-                rows={3}
-                className="flex-1 min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45] placeholder:text-muted-foreground placeholder:italic placeholder:font-light"
+                className="flex-1 self-stretch min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45]"
               />
+
+              {/* Centered empty-state prompt. `pointer-events-none` lets
+                  taps fall through to the textarea so tap-to-focus still
+                  works on the whole cream area. `pl-[52px]` matches the
+                  avatar column so the prompt centers within the textarea
+                  region, not shifted left by the avatar. */}
+              {!text && (
+                <div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-0 flex items-center justify-center pl-[52px] pr-2 -mt-6"
+                >
+                  <p className="font-serif italic text-[19px] leading-snug text-muted-foreground/55 text-center">
+                    what did you watch tonight?
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Attachments — indented to the avatar column */}
-            <div className="pl-[52px] mt-2">
+            <div className="pl-[52px] mt-2 flex-shrink-0">
               {rating !== null && (
                 <button
                   onClick={openRatingPicker}
@@ -966,9 +1059,35 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           multiple
           hidden
           onChange={(e) => handleFiles(e.target.files)}
+          // The `cancel` event is wired via addEventListener in the
+          // effect above — React's input types don't expose `onCancel`.
         />
       </div>
-    </div>
+
+      </div>
+
+      {/* iOS file-picker scrim — full-screen so the dim is uniform even
+          while the composer mid-resizes after iOS dismisses the keyboard
+          for the action sheet. Sits at z-[71], above both the backdrop
+          and the composer. iOS native action sheet renders above this
+          (native UI is always on top of web), so the sheet looks like
+          a normal iOS modal: dimmed page below, sheet above.
+
+          Tap-to-dismiss is the recovery hatch in case the input's
+          `cancel` event doesn't fire (older Safari). The refocus on
+          dismiss brings the keyboard back so the composer shrinks
+          quickly. */}
+      {pickerOpen && (
+        <div
+          onClick={() => {
+            setPickerOpen(false);
+            textRef.current?.focus({ preventScroll: true });
+          }}
+          className="fixed inset-0 z-[71] bg-black/40"
+          aria-hidden
+        />
+      )}
+    </>
   );
 }
 
