@@ -17,6 +17,7 @@ import {
 import { PostCard } from '@/components/post-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { BottomNav } from '@/components/bottom-nav';
+import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import type { Post, PostComment } from '@/lib/types';
@@ -130,6 +131,7 @@ export default function PostPage() {
   }, {});
 
   return (
+    <MovieModalProvider returnPath={`/post/${postId}`}>
     <main className="min-h-screen text-foreground pb-40">
       <div className="container mx-auto px-4 md:px-8 max-w-2xl">
         {/* Header */}
@@ -247,6 +249,7 @@ export default function PostPage() {
 
       <BottomNav />
     </main>
+    </MovieModalProvider>
   );
 }
 

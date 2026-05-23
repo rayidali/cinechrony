@@ -20,7 +20,7 @@ import { ActivityCard } from './activity-card';
 import { PostCard } from './post-card';
 import { RecommendationCard } from './recommendation-card';
 import { FriendsWatchingCard } from './friends-watching-card';
-import { PublicMovieDetailsModal } from './public-movie-details-modal';
+import { useMovieModal } from '@/contexts/movie-modal-context';
 
 type ActivityFeedProps = {
   currentUserId: string | null;
@@ -141,8 +141,7 @@ export function ActivityFeed({
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { openMovie } = useMovieModal();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -241,20 +240,22 @@ export function ActivityFeed({
     return () => observer.disconnect();
   }, [hasMore, isLoadingMore, isLoading, loadMore]);
 
-  const handleMovieClick = useCallback((activity: Activity) => {
-    setSelectedMovie({
-      id: `activity_${activity.id}`,
-      title: activity.movieTitle,
-      year: activity.movieYear || '',
-      posterUrl: activity.moviePosterUrl || '/placeholder-poster.png',
-      posterHint: `${activity.movieTitle} movie poster`,
-      addedBy: activity.userId,
-      status: 'To Watch',
-      mediaType: activity.mediaType,
-      tmdbId: activity.tmdbId,
-    });
-    setIsModalOpen(true);
-  }, []);
+  const handleMovieClick = useCallback(
+    (activity: Activity) => {
+      openMovie({
+        id: `activity_${activity.id}`,
+        title: activity.movieTitle,
+        year: activity.movieYear || '',
+        posterUrl: activity.moviePosterUrl || '/placeholder-poster.png',
+        posterHint: `${activity.movieTitle} movie poster`,
+        addedBy: activity.userId,
+        status: 'To Watch',
+        mediaType: activity.mediaType,
+        tmdbId: activity.tmdbId,
+      });
+    },
+    [openMovie],
+  );
 
   const handlePostDeleted = useCallback((postId: string) => {
     setItems((prev) =>
@@ -360,14 +361,6 @@ export function ActivityFeed({
         </>
       )}
 
-      <PublicMovieDetailsModal
-        movie={selectedMovie}
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedMovie(null);
-        }}
-      />
     </section>
   );
 }

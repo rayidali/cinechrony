@@ -10,9 +10,8 @@ import {
   type TrendingMovie,
   type LovedListCard,
 } from '@/app/actions';
-import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
+import { useMovieModal } from '@/contexts/movie-modal-context';
 import { getRatingStyle } from '@/lib/utils';
-import type { Movie } from '@/lib/types';
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
 
@@ -26,12 +25,10 @@ const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
  */
 export function TrendingStrip() {
   const router = useRouter();
+  const { openMovie } = useMovieModal();
   const [films, setFilms] = useState<TrendingMovie[]>([]);
   const [lists, setLists] = useState<LovedListCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +48,7 @@ export function TrendingStrip() {
   }, []);
 
   const openFilm = (film: TrendingMovie) => {
-    setSelectedMovie({
+    openMovie({
       id: `trending_${film.id}`,
       title: film.title,
       year: film.releaseDate ? new Date(film.releaseDate).getFullYear().toString() : '',
@@ -64,7 +61,6 @@ export function TrendingStrip() {
       mediaType: film.mediaType,
       tmdbId: film.id,
     });
-    setIsModalOpen(true);
   };
 
   const openList = (list: LovedListCard) => {
@@ -123,14 +119,6 @@ export function TrendingStrip() {
         </section>
       )}
 
-      <PublicMovieDetailsModal
-        movie={selectedMovie}
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setSelectedMovie(null);
-        }}
-      />
     </>
   );
 }

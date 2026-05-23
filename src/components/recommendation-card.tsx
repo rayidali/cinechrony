@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { Plus, Star } from 'lucide-react';
 import type { RecommendationSet, TrendingMovie } from '@/app/actions';
 import type { Movie, SearchResult } from '@/lib/types';
-import { PublicMovieDetailsModal } from './public-movie-details-modal';
+import { useMovieModal } from '@/contexts/movie-modal-context';
 import { AddToListSheet } from './add-to-list-sheet';
 
 const TMDB_W342 = 'https://image.tmdb.org/t/p/w342';
@@ -50,7 +50,7 @@ function toSearchResult(m: TrendingMovie): SearchResult {
  * film-red `+` → the "which list?" sheet (explicit add). See UX_PATTERNS.md.
  */
 export function RecommendationCard({ set }: { set: RecommendationSet }) {
-  const [detailMovie, setDetailMovie] = useState<Movie | null>(null);
+  const { openMovie } = useMovieModal();
   const [addTarget, setAddTarget] = useState<SearchResult | null>(null);
 
   const recs = set.recommendations.slice(0, 3);
@@ -71,7 +71,7 @@ export function RecommendationCard({ set }: { set: RecommendationSet }) {
             <div key={rec.id}>
               <div className="relative">
                 <button
-                  onClick={() => setDetailMovie(toMovie(rec))}
+                  onClick={() => openMovie(toMovie(rec))}
                   className="block w-full group"
                   aria-label={`Open ${rec.title}`}
                 >
@@ -101,11 +101,6 @@ export function RecommendationCard({ set }: { set: RecommendationSet }) {
         </div>
       </div>
 
-      <PublicMovieDetailsModal
-        movie={detailMovie}
-        isOpen={!!detailMovie}
-        onClose={() => setDetailMovie(null)}
-      />
       <AddToListSheet
         movie={addTarget}
         isOpen={!!addTarget}

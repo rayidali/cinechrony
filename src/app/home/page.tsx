@@ -14,6 +14,7 @@ import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
 import { FilterPills, type FilterPill } from '@/components/filter-pills';
 import { PostFab } from '@/components/post-fab';
+import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
 const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
@@ -82,7 +83,7 @@ export default function HomePage() {
   ];
 
   return (
-    <>
+    <MovieModalProvider returnPath="/home">
       <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
         <main className="min-h-screen font-body text-foreground pb-28 md:pb-8 md:pt-20">
           <div className="container mx-auto px-4 md:px-8 max-w-2xl">
@@ -160,6 +161,6 @@ export default function HomePage() {
 
       {/* Fullscreen search */}
       <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
-    </>
+    </MovieModalProvider>
   );
 }

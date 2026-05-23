@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Plus } from 'lucide-react';
 import type { FriendsWatchingCard as FWCard } from '@/app/actions';
 import type { Movie, SearchResult } from '@/lib/types';
-import { PublicMovieDetailsModal } from './public-movie-details-modal';
+import { useMovieModal } from '@/contexts/movie-modal-context';
 import { AddToListSheet } from './add-to-list-sheet';
 
 function initials(name: string | null, username: string | null) {
@@ -17,7 +17,7 @@ function initials(name: string | null, username: string | null) {
  * See UX_PATTERNS.md — "Friends-Are-Watching".
  */
 export function FriendsWatchingCard({ card }: { card: FWCard }) {
-  const [detailOpen, setDetailOpen] = useState(false);
+  const { openMovie } = useMovieModal();
   const [addOpen, setAddOpen] = useState(false);
 
   const poster = card.moviePosterUrl || '/placeholder-poster.png';
@@ -60,7 +60,7 @@ export function FriendsWatchingCard({ card }: { card: FWCard }) {
 
         {/* tap-through to detail */}
         <button
-          onClick={() => setDetailOpen(true)}
+          onClick={() => openMovie(asMovie)}
           aria-label={`Open ${card.movieTitle}`}
           className="absolute inset-0"
         />
@@ -104,11 +104,6 @@ export function FriendsWatchingCard({ card }: { card: FWCard }) {
         </div>
       </div>
 
-      <PublicMovieDetailsModal
-        movie={detailOpen ? asMovie : null}
-        isOpen={detailOpen}
-        onClose={() => setDetailOpen(false)}
-      />
       <AddToListSheet
         movie={addOpen ? asSearchResult : null}
         isOpen={addOpen}

@@ -12,7 +12,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
-import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
+import { useMovieModal } from '@/contexts/movie-modal-context';
 import { cn } from '@/lib/utils';
 import type { Post, Movie } from '@/lib/types';
 
@@ -38,11 +38,11 @@ export const PostCard = memo(function PostCard({
   const { toast } = useToast();
   const [, startTransition] = useTransition();
 
+  const { openMovie } = useMovieModal();
   const [isLiked, setIsLiked] = useState(
     currentUserId ? post.likedBy?.includes(currentUserId) : false,
   );
   const [likeCount, setLikeCount] = useState(post.likes || 0);
-  const [movieOpen, setMovieOpen] = useState(false);
 
   const isOwn = !!user && user.uid === post.authorId;
   const handle = post.authorUsername ? `@${post.authorUsername}` : post.authorDisplayName || 'someone';
@@ -205,9 +205,9 @@ export const PostCard = memo(function PostCard({
         )}
 
         {/* Anchored film */}
-        {movie && (
+        {movie && movieAsMovie && (
           <button
-            onClick={() => setMovieOpen(true)}
+            onClick={() => openMovie(movieAsMovie)}
             className="w-full flex items-center gap-3 mt-3 p-2.5 rounded-xl border border-border bg-background text-left active:opacity-70 transition-opacity"
           >
             <div className="relative w-9 h-[54px] rounded-md overflow-hidden bg-muted flex-shrink-0">
@@ -278,11 +278,6 @@ export const PostCard = memo(function PostCard({
         </div>
       </div>
 
-      <PublicMovieDetailsModal
-        movie={movieOpen ? movieAsMovie : null}
-        isOpen={movieOpen}
-        onClose={() => setMovieOpen(false)}
-      />
     </>
   );
 });
