@@ -629,10 +629,25 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const showDraftsLink = drafts.length > 0;
 
   return (
-    <div
-      className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
-      style={{ top: viewport.top, height: viewport.height }}
-    >
+    <>
+      {/* Full-screen backdrop in the same `bg-card` (bone) tone as the
+          composer body. This is a safety net against the iOS
+          keyboard-dismiss race: when the user taps photo+, iOS animates
+          the keyboard down in ~100ms and the visualViewport resizes —
+          but our `vv.resize` listener fires asynchronously, so React's
+          state update lags by 100–300ms. During that lag the composer
+          is still at its old keyboard-up size and the area iOS just
+          freed up (where the keyboard was) would expose the home page
+          beneath. With this backdrop sitting at z-[69] in the same bone
+          color, the lag is invisible — the user just sees continuous
+          bone. Once React catches up, the composer covers the backdrop
+          again. No bleed-through, ever. */}
+      <div className="fixed inset-0 z-[69] bg-card" aria-hidden />
+
+      <div
+        className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
+        style={{ top: viewport.top, height: viewport.height }}
+      >
       {/* ── Header — cancel · drafts(N) · post ─────────────────────── */}
       <div
         className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
@@ -1049,21 +1064,30 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         />
       </div>
 
-      {/* iOS file-picker scrim — see the `pickerOpen` declaration above
-          for the why. Tap-to-dismiss is the recovery hatch in case
-          `cancel` doesn't fire (older Safari, or the rare edge where iOS
-          drops the event). Native iOS sheet renders above this. */}
+      </div>
+
+      {/* iOS file-picker scrim — full-screen so the dim is uniform even
+          while the composer mid-resizes after iOS dismisses the keyboard
+          for the action sheet. Sits at z-[71], above both the backdrop
+          and the composer. iOS native action sheet renders above this
+          (native UI is always on top of web), so the sheet looks like
+          a normal iOS modal: dimmed page below, sheet above.
+
+          Tap-to-dismiss is the recovery hatch in case the input's
+          `cancel` event doesn't fire (older Safari). The refocus on
+          dismiss brings the keyboard back so the composer shrinks
+          quickly. */}
       {pickerOpen && (
         <div
           onClick={() => {
             setPickerOpen(false);
             textRef.current?.focus({ preventScroll: true });
           }}
-          className="absolute inset-0 bg-black/40"
+          className="fixed inset-0 z-[71] bg-black/40"
           aria-hidden
         />
       )}
-    </div>
+    </>
   );
 }
 
