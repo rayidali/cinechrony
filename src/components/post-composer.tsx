@@ -153,6 +153,17 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const [place, setPlace] = useState('');
   const [isPosting, setIsPosting] = useState(false);
 
+  // True while iOS is showing the native file action sheet
+  // ("Photo Library / Take Photo or Video / Choose Files"). iOS does NOT
+  // dim the underlying page when it presents this sheet for an `<input
+  // type=file>` — so the sheet appears to float in cream nothingness over
+  // the composer's bone background. Every other iOS modal the user has
+  // ever seen has a dark scrim behind it, so the bare version reads as
+  // broken. We render our own scrim while this flag is true; iOS draws
+  // its native sheet on top (native UI always paints above web), and the
+  // sheet now has visual context.
+  const [pickerOpen, setPickerOpen] = useState(false);
+
   // Drafts
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [draftId, setDraftId] = useState<string | null>(null);
@@ -222,7 +233,22 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     return () => {
       window.clearTimeout(refocus);
       document.body.style.overflow = '';
+      setPickerOpen(false);
     };
+  }, [isOpen]);
+
+  // Listen for `cancel` on the file input — fires in Safari 16.4+ when
+  // the user dismisses the action sheet or photo picker without picking
+  // anything. React's input element types don't expose `onCancel` as a
+  // JSX prop, so we attach it directly. The tap-to-dismiss on the scrim
+  // is the fallback for older Safari versions that don't fire this.
+  useEffect(() => {
+    if (!isOpen) return;
+    const input = fileInputRef.current;
+    if (!input) return;
+    const handleCancel = () => setPickerOpen(false);
+    input.addEventListener('cancel', handleCancel);
+    return () => input.removeEventListener('cancel', handleCancel);
   }, [isOpen]);
 
   // Autosave every AUTOSAVE_MS while the composer is open. We DON'T autosave
@@ -328,6 +354,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   // ── File upload ────────────────────────────────────────────────────────
 
   const handleFiles = (files: FileList | null) => {
+    setPickerOpen(false);
     if (!files || !user) return;
     const room = MAX_MEDIA - media.length;
     const picked = Array.from(files).slice(0, Math.max(0, room));
@@ -503,6 +530,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   const openImagePicker = () => {
     if (media.length >= MAX_MEDIA) return;
+    setPickerOpen(true);
     fileInputRef.current?.click();
   };
 
@@ -979,8 +1007,22 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           multiple
           hidden
           onChange={(e) => handleFiles(e.target.files)}
+          // The `cancel` event is wired via addEventListener in the
+          // effect above — React's input types don't expose `onCancel`.
         />
       </div>
+
+      {/* iOS file-picker scrim — see the `pickerOpen` declaration above
+          for the why. Tap-to-dismiss is the recovery hatch in case
+          `cancel` doesn't fire (older Safari, or the rare edge where iOS
+          drops the event). Native iOS sheet renders above this. */}
+      {pickerOpen && (
+        <div
+          onClick={() => setPickerOpen(false)}
+          className="absolute inset-0 bg-black/40"
+          aria-hidden
+        />
+      )}
     </div>
   );
 }
