@@ -165,6 +165,20 @@ export default function NotificationsPage() {
         // Go to pending invites (lists page will show pending invites)
         router.push('/lists');
         break;
+      case 'list_like':
+        // Go to the liked list (the recipient is its owner)
+        if (notification.listId) {
+          router.push(`/lists/${notification.listId}`);
+        }
+        break;
+      case 'post_tag':
+      case 'post_like':
+      case 'post_comment':
+        // Go to the post
+        if (notification.postId) {
+          router.push(`/post/${notification.postId}`);
+        }
+        break;
       case 'mention':
       case 'reply':
       case 'like':
@@ -293,6 +307,12 @@ export default function NotificationsPage() {
                     {notification.type === 'list_invite' && (
                       <>invited you to join <span className="font-medium">{notification.listName}</span></>
                     )}
+                    {notification.type === 'list_like' && (
+                      <>liked your list <span className="font-medium">{notification.listName}</span></>
+                    )}
+                    {notification.type === 'post_tag' && <>tagged you in a post</>}
+                    {notification.type === 'post_like' && <>liked your post</>}
+                    {notification.type === 'post_comment' && <>commented on your post</>}
                   </p>
                   {notification.previewText && (
                     <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
@@ -337,8 +357,12 @@ export default function NotificationsPage() {
                   {notification.type === 'mention' && <AtSign className="h-4 w-4 text-primary" />}
                   {notification.type === 'reply' && <MessageSquare className="h-4 w-4 text-primary" />}
                   {notification.type === 'like' && <Heart className="h-4 w-4 text-red-500" />}
+                  {notification.type === 'list_like' && <Heart className="h-4 w-4 text-success fill-success" />}
+                  {notification.type === 'post_like' && <Heart className="h-4 w-4 text-success fill-success" />}
                   {notification.type === 'follow' && <UserPlus className="h-4 w-4 text-green-500" />}
                   {notification.type === 'list_invite' && <Users className="h-4 w-4 text-blue-500" />}
+                  {notification.type === 'post_tag' && <AtSign className="h-4 w-4 text-primary" />}
+                  {notification.type === 'post_comment' && <MessageSquare className="h-4 w-4 text-primary" />}
                 </div>
 
                 {/* Unread dot */}

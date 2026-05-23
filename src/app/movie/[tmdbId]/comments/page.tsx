@@ -4,14 +4,14 @@ import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, X, ChevronDown, ChevronUp, ChevronLeft, ArrowUp } from 'lucide-react';
+import { Loader2, X, ChevronDown, ChevronUp, ChevronLeft, ArrowUp, EyeOff, MoreHorizontal } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser, useFirestore } from '@/firebase';
 import { getMovieReviews, createReview, updateReview, getReviewReplies } from '@/app/actions';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
-import { getRatingStyle } from '@/lib/utils';
+import { getRatingStyle, cn } from '@/lib/utils';
 import type { Review } from '@/lib/types';
 
 function CommentsPageContent() {
@@ -42,6 +42,7 @@ function CommentsPageContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
   const [commentText, setCommentText] = useState('');
+  const [commentHasSpoiler, setCommentHasSpoiler] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [userProfile, setUserProfile] = useState<{ photoURL?: string; displayName?: string; username?: string } | null>(null);
@@ -187,7 +188,7 @@ function CommentsPageContent() {
     if (editingReview) {
       try {
         const newText = commentText.trim();
-        const res = await updateReview(await user.getIdToken(), editingReview.id, newText);
+        const res = await updateReview(await user.getIdToken(), editingReview.id, newText, commentHasSpoiler);
         if ('error' in res) throw new Error(res.error);
 
         // Patch local state so the UI updates without a refetch. Top-level
@@ -200,15 +201,16 @@ function CommentsPageContent() {
             if (!list) return prev;
             return {
               ...prev,
-              [root]: list.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)),
+              [root]: list.map(r => (r.id === editingReview.id ? { ...r, text: newText, hasSpoiler: commentHasSpoiler, updatedAt: new Date() } : r)),
             };
           });
         } else {
-          setReviews(prev => prev.map(r => (r.id === editingReview.id ? { ...r, text: newText, updatedAt: new Date() } : r)));
+          setReviews(prev => prev.map(r => (r.id === editingReview.id ? { ...r, text: newText, hasSpoiler: commentHasSpoiler, updatedAt: new Date() } : r)));
         }
 
         setEditingReview(null);
         setCommentText('');
+        setCommentHasSpoiler(false);
         inputRef.current?.blur();
         toast({ title: 'Comment updated' });
       } catch (error: any) {
@@ -231,7 +233,8 @@ function CommentsPageContent() {
         moviePoster || undefined,
         commentText.trim(),
         undefined, // ratingAtTime
-        parentId // parentId for replies
+        parentId, // parentId for replies
+        commentHasSpoiler, // v3: author-flagged spoiler shield
       );
 
       if ('error' in result) {
@@ -260,6 +263,7 @@ function CommentsPageContent() {
         }
 
         setCommentText('');
+        setCommentHasSpoiler(false);
 
         // Blur input to dismiss keyboard
         inputRef.current?.blur();
@@ -310,6 +314,7 @@ function CommentsPageContent() {
     setReplyingTo(null);
     setRootParentId(null);
     setCommentText('');
+    setCommentHasSpoiler(false);
   }, []);
 
   // Toggle showing replies for a review
@@ -351,6 +356,7 @@ function CommentsPageContent() {
   const handleEditReview = useCallback((review: Review) => {
     setEditingReview(review);
     setCommentText(review.text);
+    setCommentHasSpoiler(!!review.hasSpoiler);
     // Editing precludes replying.
     setReplyingTo(null);
     setRootParentId(null);
@@ -360,6 +366,7 @@ function CommentsPageContent() {
   const cancelEdit = useCallback(() => {
     setEditingReview(null);
     setCommentText('');
+    setCommentHasSpoiler(false);
   }, []);
 
   // Auto-resize textarea
@@ -382,34 +389,28 @@ function CommentsPageContent() {
 
   return (
     <div className="fixed inset-0 bg-background flex flex-col">
-      {/* Sticky context header */}
+      {/* Slim Instagram-style header — back · centered "reviews · N" · ⋯ */}
       <header className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
-        <div className="flex items-center gap-3 px-4 py-3">
+        <div className="flex items-center gap-2 px-3 py-2.5">
           <button
             onClick={handleBack}
-            className="p-1.5 -ml-1.5 rounded-full hover:bg-secondary transition-colors"
+            className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-secondary transition-colors"
             aria-label="Back"
           >
             <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
           </button>
-
-          {moviePoster && (
-            <Image
-              src={moviePoster}
-              alt={movieTitle}
-              width={32}
-              height={48}
-              className="rounded-[5px] border border-border object-cover flex-shrink-0"
-            />
-          )}
-
-          <div className="min-w-0 flex-1">
-            <h1 className="font-headline font-semibold text-sm lowercase tracking-tight truncate">{movieTitle}</h1>
-            <p className="cc-meta text-[11px] text-muted-foreground">
-              {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}
-              {threadCount > 0 ? ` · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}` : ''}
-            </p>
-          </div>
+          <h1 className="flex-1 text-center font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">
+            reviews
+            <span className="cc-meta text-[11px] text-muted-foreground font-normal ml-1.5">
+              · {reviews.length}
+            </span>
+          </h1>
+          <button
+            className="h-8 w-8 rounded-full flex items-center justify-center text-foreground/70 hover:bg-secondary transition-colors"
+            aria-label="More"
+          >
+            <MoreHorizontal className="h-5 w-5" strokeWidth={1.8} />
+          </button>
         </div>
       </header>
 
@@ -419,6 +420,32 @@ function CommentsPageContent() {
         className="flex-1 overflow-y-auto px-4"
         style={{ paddingBottom: keyboardHeight > 0 ? 0 : undefined }}
       >
+        {/* Movie context strip — poster + lowercase title + mono meta + hairline */}
+        {(moviePoster || movieTitle) && (
+          <div className="flex items-center gap-2.5 pt-3.5 pb-3 border-b border-border">
+            {moviePoster ? (
+              <Image
+                src={moviePoster}
+                alt={movieTitle}
+                width={32}
+                height={48}
+                className="rounded-[4px] border border-border object-cover flex-shrink-0"
+              />
+            ) : (
+              <div className="w-8 h-12 rounded-[4px] bg-muted flex-shrink-0" />
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="font-headline font-bold text-[14px] lowercase tracking-[-0.02em] truncate leading-[1.1]">
+                {movieTitle}
+              </p>
+              <p className="cc-meta text-[10px] text-muted-foreground mt-0.5">
+                {mediaType === 'tv' ? 'tv' : 'film'}
+                {threadCount > 0 ? ` · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}` : ''}
+              </p>
+            </div>
+          </div>
+        )}
+
         {isLoading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -432,31 +459,35 @@ function CommentsPageContent() {
           </div>
         ) : (
           <>
-            {/* Sort line */}
-            <div className="flex items-baseline justify-between py-3 border-b border-border">
-              <span className="cc-eyebrow">reviews</span>
-              <div className="flex gap-3 cc-meta text-[11px]">
-                <button
-                  onClick={() => setSortBy('recent')}
-                  className={sortBy === 'recent' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
-                >
-                  most recent
-                </button>
+            {/* Sort line — film-red underline on the active option */}
+            <div className="flex items-baseline justify-between py-3">
+              <span className="cc-eyebrow">sort</span>
+              <div className="flex gap-3 cc-meta text-[10px]">
                 <button
                   onClick={() => setSortBy('likes')}
                   className={sortBy === 'likes' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
                 >
                   most liked
                 </button>
+                <button
+                  onClick={() => setSortBy('recent')}
+                  className={sortBy === 'recent' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
+                >
+                  most recent
+                </button>
               </div>
             </div>
 
-            {/* Featured pull-quote — the most-liked take, set like a magazine */}
+            {/* Featured pull-quote — tinted bone callout, film-red eyebrow,
+                serif italic pull-quote. The magazine move. */}
             {featured && (
-              <div className="py-5 border-b border-border">
+              <div
+                className="my-4 px-3.5 py-3.5 rounded-[12px]"
+                style={{ backgroundColor: 'oklch(0.93 0.012 78)' }}
+              >
                 <div className="cc-eyebrow text-primary">★ featured review</div>
-                <p className="font-serif italic font-light text-[21px] leading-snug text-foreground mt-3">
-                  &ldquo;{featured.text}&rdquo;
+                <p className="font-serif italic font-light text-[19px] leading-[1.3] tracking-[-0.015em] text-foreground mt-2 before:content-['“'] after:content-['”']">
+                  {featured.text}
                 </p>
                 <div className="flex items-center gap-2 mt-3">
                   <ProfileAvatar
@@ -465,9 +496,19 @@ function CommentsPageContent() {
                     username={featured.username}
                     size="sm"
                   />
-                  <span className="cc-meta text-[11px] text-muted-foreground">
-                    {featured.username ? `@${featured.username}` : 'anonymous'}
-                  </span>
+                  <div className="min-w-0 flex-1 flex items-baseline gap-1.5 flex-wrap">
+                    <span className="font-headline font-bold text-[13px] tracking-[-0.01em] text-foreground">
+                      {featured.userDisplayName || featured.username || 'anonymous'}
+                    </span>
+                    {featured.username && (
+                      <span className="cc-meta text-[10px] text-muted-foreground">
+                        @{featured.username}
+                      </span>
+                    )}
+                    <span className="cc-meta text-[10px] text-muted-foreground">
+                      · {new Date(featured.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}
+                    </span>
+                  </div>
                   {featured.ratingAtTime != null && (
                     <span
                       className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
@@ -484,7 +525,7 @@ function CommentsPageContent() {
             )}
 
             {/* Comment list */}
-            <div className="divide-y divide-border">
+            <div>
               {restReviews.map(review => (
                 <div key={review.id}>
                   {/* Parent review */}
@@ -592,10 +633,10 @@ function CommentsPageContent() {
                 ref={inputRef}
                 value={commentText}
                 onChange={handleTextareaChange}
-                placeholder={replyingTo ? 'write a reply…' : 'share what you thought…'}
+                placeholder={replyingTo ? 'write a reply…' : 'add a review…'}
                 rows={1}
                 maxLength={1000}
-                className="w-full px-4 py-2 pr-12 rounded-2xl border border-border bg-secondary/30 focus:outline-none focus:border-primary resize-none"
+                className="w-full px-4 py-2 pr-[88px] rounded-full border border-border bg-paper focus:outline-none focus:border-primary resize-none font-serif placeholder:italic placeholder:font-light"
                 style={{
                   fontSize: '16px', // Prevents iOS zoom
                   lineHeight: '1.5',
@@ -610,10 +651,25 @@ function CommentsPageContent() {
                 }}
               />
 
+              {/* Spoiler toggle — author can hide the body behind a shield */}
+              <button
+                onClick={() => setCommentHasSpoiler((v) => !v)}
+                aria-label={commentHasSpoiler ? 'Unmark as spoiler' : 'Mark as spoiler'}
+                title={commentHasSpoiler ? 'spoiler — viewers must tap to reveal' : 'mark as spoiler'}
+                className={cn(
+                  'absolute right-[46px] bottom-1.5 h-9 w-9 rounded-full flex items-center justify-center transition-colors',
+                  commentHasSpoiler
+                    ? 'text-primary'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <EyeOff className="h-4 w-4" strokeWidth={1.8} />
+              </button>
+
               <button
                 onClick={handleSubmitComment}
                 disabled={!commentText.trim() || isSubmitting}
-                className="absolute right-2 bottom-1.5 p-2 rounded-full bg-foreground text-background disabled:opacity-40"
+                className="absolute right-1.5 bottom-1.5 h-9 w-9 rounded-full bg-primary text-white shadow-fab flex items-center justify-center disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none active:scale-90"
                 aria-label="Post comment"
               >
                 {isSubmitting ? (

@@ -10,6 +10,8 @@ import { likeActivity, unlikeActivity } from '@/app/actions';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
+import { BookmarkButton } from './bookmark-button';
+import { CardOverflowMenu } from './card-overflow-menu';
 
 type ActivityCardProps = {
   activity: Activity;
@@ -145,6 +147,18 @@ export const ActivityCard = memo(function ActivityCard({
             {activity.rating.toFixed(1)}
           </span>
         )}
+
+        <div className="flex-shrink-0">
+          <CardOverflowMenu
+            authorId={activity.userId}
+            authorUsername={activity.username}
+            itemType="activity"
+            itemId={activity.id}
+            movieTmdbId={activity.tmdbId}
+            movieTitle={activity.movieTitle}
+            mediaType={activity.mediaType}
+          />
+        </div>
       </div>
 
       {/* Row 2 — the movie */}
@@ -168,9 +182,9 @@ export const ActivityCard = memo(function ActivityCard({
               <p className="cc-meta text-[10px] text-muted-foreground mt-1">{activity.movieYear}</p>
             )}
 
-            {/* reviewed → review snippet as a magazine pull-quote */}
+            {/* reviewed → the review itself, as a film-red-ruled pull-quote */}
             {activity.type === 'reviewed' && activity.reviewText && (
-              <p className="font-serif italic text-[14px] leading-snug text-foreground mt-2 pl-2.5 border-l border-border line-clamp-2">
+              <p className="font-serif italic text-[14px] leading-snug text-foreground mt-2 pl-3 border-l-2 border-primary">
                 {activity.reviewText}
               </p>
             )}
@@ -185,21 +199,25 @@ export const ActivityCard = memo(function ActivityCard({
         </div>
       </button>
 
-      {/* Footer — like + reply, mono hairline */}
+      {/* Footer — like + save on the left, reply on the right */}
       <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-border">
-        <button
-          onClick={handleLike}
-          disabled={!currentUserId || isPending}
-          className={cn(
-            'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
-            isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
-            (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
-          )}
-          aria-label={isLiked ? 'Unlike' : 'Like'}
-        >
-          <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
-          {likeCount > 0 && <span>{likeCount}</span>}
-        </button>
+        <div className="flex items-center gap-4">
+          <button
+            onClick={handleLike}
+            disabled={!currentUserId || isPending}
+            className={cn(
+              'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
+              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
+              (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
+            )}
+            aria-label={isLiked ? 'Unlike' : 'Like'}
+          >
+            <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
+            {likeCount > 0 && <span>{likeCount}</span>}
+          </button>
+
+          <BookmarkButton itemType="activity" itemId={activity.id} />
+        </div>
 
         <button
           onClick={handleMovieClick}

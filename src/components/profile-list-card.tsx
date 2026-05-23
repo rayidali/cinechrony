@@ -11,11 +11,16 @@ interface ProfileListCardProps {
   ownerName?: string;
   movieCount: number;
   coverImageUrl?: string;
+  /** v3: when `auto`, the cover is rendered as the poster mosaic even if a
+   *  stale coverImageUrl is set. */
+  coverMode?: 'auto' | 'custom';
   previewPosters?: string[];
   /** Accepted for call-site compatibility — not rendered in the v2 card. */
   updatedLabel?: string;
   onClick?: (e: React.MouseEvent) => void;
   children?: ReactNode;
+  /** Optional like control (<ListLikeButton variant="cover">) — bottom-left of the cover. */
+  likeButton?: ReactNode;
 }
 
 /**
@@ -33,11 +38,13 @@ export function ProfileListCard({
   ownerName,
   movieCount,
   coverImageUrl,
+  coverMode,
   previewPosters = [],
   onClick,
   children,
+  likeButton,
 }: ProfileListCardProps) {
-  const hasCustomCover = !!coverImageUrl;
+  const hasCustomCover = !!coverImageUrl && coverMode !== 'auto';
   const hasPosters = previewPosters.length > 0;
 
   const eyebrow = [
@@ -81,6 +88,16 @@ export function ProfileListCard({
           ) : (
             <div className="absolute inset-0 rounded-[14px] border border-dashed border-border bg-background flex items-center justify-center text-muted-foreground">
               <Film className="h-7 w-7" strokeWidth={1.4} />
+            </div>
+          )}
+
+          {/* Like control — bottom-left glass pill over the cover */}
+          {likeButton && (
+            <div
+              className="absolute bottom-1.5 left-1.5 z-10"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {likeButton}
             </div>
           )}
         </div>

@@ -1,4 +1,4 @@
-import type {Metadata} from 'next';
+import type {Metadata, Viewport} from 'next';
 import './globals.css';
 import { Toaster } from "@/components/ui/toaster"
 import { Bricolage_Grotesque, Newsreader, Space_Mono } from 'next/font/google';
@@ -7,6 +7,9 @@ import { ThemeProvider } from '@/components/theme-provider';
 import { ListMembersCacheProvider } from '@/contexts/list-members-cache';
 import { UserRatingsCacheProvider } from '@/contexts/user-ratings-cache';
 import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
+import { UserBookmarksCacheProvider } from '@/contexts/user-bookmarks-cache';
+import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
+import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -32,6 +35,16 @@ const spaceMono = Space_Mono({
   display: 'swap',
 });
 
+
+// iOS Safari tints its URL bar with `theme-color`; we want newsprint cream
+// so the chrome blends into the editorial page surface. The PWA manifest's
+// `theme_color` is set to the same value; this inline meta wins on the
+// first paint regardless of manifest caching. (Was `#facc15`, the v1
+// brutalist yellow — leftover that was showing up as a yellow band at the
+// top of fullscreen drawers when the keyboard was up.)
+export const viewport: Viewport = {
+  themeColor: '#f7f3e9',
+};
 
 export const metadata: Metadata = {
   title: 'Cinechrony',
@@ -70,7 +83,13 @@ export default function RootLayout({
             <ListMembersCacheProvider>
               <UserRatingsCacheProvider>
                 <UserProfileCacheProvider>
-                  {children}
+                  <UserBookmarksCacheProvider>
+                    <UserMutesCacheProvider>
+                      <UserBlocksCacheProvider>
+                        {children}
+                      </UserBlocksCacheProvider>
+                    </UserMutesCacheProvider>
+                  </UserBookmarksCacheProvider>
                 </UserProfileCacheProvider>
               </UserRatingsCacheProvider>
             </ListMembersCacheProvider>

@@ -8,6 +8,7 @@ import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { getMovieReviews } from '@/app/actions';
 import { getRatingStyle } from '@/lib/utils';
+import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Review } from '@/lib/types';
 
 interface ReviewsListProps {
@@ -40,6 +41,7 @@ export const ReviewsList = memo(function ReviewsList({
   pendingNewComment,
   onPendingCommentHandled,
 }: ReviewsListProps) {
+  const { isBlocked } = useUserBlocksCache();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
@@ -93,15 +95,23 @@ export const ReviewsList = memo(function ReviewsList({
     setReviews((prev) => prev.filter((r) => r.id !== reviewId));
   };
 
+  // LAUNCH 0.5.5: hide reviews from blocked users (either direction).
+  const visibleReviews = useMemo(
+    () => reviews.filter((r) => !isBlocked(r.userId)),
+    [reviews, isBlocked],
+  );
+
   // Featured = the single most-liked review (only worth lifting out if it has
   // real traction and there's more than one review to choose from).
   const featured = useMemo(() => {
-    if (reviews.length < 2) return null;
-    const top = [...reviews].sort((a, b) => (b.likes || 0) - (a.likes || 0))[0];
+    if (visibleReviews.length < 2) return null;
+    const top = [...visibleReviews].sort((a, b) => (b.likes || 0) - (a.likes || 0))[0];
     return top && (top.likes || 0) > 0 ? top : null;
-  }, [reviews]);
+  }, [visibleReviews]);
 
-  const restReviews = featured ? reviews.filter((r) => r.id !== featured.id) : reviews;
+  const restReviews = featured
+    ? visibleReviews.filter((r) => r.id !== featured.id)
+    : visibleReviews;
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
@@ -121,7 +131,7 @@ export const ReviewsList = memo(function ReviewsList({
             {movieTitle}
           </h3>
           <p className="cc-meta text-[11px] text-muted-foreground">
-            {reviews.length} {reviews.length === 1 ? 'review' : 'reviews'}
+            {visibleReviews.length} {visibleReviews.length === 1 ? 'review' : 'reviews'}
           </p>
         </div>
       </div>
@@ -132,7 +142,7 @@ export const ReviewsList = memo(function ReviewsList({
           <div className="flex items-center justify-center py-12">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
-        ) : reviews.length === 0 ? (
+        ) : visibleReviews.length === 0 ? (
           <div className="py-12 text-center">
             <div className="cc-eyebrow">reviews</div>
             <p className="font-serif italic text-[15px] text-muted-foreground mt-3">
@@ -204,7 +214,7 @@ export const ReviewsList = memo(function ReviewsList({
             )}
 
             {/* The rest */}
-            <div className="divide-y divide-border">
+            <div>
               {restReviews.map((review) => (
                 <ReviewCard
                   key={review.id}

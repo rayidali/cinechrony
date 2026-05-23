@@ -91,7 +91,17 @@ export type MovieList = {
   ownerId: string; // User who owns the list
   collaboratorIds?: string[]; // Users who can edit this list (max 10 total including owner)
   coverImageUrl?: string; // Optional custom cover image for the list
+  // How the cover is rendered:
+  //  - 'custom' → use coverImageUrl
+  //  - 'auto'   → render a 3-poster mosaic from the first 3 movies (default)
+  // Older lists (pre-v3 creator) don't have this field; treat missing as 'auto'
+  // when coverImageUrl is unset, 'custom' when set.
+  coverMode?: 'auto' | 'custom';
   movieCount?: number; // Cached count of movies in the list
+  // Likes — server-managed (likeList/unlikeList only). Public lists can be liked.
+  likes?: number;
+  likedBy?: string[];
+  lastLikedAt?: Date; // Recency anchor for the loved-lists showcase ranking
 };
 
 // List member role
@@ -269,6 +279,8 @@ export type Review = {
   // Threading support (1-level, like Instagram)
   parentId: string | null; // If this is a reply, the parent review's ID
   replyCount: number; // Number of replies to this review
+  // Author-flagged spoiler — body renders behind a "tap to reveal" shield.
+  hasSpoiler?: boolean;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -287,7 +299,16 @@ export type UserRating = {
 };
 
 // Notification types
-export type NotificationType = 'mention' | 'reply' | 'follow' | 'like' | 'list_invite';
+export type NotificationType =
+  | 'mention'
+  | 'reply'
+  | 'follow'
+  | 'like'
+  | 'list_invite'
+  | 'list_like' // Someone liked one of your public lists
+  | 'post_tag' // Someone tagged you in a post
+  | 'post_like' // Someone liked your post
+  | 'post_comment'; // Someone commented on your post
 
 // Notification
 export type Notification = {
@@ -310,6 +331,8 @@ export type Notification = {
   listOwnerId?: string;
   listName?: string;
   inviteId?: string; // For accepting/declining invites from notification
+  // Post context (for post_tag / post_like / post_comment)
+  postId?: string;
   // State
   read: boolean;
   createdAt: Date;
@@ -368,5 +391,76 @@ export type Activity = {
   likes: number;
   likedBy: string[];
   // Timestamp
+  createdAt: Date;
+};
+
+// ---- User posts (LAUNCH 0.5.4) ----
+
+// One image or video attached to a post (stored on Cloudflare R2).
+export type PostMedia = {
+  type: 'image' | 'video';
+  url: string;
+  width?: number;
+  height?: number;
+};
+
+// A tagged user, denormalized onto the post (the N+1 pattern).
+export type TaggedUser = {
+  uid: string;
+  username: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+};
+
+// A Beli-style user post — free text + media, anchored to a film.
+export type Post = {
+  id: string;
+  authorId: string;
+  // Denormalized author (avoids per-post profile fetches)
+  authorUsername: string | null;
+  authorDisplayName: string | null;
+  authorPhotoURL: string | null;
+  text: string;
+  media: PostMedia[];
+  // The film this post is about. v3+: required at write time. Older posts may
+  // have null; new posts created via the v3 composer always set this.
+  taggedMovie: {
+    tmdbId: number;
+    title: string;
+    posterUrl: string | null;
+    year: string;
+    mediaType: 'movie' | 'tv';
+  } | null;
+  // Optional rating (1.0–10.0). When set, createPost also upserts the user's
+  // /ratings/{uid}_{tmdbId} entry — a post becomes the unified review surface.
+  rating?: number | null;
+  // Friends mentioned in the post — v3+ extracted from inline @-mentions in
+  // `text` rather than a separate tag list. Kept on the document for the
+  // denormalized author-info that mention notifications consume, and for
+  // legacy posts written by the v2 composer.
+  taggedUserIds?: string[];
+  taggedUsers?: TaggedUser[];
+  place: string | null; // Freeform venue text — never GPS
+  likes: number;
+  likedBy: string[];
+  commentCount: number;
+  createdAt: Date;
+  updatedAt: Date;
+  editedAt?: Date | null;
+};
+
+// A comment on a post — 1-level threading, mirrors Review.
+export type PostComment = {
+  id: string;
+  postId: string;
+  userId: string;
+  username: string | null;
+  userDisplayName: string | null;
+  userPhotoUrl: string | null;
+  text: string;
+  likes: number;
+  likedBy: string[];
+  parentId: string | null;
+  replyCount: number;
   createdAt: Date;
 };

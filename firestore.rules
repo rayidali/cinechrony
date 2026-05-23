@@ -122,8 +122,14 @@ service cloud.firestore {
                  resource.data.collaboratorIds.hasAny([request.auth.uid]);
         }
 
-        // Owner can do anything
-        allow read, write: if isOwner(userId);
+        // Owner: full read, create/delete. Updates are allowed for everything
+        // EXCEPT the server-managed like fields — likes/likedBy/lastLikedAt are
+        // written only by the likeList/unlikeList server actions (Admin SDK),
+        // so the owner can't inflate their own list's like count.
+        allow read, create, delete: if isOwner(userId);
+        allow update: if isOwner(userId)
+          && !request.resource.data.diff(resource.data)
+                .affectedKeys().hasAny(['likes', 'likedBy', 'lastLikedAt']);
 
         // Public lists can be read by anyone
         allow read: if resource.data.isPublic == true;
@@ -225,6 +231,26 @@ service cloud.firestore {
         // Others can read to check if they're followed
         allow read: if isSignedIn();
       }
+
+      /**
+       * @path /users/{userId}/bookmarks/{bookmarkId}
+       * The owner's personal "saved" archive. The owner reads it directly (the
+       * bookmarks cache); writes go through saveItem/unsaveItem (Admin SDK).
+       */
+      match /bookmarks/{bookmarkId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
+
+      /**
+       * @path /users/{userId}/mutes/{mutedId}
+       * Users the owner has muted (feed-hidden). Owner-read; writes go through
+       * the muteUser/unmuteUser server actions.
+       */
+      match /mutes/{mutedId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     // ------------------------------------------------------------------------
@@ -317,6 +343,20 @@ service cloud.firestore {
     }
     match /notifications/{notificationId} {
       allow read, write: if false;
+    }
+    // LAUNCH 0.5.5: block records — server-only. The client never reads /blocks
+    // directly; getMyBlockContext delivers the invisibility set instead.
+    match /blocks/{blockId} {
+      allow read, write: if false;
+    }
+    // LAUNCH 0.5.4: user posts + their comments — server-only. All reads go
+    // through getHomeFeed / getPost (block-filtered); all writes through the
+    // post server actions (Admin SDK).
+    match /posts/{postId} {
+      allow read, write: if false;
+      match /comments/{commentId} {
+        allow read, write: if false;
+      }
     }
     // AUDIT.md 3.8: rate-limit counters — server-only, clients must never read
     // or tamper with their own budget.

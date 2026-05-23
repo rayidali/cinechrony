@@ -1,13 +1,16 @@
 'use server';
 
 import { revalidatePath } from 'next/cache';
-import type { SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType } from '@/lib/types';
+import type {
+  SearchResult, UserProfile, ListInvite, ListMember, Activity, ActivityType,
+  Post, PostMedia, TaggedUser, PostComment,
+} from '@/lib/types';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { randomInt } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 
 // AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
 // (applies ignoreUndefinedProperties once). The previous local copy here
@@ -206,26 +209,112 @@ export async function ensureUserProfile(idToken: string, email: string, displayN
 // --- LIST OPERATIONS ---
 
 /**
- * Creates a new list for a user.
+ * Creates a new list (v3 editorial creator — `pattern-new-list.html`).
+ *
+ * Back-compat: the 3rd arg can still be a plain `isPublic: boolean` for old
+ * call sites. New callers pass an options object with description, cover
+ * settings, and collaborator invites in one shot.
+ *
+ * v3 defaults: **private** unless explicitly made public; cover renders as a
+ * 3-poster mosaic (`coverMode: 'auto'`) until the owner uploads one.
  */
-export async function createList(idToken: string, name: string, isPublic: boolean = true) {
+export async function createList(
+  idToken: string,
+  name: string,
+  isPublicOrOptions:
+    | boolean
+    | {
+        isPublic?: boolean;
+        description?: string;
+        coverMode?: 'auto' | 'custom';
+        coverImageUrl?: string;
+        collaboratorInvites?: Array<{ uid: string; username?: string | null }>;
+      } = {},
+) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
 
-  const db = getDb();
+  // Normalize legacy `boolean` arg vs new options object.
+  const opts =
+    typeof isPublicOrOptions === 'boolean'
+      ? { isPublic: isPublicOrOptions }
+      : isPublicOrOptions;
 
+  const trimmedName = name.trim();
+  if (!trimmedName) return { error: 'A list needs a name.' };
+  if (trimmedName.length > 80) return { error: 'List name is too long.' };
+
+  const isPublic = opts.isPublic ?? false; // v3 default: private.
+  const description = (opts.description || '').trim().slice(0, 280) || null;
+  const coverImageUrl = opts.coverImageUrl || null;
+  // 'auto' unless a custom cover was uploaded.
+  const coverMode: 'auto' | 'custom' = coverImageUrl ? 'custom' : opts.coverMode ?? 'auto';
+  // Up to 9 collaborator invites at creation time (owner + 9 = 10-member cap).
+  const invites = Array.isArray(opts.collaboratorInvites)
+    ? opts.collaboratorInvites.slice(0, 9)
+    : [];
+
+  const db = getDb();
   try {
     const listRef = db.collection('users').doc(userId).collection('lists').doc();
     await listRef.set({
       id: listRef.id,
-      name: name.trim(),
+      name: trimmedName,
+      ...(description ? { description } : {}),
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
       isDefault: false,
-      isPublic: isPublic,
+      isPublic,
       ownerId: userId,
+      coverMode,
+      ...(coverImageUrl ? { coverImageUrl } : {}),
+      likes: 0,
+      likedBy: [],
     });
+
+    // Fan out collaborator invites — best-effort, post-commit. Each invite is
+    // a /invites doc + a list_invite notification for the invitee.
+    if (invites.length > 0) {
+      try {
+        const userDoc = await db.collection('users').doc(userId).get();
+        const inviterUsername = userDoc.data()?.username ?? null;
+        const inviterDisplayName = userDoc.data()?.displayName ?? null;
+        const inviterPhotoUrl = userDoc.data()?.photoURL ?? null;
+        for (const invitee of invites) {
+          if (!invitee?.uid || invitee.uid === userId) continue;
+          const inviteRef = db.collection('invites').doc();
+          await inviteRef.set({
+            id: inviteRef.id,
+            listId: listRef.id,
+            listName: trimmedName,
+            listOwnerId: userId,
+            inviterId: userId,
+            inviterUsername,
+            inviteeId: invitee.uid,
+            inviteeUsername: invitee.username ?? null,
+            status: 'pending',
+            createdAt: FieldValue.serverTimestamp(),
+          });
+          await db.collection('notifications').add({
+            userId: invitee.uid,
+            type: 'list_invite',
+            fromUserId: userId,
+            fromUsername: inviterUsername,
+            fromDisplayName: inviterDisplayName,
+            fromPhotoUrl: inviterPhotoUrl,
+            inviteId: inviteRef.id,
+            listId: listRef.id,
+            listOwnerId: userId,
+            listName: trimmedName,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[createList] invite fan-out failed:', err);
+      }
+    }
 
     revalidatePath('/lists');
     return { success: true, listId: listRef.id };
@@ -855,8 +944,15 @@ export async function searchUsers(query: string, currentUserId?: string) {
     byUsername.docs.forEach(collect);
     byDisplayName.docs.forEach(collect);
 
+    // LAUNCH 0.5.5: blocked users (either direction) never appear in search.
+    let blockSet = new Set<string>();
+    if (currentUserId) {
+      blockSet = await getBlockSet(db, currentUserId);
+    }
+
     // Rank: exact @handle match > @handle prefix > alphabetical.
     const users = Array.from(usersMap.values())
+      .filter((u) => !blockSet.has(u.uid) && u.uid !== currentUserId)
       .sort((a, b) => {
         const au = (a.username || '').toLowerCase();
         const bu = (b.username || '').toLowerCase();
@@ -1277,6 +1373,11 @@ export async function followUser(idToken: string, followingId: string) {
       return { error: "You can't follow yourself." };
     }
 
+    // LAUNCH 0.5.5: a block in either direction severs interaction.
+    if (await isBlockedBetween(db, followerId, followingId)) {
+      return { error: 'Unable to follow this user.' };
+    }
+
     // Check if already following
     const existingFollow = await db
       .collection('users')
@@ -1556,6 +1657,8 @@ export async function getUserPublicLists(userId: string) {
         collaboratorIds: data.collaboratorIds || [],
         coverImageUrl: data.coverImageUrl || null,
         movieCount: data.movieCount || 0,
+        likes: data.likes || 0,
+        likedBy: data.likedBy || [],
         createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
         _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,
@@ -1572,6 +1675,149 @@ export async function getUserPublicLists(userId: string) {
   } catch (error) {
     console.error('Failed to get public lists:', error);
     return { error: 'Failed to get public lists.' };
+  }
+}
+
+/**
+ * A public list rendered as a discovery card (showcase + list search).
+ */
+export type LovedListCard = {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerUsername: string | null;
+  ownerDisplayName: string | null;
+  coverImageUrl: string;
+  /** v3: when 'auto', render the mosaic even if coverImageUrl is set. */
+  coverMode: 'auto' | 'custom' | null;
+  movieCount: number;
+  likes: number;
+  previewPosters: string[];
+};
+
+/**
+ * Turn raw list docs into discovery cards — batch-fetches owner profiles and
+ * up to 4 preview posters per list. Shared by getLovedLists + searchPublicLists.
+ */
+async function hydrateListCards(
+  db: FirebaseFirestore.Firestore,
+  docs: FirebaseFirestore.QueryDocumentSnapshot[],
+): Promise<LovedListCard[]> {
+  const ownerIds = [...new Set(docs.map((d) => d.data().ownerId).filter(Boolean))];
+  const ownerDocs = ownerIds.length
+    ? await db.getAll(...ownerIds.map((id) => db.collection('users').doc(id)))
+    : [];
+  const ownerById = new Map(ownerDocs.map((s) => [s.id, s.data()]));
+
+  return Promise.all(
+    docs.map(async (doc) => {
+      const d = doc.data();
+      const ownerId: string = d.ownerId;
+      const owner = ownerById.get(ownerId);
+      const moviesSnap = await db
+        .collection('users').doc(ownerId)
+        .collection('lists').doc(doc.id)
+        .collection('movies')
+        .orderBy('createdAt', 'desc')
+        .limit(4)
+        .get();
+      const previewPosters: string[] = [];
+      moviesSnap.forEach((m) => {
+        const p = m.data().posterUrl;
+        if (typeof p === 'string' && p) previewPosters.push(p);
+      });
+      return {
+        id: doc.id,
+        name: d.name || 'untitled list',
+        ownerId,
+        ownerUsername: owner?.username || null,
+        ownerDisplayName: owner?.displayName || null,
+        coverImageUrl: d.coverImageUrl || '',
+        coverMode: (d.coverMode as 'auto' | 'custom' | undefined) ?? null,
+        movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
+        likes: d.likes || 0,
+        previewPosters,
+      };
+    }),
+  );
+}
+
+/**
+ * The loved-lists showcase (LAUNCH 0.5.2).
+ *
+ * Collection-group query over every public list, candidate set ordered by raw
+ * `likes`, then re-ranked in memory by a recency-weighted "hot" score so a list
+ * that camped the top months ago can't ossify there. Editorial — not a
+ * leaderboard, no ranks.
+ *
+ * Cold-start gated: returns `{ lists: [], gated: true }` until at least
+ * MIN_LOVED_LISTS public lists have been liked, so it never renders empty.
+ */
+export async function getLovedLists(limit = 12) {
+  const MIN_LOVED_LISTS = 3;
+  const db = getDb();
+  try {
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .where('likes', '>', 0)
+      .orderBy('likes', 'desc')
+      .limit(60)
+      .get();
+
+    if (snap.size < MIN_LOVED_LISTS) {
+      return { lists: [] as LovedListCard[], gated: true };
+    }
+
+    const now = Date.now();
+    const ranked = snap.docs
+      .map((doc) => {
+        const d = doc.data();
+        const likes: number = d.likes || 0;
+        const lastMs =
+          d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
+        const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
+        // Recency-weighted: likes decay as a list goes quiet.
+        return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
+      })
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit)
+      .map((r) => r.doc);
+
+    const lists = await hydrateListCards(db, ranked);
+    return { lists, gated: false };
+  } catch (error) {
+    console.error('[getLovedLists] Failed:', error);
+    return { lists: [] as LovedListCard[], gated: false, error: 'Failed to load loved lists.' };
+  }
+}
+
+/**
+ * Search public lists by name (LAUNCH 0.5.3 — the Home search overlay).
+ *
+ * In-memory substring match over the public-list collection group. Fine while
+ * the dataset is small (the launch-plan's stated approach); swap to a
+ * `nameLower` prefix index if list volume grows.
+ */
+export async function searchPublicLists(query: string, limit = 12) {
+  const q = query.trim().toLowerCase();
+  if (q.length < 2) return { lists: [] as LovedListCard[] };
+  const db = getDb();
+  try {
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .limit(150)
+      .get();
+    const matches = snap.docs
+      .filter((doc) => String(doc.data().name || '').toLowerCase().includes(q))
+      .sort((a, b) => (b.data().likes || 0) - (a.data().likes || 0))
+      .slice(0, limit);
+    const lists = await hydrateListCards(db, matches);
+    return { lists };
+  } catch (error) {
+    console.error('[searchPublicLists] Failed:', error);
+    return { lists: [] as LovedListCard[], error: 'Failed to search lists.' };
   }
 }
 
@@ -1640,10 +1886,14 @@ export async function getPublicListMovies(ownerId: string, listId: string, viewe
     const serializedList = {
       id: listDoc.id,
       name: listData?.name,
+      description: listData?.description || '',
       isDefault: listData?.isDefault || false,
       isPublic: listData?.isPublic || false,
       ownerId: listData?.ownerId,
       collaboratorIds: listData?.collaboratorIds || [],
+      coverImageUrl: listData?.coverImageUrl || '',
+      likes: listData?.likes || 0,
+      likedBy: listData?.likedBy || [],
       createdAt: listData?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
       updatedAt: listData?.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
     };
@@ -3221,7 +3471,8 @@ export async function createReview(
   moviePosterUrl: string | undefined,
   text: string,
   ratingAtTime?: number | null, // Optional: pass the current user rating to snapshot
-  parentId?: string | null // Optional: if replying to another review
+  parentId?: string | null, // Optional: if replying to another review
+  hasSpoiler?: boolean, // v3: author can hide the body behind a spoiler shield
 ) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
@@ -3271,6 +3522,7 @@ export async function createReview(
       likedBy: [],
       parentId: parentId || null, // Threading: null = top-level review
       replyCount: 0, // Threading: starts at 0, incremented when replies are added
+      hasSpoiler: !!hasSpoiler, // v3: author-flagged spoiler shield
       createdAt: FieldValue.serverTimestamp(),
       updatedAt: FieldValue.serverTimestamp(),
     };
@@ -3574,6 +3826,119 @@ export async function unlikeReview(idToken: string, reviewId: string) {
 }
 
 /**
+ * Like a public list (LAUNCH 0.5.1).
+ *
+ * Mirrors `likeReview`: verifyCaller → rate-limit → transactional
+ * read-check-write. Only public lists are likeable. `likes`/`likedBy`/
+ * `lastLikedAt` are server-only — `firestore.rules` blocks the owner from
+ * editing them so counts can't be forged.
+ */
+export async function likeList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  // Reuse the shared `like` rate-limit bucket (AUDIT.md 3.8).
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(listRef);
+      if (!snap.exists) return { error: 'List not found.' as const };
+      const data = snap.data() || {};
+      if (data.isPublic !== true) return { error: 'Only public lists can be liked.' as const };
+      // A like is an outside endorsement — list members (owner or collaborator)
+      // can't like their own list. Also stops members gaming the showcase rank.
+      const collaboratorIds: string[] = data.collaboratorIds || [];
+      if (listOwnerId === userId || collaboratorIds.includes(userId)) {
+        return { error: "You can't like a list you're part of." as const };
+      }
+      const likedBy: string[] = data.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      tx.update(listRef, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+        lastLikedAt: FieldValue.serverTimestamp(),
+      });
+      return { ok: true as const, listData: data, newLikes: (data.likes || 0) + 1 };
+    });
+    if ('error' in txResult) return { error: txResult.error as string };
+
+    // Notify the owner — post-commit, best-effort, never self.
+    if (listOwnerId && listOwnerId !== userId) {
+      try {
+        const ownerDoc = await db.collection('users').doc(listOwnerId).get();
+        const prefs = ownerDoc.data()?.notificationPreferences;
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const likerData = likerDoc.data();
+          await db.collection('notifications').add({
+            userId: listOwnerId,
+            type: 'list_like',
+            fromUserId: userId,
+            fromUsername: likerData?.username || null,
+            fromDisplayName: likerData?.displayName || null,
+            fromPhotoUrl: likerData?.photoURL || null,
+            listId,
+            listOwnerId,
+            listName: txResult.listData?.name || 'your list',
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[likeList] Failed to create notification:', err);
+      }
+    }
+
+    return { success: true, likes: txResult.newLikes };
+  } catch (error) {
+    console.error('[likeList] Failed:', error);
+    return { error: 'Failed to like list.' };
+  }
+}
+
+/**
+ * Unlike a public list (LAUNCH 0.5.1). `lastLikedAt` is intentionally left
+ * untouched — unliking is not "activity" that should refresh recency.
+ */
+export async function unlikeList(idToken: string, listOwnerId: string, listId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const db = getDb();
+
+  try {
+    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
+
+    const txResult = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(listRef);
+      if (!snap.exists) return { error: 'List not found.' as const };
+      const data = snap.data() || {};
+      const likedBy: string[] = data.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      tx.update(listRef, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (data.likes || 1) - 1) };
+    });
+    if ('error' in txResult) return { error: txResult.error as string };
+
+    return { success: true, likes: txResult.newLikes };
+  } catch (error) {
+    console.error('[unlikeList] Failed:', error);
+    return { error: 'Failed to unlike list.' };
+  }
+}
+
+/**
  * Delete a review (only by owner).
  */
 export async function deleteReview(idToken: string, reviewId: string) {
@@ -3608,7 +3973,12 @@ export async function deleteReview(idToken: string, reviewId: string) {
 /**
  * Update a review (only by owner).
  */
-export async function updateReview(idToken: string, reviewId: string, text: string) {
+export async function updateReview(
+  idToken: string,
+  reviewId: string,
+  text: string,
+  hasSpoiler?: boolean,
+) {
   const auth = await verifyCaller(idToken);
   if (isAuthError(auth)) return auth;
   const userId = auth.uid;
@@ -3628,10 +3998,12 @@ export async function updateReview(idToken: string, reviewId: string, text: stri
       return { error: 'You can only edit your own reviews.' };
     }
 
-    await reviewRef.update({
+    const updates: Record<string, unknown> = {
       text: text.trim(),
       updatedAt: FieldValue.serverTimestamp(),
-    });
+    };
+    if (typeof hasSpoiler === 'boolean') updates.hasSpoiler = hasSpoiler;
+    await reviewRef.update(updates);
 
     return { success: true };
   } catch (error) {
@@ -5329,32 +5701,37 @@ export async function getNotifications(userId: string, limit: number = 50) {
       .limit(limit)
       .get();
 
-    const notifications = snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        type: data.type,
-        fromUserId: data.fromUserId,
-        fromUsername: data.fromUsername,
-        fromDisplayName: data.fromDisplayName,
-        fromPhotoUrl: data.fromPhotoUrl,
-        // Review context (optional)
-        reviewId: data.reviewId,
-        tmdbId: data.tmdbId,
-        mediaType: data.mediaType,
-        movieTitle: data.movieTitle,
-        previewText: data.previewText,
-        // List context (optional)
-        listId: data.listId,
-        listOwnerId: data.listOwnerId,
-        listName: data.listName,
-        inviteId: data.inviteId, // For accepting/declining list invites from notification
-        // State
-        read: data.read,
-        createdAt: data.createdAt?.toDate() || new Date(),
-      };
-    });
+    // LAUNCH 0.5.5: drop notifications from blocked users (either direction).
+    const blockSet = await getBlockSet(db, userId);
+
+    const notifications = snapshot.docs
+      .map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          userId: data.userId,
+          type: data.type,
+          fromUserId: data.fromUserId,
+          fromUsername: data.fromUsername,
+          fromDisplayName: data.fromDisplayName,
+          fromPhotoUrl: data.fromPhotoUrl,
+          // Review context (optional)
+          reviewId: data.reviewId,
+          tmdbId: data.tmdbId,
+          mediaType: data.mediaType,
+          movieTitle: data.movieTitle,
+          previewText: data.previewText,
+          // List context (optional)
+          listId: data.listId,
+          listOwnerId: data.listOwnerId,
+          listName: data.listName,
+          inviteId: data.inviteId, // For accepting/declining list invites from notification
+          // State
+          read: data.read,
+          createdAt: data.createdAt?.toDate() || new Date(),
+        };
+      })
+      .filter((n) => !n.fromUserId || !blockSet.has(n.fromUserId));
 
     // Count unread
     const unreadCount = notifications.filter(n => !n.read).length;
@@ -5797,6 +6174,123 @@ export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; er
   }
 }
 
+/**
+ * Movies similar to a given title — TMDB `recommendations` (its own algorithm),
+ * falling back to `similar` (genre/keyword based) when recommendations is empty.
+ * Powers the "more like this" row on the movie-detail screen and the home
+ * "if you liked X" feed cards. Cached 24h.
+ */
+export async function getSimilarMovies(
+  tmdbId: number,
+  mediaType: 'movie' | 'tv' = 'movie',
+  limit = 12,
+): Promise<{ movies: TrendingMovie[]; error?: string }> {
+  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+  if (!TMDB_ACCESS_TOKEN) {
+    console.warn('[getSimilarMovies] NEXT_PUBLIC_TMDB_ACCESS_TOKEN missing on the server');
+    return { movies: [], error: 'TMDB not configured' };
+  }
+  if (!tmdbId || Number.isNaN(Number(tmdbId))) return { movies: [] };
+
+  const type = mediaType === 'tv' ? 'tv' : 'movie';
+  const headers = {
+    Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
+    'Content-Type': 'application/json',
+  };
+
+  async function fetchEndpoint(endpoint: 'recommendations' | 'similar') {
+    const res = await fetch(
+      `https://api.themoviedb.org/3/${type}/${tmdbId}/${endpoint}?language=en-US&page=1`,
+      { headers, next: { revalidate: 86400 } },
+    );
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data.results) ? data.results : [];
+  }
+
+  try {
+    let results = await fetchEndpoint('recommendations');
+    if (results.length === 0) results = await fetchEndpoint('similar');
+
+    const movies: TrendingMovie[] = results
+      .filter((m: { poster_path?: string | null }) => m.poster_path)
+      .slice(0, limit)
+      .map((m: Record<string, unknown>) => ({
+        id: m.id as number,
+        title: (m.title as string) || (m.name as string) || 'untitled',
+        posterPath: (m.poster_path as string) ?? null,
+        releaseDate: (m.release_date as string) || (m.first_air_date as string) || '',
+        voteAverage: (m.vote_average as number) ?? 0,
+        mediaType: (m.media_type === 'tv' || type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
+      }));
+    return { movies };
+  } catch (error) {
+    console.error('[getSimilarMovies] Failed:', error);
+    return { movies: [], error: 'Failed to fetch similar movies.' };
+  }
+}
+
+/** One "if you liked X" recommendation set for the home feed. */
+export type RecommendationSet = {
+  basisTmdbId: number;
+  basisTitle: string;
+  basisMediaType: 'movie' | 'tv';
+  reason: string;
+  recommendations: TrendingMovie[];
+};
+
+/**
+ * "For you" recommendation sets for the home feed.
+ *
+ * Bases each set on a film the viewer rated, preferring loved films
+ * (>= 8) but tiering down so anyone with rating history gets recommendations:
+ * loved (>= 8, up to 3) → liked (>= 6.5, up to 2) → the single most-recent
+ * rating. Each set is TMDB recommendations off that basis film.
+ */
+export async function getRecommendationsForUser(
+  idToken: string,
+): Promise<{ sets: RecommendationSet[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { sets: [], error: auth.error };
+  const userId = auth.uid;
+
+  try {
+    const { ratings } = await getUserRatings(userId, 40);
+    // getUserRatings is ordered by updatedAt desc, so this stays recency-first.
+    const seen = new Set<number>();
+    const rated = (ratings || []).filter((r) => {
+      if (typeof r.rating !== 'number' || !r.tmdbId || seen.has(r.tmdbId)) return false;
+      seen.add(r.tmdbId);
+      return true;
+    });
+
+    // Tiered: loved → liked → whatever's most recent. The feature stays alive
+    // for cautious raters who rarely hand out an 8.
+    let bases = rated.filter((r) => r.rating >= 8).slice(0, 3);
+    if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
+    if (bases.length === 0) bases = rated.slice(0, 1);
+
+    if (bases.length === 0) return { sets: [] };
+
+    const sets = await Promise.all(
+      bases.map(async (b): Promise<RecommendationSet> => {
+        const { movies } = await getSimilarMovies(b.tmdbId, b.mediaType || 'movie', 9);
+        return {
+          basisTmdbId: b.tmdbId,
+          basisTitle: b.movieTitle || 'a film you loved',
+          basisMediaType: (b.mediaType || 'movie') as 'movie' | 'tv',
+          reason: `more films in the orbit of ${(b.movieTitle || 'it').toLowerCase()}.`,
+          recommendations: movies,
+        };
+      }),
+    );
+    return { sets: sets.filter((s) => s.recommendations.length > 0) };
+  } catch (error) {
+    console.error('[getRecommendationsForUser] Failed:', error);
+    return { sets: [], error: 'Failed to build recommendations.' };
+  }
+}
+
 // ============================================
 // ACTIVITY FEED
 // ============================================
@@ -5857,6 +6351,34 @@ async function createActivity(
   }
 }
 
+/** Map an `activities` collection doc to the Activity type. */
+function activityFromDoc(
+  doc: FirebaseFirestore.DocumentSnapshot,
+): Activity {
+  const data = doc.data() || {};
+  return {
+    id: doc.id,
+    userId: data.userId,
+    username: data.username,
+    displayName: data.displayName,
+    photoURL: data.photoURL,
+    type: data.type,
+    tmdbId: data.tmdbId,
+    movieTitle: data.movieTitle,
+    moviePosterUrl: data.moviePosterUrl,
+    movieYear: data.movieYear,
+    mediaType: data.mediaType,
+    rating: data.rating,
+    reviewText: data.reviewText,
+    reviewId: data.reviewId,
+    listId: data.listId,
+    listName: data.listName,
+    likes: data.likes || 0,
+    likedBy: data.likedBy || [],
+    createdAt: data.createdAt?.toDate?.() || new Date(),
+  };
+}
+
 /**
  * Get global activity feed with pagination.
  */
@@ -5887,30 +6409,7 @@ export async function getActivityFeed(
     const hasMore = docs.length > limit;
     const activitiesData = hasMore ? docs.slice(0, limit) : docs;
 
-    const activities: Activity[] = activitiesData.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        userId: data.userId,
-        username: data.username,
-        displayName: data.displayName,
-        photoURL: data.photoURL,
-        type: data.type,
-        tmdbId: data.tmdbId,
-        movieTitle: data.movieTitle,
-        moviePosterUrl: data.moviePosterUrl,
-        movieYear: data.movieYear,
-        mediaType: data.mediaType,
-        rating: data.rating,
-        reviewText: data.reviewText,
-        reviewId: data.reviewId,
-        listId: data.listId,
-        listName: data.listName,
-        likes: data.likes || 0,
-        likedBy: data.likedBy || [],
-        createdAt: data.createdAt?.toDate() || new Date(),
-      };
-    });
+    const activities: Activity[] = activitiesData.map(activityFromDoc);
 
     return {
       activities,
@@ -5920,6 +6419,1253 @@ export async function getActivityFeed(
   } catch (error) {
     console.error('[getActivityFeed] Failed:', error);
     return { activities: [], hasMore: false, error: 'Failed to fetch activity feed' };
+  }
+}
+
+// ============================================
+// BOOKMARKS — the `saved` feed (LAUNCH 0.5 / Phase 5)
+// ============================================
+
+const SAVEABLE_TYPES = ['activity', 'post'] as const;
+
+/** Save a feed item to the viewer's personal archive. Deterministic doc id. */
+export async function saveItem(idToken: string, itemType: string, itemId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  if (!SAVEABLE_TYPES.includes(itemType as (typeof SAVEABLE_TYPES)[number]) || !itemId) {
+    return { error: 'Invalid item.' };
+  }
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks').doc(`${itemType}_${itemId}`)
+      .set({ itemType, itemId, savedAt: FieldValue.serverTimestamp() });
+    return { success: true };
+  } catch (error) {
+    console.error('[saveItem] Failed:', error);
+    return { error: 'Failed to save.' };
+  }
+}
+
+/** Remove a saved item. */
+export async function unsaveItem(idToken: string, itemType: string, itemId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks').doc(`${itemType}_${itemId}`)
+      .delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unsaveItem] Failed:', error);
+    return { error: 'Failed to unsave.' };
+  }
+}
+
+/** All bookmark keys (`{type}_{id}`) for the viewer — powers the bookmarks cache. */
+export async function getMyBookmarks(idToken: string): Promise<{ keys: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { keys: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db
+      .collection('users').doc(auth.uid)
+      .collection('bookmarks')
+      .orderBy('savedAt', 'desc')
+      .limit(1000)
+      .get();
+    return { keys: snap.docs.map((d) => d.id) };
+  } catch (error) {
+    console.error('[getMyBookmarks] Failed:', error);
+    return { keys: [], error: 'Failed to load bookmarks.' };
+  }
+}
+
+/**
+ * The `saved` filter feed — re-hydrated saved items (activities + posts),
+ * newest-saved first. Returns the FeedItem shape so the feed UI is shared.
+ * Dangling bookmarks (deleted sources) are skipped.
+ */
+export async function getSavedFeed(
+  idToken: string,
+  cursor?: string,
+  limit = 20,
+): Promise<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { items: [], hasMore: false, error: auth.error };
+  const db = getDb();
+  try {
+    const bookmarksCol = db.collection('users').doc(auth.uid).collection('bookmarks');
+    let q = bookmarksCol.orderBy('savedAt', 'desc').limit(limit + 1);
+    if (cursor) {
+      const curDoc = await bookmarksCol.doc(cursor).get();
+      if (curDoc.exists) q = q.startAfter(curDoc);
+    }
+    const snap = await q.get();
+    const hasMore = snap.docs.length > limit;
+    const docs = hasMore ? snap.docs.slice(0, limit) : snap.docs;
+
+    const activityIds = docs
+      .filter((d) => d.data().itemType === 'activity')
+      .map((d) => d.data().itemId as string);
+    const postIds = docs
+      .filter((d) => d.data().itemType === 'post')
+      .map((d) => d.data().itemId as string);
+
+    const activityById = new Map<string, Activity>();
+    const postById = new Map<string, Post>();
+    if (activityIds.length) {
+      const fetched = await db.getAll(
+        ...activityIds.map((id) => db.collection('activities').doc(id)),
+      );
+      fetched.forEach((s) => {
+        if (s.exists) activityById.set(s.id, activityFromDoc(s));
+      });
+    }
+    if (postIds.length) {
+      const fetched = await db.getAll(
+        ...postIds.map((id) => db.collection('posts').doc(id)),
+      );
+      fetched.forEach((s) => {
+        if (s.exists) postById.set(s.id, postFromDoc(s));
+      });
+    }
+
+    const items: FeedItem[] = [];
+    for (const d of docs) {
+      const data = d.data();
+      if (data.itemType === 'activity') {
+        const a = activityById.get(data.itemId);
+        if (a) items.push({ kind: 'activity', activity: a });
+      } else if (data.itemType === 'post') {
+        const p = postById.get(data.itemId);
+        if (p) items.push({ kind: 'post', post: p });
+      }
+    }
+    return {
+      items,
+      hasMore,
+      nextCursor: hasMore ? docs[docs.length - 1]?.id : undefined,
+    };
+  } catch (error) {
+    console.error('[getSavedFeed] Failed:', error);
+    return { items: [], hasMore: false, error: 'Failed to load saved items.' };
+  }
+}
+
+// ============================================
+// MUTE — feed-hide a user (Phase 6)
+// ============================================
+
+/** Mute a user — their cards stop showing in the viewer's feed. */
+export async function muteUser(idToken: string, mutedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  if (!mutedId || mutedId === auth.uid) return { error: 'Invalid user.' };
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('mutes').doc(mutedId)
+      .set({ mutedId, createdAt: FieldValue.serverTimestamp() });
+    return { success: true };
+  } catch (error) {
+    console.error('[muteUser] Failed:', error);
+    return { error: 'Failed to mute.' };
+  }
+}
+
+/** Unmute a previously muted user. */
+export async function unmuteUser(idToken: string, mutedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db
+      .collection('users').doc(auth.uid)
+      .collection('mutes').doc(mutedId)
+      .delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unmuteUser] Failed:', error);
+    return { error: 'Failed to unmute.' };
+  }
+}
+
+/** The viewer's muted-user ids — powers the mutes cache. */
+export async function getMyMutes(idToken: string): Promise<{ mutedIds: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { mutedIds: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db.collection('users').doc(auth.uid).collection('mutes').get();
+    return { mutedIds: snap.docs.map((d) => d.id) };
+  } catch (error) {
+    console.error('[getMyMutes] Failed:', error);
+    return { mutedIds: [], error: 'Failed to load mutes.' };
+  }
+}
+
+// ============================================
+// FRIENDS ARE WATCHING — aggregated feed card (Phase 6)
+// ============================================
+
+/** A film 2+ followed users have recently touched — one aggregated hero card. */
+export type FriendsWatchingCard = {
+  tmdbId: number;
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  movieYear: string;
+  mediaType: 'movie' | 'tv';
+  friends: { uid: string; username: string | null; displayName: string | null; photoURL: string | null }[];
+  avgRating: number | null;
+  reviewCount: number;
+};
+
+/**
+ * "Your circle is watching" — collapses recent followed-user activity by film.
+ * A film touched by 2+ distinct followed users becomes one aggregated card so
+ * the feed doesn't show the same title five times.
+ */
+export async function getFriendsWatching(
+  idToken: string,
+): Promise<{ cards: FriendsWatchingCard[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { cards: [], error: auth.error };
+  const db = getDb();
+  try {
+    const followingSnap = await db
+      .collection('users').doc(auth.uid).collection('following').get();
+    const followingIds = new Set(followingSnap.docs.map((d) => d.id));
+    if (followingIds.size === 0) return { cards: [] };
+
+    const recent = await db
+      .collection('activities')
+      .orderBy('createdAt', 'desc')
+      .limit(200)
+      .get();
+
+    const groups = new Map<number, FirebaseFirestore.DocumentData[]>();
+    recent.docs.forEach((doc) => {
+      const d = doc.data();
+      if (!followingIds.has(d.userId) || !d.tmdbId) return;
+      if (!groups.has(d.tmdbId)) groups.set(d.tmdbId, []);
+      groups.get(d.tmdbId)!.push(d);
+    });
+
+    const cards: FriendsWatchingCard[] = [];
+    for (const [tmdbId, acts] of groups) {
+      const friendUids = [...new Set(acts.map((a) => a.userId as string))];
+      if (friendUids.length < 2) continue;
+      const friends = friendUids.map((uid) => {
+        const a = acts.find((x) => x.userId === uid)!;
+        return {
+          uid,
+          username: a.username ?? null,
+          displayName: a.displayName ?? null,
+          photoURL: a.photoURL ?? null,
+        };
+      });
+      const ratings = acts
+        .map((a) => a.rating)
+        .filter((r): r is number => typeof r === 'number');
+      const first = acts[0];
+      cards.push({
+        tmdbId,
+        movieTitle: first.movieTitle ?? 'a film',
+        moviePosterUrl: first.moviePosterUrl ?? null,
+        movieYear: first.movieYear ?? '',
+        mediaType: first.mediaType === 'tv' ? 'tv' : 'movie',
+        friends,
+        avgRating: ratings.length
+          ? ratings.reduce((s, r) => s + r, 0) / ratings.length
+          : null,
+        reviewCount: acts.filter((a) => a.type === 'reviewed').length,
+      });
+    }
+    cards.sort((a, b) => b.friends.length - a.friends.length);
+    return { cards: cards.slice(0, 4) };
+  } catch (error) {
+    console.error('[getFriendsWatching] Failed:', error);
+    return { cards: [], error: 'Failed to load friends-watching.' };
+  }
+}
+
+// ============================================
+// BLOCK — full mutual invisibility (LAUNCH 0.5.5)
+// ============================================
+
+/** True if a block exists in EITHER direction between two users. */
+async function isBlockedBetween(
+  db: FirebaseFirestore.Firestore,
+  a: string,
+  b: string,
+): Promise<boolean> {
+  const [ab, ba] = await Promise.all([
+    db.collection('blocks').doc(`${a}_${b}`).get(),
+    db.collection('blocks').doc(`${b}_${a}`).get(),
+  ]);
+  return ab.exists || ba.exists;
+}
+
+/** The set of uids invisible to `uid` — everyone they blocked + everyone who
+ *  blocked them. Used to filter server-side read surfaces. */
+async function getBlockSet(
+  db: FirebaseFirestore.Firestore,
+  uid: string,
+): Promise<Set<string>> {
+  const [iBlocked, blockedMe] = await Promise.all([
+    db.collection('blocks').where('blockerId', '==', uid).get(),
+    db.collection('blocks').where('blockedId', '==', uid).get(),
+  ]);
+  const set = new Set<string>();
+  iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
+  blockedMe.docs.forEach((d) => set.add(d.data().blockerId as string));
+  return set;
+}
+
+/**
+ * Block a user — full mutual invisibility. Also severs the relationship:
+ * drops any follow in both directions (fixing counts) and revokes pending
+ * invites between the two. Read-surface filtering is cross-cutting (see
+ * getBlockSet callers + the client blocks cache).
+ */
+export async function blockUser(idToken: string, blockedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const me = auth.uid;
+  if (!blockedId || blockedId === me) return { error: 'Invalid user.' };
+  const db = getDb();
+  try {
+    await db.collection('blocks').doc(`${me}_${blockedId}`).set({
+      blockerId: me,
+      blockedId,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Sever the follow relationship in BOTH directions.
+    const batch = db.batch();
+    for (const [a, b] of [[me, blockedId], [blockedId, me]] as const) {
+      const followingRef = db.collection('users').doc(a).collection('following').doc(b);
+      if ((await followingRef.get()).exists) {
+        batch.delete(followingRef);
+        batch.delete(db.collection('users').doc(b).collection('followers').doc(a));
+        batch.update(db.collection('users').doc(a), {
+          followingCount: FieldValue.increment(-1),
+        });
+        batch.update(db.collection('users').doc(b), {
+          followersCount: FieldValue.increment(-1),
+        });
+      }
+    }
+    await batch.commit();
+
+    // Revoke pending invites between the two (best-effort).
+    try {
+      const pending = await db.collection('invites').where('status', '==', 'pending').get();
+      const invBatch = db.batch();
+      let touched = false;
+      pending.docs.forEach((d) => {
+        const inv = d.data();
+        if (
+          (inv.inviterId === me && inv.inviteeId === blockedId) ||
+          (inv.inviterId === blockedId && inv.inviteeId === me)
+        ) {
+          invBatch.update(d.ref, { status: 'revoked' });
+          touched = true;
+        }
+      });
+      if (touched) await invBatch.commit();
+    } catch (err) {
+      console.error('[blockUser] invite revoke failed:', err);
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[blockUser] Failed:', error);
+    return { error: 'Failed to block user.' };
+  }
+}
+
+/** Unblock a user. The relationship is not restored — they must re-follow. */
+export async function unblockUser(idToken: string, blockedId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    await db.collection('blocks').doc(`${auth.uid}_${blockedId}`).delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[unblockUser] Failed:', error);
+    return { error: 'Failed to unblock user.' };
+  }
+}
+
+/**
+ * The viewer's block context — `blockedIds` is the invisibility union (filter
+ * everything against it); `iBlocked` is who the viewer actively blocked (drives
+ * the settings unblock list).
+ */
+export async function getMyBlockContext(
+  idToken: string,
+): Promise<{ blockedIds: string[]; iBlocked: string[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { blockedIds: [], iBlocked: [], error: auth.error };
+  const db = getDb();
+  try {
+    const [iBlockedSnap, blockedMeSnap] = await Promise.all([
+      db.collection('blocks').where('blockerId', '==', auth.uid).get(),
+      db.collection('blocks').where('blockedId', '==', auth.uid).get(),
+    ]);
+    const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
+    const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);
+    return { blockedIds: [...new Set([...iBlocked, ...blockedMe])], iBlocked };
+  } catch (error) {
+    console.error('[getMyBlockContext] Failed:', error);
+    return { blockedIds: [], iBlocked: [], error: 'Failed to load block context.' };
+  }
+}
+
+/** Profiles for the viewer's blocked users — drives the settings unblock list. */
+export async function getBlockedUsers(
+  idToken: string,
+): Promise<{ users: UserProfile[]; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { users: [], error: auth.error };
+  const db = getDb();
+  try {
+    const snap = await db.collection('blocks').where('blockerId', '==', auth.uid).get();
+    const ids = snap.docs.map((d) => d.data().blockedId as string);
+    if (ids.length === 0) return { users: [] };
+    const docs = await db.getAll(...ids.map((id) => db.collection('users').doc(id)));
+    const users = docs
+      .filter((d) => d.exists)
+      .map((d) => {
+        const u = d.data() || {};
+        return {
+          uid: d.id,
+          email: '',
+          displayName: u.displayName ?? null,
+          photoURL: u.photoURL ?? null,
+          username: u.username ?? null,
+          bio: u.bio ?? null,
+          createdAt: u.createdAt?.toDate?.() ?? new Date(),
+          followersCount: u.followersCount ?? 0,
+          followingCount: u.followingCount ?? 0,
+        } as UserProfile;
+      });
+    return { users };
+  } catch (error) {
+    console.error('[getBlockedUsers] Failed:', error);
+    return { users: [], error: 'Failed to load blocked users.' };
+  }
+}
+
+// ============================================
+// USER POSTS (LAUNCH 0.5.4)
+// ============================================
+
+const MAX_POST_MEDIA_BYTES = 200 * 1024 * 1024; // 200MB — Twitter-class
+const MAX_POST_TEXT = 2000;
+const MAX_POST_MEDIA = 6;
+
+/** Map a `posts` doc to the Post type. */
+function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
+  const d = doc.data() || {};
+  return {
+    id: doc.id,
+    authorId: d.authorId,
+    authorUsername: d.authorUsername ?? null,
+    authorDisplayName: d.authorDisplayName ?? null,
+    authorPhotoURL: d.authorPhotoURL ?? null,
+    text: d.text ?? '',
+    media: Array.isArray(d.media) ? d.media : [],
+    taggedMovie: d.taggedMovie ?? null,
+    taggedUserIds: d.taggedUserIds ?? [],
+    taggedUsers: d.taggedUsers ?? [],
+    place: d.place ?? null,
+    likes: d.likes ?? 0,
+    likedBy: d.likedBy ?? [],
+    commentCount: d.commentCount ?? 0,
+    createdAt: d.createdAt?.toDate?.() ?? new Date(),
+    updatedAt: d.updatedAt?.toDate?.() ?? new Date(),
+    editedAt: d.editedAt?.toDate?.() ?? null,
+  };
+}
+
+/**
+ * Issue a presigned R2 PUT URL so the client uploads post media (images +
+ * video, up to 200MB) DIRECTLY to R2 — large files never stream through a
+ * server action. Validates mime + size before signing.
+ */
+export async function getPostMediaUploadUrl(
+  idToken: string,
+  fileName: string,
+  contentType: string,
+  fileSize: number,
+): Promise<{ uploadUrl?: string; publicUrl?: string; error?: string }> {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return { error: auth.error };
+
+  const isImage = contentType.startsWith('image/');
+  const isVideo = contentType.startsWith('video/');
+  if (!isImage && !isVideo) return { error: 'Only images and videos can be attached.' };
+  if (!fileSize || fileSize <= 0 || fileSize > MAX_POST_MEDIA_BYTES) {
+    return { error: 'That file is too large — 200MB max.' };
+  }
+
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const endpoint = process.env.R2_ENDPOINT;
+  const bucketName = process.env.R2_BUCKET_NAME;
+  const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+  if (!accessKeyId || !secretAccessKey || !endpoint || !bucketName || !publicBaseUrl) {
+    console.error('[getPostMediaUploadUrl] R2 not configured');
+    return { error: 'Media upload is not configured.' };
+  }
+
+  try {
+    const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
+    const { getSignedUrl } = await import('@aws-sdk/s3-request-presigner');
+    const s3 = new S3Client({
+      region: 'auto',
+      endpoint,
+      credentials: { accessKeyId, secretAccessKey },
+    });
+
+    const ext =
+      (fileName.split('.').pop() || (isVideo ? 'mp4' : 'jpg'))
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .slice(0, 8) || (isVideo ? 'mp4' : 'jpg');
+    const key = `posts/${auth.uid}/${randomUUID()}.${ext}`;
+
+    const uploadUrl = await getSignedUrl(
+      s3,
+      new PutObjectCommand({ Bucket: bucketName, Key: key, ContentType: contentType }),
+      { expiresIn: 600 },
+    );
+    return { uploadUrl, publicUrl: `${publicBaseUrl}/${key}` };
+  } catch (error) {
+    console.error('[getPostMediaUploadUrl] Failed:', error);
+    return { error: 'Failed to prepare the upload.' };
+  }
+}
+
+/** Resolve tagged-user ids → denormalized TaggedUser[], dropping blocks + self. */
+async function resolveTaggedUsers(
+  db: FirebaseFirestore.Firestore,
+  authorId: string,
+  ids: string[] | undefined,
+): Promise<TaggedUser[]> {
+  const blockSet = await getBlockSet(db, authorId);
+  const clean = [...new Set(ids || [])]
+    .filter((id) => id && id !== authorId && !blockSet.has(id))
+    .slice(0, 20);
+  if (clean.length === 0) return [];
+  const docs = await db.getAll(...clean.map((id) => db.collection('users').doc(id)));
+  return docs
+    .filter((d) => d.exists)
+    .map((d) => {
+      const t = d.data() || {};
+      return {
+        uid: d.id,
+        username: t.username ?? null,
+        displayName: t.displayName ?? null,
+        photoURL: t.photoURL ?? null,
+      };
+    });
+}
+
+/**
+ * Create a user post (LAUNCH 0.5.4).
+ *
+ * v3 rules (per `pattern-post-composer.html`):
+ *  - **A film is required** — every post is anchored to a movie/TV title.
+ *  - The optional `rating` becomes the user's official /ratings entry for
+ *    that title (posts are now the unified review+rating surface).
+ *  - Friends are mentioned inline via `@username` in `text`; the parser
+ *    notifies them. `taggedUserIds` is still accepted for legacy callers but
+ *    is not used by the v3 composer.
+ */
+export async function createPost(
+  idToken: string,
+  input: {
+    text?: string;
+    media?: PostMedia[];
+    taggedMovie?: Post['taggedMovie'];
+    rating?: number | null;
+    taggedUserIds?: string[]; // legacy v2 callers — v3 uses inline @mentions
+    place?: string;
+  },
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const rl = await checkRateLimit(userId, 'post');
+  if (!rl.ok) return { error: rl.error };
+
+  const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
+  const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
+  const taggedMovie = input.taggedMovie || null;
+  const place = (input.place || '').trim().slice(0, 120) || null;
+
+  // A post needs at least one of: a pinned film, text, or media.
+  // The composer still leads with "pin a film" — it's the encouraged path —
+  // but a film-less observation ("what should we watch tonight?") is allowed.
+  if (!taggedMovie && !text && media.length === 0) {
+    return { error: 'Add a few words, a photo, or a film first.' };
+  }
+
+  // Validate + round the optional rating. Only meaningful with a pinned film.
+  let rating: number | null = null;
+  if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+    if (input.rating < 1 || input.rating > 10) {
+      return { error: 'Rating must be between 1.0 and 10.0.' };
+    }
+    rating = Math.round(input.rating * 10) / 10;
+  }
+
+  const db = getDb();
+  try {
+    const userDoc = await db.collection('users').doc(userId).get();
+    const u = userDoc.data() || {};
+    // Legacy taggedUserIds — only resolve if the caller provided them.
+    const taggedUsers = await resolveTaggedUsers(db, userId, input.taggedUserIds);
+
+    const postRef = db.collection('posts').doc();
+    await postRef.set({
+      id: postRef.id,
+      authorId: userId,
+      authorUsername: u.username ?? null,
+      authorDisplayName: u.displayName ?? null,
+      authorPhotoURL: u.photoURL ?? null,
+      text,
+      media,
+      taggedMovie,
+      rating,
+      taggedUserIds: taggedUsers.map((t) => t.uid),
+      taggedUsers,
+      place,
+      likes: 0,
+      likedBy: [],
+      commentCount: 0,
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Unify the rating with /ratings — the post IS the user's rating event
+    // now. Done best-effort: if it fails the post still stands. (Rating is
+    // gated on taggedMovie above; this `&& taggedMovie` is for the type
+    // narrower's benefit.)
+    if (rating !== null && taggedMovie) {
+      try {
+        const ratingId = `${userId}_${taggedMovie.tmdbId}`;
+        const ratingRef = db.collection('ratings').doc(ratingId);
+        const existing = await ratingRef.get();
+        const ratingData = {
+          id: ratingId,
+          userId,
+          tmdbId: taggedMovie.tmdbId,
+          mediaType: taggedMovie.mediaType,
+          movieTitle: taggedMovie.title,
+          moviePosterUrl: taggedMovie.posterUrl || null,
+          rating,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (existing.exists) {
+          await ratingRef.update(ratingData);
+        } else {
+          await ratingRef.set({ ...ratingData, createdAt: FieldValue.serverTimestamp() });
+        }
+      } catch (err) {
+        console.error('[createPost] rating upsert failed:', err);
+      }
+    }
+
+    // Legacy v2: notify users in the taggedUserIds list.
+    for (const t of taggedUsers) {
+      try {
+        await db.collection('notifications').add({
+          userId: t.uid,
+          type: 'post_tag',
+          fromUserId: userId,
+          fromUsername: u.username ?? null,
+          fromDisplayName: u.displayName ?? null,
+          fromPhotoUrl: u.photoURL ?? null,
+          postId: postRef.id,
+          previewText: text.slice(0, 100),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('[createPost] tag notification failed:', err);
+      }
+    }
+
+    // v3: notify users @-mentioned in the body (skip ones already notified
+    // via the legacy taggedUserIds path).
+    try {
+      const mentions = extractMentions(text);
+      const alreadyNotified = new Set(taggedUsers.map((t) => t.uid));
+      if (mentions.length > 0) {
+        const lookups = await Promise.all(
+          mentions.map((username) =>
+            db
+              .collection('users')
+              .where('usernameLower', '==', username.toLowerCase())
+              .limit(1)
+              .get(),
+          ),
+        );
+        const previewText = text.slice(0, 100) + (text.length > 100 ? '...' : '');
+        for (const snap of lookups) {
+          if (snap.empty) continue;
+          const doc = snap.docs[0];
+          const mentionedUserId = doc.id;
+          if (mentionedUserId === userId) continue;
+          if (alreadyNotified.has(mentionedUserId)) continue;
+          const prefs = doc.data()?.notificationPreferences;
+          if (prefs && prefs.mentions === false) continue;
+          await db.collection('notifications').add({
+            userId: mentionedUserId,
+            type: 'post_tag',
+            fromUserId: userId,
+            fromUsername: u.username ?? null,
+            fromDisplayName: u.displayName ?? null,
+            fromPhotoUrl: u.photoURL ?? null,
+            postId: postRef.id,
+            previewText,
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      }
+    } catch (err) {
+      console.error('[createPost] @mention notifications failed:', err);
+    }
+
+    return { success: true, postId: postRef.id };
+  } catch (error) {
+    console.error('[createPost] Failed:', error);
+    return { error: 'Failed to create post.' };
+  }
+}
+
+/** Edit a post (owner only). Mirrors v3 createPost rules. */
+export async function updatePost(
+  idToken: string,
+  postId: string,
+  input: {
+    text?: string;
+    media?: PostMedia[];
+    taggedMovie?: Post['taggedMovie'];
+    rating?: number | null;
+    taggedUserIds?: string[];
+    place?: string;
+  },
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const snap = await ref.get();
+    if (!snap.exists) return { error: 'Post not found.' };
+    if (snap.data()?.authorId !== auth.uid) {
+      return { error: 'You can only edit your own posts.' };
+    }
+    const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
+    const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
+    const taggedMovie = input.taggedMovie || null;
+    const place = (input.place || '').trim().slice(0, 120) || null;
+    if (!taggedMovie && !text && media.length === 0) {
+      return { error: 'A post needs words, a photo, or a film.' };
+    }
+
+    let rating: number | null = null;
+    if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
+      if (input.rating < 1 || input.rating > 10) {
+        return { error: 'Rating must be between 1.0 and 10.0.' };
+      }
+      rating = Math.round(input.rating * 10) / 10;
+    }
+
+    const taggedUsers = await resolveTaggedUsers(db, auth.uid, input.taggedUserIds);
+    await ref.update({
+      text,
+      media,
+      taggedMovie,
+      rating,
+      taggedUserIds: taggedUsers.map((t) => t.uid),
+      taggedUsers,
+      place,
+      updatedAt: FieldValue.serverTimestamp(),
+      editedAt: FieldValue.serverTimestamp(),
+    });
+
+    // Mirror createPost: a rating edit also flows into /ratings.
+    if (rating !== null && taggedMovie) {
+      try {
+        const ratingId = `${auth.uid}_${taggedMovie.tmdbId}`;
+        const ratingRef = db.collection('ratings').doc(ratingId);
+        const existing = await ratingRef.get();
+        const ratingData = {
+          id: ratingId,
+          userId: auth.uid,
+          tmdbId: taggedMovie.tmdbId,
+          mediaType: taggedMovie.mediaType,
+          movieTitle: taggedMovie.title,
+          moviePosterUrl: taggedMovie.posterUrl || null,
+          rating,
+          updatedAt: FieldValue.serverTimestamp(),
+        };
+        if (existing.exists) {
+          await ratingRef.update(ratingData);
+        } else {
+          await ratingRef.set({ ...ratingData, createdAt: FieldValue.serverTimestamp() });
+        }
+      } catch (err) {
+        console.error('[updatePost] rating upsert failed:', err);
+      }
+    }
+
+    return { success: true };
+  } catch (error) {
+    console.error('[updatePost] Failed:', error);
+    return { error: 'Failed to update post.' };
+  }
+}
+
+/** Delete a post (owner only). */
+export async function deletePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const snap = await ref.get();
+    if (!snap.exists) return { error: 'Post not found.' };
+    if (snap.data()?.authorId !== auth.uid) {
+      return { error: 'You can only delete your own posts.' };
+    }
+    await ref.delete();
+    return { success: true };
+  } catch (error) {
+    console.error('[deletePost] Failed:', error);
+    return { error: 'Failed to delete post.' };
+  }
+}
+
+/** Fetch a single post — block-aware (returns null across a block). */
+export async function getPost(
+  postId: string,
+  viewerIdToken?: string,
+): Promise<{ post: Post | null; error?: string }> {
+  const db = getDb();
+  try {
+    const snap = await db.collection('posts').doc(postId).get();
+    if (!snap.exists) return { post: null };
+    const post = postFromDoc(snap);
+    if (viewerIdToken) {
+      const viewer = await verifyCaller(viewerIdToken);
+      if (!isAuthError(viewer) && (await isBlockedBetween(db, viewer.uid, post.authorId))) {
+        return { post: null };
+      }
+    }
+    return { post };
+  } catch (error) {
+    console.error('[getPost] Failed:', error);
+    return { post: null, error: 'Failed to load post.' };
+  }
+}
+
+/** A heterogeneous home-feed entry — a system activity or a user post. */
+export type FeedItem =
+  | { kind: 'activity'; activity: Activity }
+  | { kind: 'post'; post: Post };
+
+/**
+ * The unified home feed — merges /activities + /posts chronologically with a
+ * timestamp cursor, and drops blocked users (either direction) server-side.
+ */
+export async function getHomeFeed(
+  idToken: string,
+  cursor?: string,
+  limit = 20,
+): Promise<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string }> {
+  const db = getDb();
+  try {
+    const auth = await verifyCaller(idToken);
+    const blockSet = isAuthError(auth) ? new Set<string>() : await getBlockSet(db, auth.uid);
+    const cursorDate = cursor ? new Date(cursor) : null;
+
+    let actQ = db.collection('activities').orderBy('createdAt', 'desc');
+    let postQ = db.collection('posts').orderBy('createdAt', 'desc');
+    if (cursorDate) {
+      actQ = actQ.where('createdAt', '<', cursorDate);
+      postQ = postQ.where('createdAt', '<', cursorDate);
+    }
+    // Over-fetch activities — only `rated`/`reviewed` survive the type filter
+    // below, so a `limit+1` fetch would routinely under-fill a page.
+    const [actSnap, postSnap] = await Promise.all([
+      actQ.limit(limit * 2 + 1).get(),
+      postQ.limit(limit + 1).get(),
+    ]);
+
+    const merged = [
+      ...actSnap.docs
+        .map((d) => activityFromDoc(d))
+        // The home feed carries opinions only — a rating is a verdict, a review
+        // is a take. `added`/`watched` are low-signal logging and stay out.
+        .filter((a) => a.type === 'rated' || a.type === 'reviewed')
+        .map((a) => ({
+          item: { kind: 'activity' as const, activity: a },
+          ts: a.createdAt.getTime(),
+          authorId: a.userId,
+        })),
+      ...postSnap.docs.map((d) => {
+        const p = postFromDoc(d);
+        return { item: { kind: 'post' as const, post: p }, ts: p.createdAt.getTime(), authorId: p.authorId };
+      }),
+    ]
+      .filter((x) => !blockSet.has(x.authorId))
+      .sort((a, b) => b.ts - a.ts);
+
+    const hasMore = merged.length > limit;
+    const page = merged.slice(0, limit);
+    const nextCursor =
+      hasMore && page.length > 0
+        ? new Date(page[page.length - 1].ts).toISOString()
+        : undefined;
+    return { items: page.map((x) => x.item), hasMore, nextCursor };
+  } catch (error) {
+    console.error('[getHomeFeed] Failed:', error);
+    return { items: [], hasMore: false, error: 'Failed to load the feed.' };
+  }
+}
+
+/** Like a post. Mirrors the hardened likeReview pattern. */
+export async function likePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Post not found.' as const };
+      const d = snap.data() || {};
+      const likedBy: string[] = d.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, postData: d, newLikes: (d.likes || 0) + 1 };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+
+    if (tx.postData?.authorId && tx.postData.authorId !== userId) {
+      try {
+        const authorDoc = await db.collection('users').doc(tx.postData.authorId).get();
+        const prefs = authorDoc.data()?.notificationPreferences;
+        if (!prefs || prefs.likes !== false) {
+          const likerDoc = await db.collection('users').doc(userId).get();
+          const l = likerDoc.data();
+          await db.collection('notifications').add({
+            userId: tx.postData.authorId,
+            type: 'post_like',
+            fromUserId: userId,
+            fromUsername: l?.username ?? null,
+            fromDisplayName: l?.displayName ?? null,
+            fromPhotoUrl: l?.photoURL ?? null,
+            postId,
+            previewText: (tx.postData.text || '').slice(0, 100),
+            read: false,
+            createdAt: FieldValue.serverTimestamp(),
+          });
+        }
+      } catch (err) {
+        console.error('[likePost] notification failed:', err);
+      }
+    }
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[likePost] Failed:', error);
+    return { error: 'Failed to like post.' };
+  }
+}
+
+/** Unlike a post. */
+export async function unlikePost(idToken: string, postId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Post not found.' as const };
+      const d = snap.data() || {};
+      const likedBy: string[] = d.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (d.likes || 1) - 1) };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[unlikePost] Failed:', error);
+    return { error: 'Failed to unlike post.' };
+  }
+}
+
+// ============================================
+// POST COMMENTS (LAUNCH 0.5.4 — Phase 10)
+// ============================================
+
+const MAX_COMMENT_TEXT = 1000;
+
+/** Comment on a post (or reply to a comment — 1 level deep). */
+export async function createPostComment(
+  idToken: string,
+  postId: string,
+  text: string,
+  parentId?: string | null,
+) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+
+  const rl = await checkRateLimit(userId, 'review');
+  if (!rl.ok) return { error: rl.error };
+
+  const trimmed = (text || '').trim().slice(0, MAX_COMMENT_TEXT);
+  if (!trimmed) return { error: 'Write something first.' };
+
+  const db = getDb();
+  try {
+    const postRef = db.collection('posts').doc(postId);
+    const postSnap = await postRef.get();
+    if (!postSnap.exists) return { error: 'Post not found.' };
+    const post = postSnap.data() || {};
+
+    // LAUNCH 0.5.5: no commenting across a block.
+    if (await isBlockedBetween(db, userId, post.authorId)) {
+      return { error: 'You can’t comment on this post.' };
+    }
+
+    const userDoc = await db.collection('users').doc(userId).get();
+    const u = userDoc.data() || {};
+    const commentRef = postRef.collection('comments').doc();
+    await commentRef.set({
+      id: commentRef.id,
+      postId,
+      userId,
+      username: u.username ?? null,
+      userDisplayName: u.displayName ?? null,
+      userPhotoUrl: u.photoURL ?? null,
+      text: trimmed,
+      likes: 0,
+      likedBy: [],
+      parentId: parentId || null,
+      replyCount: 0,
+      createdAt: FieldValue.serverTimestamp(),
+    });
+
+    // Counts.
+    if (parentId) {
+      try {
+        await postRef.collection('comments').doc(parentId).update({
+          replyCount: FieldValue.increment(1),
+        });
+      } catch (err) {
+        console.error('[createPostComment] replyCount bump failed:', err);
+      }
+    } else {
+      await postRef.update({ commentCount: FieldValue.increment(1) });
+    }
+
+    // Notify the post author (top-level) or the parent comment author (reply).
+    let recipientId: string | null = post.authorId ?? null;
+    if (parentId) {
+      try {
+        const parent = await postRef.collection('comments').doc(parentId).get();
+        recipientId = (parent.data()?.userId as string) ?? null;
+      } catch {
+        /* fall back to the post author */
+      }
+    }
+    if (recipientId && recipientId !== userId) {
+      try {
+        await db.collection('notifications').add({
+          userId: recipientId,
+          type: 'post_comment',
+          fromUserId: userId,
+          fromUsername: u.username ?? null,
+          fromDisplayName: u.displayName ?? null,
+          fromPhotoUrl: u.photoURL ?? null,
+          postId,
+          previewText: trimmed.slice(0, 100),
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      } catch (err) {
+        console.error('[createPostComment] notification failed:', err);
+      }
+    }
+
+    return { success: true, commentId: commentRef.id };
+  } catch (error) {
+    console.error('[createPostComment] Failed:', error);
+    return { error: 'Failed to post comment.' };
+  }
+}
+
+/** All comments on a post (flat, oldest-first), block-filtered. */
+export async function getPostComments(
+  postId: string,
+  viewerIdToken?: string,
+): Promise<{ comments: PostComment[]; error?: string }> {
+  const db = getDb();
+  try {
+    let blockSet = new Set<string>();
+    if (viewerIdToken) {
+      const v = await verifyCaller(viewerIdToken);
+      if (!isAuthError(v)) blockSet = await getBlockSet(db, v.uid);
+    }
+    const snap = await db
+      .collection('posts').doc(postId)
+      .collection('comments')
+      .orderBy('createdAt', 'asc')
+      .limit(300)
+      .get();
+    const comments: PostComment[] = snap.docs
+      .map((d) => {
+        const c = d.data();
+        return {
+          id: d.id,
+          postId,
+          userId: c.userId,
+          username: c.username ?? null,
+          userDisplayName: c.userDisplayName ?? null,
+          userPhotoUrl: c.userPhotoUrl ?? null,
+          text: c.text ?? '',
+          likes: c.likes ?? 0,
+          likedBy: c.likedBy ?? [],
+          parentId: c.parentId ?? null,
+          replyCount: c.replyCount ?? 0,
+          createdAt: c.createdAt?.toDate?.() ?? new Date(),
+        };
+      })
+      .filter((c) => !blockSet.has(c.userId));
+    return { comments };
+  } catch (error) {
+    console.error('[getPostComments] Failed:', error);
+    return { comments: [], error: 'Failed to load comments.' };
+  }
+}
+
+/** Delete a post comment — the comment's author or the post's author. */
+export async function deletePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const db = getDb();
+  try {
+    const postRef = db.collection('posts').doc(postId);
+    const commentRef = postRef.collection('comments').doc(commentId);
+    const [postSnap, commentSnap] = await Promise.all([postRef.get(), commentRef.get()]);
+    if (!commentSnap.exists) return { error: 'Comment not found.' };
+    const comment = commentSnap.data() || {};
+    const isCommentAuthor = comment.userId === auth.uid;
+    const isPostAuthor = postSnap.data()?.authorId === auth.uid;
+    if (!isCommentAuthor && !isPostAuthor) {
+      return { error: 'You can only delete your own comments.' };
+    }
+    await commentRef.delete();
+    if (comment.parentId) {
+      try {
+        await postRef.collection('comments').doc(comment.parentId).update({
+          replyCount: FieldValue.increment(-1),
+        });
+      } catch {
+        /* parent may be gone */
+      }
+    } else {
+      await postRef.update({ commentCount: FieldValue.increment(-1) });
+    }
+    return { success: true };
+  } catch (error) {
+    console.error('[deletePostComment] Failed:', error);
+    return { error: 'Failed to delete comment.' };
+  }
+}
+
+/** Like a post comment (transactional). */
+export async function likePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const rl = await checkRateLimit(userId, 'like');
+  if (!rl.ok) return { error: rl.error };
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Comment not found.' as const };
+      const likedBy: string[] = snap.data()?.likedBy || [];
+      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(1),
+        likedBy: FieldValue.arrayUnion(userId),
+      });
+      return { ok: true as const, newLikes: (snap.data()?.likes || 0) + 1 };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[likePostComment] Failed:', error);
+    return { error: 'Failed to like comment.' };
+  }
+}
+
+/** Unlike a post comment. */
+export async function unlikePostComment(idToken: string, postId: string, commentId: string) {
+  const auth = await verifyCaller(idToken);
+  if (isAuthError(auth)) return auth;
+  const userId = auth.uid;
+  const db = getDb();
+  try {
+    const ref = db.collection('posts').doc(postId).collection('comments').doc(commentId);
+    const tx = await db.runTransaction(async (t) => {
+      const snap = await t.get(ref);
+      if (!snap.exists) return { error: 'Comment not found.' as const };
+      const likedBy: string[] = snap.data()?.likedBy || [];
+      if (!likedBy.includes(userId)) return { error: 'Not liked yet.' as const };
+      t.update(ref, {
+        likes: FieldValue.increment(-1),
+        likedBy: FieldValue.arrayRemove(userId),
+      });
+      return { ok: true as const, newLikes: Math.max(0, (snap.data()?.likes || 1) - 1) };
+    });
+    if ('error' in tx) return { error: tx.error as string };
+    return { success: true, likes: tx.newLikes };
+  } catch (error) {
+    console.error('[unlikePostComment] Failed:', error);
+    return { error: 'Failed to unlike comment.' };
   }
 }
 
@@ -6013,7 +7759,7 @@ export async function unlikeActivity(idToken: string, activityId: string) {
  */
 export async function reportContent(
   idToken: string,
-  contentType: 'review' | 'user' | 'list',
+  contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment',
   targetId: string,
   reason: string,
 ) {

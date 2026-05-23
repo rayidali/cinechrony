@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -20,6 +20,9 @@ import { PublicMovieListItem } from '@/components/public-movie-list-item';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
 import { GridViewHint } from '@/components/grid-view-hint';
 import { BottomNav } from '@/components/bottom-nav';
+import { ListLikeButton } from '@/components/list-like-button';
+import { ListControls } from '@/components/list-controls';
+import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
 import {
   getUserByUsername,
   getPublicListMovies,
@@ -44,6 +47,8 @@ export default function PublicListPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
@@ -120,7 +125,19 @@ export default function PublicListPage() {
           return;
         }
 
-        setList(listResult.list as MovieList);
+        const loadedList = listResult.list as MovieList;
+        // Collaborators get the editable view, same as the owner — members
+        // shouldn't land on the read-only page for a list they can edit.
+        if (
+          user &&
+          Array.isArray(loadedList?.collaboratorIds) &&
+          loadedList.collaboratorIds.includes(user.uid)
+        ) {
+          router.replace(`/lists/${listId}`);
+          return;
+        }
+
+        setList(loadedList);
         setMovies(listResult.movies as Movie[]);
       } catch (err) {
         console.error('Failed to load list:', err);
@@ -135,7 +152,11 @@ export default function PublicListPage() {
     }
   }, [username, listId, user, router]);
 
-  const filteredMovies = movies.filter((movie) => movie.status === filter);
+  // status tab + search + sort. A search query searches the whole list.
+  const filteredMovies = useMemo(
+    () => arrangeListMovies(movies, { query: search, status: filter, sort }),
+    [movies, search, filter, sort],
+  );
 
   if (isLoading) {
     return (
@@ -224,7 +245,21 @@ export default function PublicListPage() {
               </div>
             )}
 
-            <p className="text-muted-foreground text-center">
+            {/* Like — public lists only. Read-only for members (a like is an
+                outside endorsement); collaborators never reach this page. */}
+            {list && list.isPublic && (
+              <div className="mb-3">
+                <ListLikeButton
+                  listOwnerId={list.ownerId}
+                  listId={list.id}
+                  collaboratorIds={list.collaboratorIds}
+                  initialLikes={list.likes ?? 0}
+                  initialLikedBy={list.likedBy ?? []}
+                />
+              </div>
+            )}
+
+            <p className="text-sm text-muted-foreground text-center">
               Viewing {owner?.displayName || owner?.username}&apos;s list (read-only)
             </p>
           </div>
@@ -277,9 +312,18 @@ export default function PublicListPage() {
           </div>
         </div>
 
+        {/* Search + sort */}
+        <ListControls
+          query={search}
+          onQueryChange={setSearch}
+          sort={sort}
+          onSortChange={setSort}
+        />
+
         {/* Movie count */}
         <p className="text-sm text-muted-foreground mb-4">
           {filteredMovies.length} {filteredMovies.length === 1 ? 'movie' : 'movies'}
+          {search.trim() ? ` matching “${search.trim()}”` : ''}
         </p>
 
         {/* Movies Display */}
@@ -308,15 +352,24 @@ export default function PublicListPage() {
         ) : (
           <div className="text-center py-16 border border-dashed border-border rounded-2xl bg-secondary">
             <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
-            <h3 className="font-headline text-2xl font-bold">No movies here</h3>
+            <h3 className="font-headline text-2xl font-bold lowercase">
+              {search.trim() ? 'nothing matches' : 'no movies here'}
+            </h3>
             <p className="text-muted-foreground mt-2">
-              There are no movies in the &apos;{filter}&apos; list.
+              {search.trim()
+                ? `no films in this list match "${search.trim()}".`
+                : `There are no movies in the '${filter}' list.`}
             </p>
           </div>
         )}
 
-        {/* Movie Details Modal */}
+        {/* Movie Details Modal — `key` keyed to the selected movie's ID so
+            the modal mounts fresh every open. See the comment in
+            movie-list.tsx for the full reasoning (the openMovie return
+            flow from /comments could leave the modal with stale internal
+            state otherwise — TMDB details never loading on re-open). */}
         <PublicMovieDetailsModal
+          key={selectedMovie?.id ?? 'no-movie-open'}
           movie={selectedMovie}
           isOpen={isModalOpen}
           onClose={handleCloseModal}

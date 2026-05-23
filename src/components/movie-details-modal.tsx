@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, useTransition, useEffect, useMemo } from 'react';
+import { useState, useTransition, useEffect, useMemo, useRef } from 'react';
 import {
   Loader2,
   Trash2,
@@ -22,7 +22,7 @@ import {
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, Review } from '@/lib/types';
+import type { Movie, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import {
   updateDocumentNonBlocking,
@@ -30,7 +30,12 @@ import {
   useFirestore,
   useUser,
 } from '@/firebase';
-import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getImdbRating, getMovieReviews } from '@/app/actions';
+import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getMovieReviews } from '@/app/actions';
+import {
+  type MediaDetails,
+  getCachedDetails,
+  getMovieOrTVDetails,
+} from '@/lib/tmdb-details-cache';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -48,22 +53,8 @@ import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import { formatDistanceToNow } from 'date-fns';
 import { ImdbLogo } from './imdb-logo';
-
-const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
-
-type ExtendedMovieDetails = TMDBMovieDetails & {
-  imdbId?: string;
-  imdbRating?: string;
-  imdbVotes?: string;
-};
-
-type ExtendedTVDetails = TMDBTVDetails & {
-  imdbId?: string;
-  imdbRating?: string;
-  imdbVotes?: string;
-};
-
-type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
+import { SimilarMoviesRow } from './similar-movies-row';
+import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 // Glassy floating control — backdrop blur over a translucent dark square.
 const GLASS_BTN =
@@ -81,70 +72,6 @@ function getProviderIcon(url: string | undefined) {
       return Youtube;
     default:
       return null;
-  }
-}
-
-async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails | null> {
-  const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!accessToken) return null;
-
-  try {
-    const response = await fetch(
-      `${TMDB_API_BASE_URL}/movie/${tmdbId}?append_to_response=credits,external_ids`,
-      {
-        headers: {
-          accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const imdbId = data.external_ids?.imdb_id;
-
-    if (imdbId) {
-      // Use server action to fetch IMDB rating (keeps API key server-side)
-      const omdbData = await getImdbRating(imdbId);
-      if (omdbData.imdbRating) {
-        return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
-      }
-    }
-
-    return { ...data, imdbId };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchTVDetails(tmdbId: number): Promise<ExtendedTVDetails | null> {
-  const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!accessToken) return null;
-
-  try {
-    const response = await fetch(
-      `${TMDB_API_BASE_URL}/tv/${tmdbId}?append_to_response=credits,external_ids`,
-      {
-        headers: {
-          accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const imdbId = data.external_ids?.imdb_id;
-
-    if (imdbId) {
-      // Use server action to fetch IMDB rating (keeps API key server-side)
-      const omdbData = await getImdbRating(imdbId);
-      if (omdbData.imdbRating) {
-        return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
-      }
-    }
-
-    return { ...data, imdbId };
-  } catch {
-    return null;
   }
 }
 
@@ -167,10 +94,27 @@ export function MovieDetailsModal({
 }: MovieDetailsModalProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
-  const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
-  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
+  // Seed `mediaDetails` from the module-level cache on first render. If the
+  // user has opened this film before in this session, the cache is warm and
+  // the full payload paints on the very first frame — no loading flash, and
+  // critically, no second fetch that could fail to the back-nav race.
+  const initialCached = useMemo(() => {
+    if (!movie) return null;
+    const mediaType = movie.mediaType === 'tv' ? 'tv' : 'movie';
+    const tmdbIdNum = movie.tmdbId
+      || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
+    if (!tmdbIdNum || isNaN(tmdbIdNum)) return null;
+    return getCachedDetails(mediaType, tmdbIdNum);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // First-render only — re-mounts (via key) get a fresh read.
+  const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(initialCached);
+  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(
+    initialCached && movie ? movie.id : null,
+  );
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
+  // "more like this" pick — opens a read-only detail over this editable one.
+  const [similarPick, setSimilarPick] = useState<Movie | null>(null);
   const [newSocialLink, setNewSocialLink] = useState('');
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>('To Watch');
   const [userRating, setUserRating] = useState<number | null>(null);
@@ -256,12 +200,15 @@ export function MovieDetailsModal({
   // Get TMDB ID for reviews
   const tmdbId = movie?.tmdbId || (movie?.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
 
-  // Reset state when movie ID changes (not status changes)
+  // Reset state when movie ID changes (not status changes).
+  // NOTE: we deliberately do NOT zero `mediaDetails` here — the fetch effect
+  // below owns that state and races against this reset if both fire on the
+  // same render (a fresh-mount triggered by the parent's `key` prop). The
+  // loader uses a ref counter so a stale result can't overwrite a newer one;
+  // it's the single source of truth for `mediaDetails`.
   useEffect(() => {
     if (movie) {
       setNewSocialLink(movie.socialLink || '');
-      setMediaDetails(null);
-      setMediaDetailsForId(null);
       setLocalStatus(movie.status);
       setUserRating(null);
       setShowRateOnWatchModal(false);
@@ -320,43 +267,51 @@ export function MovieDetailsModal({
     };
   }, [tmdbId, isOpen]);
 
-  // Fetch movie/TV details when modal opens - simplified dependencies
+  // Load movie/TV details via the module-level cache. First open warms it;
+  // every reopen in the same session is an instant hit — no network call,
+  // and therefore no possible race with the back-navigation transition that
+  // was wiping the details on the second open.
+  //
+  // The ref counter handles the case where the modal switches movies in
+  // place (the similar-movies row swaps `movie?.id` without unmounting):
+  // only the latest call may write to state.
+  const loadDetailsCallRef = useRef(0);
   useEffect(() => {
     if (!movie || !isOpen) return;
+    if (mediaDetailsForId === movie.id) return; // already have it for this movie
 
-    // Capture movie reference for async closure
-    const currentMovie = movie;
-    let cancelled = false;
+    const targetMovie = movie;
+    const targetMediaType = targetMovie.mediaType === 'tv' ? 'tv' : 'movie';
 
-    async function loadDetails() {
-      setIsLoadingDetails(true);
-      let tmdbIdLocal: number;
-      if (currentMovie.tmdbId) {
-        tmdbIdLocal = currentMovie.tmdbId;
-      } else {
-        const idMatch = currentMovie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch ? parseInt(idMatch[1], 10) : parseInt(currentMovie.id, 10);
-      }
-
-      if (!isNaN(tmdbIdLocal)) {
-        const details = currentMovie.mediaType === 'tv'
-          ? await fetchTVDetails(tmdbIdLocal)
-          : await fetchMovieDetails(tmdbIdLocal);
-        if (!cancelled) {
-          setMediaDetails(details);
-          setMediaDetailsForId(currentMovie.id);
-        }
-      }
-      if (!cancelled) {
-        setIsLoadingDetails(false);
-      }
+    let tmdbIdLocal: number;
+    if (targetMovie.tmdbId) {
+      tmdbIdLocal = targetMovie.tmdbId;
+    } else {
+      const idMatch = targetMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+      tmdbIdLocal = idMatch
+        ? parseInt(idMatch[1], 10)
+        : parseInt(targetMovie.id, 10);
     }
-    loadDetails();
+    if (!tmdbIdLocal || isNaN(tmdbIdLocal)) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [movie?.id, isOpen]); // Only depends on movie ID and modal open state
+    // Synchronous cache hit — set state without a render flicker.
+    const cached = getCachedDetails(targetMediaType, tmdbIdLocal);
+    if (cached) {
+      setMediaDetails(cached);
+      setMediaDetailsForId(targetMovie.id);
+      return;
+    }
+
+    const myCallId = ++loadDetailsCallRef.current;
+    (async () => {
+      setIsLoadingDetails(true);
+      const details = await getMovieOrTVDetails(targetMediaType, tmdbIdLocal);
+      if (loadDetailsCallRef.current !== myCallId) return;
+      setMediaDetails(details);
+      setMediaDetailsForId(targetMovie.id);
+      setIsLoadingDetails(false);
+    })();
+  }, [movie?.id, isOpen, mediaDetailsForId]);
 
   if (!movie || !user) return null;
 
@@ -794,6 +749,15 @@ export function MovieDetailsModal({
                   )}
                 </section>
 
+                {/* More like this — opens the picked film read-only */}
+                {tmdbId > 0 && (
+                  <SimilarMoviesRow
+                    tmdbId={tmdbId}
+                    mediaType={movie.mediaType === 'tv' ? 'tv' : 'movie'}
+                    onPick={setSimilarPick}
+                  />
+                )}
+
                 {/* marginalia — notes from you + your collaborators */}
                 {listId && (
                   <section className="mt-6">
@@ -948,6 +912,13 @@ export function MovieDetailsModal({
         maxLength={500}
         singleLine={true}
         inputType="url"
+      />
+
+      {/* "more like this" pick — read-only detail layered over this one */}
+      <PublicMovieDetailsModal
+        movie={similarPick}
+        isOpen={!!similarPick}
+        onClose={() => setSimilarPick(null)}
       />
     </>
   );

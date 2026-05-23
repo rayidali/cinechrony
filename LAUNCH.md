@@ -44,6 +44,160 @@
 
 ---
 
+## Phase 0.5 — Discover: liked lists + the home/search merge
+
+> **Pulled forward to pre-launch** (owner's call — works soon, after Phase 0).
+> Cinechrony has no way to surface great *lists* or new *people* outside your
+> follow graph. Three connected pieces: liking public lists, an editorial
+> showcase of loved lists, and merging home + search into one **Discover**
+> page that houses it. Can run alongside / just before Phase A.
+>
+> **Brand guardrail:** this is a *showcase*, not a leaderboard. The design
+> system explicitly rejects gamification — no #1/#2 ranks, no trophies, no
+> XP. Frame it editorially ("loved this week"), the way a magazine runs a
+> "what we're into" page. Cinechrony surfaces great lists; it doesn't crown
+> winners.
+
+### 0.5.1 — Like public lists
+
+- [ ] **0.5.1.1** Data: add `likes` (number) + `likedBy` (string[]) to the
+  list document — mirror the existing review/activity like shape.
+- [ ] **0.5.1.2** Server actions `likeList` / `unlikeList` — clone the
+  `likeReview` / `likeActivity` pattern: `verifyCaller`, transactional count
+  update, reuse the `like` rate-limit key. Only public lists are likeable.
+- [ ] **0.5.1.3** `firestore.rules`: `likes` / `likedBy` are server-only
+  writes (same as reviews/activities) — clients can't tamper with counts.
+- [ ] **0.5.1.4** UI: a heart on the public list view + the list cover card.
+  Optimistic toggle, fills sage when liked (matches the v2 like treatment).
+- [ ] **0.5.1.5** Notification to the list owner — new `list_like`
+  notification type, reuses the existing notification system.
+- [ ] **0.5.1.6 — Test:** like / unlike as an authed user; forged token
+  rejected; count holds under a concurrent burst; private lists not likeable;
+  rate limit trips. Add to `scripts/audit-tests/`.
+
+### 0.5.2 — The loved-lists showcase
+
+- [ ] **0.5.2.1** Rank by a **recency-weighted trending score**, not all-time
+  cumulative likes — otherwise the first popular list camps the top forever
+  and nothing new breaks in. Likes decay with age (the HN/Reddit "hot"
+  formula). Store `trendingScore` on the list, recomputed by a small
+  scheduled job — or on read while the dataset is small.
+- [ ] **0.5.2.2** Editorial presentation — a wall of `THE COLLECTION · loved
+  this week` covers, no numbered ranks. Tap a cover → the public list; tap
+  the curator → their profile (people-discovery is the real payoff — it
+  grows the follow graph).
+- [ ] **0.5.2.3** **Cold-start gate:** don't render the showcase into an empty
+  room. Gate it behind a minimum (e.g. ≥ N public lists with ≥ 1 like) so it
+  never looks dead at launch. Liking (0.5.1) ships regardless — it works fine
+  small.
+- [ ] **0.5.2.4 — Test:** showcase returns only public lists, ordered by
+  trending score; the gate hides it below threshold; mass self-likes have
+  limited payoff thanks to decay + rate limiting.
+
+### 0.5.3 — Merge home + search → one Discover page
+
+- [ ] **0.5.3.1** Collapse `/home` and `/add` (search) into a single
+  **Discover** surface: search field at the top, then trending movies, the
+  loved-lists showcase, and the activity feed — one destination for "what
+  should we watch?".
+- [ ] **0.5.3.2** Re-decide the bottom nav. `/add` was the search tab; with
+  search folded into Discover that slot frees up — pick the 4 nav slots
+  deliberately (Discover · Lists · ? · Profile).
+- [ ] **0.5.3.3** Keep the Phase 0 editorial composition — eyebrow → hairline
+  → lowercase section titles (`NOW SHOWING`, `THE COLLECTION`, `THE FEED`).
+- [ ] **0.5.3.4 — Test:** search still works end-to-end; trending + showcase
+  + feed all load; bottom nav routes correctly; pull-to-refresh intact.
+
+### 0.5.4 — User posts in the feed (the Beli-style update)
+
+> The biggest piece of this phase. Today the activity feed is only *system
+> events* (added / rated / watched / reviewed). This adds a **user-authored
+> post** — free text + photos + an optional movie tag, friend tags ("watched
+> with @x and @y") and an optional place. A short Beli/Twitter-style update,
+> anchored to a film.
+
+- [ ] **0.5.4.1** Data: a post document — `authorId`, `text`, `imageUrls[]`,
+  `taggedMovie` (tmdbId + title + poster), `taggedUserIds[]`, `place`
+  (freeform string, optional), `createdAt`, `likes` / `likedBy`. Decide: a
+  new `/posts` collection the feed query merges in, or a `type: 'posted'` on
+  `/activities`. Keep author fields denormalized (the project's N+1 pattern).
+- [ ] **0.5.4.2** Composer — full-screen, editorial: serif text area,
+  multi-photo picker (reuse the R2 upload path from `uploadAvatar` /
+  `uploadListCover`), a movie-tag search (reuse TMDB search), a friend tagger
+  (reuse `searchUsers`), an optional `place` field.
+- [ ] **0.5.4.3** Anchor posts to a film — strongly encourage the movie tag.
+  A post with no film is just a tweet; with one it's a Cinechrony post. The
+  card leads with the tagged poster.
+- [ ] **0.5.4.4** Feed rendering — a distinct, larger post card alongside the
+  small system-activity cards: avatar + name + place + time, photos, serif
+  text, the tagged movie, tagged friends as chips. Likes; comments reuse the
+  review/threading system (or likes-only for v1, comments next).
+- [ ] **0.5.4.5** Tagged friends get a notification ("@x tagged you in a
+  post") — reuses the notification system. Compose entry point (FAB) on the
+  Discover page.
+- [ ] **0.5.4.6 — Test:** create a post (text only / with photos / with movie
+  + friend tags / with place); appears in the feed; tagged users notified;
+  like works; forged token can't post; post is reportable; a blocked
+  author's posts are hidden. Add to `scripts/audit-tests/`.
+
+> **Location — read this.** `UX_PATTERNS.md` explicitly says the feed has
+> **no location data** ("Cinechrony is not a location-aware app"). Honour the
+> spirit: `place` is an **optional freeform line** ("at the prince charles
+> cinema") — **not** GPS, not a map, not distance/proximity, not "people near
+> you." A typed venue is a nice social detail; a location-aware app is a
+> different product. Owner to confirm this reading.
+>
+> **Moderation is now a hard dependency.** Free-form text + photos is real
+> UGC — it raises the App Store §1.2 bar well above today's structured
+> activity. Before posts ship: posts must be **reportable** (extend
+> `reportContent`) and authors **blockable** — see **0.5.5** below.
+> **Posts and 0.5.5 ship together or not at all.**
+
+### 0.5.5 — Block a user
+
+> Required for any UGC app (App Store §1.2) and the safety floor under
+> 0.5.4's posts. "Block" here means **full mutual invisibility** — a blocked
+> user can't see anything you do, you don't see them, and neither can
+> interact with the other. (Was D.0.1; pulled forward — posts can't ship
+> without it.)
+
+- [ ] **0.5.5.1** Data: a block relationship queryable **both directions** —
+  when A blocks B, B's read paths must know too. A top-level `/blocks`
+  collection (`{blockerId, blockedId, createdAt}`) or a denormalized pair;
+  a per-session blocked-set cache for O(1) filtering.
+- [ ] **0.5.5.2** Server actions `blockUser` / `unblockUser` (verifyCaller).
+  Blocking also **severs the relationship**: drop any follow in both
+  directions, revoke pending invites between the two, stop notifications.
+- [ ] **0.5.5.3** Enforcement is **cross-cutting** — every read surface
+  filters the blocked-set (this is the real cost, not the action itself):
+  profile (→ a not-found / blocked state), public lists, the activity feed
+  + posts, reviews / comments, followers / following lists, user search,
+  notifications. Both directions.
+- [ ] **0.5.5.4** Interaction severance — a blocked user can't follow you,
+  like or comment on your content, tag you in a post, or invite you to a
+  list. Enforce in the server actions; back it with `firestore.rules` where
+  the rules layer can.
+- [ ] **0.5.5.5** UI: a `block` action in the ⋯ overflow on another user's
+  profile (UX_PATTERNS already calls for this); an unblock list in settings;
+  offer "block too" from the report flow.
+- [ ] **0.5.5.6 — Test:** after a block — the blocked user can't load your
+  profile, lists, posts, or comments, can't find you in search, can't
+  follow / tag / like you; you don't see them either; unblock restores; a
+  forged token can't block on someone else's behalf. Add to
+  `scripts/audit-tests/`.
+
+### Don't
+
+- ❌ A numbered/ranked leaderboard with trophies or "#1" — editorial showcase only.
+- ❌ Rank by all-time cumulative likes (it ossifies).
+- ❌ Ship the showcase before there's content to fill it.
+- ❌ Invent a new like data model — reuse the review/activity like shape.
+- ❌ Ship user posts before 0.5.5 (block) + reporting are in place.
+- ❌ A half-block that only hides comments — it must filter every read surface.
+- ❌ GPS / maps / distance for `place` — freeform text only.
+
+---
+
 ## How we test (carries over from `AUDIT.md`)
 
 Same conventions as the audit tracker:
@@ -296,7 +450,7 @@ Same conventions as the audit tracker:
 - [x] **Content reporting (§1.2)** — DONE in the audit: `reportContent` action + Report button on reviews + server-only `/reports` collection.
 - [x] **`/privacy` route exists** — built in the audit with an accurate draft. Final legal copy still pending → D.4.1.
 - [x] **TMDB attribution** — DONE: shown in `/settings` ("uses the TMDB API but is not endorsed or certified by TMDB").
-- [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** The Report half is done; Apple also requires a way to *block* a user. Build `blockUser`/`unblockUser` (writes `/users/{uid}/blocked/{blockedUid}`), maintain a client blocked-set, filter blocked authors out of the comments list (and ideally feed + search). Needed before submission, NOT before TestFlight.
+- [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** Spec'd and pulled forward to **0.5.5** (posts depend on it). This line stays as the submission checkpoint — confirm 0.5.5 has shipped before you submit. The Report half (`reportContent`) is already done.
 - [ ] **D.0.2 — Error monitoring (Sentry).** At launch scale you need to know what's breaking. Sign up, get a DSN, wire `@sentry/nextjs`. ~1h once the DSN exists. (Replaces the audit's "no observability" gap.)
 - [ ] **D.0.3 — Moderation contact email** — a published address (e.g. `support@cinechrony.com`) for abuse reports; referenced by the privacy policy and §1.2.
 
@@ -419,9 +573,9 @@ Same conventions as the audit tracker:
 
 | Week | Primary work | Parallel |
 |------|--------------|----------|
-| 1 | Phase 0.1-0.2 (UI direction locked + design system codified) | E.1-E.2 (account setup) |
-| 2-3 | Phase 0.3-0.4 (screen-by-screen redesign + QA) | E.1-E.2 (account setup) |
-| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | — |
+| — | Phase 0 — UI redesign (scope B) + UX patterns · **done, merged to main** | — |
+| 1-3 | Phase 0.5 — Discover (liked lists + showcase + user posts + home/search merge) | E.1-E.2 (account setup) |
+| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | E.1-E.2 (account setup) |
 | 6 | Phase A.4-A.5 (client migration + static export) | E.3 (n8n) |
 | 7 | Phase B (Capacitor wrap) | E.3 (n8n) |
 | 8-9 | Phase C.1-C.3 (Share Extension + AI) | E.4-E.5 (Remotion + pipeline) |
@@ -431,7 +585,7 @@ Same conventions as the audit tracker:
 | 13 | Apple review iterations | — |
 | 14 | **Launch** | — |
 
-~**14 weeks** if everything goes smoothly. Add 2-4 weeks of buffer for Apple review cycles + Swift learning curve + the unexpected. The redesign adds ~3 weeks up front — that's the cost of scope B; it pays for itself by C.7 and D not rebuilding UI.
+~**14 weeks** of remaining work. Phase 0 (the redesign) is done and merged. Phase 0.5 adds ~3 weeks of discovery work pre-launch — user posts (0.5.4) is the heavy part, and it carries blocking (0.5.5) with it. Add 2-4 weeks of buffer for Apple review cycles + the Swift learning curve + the unexpected.
 
 ---
 
@@ -441,3 +595,9 @@ Same conventions as the audit tracker:
 |------|-------|------|-------|
 | 2026-05-15 | — | Plan | Launch plan created. AUDIT.md Phase 1 still pending — must complete before Phase A starts. |
 | 2026-05-21 | 0 | Plan | Added Phase 0 — full UI redesign (scope B), sequenced first. AUDIT.md Phases 0-2 complete; redesign now leads the launch. |
+| 2026-05-21 | 0 | Done | Phase 0 implemented in full — v2 editorial-cinema redesign + the UX patterns (movie detail, activity feed, notes, profile, comments, add, discover surfaces). Merged to main (PR #77). |
+| 2026-05-21 | 0.5 | Plan | Added Phase 0.5 — Discover: liked public lists + an editorial loved-lists showcase + merging home/search into one Discover page. Pulled forward to pre-launch. |
+| 2026-05-21 | 0.5 | Plan | Added 0.5.4 — user posts in the feed (Beli-style: text + photos + movie/friend tags + optional freeform place). Makes blocking a hard dependency — posts and 0.5.5 ship together. |
+| 2026-05-21 | 0.5 | Plan | Added 0.5.5 — block a user (full mutual invisibility — filters every read surface, both directions). Pulled forward from D.0.1; D.0.1 is now the pre-submission checkpoint. |
+| 2026-05-22 | 0.5 | Done | **Phase 0.5 implemented in full** on `feat/home-discover-rebuild` (one preview branch, 11 commits). Home rebuilt as the unified editorial feed; bottom nav cut to 3 tabs (`home · lists · profile`). Shipped: 0.5.1 like public lists · 0.5.2 loved-lists showcase (recency-weighted, cold-start gated) · 0.5.3 home/search merge (search is a header overlay) · 0.5.4 user posts (text + image **and video** up to 200MB via presigned R2 uploads, movie/friend tags, place, composer with drafts, posts merged into the feed, post comments) · 0.5.5 block a user. Plus a "for you" recommendation engine + "more like this" on movie detail (TMDB recommendations), a saved/bookmark archive, ⋯ overflow menus, and mute. 52 new audit tests; full suite 126/126 green. |
+| 2026-05-22 | 0.5 | Decision | The `nearby` feed pill (0.5.3 / UX_PATTERNS) was **dropped** — it requires GPS, which this plan explicitly forbids (`place` is freeform text only). Shipped 5 pills: `all · saved · friends · for you · trending`. The pill bar is built to extend if a non-GPS reinterpretation is ever wanted. |
