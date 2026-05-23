@@ -397,9 +397,13 @@ export type Activity = {
 // ---- User posts (LAUNCH 0.5.4) ----
 
 // One image or video attached to a post (stored on Cloudflare R2).
+// For videos, `thumbnailUrl` is a JPEG poster frame captured client-side
+// at upload time — the feed renders `<video poster={thumbnailUrl}>` so iOS
+// PWA doesn't show its grey default placeholder for cross-origin videos.
 export type PostMedia = {
   type: 'image' | 'video';
   url: string;
+  thumbnailUrl?: string;
   width?: number;
   height?: number;
 };
