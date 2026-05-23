@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2,
@@ -17,32 +17,21 @@ import {
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBMovieDetails, TMDBTVDetails, TMDBCast, Review } from '@/lib/types';
+import type { Movie, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
-import { getImdbRating, getMovieReviews } from '@/app/actions';
+import { getMovieReviews } from '@/app/actions';
 import { formatDistanceToNow } from 'date-fns';
 import { ImdbLogo } from './imdb-logo';
 import { SimilarMoviesRow } from './similar-movies-row';
-
-const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
-
-type ExtendedMovieDetails = TMDBMovieDetails & {
-  imdbId?: string;
-  imdbRating?: string;
-  imdbVotes?: string;
-};
-
-type ExtendedTVDetails = TMDBTVDetails & {
-  imdbId?: string;
-  imdbRating?: string;
-  imdbVotes?: string;
-};
-
-type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
+import {
+  type MediaDetails,
+  getCachedDetails,
+  getMovieOrTVDetails,
+} from '@/lib/tmdb-details-cache';
 
 const GLASS_BTN =
   'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
@@ -59,68 +48,6 @@ function getProviderIcon(url: string | undefined) {
       return Youtube;
     default:
       return null;
-  }
-}
-
-async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails | null> {
-  const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!accessToken) return null;
-
-  try {
-    const response = await fetch(
-      `${TMDB_API_BASE_URL}/movie/${tmdbId}?append_to_response=credits,external_ids`,
-      {
-        headers: {
-          accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const imdbId = data.external_ids?.imdb_id;
-
-    if (imdbId) {
-      const omdbData = await getImdbRating(imdbId);
-      if (omdbData.imdbRating) {
-        return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
-      }
-    }
-
-    return { ...data, imdbId };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchTVDetails(tmdbId: number): Promise<ExtendedTVDetails | null> {
-  const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!accessToken) return null;
-
-  try {
-    const response = await fetch(
-      `${TMDB_API_BASE_URL}/tv/${tmdbId}?append_to_response=credits,external_ids`,
-      {
-        headers: {
-          accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      }
-    );
-    if (!response.ok) return null;
-    const data = await response.json();
-    const imdbId = data.external_ids?.imdb_id;
-
-    if (imdbId) {
-      const omdbData = await getImdbRating(imdbId);
-      if (omdbData.imdbRating) {
-        return { ...data, imdbId, imdbRating: omdbData.imdbRating, imdbVotes: omdbData.imdbVotes };
-      }
-    }
-
-    return { ...data, imdbId };
-  } catch {
-    return null;
   }
 }
 
@@ -154,13 +81,28 @@ export function PublicMovieDetailsModal({
   const [override, setOverride] = useState<Movie | null>(null);
   const movie = override ?? movieProp;
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(null);
+
+  // Seed details from the module-level cache on first render so a re-open
+  // paints the full payload on frame one. See `tmdb-details-cache.ts` for
+  // the full rationale.
+  const initialCached = useMemo(() => {
+    if (!movie) return null;
+    const mediaType = movie.mediaType === 'tv' ? 'tv' : 'movie';
+    const tmdbIdNum = movie.tmdbId
+      || (movie.id ? parseInt(movie.id.replace(/^(movie|tv)_/, ''), 10) : 0);
+    if (!tmdbIdNum || isNaN(tmdbIdNum)) return null;
+    return getCachedDetails(mediaType, tmdbIdNum);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // First-render only — re-mounts (via key) get a fresh read.
+  const [mediaDetails, setMediaDetails] = useState<MediaDetails | null>(initialCached);
 
   // Drop the override when the parent opens a different movie / the modal closes.
   useEffect(() => {
     setOverride(null);
   }, [movieProp?.id, isOpen]);
-  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(null);
+  const [mediaDetailsForId, setMediaDetailsForId] = useState<string | null>(
+    initialCached && movie ? movie.id : null,
+  );
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [reviewPreviews, setReviewPreviews] = useState<Review[]>([]);
 
@@ -189,40 +131,38 @@ export function PublicMovieDetailsModal({
     router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
   };
 
-  // Fetch movie/TV details. Single source of truth for `mediaDetails`. Uses
-  // a ref counter (last-call-wins) instead of a closure `cancelled` flag —
-  // bulletproof against any re-render race. Self-heals: depending on
-  // `mediaDetailsForId` means a mismatch with the open movie re-fires the
-  // load. See the matching effect in movie-details-modal.tsx for the full
-  // reasoning (the openMovie-from-/comments return flow).
+  // Load details via the module-level cache. See movie-details-modal.tsx
+  // and tmdb-details-cache.ts for the full rationale.
   const loadDetailsCallRef = useRef(0);
   useEffect(() => {
     if (!movie || !isOpen) return;
     if (mediaDetailsForId === movie.id) return;
 
-    const myCallId = ++loadDetailsCallRef.current;
     const targetMovie = movie;
+    const targetMediaType = targetMovie.mediaType === 'tv' ? 'tv' : 'movie';
 
+    let tmdbIdLocal: number;
+    if (targetMovie.tmdbId) {
+      tmdbIdLocal = targetMovie.tmdbId;
+    } else {
+      const idMatch = targetMovie.id.match(/^(?:movie|tv)_(\d+)$/);
+      tmdbIdLocal = idMatch
+        ? parseInt(idMatch[1], 10)
+        : parseInt(targetMovie.id, 10);
+    }
+    if (!tmdbIdLocal || isNaN(tmdbIdLocal)) return;
+
+    const cached = getCachedDetails(targetMediaType, tmdbIdLocal);
+    if (cached) {
+      setMediaDetails(cached);
+      setMediaDetailsForId(targetMovie.id);
+      return;
+    }
+
+    const myCallId = ++loadDetailsCallRef.current;
     (async () => {
       setIsLoadingDetails(true);
-
-      let tmdbIdLocal: number;
-      if (targetMovie.tmdbId) {
-        tmdbIdLocal = targetMovie.tmdbId;
-      } else {
-        const idMatch = targetMovie.id.match(/^(?:movie|tv)_(\d+)$/);
-        tmdbIdLocal = idMatch
-          ? parseInt(idMatch[1], 10)
-          : parseInt(targetMovie.id, 10);
-      }
-
-      let details: MediaDetails | null = null;
-      if (!isNaN(tmdbIdLocal)) {
-        details = targetMovie.mediaType === 'tv'
-          ? await fetchTVDetails(tmdbIdLocal)
-          : await fetchMovieDetails(tmdbIdLocal);
-      }
-
+      const details = await getMovieOrTVDetails(targetMediaType, tmdbIdLocal);
       if (loadDetailsCallRef.current !== myCallId) return;
       setMediaDetails(details);
       setMediaDetailsForId(targetMovie.id);
