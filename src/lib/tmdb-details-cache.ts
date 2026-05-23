@@ -19,7 +19,7 @@
  */
 
 import type { TMDBMovieDetails, TMDBTVDetails } from '@/lib/types';
-import { getImdbRating } from '@/app/actions';
+import { getImdbRating, getSimilarMovies, type TrendingMovie } from '@/app/actions';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -132,4 +132,54 @@ export async function getMovieOrTVDetails(
   const cached = detailsCache.get(cacheKey(mediaType, tmdbId));
   if (cached) return cached;
   return fetchAndCache(mediaType, tmdbId);
+}
+
+// "more like this" — the SimilarMoviesRow strip on the detail screen hits
+// the same back-nav abort window. Same module-level cache treatment.
+const similarCache = new Map<string, TrendingMovie[]>();
+const similarInflight = new Map<string, Promise<TrendingMovie[]>>();
+
+/** Synchronous cache lookup for the "more like this" row. */
+export function getCachedSimilar(
+  mediaType: 'movie' | 'tv',
+  tmdbId: number,
+): TrendingMovie[] | null {
+  return similarCache.get(cacheKey(mediaType, tmdbId)) ?? null;
+}
+
+/**
+ * Get similar films/TV for a `(mediaType, tmdbId)`, caching the result at
+ * module level so a re-mount during back-nav doesn't fire a request that
+ * iOS will silently abort.
+ */
+export async function getSimilarWithCache(
+  mediaType: 'movie' | 'tv',
+  tmdbId: number,
+): Promise<TrendingMovie[]> {
+  const key = cacheKey(mediaType, tmdbId);
+  const cached = similarCache.get(key);
+  if (cached) return cached;
+
+  const existingInflight = similarInflight.get(key);
+  if (existingInflight) return existingInflight;
+
+  const promise = (async (): Promise<TrendingMovie[]> => {
+    try {
+      const res = await getSimilarMovies(tmdbId, mediaType);
+      const movies = res.movies ?? [];
+      // Only cache non-empty results. An empty result on a transient failure
+      // shouldn't poison the cache and prevent the next attempt from
+      // succeeding — TMDB recommendations rarely return zero items for real
+      // films, so "empty" is almost always a transport-level miss here.
+      if (movies.length > 0) similarCache.set(key, movies);
+      return movies;
+    } catch {
+      return [];
+    } finally {
+      similarInflight.delete(key);
+    }
+  })();
+
+  similarInflight.set(key, promise);
+  return promise;
 }

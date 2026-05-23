@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { getSimilarMovies, type TrendingMovie } from '@/app/actions';
+import { type TrendingMovie } from '@/app/actions';
 import type { Movie } from '@/lib/types';
+import { getCachedSimilar, getSimilarWithCache } from '@/lib/tmdb-details-cache';
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
 
@@ -18,10 +19,22 @@ type SimilarMoviesRowProps = {
  * "more like this" — a horizontal poster strip on the movie-detail screen,
  * powered by TMDB recommendations (getSimilarMovies). Browse-only: tapping a
  * poster swaps the detail modal to that film in place (no modal stacking).
+ *
+ * Mirrors the module-level cache pattern used for movie/TV details: the first
+ * open fires the network call and warms the cache, every subsequent open in
+ * the session is a synchronous hit. This is the same iOS PWA back-nav race
+ * that was nuking the details fetch — server actions go through the same
+ * abort window, so the row needs the same shield.
  */
 export function SimilarMoviesRow({ tmdbId, mediaType, onPick }: SimilarMoviesRowProps) {
-  const [movies, setMovies] = useState<TrendingMovie[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Seed from the cache on first render — instant paint on re-open.
+  const initialCached = useMemo(() => {
+    if (!tmdbId || Number.isNaN(tmdbId)) return null;
+    return getCachedSimilar(mediaType, tmdbId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // First-render only.
+  const [movies, setMovies] = useState<TrendingMovie[]>(initialCached ?? []);
+  const [isLoading, setIsLoading] = useState(initialCached === null);
 
   useEffect(() => {
     if (!tmdbId || Number.isNaN(tmdbId)) {
@@ -29,11 +42,20 @@ export function SimilarMoviesRow({ tmdbId, mediaType, onPick }: SimilarMoviesRow
       setIsLoading(false);
       return;
     }
+
+    // Synchronous cache hit — no network call, no loading state.
+    const cached = getCachedSimilar(mediaType, tmdbId);
+    if (cached) {
+      setMovies(cached);
+      setIsLoading(false);
+      return;
+    }
+
     let cancelled = false;
     setIsLoading(true);
-    getSimilarMovies(tmdbId, mediaType)
+    getSimilarWithCache(mediaType, tmdbId)
       .then((res) => {
-        if (!cancelled) setMovies(res.movies ?? []);
+        if (!cancelled) setMovies(res);
       })
       .catch(() => {})
       .finally(() => {
