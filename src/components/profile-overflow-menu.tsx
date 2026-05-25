@@ -88,9 +88,9 @@ export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOve
       <button
         onClick={() => setOpen(true)}
         aria-label="More"
-        className="h-8 w-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+        className="h-11 w-11 -mr-1 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted active:bg-muted active:scale-95 transition-all"
       >
-        <MoreHorizontal className="h-5 w-5" strokeWidth={1.8} />
+        <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={1.8} />
       </button>
 
       <Drawer.Root open={open} onOpenChange={setOpen}>

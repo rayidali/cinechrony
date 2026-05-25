@@ -35,7 +35,7 @@ import {
 import { rememberMovieForReturn } from '@/contexts/movie-modal-context';
 
 const GLASS_BTN =
-  'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
+  'w-11 h-11 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -253,7 +253,7 @@ export function PublicMovieDetailsModal({
           {/* Glassy floating back control */}
           <div className="absolute top-3 left-3 z-30">
             <button onClick={onClose} className={GLASS_BTN} aria-label="Back">
-              <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+              <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
             </button>
           </div>
 

@@ -295,7 +295,7 @@ export default function PublicListPage() {
               variant={viewMode === 'grid' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => handleViewModeChange('grid')}
-              className="h-8 w-8 p-0"
+              className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
               title="Grid view"
             >
               <Grid3X3 className="h-4 w-4" />
@@ -304,7 +304,7 @@ export default function PublicListPage() {
               variant={viewMode === 'list' ? 'default' : 'ghost'}
               size="sm"
               onClick={() => handleViewModeChange('list')}
-              className="h-8 w-8 p-0"
+              className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
               title="List view"
             >
               <List className="h-4 w-4" />
