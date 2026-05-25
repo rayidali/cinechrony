@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { Loader2, UserPlus, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { followUser, unfollowUser, isFollowing } from '@/app/actions';
+import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 
@@ -63,6 +64,9 @@ export function FollowButton({
         } else {
           setFollowing(false);
           onFollowChange?.(false);
+          // Invalidate the cached following set so the home `friends` filter
+          // reflects the change immediately on the next mount.
+          invalidateCachedAction(`following:${user.uid}`);
           toast({ title: 'Unfollowed', description: `You unfollowed @${targetUsername}` });
         }
       } else {
@@ -72,6 +76,7 @@ export function FollowButton({
         } else {
           setFollowing(true);
           onFollowChange?.(true);
+          invalidateCachedAction(`following:${user.uid}`);
           toast({ title: 'Following', description: `You are now following @${targetUsername}` });
         }
       }

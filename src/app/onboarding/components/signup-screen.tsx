@@ -127,6 +127,21 @@ export function SignUpScreen({ onComplete, onLogin }: SignUpScreenProps) {
           >
             {isLoading ? <Loader2 className="animate-spin" /> : 'Create Account'}
           </Button>
+
+          {/* App Store §5.1 requires Terms + Privacy to be acknowledged at
+              signup. Inline acknowledgement (not a checkbox) is the
+              standard pattern Apple accepts. */}
+          <p className="mt-3 text-center text-[11px] text-muted-foreground leading-snug">
+            By creating an account you agree to our{' '}
+            <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline">
+              Terms of Service
+            </a>{' '}
+            and{' '}
+            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+              Privacy Policy
+            </a>
+            .
+          </p>
         </form>
 
         <p className="mt-6 text-center text-sm">

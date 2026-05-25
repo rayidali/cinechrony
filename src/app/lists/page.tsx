@@ -17,6 +17,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
+import { useCachedAction } from '@/lib/use-cached-action';
+import { rememberListSeed } from '@/lib/list-detail-seed';
 
 // Preview data for list cards
 type ListPreview = {
@@ -30,6 +32,11 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
+// Module-level guard so the one-time ensureUserProfile + migrateMoviesToList
+// check runs at most once per user per session, regardless of how many times
+// the user revisits /lists.
+const initializedUsers = new Set<string>();
+
 
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
@@ -38,11 +45,20 @@ export default function ListsPage() {
   const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
-  const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
-  const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
+
+  // Collaborative lists via SWR cache — first mount hits the network; every
+  // subsequent visit in the session paints the prior result synchronously
+  // and refreshes in the background. See [[use-cached-action]].
+  const collabKey = user ? `collab-lists:${user.uid}` : null;
+  const collabResult = useCachedAction<CollaborativeList[]>(collabKey, async () => {
+    if (!user) return [];
+    const result = await getCollaborativeLists(user.uid);
+    return (result.lists ?? []) as CollaborativeList[];
+  });
+  const collaborativeLists = collabResult.data ?? [];
+  const isLoadingCollaborative = collabResult.isLoading;
 
   // Query for user's lists
   const listsQuery = useMemoFirebase(() => {
@@ -55,22 +71,34 @@ export default function ListsPage() {
 
   const { data: lists, isLoading: isLoadingLists } = useCollection<MovieList>(listsQuery);
 
-  // Initialize user profile and handle migration for existing users
+  // Initialize user profile + migration check — runs ONCE per session per
+  // user (tracked at module level), NOT blocking render. This used to gate
+  // the whole page on a network round-trip, so every tab return to /lists
+  // showed a full-screen loading spinner for ~300ms even when every other
+  // piece of data was cached. The check is a one-time migration for legacy
+  // users; running it on every visit was wasteful regardless.
   useEffect(() => {
-    async function initUser() {
-      if (!user || isUserLoading) return;
+    if (!user || isUserLoading) return;
+    if (initializedUsers.has(user.uid)) return;
+    initializedUsers.add(user.uid);
 
+    (async () => {
       try {
         const result = await ensureUserProfile(
           await user.getIdToken(),
           user.email || '',
-          user.displayName
+          user.displayName,
         );
-
         if (!('error' in result) && result.defaultListId) {
-          // Check for old movies to migrate
-          const migrateResult = await migrateMoviesToList(await user.getIdToken(), result.defaultListId);
-          if (!('error' in migrateResult) && migrateResult.migratedCount && migrateResult.migratedCount > 0) {
+          const migrateResult = await migrateMoviesToList(
+            await user.getIdToken(),
+            result.defaultListId,
+          );
+          if (
+            !('error' in migrateResult) &&
+            migrateResult.migratedCount &&
+            migrateResult.migratedCount > 0
+          ) {
             toast({
               title: 'Movies Migrated',
               description: `${migrateResult.migratedCount} movies moved to your default list.`,
@@ -79,12 +107,11 @@ export default function ListsPage() {
         }
       } catch (error) {
         console.error('Failed to initialize user:', error);
-      } finally {
-        setIsInitializing(false);
+        // Reset so a future mount can retry — failure shouldn't permanently
+        // block the migration.
+        initializedUsers.delete(user.uid);
       }
-    }
-
-    initUser();
+    })();
   }, [user, isUserLoading, toast]);
 
   // Redirect to login if not authenticated
@@ -93,27 +120,6 @@ export default function ListsPage() {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
-
-  // Fetch collaborative lists
-  useEffect(() => {
-    async function fetchCollaborativeLists() {
-      if (!user || isUserLoading) return;
-
-      setIsLoadingCollaborative(true);
-      try {
-        const result = await getCollaborativeLists(user.uid);
-        if (result.lists) {
-          setCollaborativeLists(result.lists as CollaborativeList[]);
-        }
-      } catch (error) {
-        console.error('Failed to fetch collaborative lists:', error);
-      } finally {
-        setIsLoadingCollaborative(false);
-      }
-    }
-
-    fetchCollaborativeLists();
-  }, [user, isUserLoading]);
 
   // Fetch list previews (posters and counts) when lists change
   useEffect(() => {
@@ -168,24 +174,40 @@ export default function ListsPage() {
     [router],
   );
 
-  const handleCardClick = useCallback((listId: string, e: React.MouseEvent, ownerId?: string) => {
-    if (ownerId) {
-      router.push(`/lists/${listId}?owner=${ownerId}`);
-    } else {
-      router.push(`/lists/${listId}`);
-    }
-  }, [router]);
+  const handleCardClick = useCallback(
+    (
+      listId: string,
+      e: React.MouseEvent,
+      ownerId?: string,
+      list?: MovieList | CollaborativeList,
+      previewPosters?: string[],
+    ) => {
+      // Seed the detail page with what we already know — name, cover, count,
+      // collaborator IDs, preview posters. The destination page paints its
+      // header + chrome synchronously from the seed; the real fetch resolves
+      // in parallel. See [[list-detail-seed]].
+      if (list) {
+        rememberListSeed({
+          list,
+          previewPosters: previewPosters ?? [],
+        });
+      }
+      if (ownerId) {
+        router.push(`/lists/${listId}?owner=${ownerId}`);
+      } else {
+        router.push(`/lists/${listId}`);
+      }
+    },
+    [router],
+  );
 
-  // Pull-to-refresh handler
+  // Pull-to-refresh handler — invalidate the SWR cache and refetch via the
+  // hook so listeners see the fresh data.
   const handleRefresh = useCallback(async () => {
     if (!user) return;
 
     try {
-      // Refresh collaborative lists
-      const collabResult = await getCollaborativeLists(user.uid);
-      if (collabResult.lists) {
-        setCollaborativeLists(collabResult.lists as CollaborativeList[]);
-      }
+      collabResult.refetch();
 
       // Refresh own list previews
       if (lists && lists.length > 0) {
@@ -198,9 +220,9 @@ export default function ListsPage() {
     } catch (error) {
       console.error('Failed to refresh lists:', error);
     }
-  }, [user, lists]);
+  }, [user, lists, collabResult.refetch]);
 
-  if (isUserLoading || !user || isInitializing) {
+  if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
@@ -250,12 +272,13 @@ export default function ListsPage() {
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {lists.map((list) => {
                 const preview = listPreviews[list.id];
+                const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
                 return (
                   <ListCard
                     key={list.id}
-                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    list={augmented}
                     previewPosters={preview?.previewPosters ?? []}
-                    onClick={(e) => handleCardClick(list.id, e)}
+                    onClick={(e) => handleCardClick(list.id, e, undefined, augmented, preview?.previewPosters)}
                   />
                 );
               })}
@@ -294,12 +317,13 @@ export default function ListsPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {collaborativeLists.map((list) => {
                     const preview = collabListPreviews[list.id];
+                    const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
                     return (
                       <ListCard
                         key={`collab-${list.id}`}
-                        list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                        list={augmented}
                         previewPosters={preview?.previewPosters ?? []}
-                        onClick={(e) => handleCardClick(list.id, e, list.ownerId)}
+                        onClick={(e) => handleCardClick(list.id, e, list.ownerId, augmented, preview?.previewPosters)}
                         isCollaborative={true}
                         ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
                       />

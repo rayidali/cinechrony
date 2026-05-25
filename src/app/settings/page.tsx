@@ -696,8 +696,14 @@ export default function SettingsPage() {
             </a>
             . This product uses the TMDB API but is not endorsed or certified by TMDB.
           </p>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground space-x-3">
             <a href="/privacy" className="underline">Privacy Policy</a>
+            <span aria-hidden>·</span>
+            <a href="/terms" className="underline">Terms of Service</a>
+            <span aria-hidden>·</span>
+            <a href="mailto:support@cinechrony.com" className="underline">
+              Contact
+            </a>
           </p>
         </section>
       </div>

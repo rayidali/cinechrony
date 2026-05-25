@@ -25,6 +25,7 @@ import {
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
 import { captureVideoPoster } from '@/lib/video-poster';
+import { invalidateCachedActionsByPrefix } from '@/lib/use-cached-action';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useToast } from '@/hooks/use-toast';
@@ -599,6 +600,12 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
             const remaining = drafts.filter((d) => d.id !== draftId);
             saveDrafts(remaining);
             setDrafts(remaining);
+          }
+          // Home feed caches now stale — drop them so the next mount /
+          // refreshKey++ fetches fresh. Prefix wipe covers every feedFilter
+          // variant (all / saved / friends).
+          if (auth.currentUser) {
+            invalidateCachedActionsByPrefix(`home-feed:${auth.currentUser.uid}`);
           }
           toast({ title: 'posted.' });
           const postId = (res as { postId?: string }).postId;

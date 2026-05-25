@@ -13,6 +13,10 @@ import {
   type FeedItem,
 } from '@/app/actions';
 import { useAuth } from '@/firebase';
+import {
+  readCachedAction,
+  setCachedAction,
+} from '@/lib/use-cached-action';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Activity, Movie } from '@/lib/types';
@@ -132,13 +136,28 @@ export function ActivityFeed({
   const auth = useAuth();
   const { isMuted } = useUserMutesCache();
   const { isBlocked } = useUserBlocksCache();
-  const [items, setItems] = useState<FeedItem[]>([]);
-  const [recSets, setRecSets] = useState<RecommendationSet[]>([]);
-  const [fwCards, setFwCards] = useState<FWCard[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // SWR caches — key by user + filter so a/b filter swaps don't bleed.
+  // We cache the first page only; pagination state stays local. That means
+  // tab returns paint the first scroll-worth synchronously, and the user
+  // pays for pagination again on return (acceptable — most users only see
+  // page 1 anyway).
+  const feedKey = currentUserId ? `home-feed:${currentUserId}:${feedFilter}` : null;
+  const recKey = currentUserId ? `home-recs:${currentUserId}` : null;
+  const fwKey = currentUserId ? `home-fw:${currentUserId}` : null;
+
+  type FeedSnapshot = { items: FeedItem[]; hasMore: boolean; cursor: string | null };
+  const cachedFeed = feedKey ? readCachedAction<FeedSnapshot>(feedKey) : undefined;
+  const cachedRecs = recKey ? readCachedAction<RecommendationSet[]>(recKey) : undefined;
+  const cachedFw = fwKey ? readCachedAction<FWCard[]>(fwKey) : undefined;
+
+  const [items, setItems] = useState<FeedItem[]>(cachedFeed?.items ?? []);
+  const [recSets, setRecSets] = useState<RecommendationSet[]>(cachedRecs ?? []);
+  const [fwCards, setFwCards] = useState<FWCard[]>(cachedFw ?? []);
+  const [isLoading, setIsLoading] = useState(cachedFeed === undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
-  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(cachedFeed?.hasMore ?? false);
+  const [cursor, setCursor] = useState<string | null>(cachedFeed?.cursor ?? null);
   const [error, setError] = useState<string | null>(null);
 
   const { openMovie } = useMovieModal();
@@ -158,11 +177,15 @@ export function ActivityFeed({
   );
 
   // Initial load (refresh on refreshKey; reload when the filter changes).
+  // SWR semantics: if the cache had a hit, we already painted with it on
+  // first render — skip the loading state and refresh silently. Cold miss
+  // shows the skeleton, then swaps in on first fetch.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        setIsLoading(true);
+        const hadCached = feedKey ? readCachedAction(feedKey) !== undefined : false;
+        if (!hadCached) setIsLoading(true);
         setError(null);
         const result = await fetchPage();
         if (cancelled) return;
@@ -172,6 +195,13 @@ export function ActivityFeed({
           setItems(result.items);
           setHasMore(result.hasMore);
           setCursor(result.nextCursor || null);
+          if (feedKey) {
+            setCachedAction<FeedSnapshot>(feedKey, {
+              items: result.items,
+              hasMore: result.hasMore,
+              cursor: result.nextCursor || null,
+            });
+          }
         }
       } catch {
         if (!cancelled) setError('Failed to load the feed');
@@ -182,9 +212,11 @@ export function ActivityFeed({
     return () => {
       cancelled = true;
     };
-  }, [refreshKey, fetchPage]);
+  }, [refreshKey, fetchPage, feedKey]);
 
-  // "for you" recommendations + friends-watching — interleaved into the feed.
+  // "for you" recommendations + friends-watching — interleaved into the
+  // feed. Both are cached so tab returns paint the prior cards while we
+  // refresh in the background.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -196,8 +228,16 @@ export function ActivityFeed({
           getFriendsWatching(idToken),
         ]);
         if (cancelled) return;
-        if ('sets' in recs) setRecSets(recs.sets ?? []);
-        if ('cards' in fw) setFwCards(fw.cards ?? []);
+        if ('sets' in recs) {
+          const sets = recs.sets ?? [];
+          setRecSets(sets);
+          if (recKey) setCachedAction(recKey, sets);
+        }
+        if ('cards' in fw) {
+          const cards = fw.cards ?? [];
+          setFwCards(cards);
+          if (fwKey) setCachedAction(fwKey, cards);
+        }
       } catch {
         /* non-critical */
       }
@@ -205,7 +245,7 @@ export function ActivityFeed({
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshKey]);
+  }, [auth, refreshKey, recKey, fwKey]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;

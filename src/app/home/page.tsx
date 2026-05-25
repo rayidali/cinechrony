@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Users, Bookmark } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { getFollowing } from '@/app/actions';
+import { useCachedAction } from '@/lib/use-cached-action';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
@@ -41,7 +42,6 @@ export default function HomePage() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedFilter, setFeedFilter] = useState<'all' | 'saved' | 'friends'>('all');
-  const [followingIds, setFollowingIds] = useState<string[]>([]);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -49,19 +49,17 @@ export default function HomePage() {
     }
   }, [user, isUserLoading, router]);
 
-  // Following set powers the `friends` filter.
-  useEffect(() => {
-    if (!user) return;
-    let cancelled = false;
-    getFollowing(user.uid)
-      .then((res) => {
-        if (!cancelled) setFollowingIds((res.users ?? []).map((u) => u.uid));
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [user]);
+  // Following set powers the `friends` filter — SWR cached so tab returns
+  // paint the prior list synchronously and refresh in the background.
+  const followingResult = useCachedAction<string[]>(
+    user ? `following:${user.uid}` : null,
+    async () => {
+      if (!user) return [];
+      const res = await getFollowing(user.uid);
+      return (res.users ?? []).map((u) => u.uid);
+    },
+  );
+  const followingIds = followingResult.data ?? [];
 
   const handleRefresh = useCallback(async () => {
     setRefreshKey((prev) => prev + 1);

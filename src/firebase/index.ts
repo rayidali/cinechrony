@@ -2,7 +2,13 @@
 
 import { initializeApp, getApps, getApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import {
+  getFirestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  type Firestore,
+} from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // IMPORTANT: DO NOT MODIFY THIS FUNCTION
@@ -33,11 +39,41 @@ export function initializeFirebase() {
 }
 
 
+/**
+ * Resolve a Firestore instance, opting into the persistent IndexedDB local
+ * cache the first time we see this app. Persistence means every read goes
+ * through IndexedDB before hitting the network: re-mounts of `useCollection`
+ * (every tab switch in this app) serve the previous snapshot synchronously
+ * from disk while the live subscription warms up.
+ *
+ * `initializeFirestore` must be called BEFORE any `getFirestore`. On the
+ * second call (e.g., HMR, or a second `initializeFirebase` invocation) it
+ * throws — we catch and fall back to the already-configured instance.
+ *
+ * The multi-tab manager lets two PWA windows share the same IndexedDB
+ * cache safely without one tab clobbering the other's writes.
+ *
+ * IndexedDB is unavailable in Safari Private Browsing — persistence falls
+ * back to in-memory automatically, with no behaviour change for callers.
+ */
+function resolveFirestore(firebaseApp: FirebaseApp): Firestore {
+  try {
+    return initializeFirestore(firebaseApp, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+      }),
+    });
+  } catch {
+    // Already initialized — return the existing instance.
+    return getFirestore(firebaseApp);
+  }
+}
+
 export function getSdks(firebaseApp: FirebaseApp) {
   return {
     firebaseApp,
     auth: getAuth(firebaseApp),
-    firestore: getFirestore(firebaseApp),
+    firestore: resolveFirestore(firebaseApp),
     storage: getStorage(firebaseApp),
   };
 }

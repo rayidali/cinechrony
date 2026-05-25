@@ -12,6 +12,7 @@ import {
 } from '@/app/actions';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { getRatingStyle } from '@/lib/utils';
+import { readCachedAction, setCachedAction } from '@/lib/use-cached-action';
 
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
 
@@ -23,20 +24,38 @@ const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w342';
  * Films and lists are different kinds of object, so they get their own row +
  * header rather than one mixed scroll — it reads cleaner and scans faster.
  */
+const TRENDING_FILMS_KEY = 'trending-films';
+const LOVED_LISTS_KEY = 'loved-lists';
+
 export function TrendingStrip() {
   const router = useRouter();
   const { openMovie } = useMovieModal();
-  const [films, setFilms] = useState<TrendingMovie[]>([]);
-  const [lists, setLists] = useState<LovedListCard[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  // Seed from cache synchronously on first render — trending and loved are
+  // identical for every user, so the key is global. Tab returns paint the
+  // prior strip while we refresh in the background.
+  const cachedFilms = readCachedAction<TrendingMovie[]>(TRENDING_FILMS_KEY);
+  const cachedLists = readCachedAction<LovedListCard[]>(LOVED_LISTS_KEY);
+
+  const [films, setFilms] = useState<TrendingMovie[]>(cachedFilms ?? []);
+  const [lists, setLists] = useState<LovedListCard[]>(cachedLists ?? []);
+  const [isLoading, setIsLoading] = useState(
+    cachedFilms === undefined && cachedLists === undefined,
+  );
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([getTrendingMovies(), getLovedLists()])
       .then(([trending, loved]) => {
         if (cancelled) return;
-        if (!trending.error) setFilms(trending.movies ?? []);
-        setLists(loved.lists ?? []);
+        if (!trending.error) {
+          const next = trending.movies ?? [];
+          setFilms(next);
+          setCachedAction(TRENDING_FILMS_KEY, next);
+        }
+        const nextLists = loved.lists ?? [];
+        setLists(nextLists);
+        setCachedAction(LOVED_LISTS_KEY, nextLists);
       })
       .catch(() => {})
       .finally(() => {
