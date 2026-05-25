@@ -237,32 +237,36 @@ export const PostCard = memo(function PostCard({
           </p>
         )}
 
-        {/* Footer */}
-        <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-border">
-          <div className="flex items-center gap-4">
+        {/* Footer — touch targets sized for thumbs: each button is min 40×40
+            with a 1px outer ring removed by negative margin so the visual
+            spacing stays compact. Icons bumped from h-3.5 → h-[18px] for
+            legibility. */}
+        <div className="flex items-center justify-between mt-2.5 pt-3 border-t border-border">
+          <div className="flex items-center gap-1 -my-1">
             <button
               onClick={handleLike}
               disabled={!currentUserId}
               className={cn(
-                'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
+                'flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full transition-colors active:scale-95',
                 isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
                 !currentUserId && 'opacity-50 cursor-not-allowed',
               )}
               aria-label={isLiked ? 'Unlike' : 'Like'}
             >
-              <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
-              {likeCount > 0 && <span>{likeCount}</span>}
+              <Heart className={cn('h-[18px] w-[18px]', isLiked && 'fill-current')} strokeWidth={1.8} />
+              {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
             </button>
 
             <button
               onClick={() => router.push(`/post/${post.id}`)}
-              className="flex items-center gap-1.5 cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+              className="flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full text-muted-foreground hover:text-foreground transition-colors active:scale-95"
+              aria-label="View comments"
             >
-              <MessageCircle className="h-3.5 w-3.5" strokeWidth={1.8} />
-              {post.commentCount > 0 && <span>{post.commentCount}</span>}
+              <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} />
+              {post.commentCount > 0 && <span className="tabular-nums">{post.commentCount}</span>}
             </button>
 
-            <BookmarkButton itemType="post" itemId={post.id} />
+            <BookmarkButton itemType="post" itemId={post.id} className="h-10 px-2 rounded-full" />
           </div>
 
           {(post.taggedUsers?.length ?? 0) > 0 && (

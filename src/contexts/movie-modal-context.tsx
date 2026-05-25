@@ -75,14 +75,23 @@ export function useMovieModal(): MovieModalContextValue {
 
 const SS_PREFIX = 'cc-movie-modal:';
 
-function rememberMovie(movie: Movie) {
+/**
+ * Persist a Movie so it survives the round-trip through `/comments`. Exposed
+ * so callers OUTSIDE the provider (e.g. an in-modal "more like this" swap)
+ * can stash the swapped-in movie before navigating — otherwise `recallMovie`
+ * fails on return and the modal silently doesn't reopen.
+ */
+export function rememberMovieForReturn(movie: Movie) {
   if (typeof window === 'undefined') return;
   try {
     window.sessionStorage.setItem(`${SS_PREFIX}${movie.id}`, JSON.stringify(movie));
   } catch {
-    /* quota / safari private mode — non-critical, the openMovie return
-       flow will silently no-op, but tile click → modal still works. */
+    /* quota / safari private mode — non-critical. */
   }
+}
+
+function rememberMovie(movie: Movie) {
+  rememberMovieForReturn(movie);
 }
 
 function recallMovie(id: string): Movie | null {
@@ -134,6 +143,30 @@ export function MovieModalProvider({ returnPath, children }: ProviderProps) {
     }
     if (handledOpenMovieRef.current === id) return;
     handledOpenMovieRef.current = id;
+
+    // Defensive: before re-opening a drawer on this route, scrub any body
+    // styles a previous Vaul instance may have left behind (the round-trip
+    // through /comments can leak iOS scroll-lock styles). Vaul will capture
+    // `previousBodyPosition` from whatever it sees right now, so we want
+    // that snapshot to be clean — otherwise dismissing the new drawer
+    // restores to the broken state. See [[body-style-watchdog]].
+    if (typeof document !== 'undefined') {
+      const body = document.body;
+      const stuck =
+        body.style.position === 'fixed' ||
+        body.style.top !== '' ||
+        body.style.left !== '';
+      if (stuck) {
+        const stuckTop = body.style.top;
+        const recoveredY = stuckTop ? -parseInt(stuckTop, 10) || 0 : 0;
+        body.style.removeProperty('position');
+        body.style.removeProperty('top');
+        body.style.removeProperty('left');
+        body.style.removeProperty('right');
+        body.style.removeProperty('height');
+        if (recoveredY > 0) window.scrollTo(0, recoveredY);
+      }
+    }
 
     const movie = recallMovie(id);
     if (movie) {

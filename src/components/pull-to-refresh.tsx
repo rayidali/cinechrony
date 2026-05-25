@@ -206,12 +206,27 @@ export function PullToRefresh({
         )}
       </div>
 
-      {/* Content with transform */}
+      {/*
+        Content shell.
+
+        IMPORTANT: Only attach a `transform` while a pull is in progress or
+        the refresh is animating. A non-zero transform on this wrapper would
+        create a CSS containing block, breaking `position: sticky` and
+        `position: fixed` for every descendant (the home topbar, any modal
+        portal that lands inside the tree). Even `translateY(0)` is enough
+        to flip that switch — so when idle we render no inline style at all.
+      */}
       <div
-        style={{
-          transform: `translateY(${pullDistance}px)`,
-          transition: isPulling.current ? 'none' : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
+        style={
+          pullDistance > 0 || isRefreshing
+            ? {
+                transform: `translateY(${pullDistance}px)`,
+                transition: isPulling.current
+                  ? 'none'
+                  : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              }
+            : undefined
+        }
       >
         {children}
       </div>

@@ -490,7 +490,12 @@ export function MovieDetailsModal({
     if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
     if (movie.id) params.set('returnMovieId', movie.id);
     onClose(); // Close the drawer first
-    router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    // Defer the navigation a frame so Vaul commits its close + body-style
+    // restore before we route — otherwise the cleanup races with unmount
+    // and body can be left scroll-locked on return. See [[body-style-watchdog]].
+    setTimeout(() => {
+      router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    }, 220);
   };
 
   // Use addedByInfo computed above for display
