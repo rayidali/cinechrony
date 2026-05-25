@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
@@ -18,6 +18,7 @@ import { AddMovieModal } from '@/components/add-movie-modal';
 import { Fab } from '@/components/fab';
 import { getCollaborativeLists } from '@/app/actions';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
+import { recallListSeed } from '@/lib/list-detail-seed';
 
 export default function ListDetailPage() {
   const { user, isUserLoading } = useUser();
@@ -62,6 +63,14 @@ export default function ListDetailPage() {
   // Use whichever list data we have
   const listData = ownListData || collabListData;
   const isLoadingList = isLoadingOwnList || (collaborativeListOwner && isLoadingCollabList);
+
+  // Optimistic seed from the list-card tap on `/lists` — gives us the
+  // list's name + cover + count + collaborator IDs before the network
+  // round-trip lands. Renders the page chrome instantly. See
+  // [[list-detail-seed]]. Cleared from sessionStorage on read so a hard
+  // refresh of the URL doesn't reuse a stale seed indefinitely.
+  const seed = useMemo(() => recallListSeed(listId), [listId]);
+  const effectiveListData: MovieListType | null = listData ?? (seed?.list as MovieListType | undefined) ?? null;
 
   // Get movies in this list
   const moviesQuery = useMemoFirebase(() => {
@@ -221,25 +230,15 @@ export default function ListDetailPage() {
     );
   }
 
-  // Show loading while:
-  // 1. Loading own list
-  // 2. Checking for collaborative lists
-  // 3. Loading collaborative list (after we've identified there's one)
-  // 4. Haven't completed lookup yet AND don't have any list data
+  // `isLoading` summarises whether real data is still in flight; we no
+  // longer gate the WHOLE page on it. The chrome + seed render immediately;
+  // `isLoading` is consumed below by MovieList for its skeleton state.
   const isLoading = isLoadingOwnList ||
     isCheckingCollab ||
     (collaborativeListOwner && isLoadingCollabList) ||
     (!ownListData && !collabListData && !lookupComplete && !hasPermissionError);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
-      </div>
-    );
-  }
-
-  // Permission error - user doesn't have access
+  // Permission error — terminal state, beats any optimistic seed.
   if (hasPermissionError) {
     return (
       <main className="min-h-screen font-body text-foreground">
@@ -261,8 +260,11 @@ export default function ListDetailPage() {
     );
   }
 
-  // List not found or loading timed out
-  if (!listData && !isLoadingList) {
+  // List genuinely not found — only after we've finished trying. The seed
+  // got us to instant-render, but real data is authoritative; if real
+  // lookup completes empty, we fall through to NotFound regardless of
+  // whether a seed was available (it would've been wrong/stale).
+  if (!listData && lookupComplete && !isLoading) {
     return (
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
@@ -285,6 +287,15 @@ export default function ListDetailPage() {
     );
   }
 
+  // We are now in one of these states:
+  //   · Real data loaded — render normally.
+  //   · Seed available, real data still loading — render with seed-backed
+  //     `effectiveListData`. Movies grid shows skeleton until Firestore lands.
+  //   · No seed, real data still loading, no terminal error — render the
+  //     chrome with a skeleton header (this is the "direct URL navigation"
+  //     case; rarer, but should still feel snappy because IndexedDB
+  //     persistence makes the second snapshot near-instant).
+
   return (
     <>
       <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen}>
@@ -306,19 +317,29 @@ export default function ListDetailPage() {
                 </div>
               </div>
 
-              {/* New List Header with avatar bar */}
-              {effectiveOwnerId && listData && (
+              {/* List header — renders against effectiveListData so the seed
+                  paints it synchronously. When effectiveOwnerId isn't known
+                  yet (direct URL nav, no seed), a skeleton stands in. */}
+              {effectiveOwnerId && effectiveListData ? (
                 <ListHeader
                   listId={listId}
                   listOwnerId={effectiveOwnerId}
-                  listData={listData}
+                  listData={effectiveListData}
                   isOwner={isOwner}
                   isCollaborator={isCollaborator}
                 />
+              ) : (
+                <div className="space-y-3" aria-label="Loading list header">
+                  <div className="h-8 w-2/3 rounded bg-muted animate-pulse" />
+                  <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
+                </div>
               )}
             </header>
 
-            {/* Movie list - full width now */}
+            {/* Movie list — `MovieList` shows its own skeleton when isLoading
+                is true. With Firestore IndexedDB persistence, the first
+                snapshot usually lands in <50ms on re-mount, so the skeleton
+                is barely a flash. */}
             <div className="w-full">
               <MovieList
                 initialMovies={movies || []}
@@ -352,7 +373,7 @@ export default function ListDetailPage() {
           onClose={() => setIsAddMovieOpen(false)}
           listId={listId}
           listOwnerId={effectiveOwnerId}
-          listName={listData?.name}
+          listName={effectiveListData?.name}
         />
       )}
     </>

@@ -21,6 +21,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { ProfileListCard } from '@/components/profile-list-card';
+import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio, getListsPreviews, getListPreview } from '@/app/actions';
@@ -505,6 +506,7 @@ export default function MyProfilePage() {
                   <div className="grid grid-cols-2 gap-4">
                     {lists.map((list) => {
                       const preview = listPreviews[list.id];
+                      const augmented = { ...list, movieCount: preview?.movieCount ?? list.movieCount ?? 0 };
                       return (
                         <ProfileListCard
                           key={list.id}
@@ -515,7 +517,11 @@ export default function MyProfilePage() {
                           coverMode={list.coverMode}
                           previewPosters={preview?.previewPosters ?? []}
                           updatedLabel={shortDate(list.updatedAt) ? `updated ${shortDate(list.updatedAt)}` : undefined}
-                          onClick={() => router.push(`/lists/${list.id}`)}
+                          onClick={() => {
+                            // Seed the detail page for instant render.
+                            rememberListSeed({ list: augmented, previewPosters: preview?.previewPosters });
+                            router.push(`/lists/${list.id}`);
+                          }}
                         >
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
@@ -605,6 +611,7 @@ export default function MyProfilePage() {
                     <div className="grid grid-cols-2 gap-4">
                       {collaborativeLists.map((collab) => {
                         const preview = collabListPreviews[collab.id];
+                        const augmented = { ...collab, movieCount: preview?.movieCount ?? 0 };
                         return (
                           <ProfileListCard
                             key={collab.id}
@@ -613,7 +620,10 @@ export default function MyProfilePage() {
                             ownerName={collab.ownerUsername || undefined}
                             movieCount={preview?.movieCount ?? 0}
                             previewPosters={preview?.previewPosters ?? []}
-                            onClick={() => router.push(`/lists/${collab.id}?owner=${collab.ownerId}`)}
+                            onClick={() => {
+                              rememberListSeed({ list: augmented, previewPosters: preview?.previewPosters });
+                              router.push(`/lists/${collab.id}?owner=${collab.ownerId}`);
+                            }}
                           />
                         );
                       })}

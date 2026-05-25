@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
 import { useCachedAction } from '@/lib/use-cached-action';
+import { rememberListSeed } from '@/lib/list-detail-seed';
 
 // Preview data for list cards
 type ListPreview = {
@@ -173,13 +174,32 @@ export default function ListsPage() {
     [router],
   );
 
-  const handleCardClick = useCallback((listId: string, e: React.MouseEvent, ownerId?: string) => {
-    if (ownerId) {
-      router.push(`/lists/${listId}?owner=${ownerId}`);
-    } else {
-      router.push(`/lists/${listId}`);
-    }
-  }, [router]);
+  const handleCardClick = useCallback(
+    (
+      listId: string,
+      e: React.MouseEvent,
+      ownerId?: string,
+      list?: MovieList | CollaborativeList,
+      previewPosters?: string[],
+    ) => {
+      // Seed the detail page with what we already know — name, cover, count,
+      // collaborator IDs, preview posters. The destination page paints its
+      // header + chrome synchronously from the seed; the real fetch resolves
+      // in parallel. See [[list-detail-seed]].
+      if (list) {
+        rememberListSeed({
+          list,
+          previewPosters: previewPosters ?? [],
+        });
+      }
+      if (ownerId) {
+        router.push(`/lists/${listId}?owner=${ownerId}`);
+      } else {
+        router.push(`/lists/${listId}`);
+      }
+    },
+    [router],
+  );
 
   // Pull-to-refresh handler — invalidate the SWR cache and refetch via the
   // hook so listeners see the fresh data.
@@ -252,12 +272,13 @@ export default function ListsPage() {
             <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {lists.map((list) => {
                 const preview = listPreviews[list.id];
+                const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
                 return (
                   <ListCard
                     key={list.id}
-                    list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                    list={augmented}
                     previewPosters={preview?.previewPosters ?? []}
-                    onClick={(e) => handleCardClick(list.id, e)}
+                    onClick={(e) => handleCardClick(list.id, e, undefined, augmented, preview?.previewPosters)}
                   />
                 );
               })}
@@ -296,12 +317,13 @@ export default function ListsPage() {
                 <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                   {collaborativeLists.map((list) => {
                     const preview = collabListPreviews[list.id];
+                    const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
                     return (
                       <ListCard
                         key={`collab-${list.id}`}
-                        list={{ ...list, movieCount: preview?.movieCount ?? 0 }}
+                        list={augmented}
                         previewPosters={preview?.previewPosters ?? []}
-                        onClick={(e) => handleCardClick(list.id, e, list.ownerId)}
+                        onClick={(e) => handleCardClick(list.id, e, list.ownerId, augmented, preview?.previewPosters)}
                         isCollaborative={true}
                         ownerName={list.ownerDisplayName || list.ownerUsername || 'Unknown'}
                       />
