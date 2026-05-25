@@ -17,6 +17,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
+import { useCachedAction } from '@/lib/use-cached-action';
 
 // Preview data for list cards
 type ListPreview = {
@@ -39,10 +40,20 @@ export default function ListsPage() {
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isInitializing, setIsInitializing] = useState(true);
-  const [collaborativeLists, setCollaborativeLists] = useState<CollaborativeList[]>([]);
-  const [isLoadingCollaborative, setIsLoadingCollaborative] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
+
+  // Collaborative lists via SWR cache — first mount hits the network; every
+  // subsequent visit in the session paints the prior result synchronously
+  // and refreshes in the background. See [[use-cached-action]].
+  const collabKey = user ? `collab-lists:${user.uid}` : null;
+  const collabResult = useCachedAction<CollaborativeList[]>(collabKey, async () => {
+    if (!user) return [];
+    const result = await getCollaborativeLists(user.uid);
+    return (result.lists ?? []) as CollaborativeList[];
+  });
+  const collaborativeLists = collabResult.data ?? [];
+  const isLoadingCollaborative = collabResult.isLoading;
 
   // Query for user's lists
   const listsQuery = useMemoFirebase(() => {
@@ -93,27 +104,6 @@ export default function ListsPage() {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
-
-  // Fetch collaborative lists
-  useEffect(() => {
-    async function fetchCollaborativeLists() {
-      if (!user || isUserLoading) return;
-
-      setIsLoadingCollaborative(true);
-      try {
-        const result = await getCollaborativeLists(user.uid);
-        if (result.lists) {
-          setCollaborativeLists(result.lists as CollaborativeList[]);
-        }
-      } catch (error) {
-        console.error('Failed to fetch collaborative lists:', error);
-      } finally {
-        setIsLoadingCollaborative(false);
-      }
-    }
-
-    fetchCollaborativeLists();
-  }, [user, isUserLoading]);
 
   // Fetch list previews (posters and counts) when lists change
   useEffect(() => {
@@ -176,16 +166,13 @@ export default function ListsPage() {
     }
   }, [router]);
 
-  // Pull-to-refresh handler
+  // Pull-to-refresh handler — invalidate the SWR cache and refetch via the
+  // hook so listeners see the fresh data.
   const handleRefresh = useCallback(async () => {
     if (!user) return;
 
     try {
-      // Refresh collaborative lists
-      const collabResult = await getCollaborativeLists(user.uid);
-      if (collabResult.lists) {
-        setCollaborativeLists(collabResult.lists as CollaborativeList[]);
-      }
+      collabResult.refetch();
 
       // Refresh own list previews
       if (lists && lists.length > 0) {
@@ -198,7 +185,7 @@ export default function ListsPage() {
     } catch (error) {
       console.error('Failed to refresh lists:', error);
     }
-  }, [user, lists]);
+  }, [user, lists, collabResult.refetch]);
 
   if (isUserLoading || !user || isInitializing) {
     return (
