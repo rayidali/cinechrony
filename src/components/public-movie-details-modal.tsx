@@ -32,9 +32,10 @@ import {
   getCachedDetails,
   getMovieOrTVDetails,
 } from '@/lib/tmdb-details-cache';
+import { rememberMovieForReturn } from '@/contexts/movie-modal-context';
 
 const GLASS_BTN =
-  'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
+  'w-11 h-11 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -127,8 +128,22 @@ export function PublicMovieDetailsModal({
     if (listId) params.set('returnListId', listId);
     if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
     if (movie.id) params.set('returnMovieId', movie.id);
+
+    // Persist the currently-displayed movie (which may be the "more like
+    // this" override, not the prop) so the round-trip via /comments can
+    // recall the right object on return. Without this, swapping films and
+    // then tapping "see all reviews" would land back on the original film
+    // (or nothing at all, if the override id never made it into storage).
+    rememberMovieForReturn(movie);
+
     onClose();
-    router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    // Defer the navigation until Vaul has had a frame to commit the close
+    // and run its body-style restore. Otherwise the route changes while the
+    // drawer is mid-close, the cleanup races with unmount, and on return
+    // body can be left scroll-locked — see [[body-style-watchdog]].
+    setTimeout(() => {
+      router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    }, 220);
   };
 
   // Load details via the module-level cache. See movie-details-modal.tsx
@@ -152,8 +167,16 @@ export function PublicMovieDetailsModal({
     }
     if (!tmdbIdLocal || isNaN(tmdbIdLocal)) return;
 
+    // Paranoia: treat a cached payload missing the essential `overview` field
+    // as a stale/partial cache (an aborted fetch in iOS PWA can land a
+    // structurally-incomplete record). Force a refetch — getMovieOrTVDetails
+    // will re-warm the cache on success.
     const cached = getCachedDetails(targetMediaType, tmdbIdLocal);
-    if (cached) {
+    const cachedIsUsable =
+      cached &&
+      typeof cached.overview === 'string' &&
+      cached.overview.length > 0;
+    if (cachedIsUsable) {
       setMediaDetails(cached);
       setMediaDetailsForId(targetMovie.id);
       return;
@@ -161,10 +184,13 @@ export function PublicMovieDetailsModal({
 
     const myCallId = ++loadDetailsCallRef.current;
     (async () => {
+      // If we have a non-empty (but suspect) cached payload, keep it on
+      // screen as a placeholder while we refetch — avoids a flash to empty.
+      if (cached) setMediaDetails(cached);
       setIsLoadingDetails(true);
       const details = await getMovieOrTVDetails(targetMediaType, tmdbIdLocal);
       if (loadDetailsCallRef.current !== myCallId) return;
-      setMediaDetails(details);
+      if (details) setMediaDetails(details);
       setMediaDetailsForId(targetMovie.id);
       setIsLoadingDetails(false);
     })();
@@ -227,7 +253,7 @@ export function PublicMovieDetailsModal({
           {/* Glassy floating back control */}
           <div className="absolute top-3 left-3 z-30">
             <button onClick={onClose} className={GLASS_BTN} aria-label="Back">
-              <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+              <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
             </button>
           </div>
 
@@ -318,12 +344,21 @@ export function PublicMovieDetailsModal({
 
               <div className="h-px bg-border my-4" />
 
-              {/* Description */}
+              {/* Description — never silently null. While loading we show a
+                  skeleton block; after load, if the payload genuinely has no
+                  overview we say so. The old `null` branch was producing a
+                  big empty cream gap on slow / aborted fetches. */}
               {overview ? (
                 <p className="font-serif text-[15px] leading-relaxed text-foreground">{overview}</p>
-              ) : !isLoadingDetails ? (
+              ) : isLoadingDetails ? (
+                <div className="space-y-2" aria-label="Loading overview">
+                  <div className="h-3.5 w-full rounded bg-muted animate-pulse" />
+                  <div className="h-3.5 w-[92%] rounded bg-muted animate-pulse" />
+                  <div className="h-3.5 w-[78%] rounded bg-muted animate-pulse" />
+                </div>
+              ) : (
                 <p className="font-serif italic text-sm text-muted-foreground">no overview available</p>
-              ) : null}
+              )}
 
               {/* Cast */}
               {cast.length > 0 && (
@@ -367,6 +402,9 @@ export function PublicMovieDetailsModal({
                   mediaType={movie.mediaType === 'tv' ? 'tv' : 'movie'}
                   onPick={(picked) => {
                     setOverride(picked);
+                    // Persist immediately so a subsequent "see all reviews"
+                    // round-trip can recall the swapped-in film by id.
+                    rememberMovieForReturn(picked);
                     scrollRef.current?.scrollTo({ top: 0 });
                   }}
                 />

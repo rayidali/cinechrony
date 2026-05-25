@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { Loader2, X, ChevronDown, ChevronUp, ChevronLeft, ArrowUp, EyeOff, MoreHorizontal } from 'lucide-react';
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { SwipeBackContainer } from '@/components/swipe-back-container';
 import { useUser, useFirestore } from '@/firebase';
 import { getMovieReviews, createReview, updateReview, getReviewReplies } from '@/app/actions';
 import { doc, getDoc } from 'firebase/firestore';
@@ -388,16 +389,23 @@ function CommentsPageContent() {
   const threadCount = reviews.filter((r) => (r.replyCount || 0) > 0).length;
 
   return (
-    <div className="fixed inset-0 bg-background flex flex-col">
+    <SwipeBackContainer
+      onBack={handleBack}
+      // Disable the gesture while the iOS keyboard is up — the textarea sits
+      // near the bottom-left and we don't want to fight thumb scrolling /
+      // selection while the user is composing.
+      disabled={keyboardHeight > 0}
+      className="bg-background flex flex-col"
+    >
       {/* Slim Instagram-style header — back · centered "reviews · N" · ⋯ */}
       <header className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
-        <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="flex items-center gap-1 px-2 py-1.5">
           <button
             onClick={handleBack}
-            className="h-8 w-8 rounded-full flex items-center justify-center hover:bg-secondary transition-colors"
+            className="h-11 w-11 -ml-1 rounded-full flex items-center justify-center text-foreground/85 hover:bg-secondary active:bg-secondary active:scale-95 transition-all"
             aria-label="Back"
           >
-            <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+            <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
           </button>
           <h1 className="flex-1 text-center font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">
             reviews
@@ -406,10 +414,10 @@ function CommentsPageContent() {
             </span>
           </h1>
           <button
-            className="h-8 w-8 rounded-full flex items-center justify-center text-foreground/70 hover:bg-secondary transition-colors"
+            className="h-11 w-11 -mr-1 rounded-full flex items-center justify-center text-foreground/70 hover:bg-secondary active:bg-secondary active:scale-95 transition-all"
             aria-label="More"
           >
-            <MoreHorizontal className="h-5 w-5" strokeWidth={1.8} />
+            <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={2} />
           </button>
         </div>
       </header>
@@ -459,19 +467,31 @@ function CommentsPageContent() {
           </div>
         ) : (
           <>
-            {/* Sort line — film-red underline on the active option */}
-            <div className="flex items-baseline justify-between py-3">
+            {/* Sort line — film-red underline on the active option. The
+                buttons are wrapped in a min-32px hit area (negative margin
+                preserves the prior visual rhythm). */}
+            <div className="flex items-center justify-between py-2">
               <span className="cc-eyebrow">sort</span>
-              <div className="flex gap-3 cc-meta text-[10px]">
+              <div className="flex gap-2 cc-meta text-[10px] -my-2">
                 <button
                   onClick={() => setSortBy('likes')}
-                  className={sortBy === 'likes' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
+                  className={cn(
+                    'h-9 px-2 inline-flex items-center transition-colors active:scale-95',
+                    sortBy === 'likes'
+                      ? 'text-foreground border-b border-primary'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
                 >
                   most liked
                 </button>
                 <button
                   onClick={() => setSortBy('recent')}
-                  className={sortBy === 'recent' ? 'text-foreground border-b border-primary pb-0.5' : 'text-muted-foreground hover:text-foreground'}
+                  className={cn(
+                    'h-9 px-2 inline-flex items-center transition-colors active:scale-95',
+                    sortBy === 'recent'
+                      ? 'text-foreground border-b border-primary'
+                      : 'text-muted-foreground hover:text-foreground',
+                  )}
                 >
                   most recent
                 </button>
@@ -651,31 +671,33 @@ function CommentsPageContent() {
                 }}
               />
 
-              {/* Spoiler toggle — author can hide the body behind a shield */}
+              {/* Spoiler toggle — author can hide the body behind a shield.
+                  Sized as a real tap target (40px) instead of the prior 36px;
+                  the textarea grows from h-11 to accommodate. */}
               <button
                 onClick={() => setCommentHasSpoiler((v) => !v)}
                 aria-label={commentHasSpoiler ? 'Unmark as spoiler' : 'Mark as spoiler'}
                 title={commentHasSpoiler ? 'spoiler — viewers must tap to reveal' : 'mark as spoiler'}
                 className={cn(
-                  'absolute right-[46px] bottom-1.5 h-9 w-9 rounded-full flex items-center justify-center transition-colors',
+                  'absolute right-[48px] bottom-1 h-10 w-10 rounded-full flex items-center justify-center transition-colors active:scale-95',
                   commentHasSpoiler
                     ? 'text-primary'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <EyeOff className="h-4 w-4" strokeWidth={1.8} />
+                <EyeOff className="h-[18px] w-[18px]" strokeWidth={1.8} />
               </button>
 
               <button
                 onClick={handleSubmitComment}
                 disabled={!commentText.trim() || isSubmitting}
-                className="absolute right-1.5 bottom-1.5 h-9 w-9 rounded-full bg-primary text-white shadow-fab flex items-center justify-center disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none active:scale-90"
+                className="absolute right-1 bottom-1 h-10 w-10 rounded-full bg-primary text-white shadow-fab flex items-center justify-center disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none active:scale-90 transition-all"
                 aria-label="Post comment"
               >
                 {isSubmitting ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
                 ) : (
-                  <ArrowUp className="h-4 w-4" strokeWidth={2.2} />
+                  <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.4} />
                 )}
               </button>
             </div>
@@ -694,7 +716,7 @@ function CommentsPageContent() {
           </Link>
         </div>
       )}
-    </div>
+    </SwipeBackContainer>
   );
 }
 

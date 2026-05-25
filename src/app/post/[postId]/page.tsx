@@ -142,9 +142,9 @@ export default function PostPage() {
           <button
             onClick={() => router.back()}
             aria-label="Back"
-            className="h-9 w-9 -ml-1.5 rounded-full flex items-center justify-center hover:bg-muted"
+            className="h-11 w-11 -ml-2 rounded-full flex items-center justify-center text-foreground/85 hover:bg-muted active:bg-muted active:scale-95 transition-all"
           >
-            <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+            <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
           </button>
           <h1 className="font-headline font-bold text-lg lowercase tracking-tight">post</h1>
         </div>
@@ -207,8 +207,12 @@ export default function PostPage() {
           {replyTo && (
             <div className="flex items-center justify-between mb-1.5 cc-meta text-[11px] text-muted-foreground">
               <span>replying to @{replyTo.username || 'user'}</span>
-              <button onClick={() => setReplyTo(null)} aria-label="Cancel reply">
-                <X className="h-3.5 w-3.5" strokeWidth={1.8} />
+              <button
+                onClick={() => setReplyTo(null)}
+                aria-label="Cancel reply"
+                className="h-8 w-8 -my-2 -mr-2 rounded-full flex items-center justify-center hover:bg-muted active:bg-muted active:scale-95 transition-all"
+              >
+                <X className="h-[18px] w-[18px]" strokeWidth={1.8} />
               </button>
             </div>
           )}

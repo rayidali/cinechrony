@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect, ReactNode } from 'react';
+import { useState, useRef, useEffect, type ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -8,125 +8,161 @@ type PullToRefreshProps = {
   onRefresh: () => Promise<void>;
   children: ReactNode;
   className?: string;
-  /** Disable pull-to-refresh (e.g., when a modal is open) */
+  /** Disable pull-to-refresh (e.g., when a modal is open). */
   disabled?: boolean;
 };
 
 const PULL_THRESHOLD = 70; // pixels to pull before triggering refresh
 const MAX_PULL = 130; // maximum pull distance
 const DIRECTION_LOCK_THRESHOLD = 10; // pixels to determine scroll direction
+const RESISTANCE = 0.4; // exponential drag — feels more natural than linear
 
+/**
+ * Pull-to-refresh container.
+ *
+ * Listeners are bound ONCE on mount via stable refs for prop / state values.
+ * The previous implementation included `pullDistance` in the effect's deps,
+ * which detached and re-attached the listeners on every touchmove frame —
+ * burning CPU and risking stale handlers mid-gesture. Now only the render
+ * state mutates via setState; gesture math reads/writes refs.
+ *
+ * The content wrapper only attaches a `transform` while actually pulling or
+ * refreshing. A non-zero transform on a wrapper creates a CSS containing
+ * block, which breaks `position: sticky` and `position: fixed` for
+ * descendants — see `body-style-watchdog.tsx` for the round-trip that bit us.
+ */
 export function PullToRefresh({
   onRefresh,
   children,
   className,
   disabled = false,
 }: PullToRefreshProps) {
+  // Render state.
   const [pullDistance, setPullDistance] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isActivelyPulling, setIsActivelyPulling] = useState(false);
 
+  // Refs that mirror props/state for the listeners (so the effect doesn't
+  // re-bind on every change).
   const containerRef = useRef<HTMLDivElement>(null);
-  const startY = useRef(0);
-  const startX = useRef(0);
-  const isPulling = useRef(false);
-  const isDirectionLocked = useRef(false);
-  const isVerticalScroll = useRef(false);
+  const disabledRef = useRef(disabled);
+  const onRefreshRef = useRef(onRefresh);
+  const isRefreshingRef = useRef(false);
+  const pullDistanceRef = useRef(0);
 
-  // Check if we're at the top of the page
-  const isAtTop = useCallback(() => {
-    // Check both window scroll and any scrollable parent
-    if (window.scrollY > 0) return false;
+  useEffect(() => {
+    disabledRef.current = disabled;
+  }, [disabled]);
+  useEffect(() => {
+    onRefreshRef.current = onRefresh;
+  }, [onRefresh]);
+  useEffect(() => {
+    isRefreshingRef.current = isRefreshing;
+  }, [isRefreshing]);
 
-    // Also check if any parent is scrolled
-    let element = containerRef.current?.parentElement;
-    while (element) {
-      if (element.scrollTop > 0) return false;
-      element = element.parentElement;
-    }
-
-    return true;
-  }, []);
-
-  // Use native event listeners for non-passive touch handling
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
 
-    const handleTouchStart = (e: TouchEvent) => {
-      if (disabled || isRefreshing || !isAtTop()) return;
+    // Per-gesture scratch — local to the listeners.
+    let startY = 0;
+    let startX = 0;
+    let isPulling = false;
+    let directionLocked = false;
+    let verticalScroll = false;
 
+    const isAtTop = () => {
+      if (window.scrollY > 0) return false;
+      let element = container.parentElement;
+      while (element) {
+        if (element.scrollTop > 0) return false;
+        element = element.parentElement;
+      }
+      return true;
+    };
+
+    const handleTouchStart = (e: TouchEvent) => {
+      if (disabledRef.current || isRefreshingRef.current || !isAtTop()) return;
       const touch = e.touches[0];
-      startY.current = touch.clientY;
-      startX.current = touch.clientX;
-      isPulling.current = true;
-      isDirectionLocked.current = false;
-      isVerticalScroll.current = false;
+      if (!touch) return;
+      startY = touch.clientY;
+      startX = touch.clientX;
+      isPulling = true;
+      directionLocked = false;
+      verticalScroll = false;
     };
 
     const handleTouchMove = (e: TouchEvent) => {
-      if (!isPulling.current || isRefreshing || disabled) return;
+      if (!isPulling || isRefreshingRef.current || disabledRef.current) return;
 
       const touch = e.touches[0];
-      const deltaY = touch.clientY - startY.current;
-      const deltaX = touch.clientX - startX.current;
+      if (!touch) return;
+      const deltaY = touch.clientY - startY;
+      const deltaX = touch.clientX - startX;
 
-      // Lock direction after moving past threshold
-      if (!isDirectionLocked.current && (Math.abs(deltaY) > DIRECTION_LOCK_THRESHOLD || Math.abs(deltaX) > DIRECTION_LOCK_THRESHOLD)) {
-        isDirectionLocked.current = true;
-        // Determine if this is primarily a vertical scroll
-        isVerticalScroll.current = Math.abs(deltaY) > Math.abs(deltaX);
+      // Lock direction once the user has clearly committed to one axis.
+      if (
+        !directionLocked &&
+        (Math.abs(deltaY) > DIRECTION_LOCK_THRESHOLD ||
+          Math.abs(deltaX) > DIRECTION_LOCK_THRESHOLD)
+      ) {
+        directionLocked = true;
+        verticalScroll = Math.abs(deltaY) > Math.abs(deltaX);
       }
 
-      // Only handle vertical pulls downward
-      if (!isDirectionLocked.current || !isVerticalScroll.current || deltaY <= 0) {
-        return;
-      }
+      if (!directionLocked || !verticalScroll || deltaY <= 0) return;
 
-      // Double-check we're at the top (handles edge cases)
+      // If the user scrolled out of the top while pulling, abort.
       if (!isAtTop()) {
-        isPulling.current = false;
+        isPulling = false;
+        pullDistanceRef.current = 0;
         setPullDistance(0);
+        setIsActivelyPulling(false);
         return;
       }
 
-      // Prevent default scroll behavior when pulling
-      e.preventDefault();
+      if (e.cancelable) e.preventDefault();
 
-      // Apply exponential resistance - feels more natural
-      const resistance = 0.4;
-      const pullAmount = Math.min(deltaY * resistance, MAX_PULL);
+      const pullAmount = Math.min(deltaY * RESISTANCE, MAX_PULL);
+      pullDistanceRef.current = pullAmount;
       setPullDistance(pullAmount);
+      setIsActivelyPulling(true);
     };
 
     const handleTouchEnd = async () => {
-      if (!isPulling.current) return;
+      if (!isPulling) return;
+      isPulling = false;
+      directionLocked = false;
+      setIsActivelyPulling(false);
 
-      isPulling.current = false;
-      isDirectionLocked.current = false;
+      const currentPull = pullDistanceRef.current;
 
-      const currentPull = pullDistance;
-
-      if (currentPull >= PULL_THRESHOLD && !isRefreshing) {
+      if (currentPull >= PULL_THRESHOLD && !isRefreshingRef.current) {
         setIsRefreshing(true);
-        setPullDistance(50); // Keep indicator visible while refreshing
+        pullDistanceRef.current = 50;
+        setPullDistance(50);
 
-        // Haptic feedback if available
         if ('vibrate' in navigator) {
-          navigator.vibrate(10);
+          try {
+            navigator.vibrate(10);
+          } catch {
+            /* some browsers throw on noisy use — ignore */
+          }
         }
 
         try {
-          await onRefresh();
+          await onRefreshRef.current();
         } finally {
           setIsRefreshing(false);
+          pullDistanceRef.current = 0;
           setPullDistance(0);
         }
       } else {
+        pullDistanceRef.current = 0;
         setPullDistance(0);
       }
     };
 
-    // Add event listeners with { passive: false } to allow preventDefault
     container.addEventListener('touchstart', handleTouchStart, { passive: true });
     container.addEventListener('touchmove', handleTouchMove, { passive: false });
     container.addEventListener('touchend', handleTouchEnd, { passive: true });
@@ -138,7 +174,8 @@ export function PullToRefresh({
       container.removeEventListener('touchend', handleTouchEnd);
       container.removeEventListener('touchcancel', handleTouchEnd);
     };
-  }, [isRefreshing, disabled, onRefresh, pullDistance, isAtTop]);
+    // Bind once — refs above feed the latest values into the closure.
+  }, []);
 
   const progress = Math.min(pullDistance / PULL_THRESHOLD, 1);
   const shouldTrigger = pullDistance >= PULL_THRESHOLD;
@@ -148,7 +185,7 @@ export function PullToRefresh({
       ref={containerRef}
       className={cn('relative', className)}
       style={{
-        // Prevent browser's native pull-to-refresh
+        // Prevent browser's native pull-to-refresh from layering on top.
         overscrollBehaviorY: 'contain',
       }}
     >
@@ -158,60 +195,72 @@ export function PullToRefresh({
         style={{
           top: 0,
           height: pullDistance,
-          transition: isPulling.current ? 'none' : 'height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+          transition: isActivelyPulling
+            ? 'none'
+            : 'height 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         {(pullDistance > 0 || isRefreshing) && (
           <div className="flex flex-col items-center gap-1">
-            {/* Spinner / Progress indicator */}
             <div
               className={cn(
                 'rounded-full p-2 transition-all duration-200',
                 shouldTrigger || isRefreshing
                   ? 'bg-primary text-primary-foreground'
-                  : 'bg-secondary text-muted-foreground'
+                  : 'bg-secondary text-muted-foreground',
               )}
-              style={{
-                transform: `scale(${0.7 + progress * 0.3})`,
-              }}
+              style={{ transform: `scale(${0.7 + progress * 0.3})` }}
             >
               <Loader2
-                className={cn(
-                  'h-5 w-5',
-                  isRefreshing && 'animate-spin'
-                )}
+                className={cn('h-5 w-5', isRefreshing && 'animate-spin')}
                 style={{
-                  transform: !isRefreshing ? `rotate(${progress * 360}deg)` : undefined,
-                  transition: isPulling.current ? 'none' : 'transform 0.2s ease-out',
+                  transform: !isRefreshing
+                    ? `rotate(${progress * 360}deg)`
+                    : undefined,
+                  transition: isActivelyPulling
+                    ? 'none'
+                    : 'transform 0.2s ease-out',
                 }}
               />
             </div>
 
-            {/* Status text */}
             <span
               className={cn(
                 'text-xs font-medium transition-opacity duration-200',
                 pullDistance > 30 ? 'opacity-100' : 'opacity-0',
-                shouldTrigger || isRefreshing ? 'text-primary' : 'text-muted-foreground'
+                shouldTrigger || isRefreshing
+                  ? 'text-primary'
+                  : 'text-muted-foreground',
               )}
             >
               {isRefreshing
                 ? 'Refreshing...'
                 : shouldTrigger
                   ? 'Release to refresh'
-                  : 'Pull to refresh'
-              }
+                  : 'Pull to refresh'}
             </span>
           </div>
         )}
       </div>
 
-      {/* Content with transform */}
+      {/*
+        Content shell.
+
+        Only attach a `transform` while pulling or refreshing — a non-zero
+        transform on this wrapper creates a CSS containing block, breaking
+        `position: sticky` and `position: fixed` for every descendant.
+      */}
       <div
-        style={{
-          transform: `translateY(${pullDistance}px)`,
-          transition: isPulling.current ? 'none' : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}
+        style={
+          pullDistance > 0 || isRefreshing
+            ? {
+                transform: `translateY(${pullDistance}px)`,
+                transition: isActivelyPulling
+                  ? 'none'
+                  : 'transform 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+              }
+            : undefined
+        }
       >
         {children}
       </div>

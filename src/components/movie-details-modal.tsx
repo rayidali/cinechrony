@@ -58,7 +58,7 @@ import { PublicMovieDetailsModal } from './public-movie-details-modal';
 
 // Glassy floating control — backdrop blur over a translucent dark square.
 const GLASS_BTN =
-  'w-9 h-9 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
+  'w-11 h-11 rounded-xl bg-black/35 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
 
 function getProviderIcon(url: string | undefined) {
   const parsed = parseVideoUrl(url);
@@ -490,7 +490,12 @@ export function MovieDetailsModal({
     if (listOwnerId) params.set('returnListOwnerId', listOwnerId);
     if (movie.id) params.set('returnMovieId', movie.id);
     onClose(); // Close the drawer first
-    router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    // Defer the navigation a frame so Vaul commits its close + body-style
+    // restore before we route — otherwise the cleanup races with unmount
+    // and body can be left scroll-locked on return. See [[body-style-watchdog]].
+    setTimeout(() => {
+      router.push(`/movie/${tmdbId}/comments?${params.toString()}`);
+    }, 220);
   };
 
   // Use addedByInfo computed above for display
@@ -535,13 +540,13 @@ export function MovieDetailsModal({
             {/* Glassy floating controls — stay fixed over the hero while scrolling */}
             <div className="absolute top-3 left-3 right-3 z-30 flex items-start justify-between">
               <button onClick={onClose} className={GLASS_BTN} aria-label="Back">
-                <ChevronLeft className="h-[18px] w-[18px]" strokeWidth={2} />
+                <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
               </button>
               {canEdit && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button className={GLASS_BTN} aria-label="More options">
-                      <MoreHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+                      <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={2} />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="border border-border rounded-xl">

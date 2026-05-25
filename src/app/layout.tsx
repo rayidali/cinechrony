@@ -10,6 +10,7 @@ import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 import { UserBookmarksCacheProvider } from '@/contexts/user-bookmarks-cache';
 import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
 import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
+import { BodyStyleWatchdog } from '@/components/body-style-watchdog';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -79,6 +80,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${bricolage.variable} ${newsreader.variable} ${spaceMono.variable} font-sans antialiased`}>
         <ThemeProvider>
+          <BodyStyleWatchdog />
           <FirebaseClientProvider>
             <ListMembersCacheProvider>
               <UserRatingsCacheProvider>

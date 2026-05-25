@@ -199,29 +199,31 @@ export const ActivityCard = memo(function ActivityCard({
         </div>
       </button>
 
-      {/* Footer — like + save on the left, reply on the right */}
-      <div className="flex items-center justify-between mt-3.5 pt-3 border-t border-border">
-        <div className="flex items-center gap-4">
+      {/* Footer — like + save on the left, reply on the right. Touch targets
+          sized for thumbs: 40×40 with negative outer margin to keep visual
+          spacing compact. Icons bumped to 18px for legibility. */}
+      <div className="flex items-center justify-between mt-2.5 pt-3 border-t border-border">
+        <div className="flex items-center gap-1 -my-1">
           <button
             onClick={handleLike}
             disabled={!currentUserId || isPending}
             className={cn(
-              'flex items-center gap-1.5 cc-meta text-[11px] transition-colors',
+              'flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full transition-colors active:scale-95',
               isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
               (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
             )}
             aria-label={isLiked ? 'Unlike' : 'Like'}
           >
-            <Heart className={cn('h-3.5 w-3.5', isLiked && 'fill-current')} strokeWidth={1.8} />
-            {likeCount > 0 && <span>{likeCount}</span>}
+            <Heart className={cn('h-[18px] w-[18px]', isLiked && 'fill-current')} strokeWidth={1.8} />
+            {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
           </button>
 
-          <BookmarkButton itemType="activity" itemId={activity.id} />
+          <BookmarkButton itemType="activity" itemId={activity.id} className="h-10 px-2 rounded-full" />
         </div>
 
         <button
           onClick={handleMovieClick}
-          className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+          className="cc-meta text-[12px] h-10 px-3 -mr-2 rounded-full text-muted-foreground hover:text-foreground transition-colors active:scale-95"
         >
           reply →
         </button>

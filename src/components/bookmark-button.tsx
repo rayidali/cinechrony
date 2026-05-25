@@ -53,13 +53,13 @@ export function BookmarkButton({ itemType, itemId, className }: BookmarkButtonPr
       aria-label={saved ? 'Remove from saved' : 'Save'}
       aria-pressed={saved}
       className={cn(
-        'flex items-center cc-meta text-[11px] transition-colors',
+        'flex items-center justify-center cc-meta text-[12px] transition-colors active:scale-95',
         saved ? 'text-success' : 'text-muted-foreground hover:text-foreground',
         !user && 'opacity-50 cursor-not-allowed',
         className,
       )}
     >
-      <Bookmark className={cn('h-3.5 w-3.5', saved && 'fill-current')} strokeWidth={1.8} />
+      <Bookmark className={cn('h-[18px] w-[18px]', saved && 'fill-current')} strokeWidth={1.8} />
     </button>
   );
 }

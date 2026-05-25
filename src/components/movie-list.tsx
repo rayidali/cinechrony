@@ -224,7 +224,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'grid' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('grid')}
-            className="h-8 w-8 p-0 rounded-full"
+            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
             title="Grid view"
           >
             <Grid3X3 className="h-4 w-4" />
@@ -233,7 +233,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'list' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('list')}
-            className="h-8 w-8 p-0 rounded-full"
+            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
             title="List view"
           >
             <List className="h-4 w-4" />
@@ -242,7 +242,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'cards' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('cards')}
-            className="h-8 w-8 p-0 rounded-full"
+            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
             title="Full cards view"
           >
             <LayoutGrid className="h-4 w-4" />
@@ -251,7 +251,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
             variant={viewMode === 'annotated' ? 'default' : 'ghost'}
             size="sm"
             onClick={() => handleViewModeChange('annotated')}
-            className="h-8 w-8 p-0 rounded-full"
+            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
             title="Annotated view"
           >
             <AlignLeft className="h-4 w-4" />
