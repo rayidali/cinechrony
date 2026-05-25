@@ -10,15 +10,18 @@ import { useEffect, useRef, useState, useCallback } from 'react';
  * next mount fires the fetch from scratch — the user sees a skeleton for
  * ~300-800ms even though the underlying data hasn't changed.
  *
- * This module keeps a process-lifetime cache keyed by a stable string. On
- * mount, `useCachedAction` returns the cached value SYNCHRONOUSLY (no
+ * Two layers of cache:
+ *   1. **Module-level Map** — survives component remounts and SPA route
+ *      changes within a single page load.
+ *   2. **localStorage** — for keys explicitly opted in via the
+ *      `persist: true` option. Survives a full app reload / closed-and-
+ *      reopened PWA, so cold opens paint the prior state synchronously
+ *      from disk before any network round-trip.
+ *
+ * On mount, `useCachedAction` returns the cached value SYNCHRONOUSLY (no
  * loading state) and kicks off a background refresh. When the refresh
  * lands, both the cache and the consuming component update with the new
- * value. First mount of a given key is the only one that shows loading;
- * every subsequent mount in the session is instant.
- *
- * Cache lifetime: module scope — survives component remounts and SPA
- * route changes, cleared on hard refresh.
+ * value.
  *
  * Companion: `prefetchCachedAction()` warms an entry from outside React
  * (e.g. from a `touchstart` handler on the bottom nav) so the destination
@@ -27,6 +30,93 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 const cache = new Map<string, unknown>();
 const inflight = new Map<string, Promise<unknown>>();
+const persistedKeys = new Set<string>();
+const LS_PREFIX = 'cc-cache:';
+
+function lsReadOnce<T>(key: string): T | undefined {
+  if (typeof window === 'undefined') return undefined;
+  try {
+    const raw = window.localStorage.getItem(LS_PREFIX + key);
+    if (!raw) return undefined;
+    return JSON.parse(raw) as T;
+  } catch {
+    return undefined;
+  }
+}
+
+function lsWrite<T>(key: string, value: T): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(LS_PREFIX + key, JSON.stringify(value));
+  } catch {
+    /* quota exceeded / Safari private mode — degrade silently */
+  }
+}
+
+function lsRemove(key: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(LS_PREFIX + key);
+  } catch {
+    /* noop */
+  }
+}
+
+/**
+ * Opt a cache key into localStorage persistence. Call once at module
+ * load — after that, every cache read for this key first checks
+ * localStorage on a cold module, every cache write also writes to
+ * localStorage. Call before any consumers mount.
+ *
+ * Caveats: values must be JSON-serializable. Firestore `Timestamp`s
+ * survive JSON round-trip only as plain objects — re-hydrate if you need
+ * Date semantics on the consuming side, or accept that timestamps are
+ * read-only strings post-persist.
+ */
+export function registerPersistedCache(key: string): void {
+  persistedKeys.add(key);
+  // On first registration, eagerly hydrate the in-memory cache from
+  // localStorage so the very first synchronous read sees it.
+  if (!cache.has(key)) {
+    const stored = lsReadOnce(key);
+    if (stored !== undefined) cache.set(key, stored);
+  }
+}
+
+/**
+ * Persist matching keys by prefix — useful for user-scoped caches whose
+ * exact key isn't known until login (`home-feed:${uid}`). Call once at
+ * module load with a stable prefix; the prefix match is checked at every
+ * write.
+ */
+const persistedPrefixes = new Set<string>();
+export function registerPersistedPrefix(prefix: string): void {
+  persistedPrefixes.add(prefix);
+  if (typeof window === 'undefined') return;
+  // Hydrate any matching keys already in localStorage into the in-memory
+  // cache on first registration.
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const k = window.localStorage.key(i);
+      if (!k || !k.startsWith(LS_PREFIX)) continue;
+      const cacheKey = k.slice(LS_PREFIX.length);
+      if (cacheKey.startsWith(prefix) && !cache.has(cacheKey)) {
+        const stored = lsReadOnce(cacheKey);
+        if (stored !== undefined) cache.set(cacheKey, stored);
+      }
+    }
+  } catch {
+    /* localStorage iteration can throw in some private modes */
+  }
+}
+
+function shouldPersist(key: string): boolean {
+  if (persistedKeys.has(key)) return true;
+  for (const prefix of persistedPrefixes) {
+    if (key.startsWith(prefix)) return true;
+  }
+  return false;
+}
 
 type ActionResult<T> = {
   /** Latest known value — synchronous on cache hit, null on cold first load. */
@@ -53,8 +143,10 @@ export function readCachedAction<T>(key: string): T | undefined {
 export function setCachedAction<T>(key: string, value: T | undefined): void {
   if (value === undefined) {
     cache.delete(key);
+    if (shouldPersist(key)) lsRemove(key);
   } else {
     cache.set(key, value);
+    if (shouldPersist(key)) lsWrite(key, value);
   }
 }
 
@@ -64,6 +156,21 @@ export function setCachedAction<T>(key: string, value: T | undefined): void {
 export function invalidateCachedAction(key: string): void {
   cache.delete(key);
   inflight.delete(key);
+  if (shouldPersist(key)) lsRemove(key);
+}
+
+/**
+ * Drop every cache entry whose key starts with `prefix`. Use for bulk
+ * invalidation (e.g. "every cache that belongs to this user").
+ */
+export function invalidateCachedActionsByPrefix(prefix: string): void {
+  for (const key of Array.from(cache.keys())) {
+    if (key.startsWith(prefix)) {
+      cache.delete(key);
+      inflight.delete(key);
+      if (shouldPersist(key)) lsRemove(key);
+    }
+  }
 }
 
 /**
@@ -89,6 +196,7 @@ export function prefetchCachedAction<T>(
     try {
       const result = await fetcher();
       cache.set(key, result);
+      if (shouldPersist(key)) lsWrite(key, result);
       return result;
     } finally {
       inflight.delete(key);
@@ -161,13 +269,11 @@ export function useCachedAction<T>(
       .then((result) => {
         if (cancelled) return;
         cache.set(key, result);
+        if (shouldPersist(key)) lsWrite(key, result);
         setData(result);
       })
       .catch(() => {
-        // Swallow — leave whatever data we already had on screen. The
-        // consuming component can surface a toast via its own error layer
-        // (or check `data === null && !isLoading` to detect a cold miss
-        // that failed).
+        // Swallow — leave whatever data we already had on screen.
       })
       .finally(() => {
         if (cancelled) return;
@@ -195,6 +301,7 @@ export function useCachedAction<T>(
     promise
       .then((result) => {
         cache.set(key, result);
+        if (shouldPersist(key)) lsWrite(key, result);
         setData(result);
       })
       .finally(() => {

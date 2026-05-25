@@ -31,6 +31,11 @@ type CollaborativeList = MovieList & {
   ownerDisplayName?: string;
 };
 
+// Module-level guard so the one-time ensureUserProfile + migrateMoviesToList
+// check runs at most once per user per session, regardless of how many times
+// the user revisits /lists.
+const initializedUsers = new Set<string>();
+
 
 export default function ListsPage() {
   const { user, isUserLoading } = useUser();
@@ -39,7 +44,6 @@ export default function ListsPage() {
   const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
-  const [isInitializing, setIsInitializing] = useState(true);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
 
@@ -66,22 +70,34 @@ export default function ListsPage() {
 
   const { data: lists, isLoading: isLoadingLists } = useCollection<MovieList>(listsQuery);
 
-  // Initialize user profile and handle migration for existing users
+  // Initialize user profile + migration check — runs ONCE per session per
+  // user (tracked at module level), NOT blocking render. This used to gate
+  // the whole page on a network round-trip, so every tab return to /lists
+  // showed a full-screen loading spinner for ~300ms even when every other
+  // piece of data was cached. The check is a one-time migration for legacy
+  // users; running it on every visit was wasteful regardless.
   useEffect(() => {
-    async function initUser() {
-      if (!user || isUserLoading) return;
+    if (!user || isUserLoading) return;
+    if (initializedUsers.has(user.uid)) return;
+    initializedUsers.add(user.uid);
 
+    (async () => {
       try {
         const result = await ensureUserProfile(
           await user.getIdToken(),
           user.email || '',
-          user.displayName
+          user.displayName,
         );
-
         if (!('error' in result) && result.defaultListId) {
-          // Check for old movies to migrate
-          const migrateResult = await migrateMoviesToList(await user.getIdToken(), result.defaultListId);
-          if (!('error' in migrateResult) && migrateResult.migratedCount && migrateResult.migratedCount > 0) {
+          const migrateResult = await migrateMoviesToList(
+            await user.getIdToken(),
+            result.defaultListId,
+          );
+          if (
+            !('error' in migrateResult) &&
+            migrateResult.migratedCount &&
+            migrateResult.migratedCount > 0
+          ) {
             toast({
               title: 'Movies Migrated',
               description: `${migrateResult.migratedCount} movies moved to your default list.`,
@@ -90,12 +106,11 @@ export default function ListsPage() {
         }
       } catch (error) {
         console.error('Failed to initialize user:', error);
-      } finally {
-        setIsInitializing(false);
+        // Reset so a future mount can retry — failure shouldn't permanently
+        // block the migration.
+        initializedUsers.delete(user.uid);
       }
-    }
-
-    initUser();
+    })();
   }, [user, isUserLoading, toast]);
 
   // Redirect to login if not authenticated
@@ -187,7 +202,7 @@ export default function ListsPage() {
     }
   }, [user, lists, collabResult.refetch]);
 
-  if (isUserLoading || !user || isInitializing) {
+  if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />

@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { getInviteByCode, acceptInvite } from '@/app/actions';
+import { invalidateCachedAction } from '@/lib/use-cached-action';
 import type { ListInvite } from '@/lib/types';
 
 const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
@@ -64,8 +65,8 @@ export default function InvitePage() {
           title: 'Invite Accepted!',
           description: `You are now a collaborator on "${invite.listName}"`,
         });
-        // Redirect to the list with owner info so we can load it directly
-        // Use listOwnerId from the result to avoid race conditions
+        // The collaborative-lists cache is now stale.
+        invalidateCachedAction(`collab-lists:${user.uid}`);
         const ownerId = result.listOwnerId || invite.listOwnerId;
         router.push(`/lists/${invite.listId}?owner=${ownerId}`);
       }

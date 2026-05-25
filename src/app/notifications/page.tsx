@@ -8,6 +8,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
 import { getNotifications, markNotificationsRead, acceptInvite, declineInvite } from '@/app/actions';
+import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
 import type { Notification } from '@/lib/types';
@@ -95,9 +96,9 @@ export default function NotificationsPage() {
           title: 'Invite Accepted!',
           description: `You are now a collaborator on "${notification.listName}"`,
         });
-        // Remove this notification from the list
         setNotifications(prev => prev.filter(n => n.id !== notification.id));
-        // Navigate to the list
+        // The collaborative-lists cache is now stale (this list joined it).
+        invalidateCachedAction(`collab-lists:${user.uid}`);
         const ownerId = result.listOwnerId || notification.listOwnerId;
         router.push(`/lists/${notification.listId}?owner=${ownerId}`);
       }

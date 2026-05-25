@@ -3,6 +3,10 @@
 import React, { useMemo, type ReactNode } from 'react';
 import { FirebaseProvider } from '@/firebase/provider';
 import { initializeFirebase } from '@/firebase';
+// Side-effect import — registers persisted-cache keys/prefixes at module
+// load, so by the time any consuming component mounts the in-memory cache
+// has already been hydrated from localStorage.
+import '@/lib/cache-config';
 
 interface FirebaseClientProviderProps {
   children: ReactNode;
