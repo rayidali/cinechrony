@@ -1,13 +1,17 @@
 # Cinechrony Launch Plan — App Stores + Hero Feature + Marketing
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-21
-> **Goal:** Ship to iOS App Store + Google Play with a refreshed UI + the screenshot-to-watchlist Share Extension as the hero feature, plus automated TikTok-first / Instagram-second daily content.
-> **Sequencing:** The pre-launch audit (`AUDIT.md` Phases 0–2) is done. **Phase 0 (UI redesign) runs first** — it sets the design language every later phase builds in. Then A (API routes) → B (Capacitor) → C (Share Extension) → D (stores) → E (marketing).
+> **Started:** 2026-05-15 · **Updated:** 2026-05-25
+> **Goal:** Ship to iOS App Store + Google Play with a refreshed UI + the **share-TikTok/Reel-to-watchlist** Share Extension as the hero feature (AI dissects the linked video and extracts the mentioned films), plus automated TikTok-first / Instagram-second daily content.
+> **Sequencing:** The pre-launch audit (`AUDIT.md` Phases 0–2) is done. Phase 0 (UI redesign) and Phase 0.5 (Discover) are both shipped and on `main`. **Phase 0.6 (Speed & Native Feel) is next** — a small, focused pass to eliminate the loading flashes that will read as "webby" once we ship to the App Store. Then A (API routes) → B (Capacitor) → C (Share Extension) → D (stores) → E (marketing).
 > **Approach:** Capacitor (right path — static export + API routes refactor). Not a Swift rewrite. Solo dev using Claude Code for Swift work.
 
 ---
 
-## Phase 0 — UI Redesign (do first)
+## Phase 0 — UI Redesign (✅ SHIPPED on `main`, 2026-05-21)
+
+> v2 editorial-cinema redesign shipped via PR #77. All checkboxes below are
+> historical — kept for reference. The component language and design tokens
+> in `globals.css` + `tailwind.config.ts` are the source of truth.
 
 > **Why first, not later:** a full redesign (scope B — new visual direction) defines the component language that *every subsequent phase builds in* — the onboarding redesign (C.7), the Share Extension's confirmation UI, and the App Store screenshots (D). Redesign late and that UI gets built twice. Redesign first and everything downstream is built once, in the final look.
 >
@@ -44,7 +48,11 @@
 
 ---
 
-## Phase 0.5 — Discover: liked lists + the home/search merge
+## Phase 0.5 — Discover: liked lists + the home/search merge (✅ SHIPPED on `main`, 2026-05-22)
+
+> Phase 0.5 shipped on `feat/home-discover-rebuild` (PR #79, merged
+> 2026-05-22). 11 commits, 126/126 audit tests green. All sub-checkboxes
+> below are marked complete. See the progress log at the bottom.
 
 > **Pulled forward to pre-launch** (owner's call — works soon, after Phase 0).
 > Cinechrony has no way to surface great *lists* or new *people* outside your
@@ -60,53 +68,42 @@
 
 ### 0.5.1 — Like public lists
 
-- [ ] **0.5.1.1** Data: add `likes` (number) + `likedBy` (string[]) to the
+- [x] **0.5.1.1** Data: add `likes` (number) + `likedBy` (string[]) to the
   list document — mirror the existing review/activity like shape.
-- [ ] **0.5.1.2** Server actions `likeList` / `unlikeList` — clone the
+- [x] **0.5.1.2** Server actions `likeList` / `unlikeList` — clone the
   `likeReview` / `likeActivity` pattern: `verifyCaller`, transactional count
   update, reuse the `like` rate-limit key. Only public lists are likeable.
-- [ ] **0.5.1.3** `firestore.rules`: `likes` / `likedBy` are server-only
+- [x] **0.5.1.3** `firestore.rules`: `likes` / `likedBy` are server-only
   writes (same as reviews/activities) — clients can't tamper with counts.
-- [ ] **0.5.1.4** UI: a heart on the public list view + the list cover card.
+- [x] **0.5.1.4** UI: a heart on the public list view + the list cover card.
   Optimistic toggle, fills sage when liked (matches the v2 like treatment).
-- [ ] **0.5.1.5** Notification to the list owner — new `list_like`
+- [x] **0.5.1.5** Notification to the list owner — new `list_like`
   notification type, reuses the existing notification system.
-- [ ] **0.5.1.6 — Test:** like / unlike as an authed user; forged token
+- [x] **0.5.1.6 — Test:** like / unlike as an authed user; forged token
   rejected; count holds under a concurrent burst; private lists not likeable;
   rate limit trips. Add to `scripts/audit-tests/`.
 
 ### 0.5.2 — The loved-lists showcase
 
-- [ ] **0.5.2.1** Rank by a **recency-weighted trending score**, not all-time
-  cumulative likes — otherwise the first popular list camps the top forever
-  and nothing new breaks in. Likes decay with age (the HN/Reddit "hot"
-  formula). Store `trendingScore` on the list, recomputed by a small
-  scheduled job — or on read while the dataset is small.
-- [ ] **0.5.2.2** Editorial presentation — a wall of `THE COLLECTION · loved
-  this week` covers, no numbered ranks. Tap a cover → the public list; tap
-  the curator → their profile (people-discovery is the real payoff — it
-  grows the follow graph).
-- [ ] **0.5.2.3** **Cold-start gate:** don't render the showcase into an empty
-  room. Gate it behind a minimum (e.g. ≥ N public lists with ≥ 1 like) so it
-  never looks dead at launch. Liking (0.5.1) ships regardless — it works fine
-  small.
-- [ ] **0.5.2.4 — Test:** showcase returns only public lists, ordered by
-  trending score; the gate hides it below threshold; mass self-likes have
-  limited payoff thanks to decay + rate limiting.
+- [x] **0.5.2.1** Rank by a **recency-weighted trending score**, not all-time
+  cumulative likes — `getLovedLists` does the HN-style decay on read.
+- [x] **0.5.2.2** Editorial presentation — `THE COLLECTION · loved this week`
+  covers in the trending strip, no numbered ranks.
+- [x] **0.5.2.3** Cold-start gate — `getLovedLists` returns `[]` below
+  threshold so the showcase doesn't render into an empty room.
+- [x] **0.5.2.4 — Test:** added in `scripts/audit-tests/18-loved-lists.ts`.
 
 ### 0.5.3 — Merge home + search → one Discover page
 
-- [ ] **0.5.3.1** Collapse `/home` and `/add` (search) into a single
-  **Discover** surface: search field at the top, then trending movies, the
-  loved-lists showcase, and the activity feed — one destination for "what
-  should we watch?".
-- [ ] **0.5.3.2** Re-decide the bottom nav. `/add` was the search tab; with
-  search folded into Discover that slot frees up — pick the 4 nav slots
-  deliberately (Discover · Lists · ? · Profile).
-- [ ] **0.5.3.3** Keep the Phase 0 editorial composition — eyebrow → hairline
-  → lowercase section titles (`NOW SHOWING`, `THE COLLECTION`, `THE FEED`).
-- [ ] **0.5.3.4 — Test:** search still works end-to-end; trending + showcase
-  + feed all load; bottom nav routes correctly; pull-to-refresh intact.
+- [x] **0.5.3.1** `/home` rebuilt as the unified discover surface — search
+  trigger → filter pills → trending strip (films + loved lists) → the feed.
+- [x] **0.5.3.2** Bottom nav cut to **3 tabs** (`home · lists · profile`).
+  The `/add` route still exists but is out of nav; search is the header
+  overlay (`SearchOverlay`).
+- [x] **0.5.3.3** Editorial composition retained — eyebrow → hairline →
+  lowercase title.
+- [x] **0.5.3.4 — Test:** covered by existing audit suite (search,
+  trending, feed, nav, pull-to-refresh all walked).
 
 ### 0.5.4 — User posts in the feed (the Beli-style update)
 
@@ -116,29 +113,20 @@
 > with @x and @y") and an optional place. A short Beli/Twitter-style update,
 > anchored to a film.
 
-- [ ] **0.5.4.1** Data: a post document — `authorId`, `text`, `imageUrls[]`,
-  `taggedMovie` (tmdbId + title + poster), `taggedUserIds[]`, `place`
-  (freeform string, optional), `createdAt`, `likes` / `likedBy`. Decide: a
-  new `/posts` collection the feed query merges in, or a `type: 'posted'` on
-  `/activities`. Keep author fields denormalized (the project's N+1 pattern).
-- [ ] **0.5.4.2** Composer — full-screen, editorial: serif text area,
-  multi-photo picker (reuse the R2 upload path from `uploadAvatar` /
-  `uploadListCover`), a movie-tag search (reuse TMDB search), a friend tagger
-  (reuse `searchUsers`), an optional `place` field.
-- [ ] **0.5.4.3** Anchor posts to a film — strongly encourage the movie tag.
-  A post with no film is just a tweet; with one it's a Cinechrony post. The
-  card leads with the tagged poster.
-- [ ] **0.5.4.4** Feed rendering — a distinct, larger post card alongside the
-  small system-activity cards: avatar + name + place + time, photos, serif
-  text, the tagged movie, tagged friends as chips. Likes; comments reuse the
-  review/threading system (or likes-only for v1, comments next).
-- [ ] **0.5.4.5** Tagged friends get a notification ("@x tagged you in a
-  post") — reuses the notification system. Compose entry point (FAB) on the
-  Discover page.
-- [ ] **0.5.4.6 — Test:** create a post (text only / with photos / with movie
-  + friend tags / with place); appears in the feed; tagged users notified;
-  like works; forged token can't post; post is reportable; a blocked
-  author's posts are hidden. Add to `scripts/audit-tests/`.
+- [x] **0.5.4.1** `/posts/{postId}` collection — `authorId`, `text`,
+  `media[]` (images + video on R2), `taggedMovie`, `taggedUserIds[]` +
+  denormalized `taggedUsers[]`, `place`, `likes`/`likedBy`, `commentCount`.
+- [x] **0.5.4.2** Full-screen post composer with multi-photo + video upload
+  (presigned R2 PUT, video ≤200MB), movie-tag search, friend tagger, place.
+- [x] **0.5.4.3** Anchored to a film — the post card leads with the tagged
+  poster.
+- [x] **0.5.4.4** Feed rendering — `PostCard` (with media grid, tagged movie,
+  tagged friends as chips, likes, comments) merged into the activity feed
+  via `getHomeFeed`. Comments at `/posts/{id}/comments/{id}` (1-level thread).
+- [x] **0.5.4.5** Tagged friends notified. Compose entry = the `PostFab` on
+  home.
+- [x] **0.5.4.6 — Test:** added in `scripts/audit-tests/19`–`22` (create,
+  comment, block-filter, report).
 
 > **Location — read this.** `UX_PATTERNS.md` explicitly says the feed has
 > **no location data** ("Cinechrony is not a location-aware app"). Honour the
@@ -161,30 +149,21 @@
 > interact with the other. (Was D.0.1; pulled forward — posts can't ship
 > without it.)
 
-- [ ] **0.5.5.1** Data: a block relationship queryable **both directions** —
-  when A blocks B, B's read paths must know too. A top-level `/blocks`
-  collection (`{blockerId, blockedId, createdAt}`) or a denormalized pair;
-  a per-session blocked-set cache for O(1) filtering.
-- [ ] **0.5.5.2** Server actions `blockUser` / `unblockUser` (verifyCaller).
-  Blocking also **severs the relationship**: drop any follow in both
-  directions, revoke pending invites between the two, stop notifications.
-- [ ] **0.5.5.3** Enforcement is **cross-cutting** — every read surface
-  filters the blocked-set (this is the real cost, not the action itself):
-  profile (→ a not-found / blocked state), public lists, the activity feed
-  + posts, reviews / comments, followers / following lists, user search,
-  notifications. Both directions.
-- [ ] **0.5.5.4** Interaction severance — a blocked user can't follow you,
-  like or comment on your content, tag you in a post, or invite you to a
-  list. Enforce in the server actions; back it with `firestore.rules` where
-  the rules layer can.
-- [ ] **0.5.5.5** UI: a `block` action in the ⋯ overflow on another user's
-  profile (UX_PATTERNS already calls for this); an unblock list in settings;
-  offer "block too" from the report flow.
-- [ ] **0.5.5.6 — Test:** after a block — the blocked user can't load your
-  profile, lists, posts, or comments, can't find you in search, can't
-  follow / tag / like you; you don't see them either; unblock restores; a
-  forged token can't block on someone else's behalf. Add to
-  `scripts/audit-tests/`.
+- [x] **0.5.5.1** `/blocks/{blockerId}_{blockedId}` collection with a
+  per-session `UserBlocksCacheProvider` for O(1) filtering. The client gets
+  the invisibility union via `getMyBlockContext`.
+- [x] **0.5.5.2** `blockUser` / `unblockUser` (verifyCaller). Severs the
+  follow relationship in both directions, revokes pending invites, stops
+  notifications.
+- [x] **0.5.5.3** Cross-cutting enforcement — profile, public lists, feed,
+  posts, comments, reviews, followers, search, notifications. Both
+  directions.
+- [x] **0.5.5.4** Interaction severance enforced server-side + in rules
+  where applicable.
+- [x] **0.5.5.5** UI: `block` in the `ProfileOverflowMenu` ⋯ menu, unblock
+  list in `BlockedUsersSection` in `/settings`, "block too" offered in the
+  report flow.
+- [x] **0.5.5.6 — Test:** added in `scripts/audit-tests/23`–`25`.
 
 ### Don't
 
@@ -195,6 +174,63 @@
 - ❌ Ship user posts before 0.5.5 (block) + reporting are in place.
 - ❌ A half-block that only hides comments — it must filter every read surface.
 - ❌ GPS / maps / distance for `place` — freeform text only.
+
+---
+
+## Phase 0.6 — Speed & Native Feel (next, ~3–5 days)
+
+> **Why now, not after launch:** wrapping the app in Capacitor and putting it
+> next to real native apps on a user's phone will MAGNIFY every perceived-
+> latency cue we have today. The "feels like a webapp cosplaying as a mobile
+> app" comment is the early-warning siren. Fix this before App Store
+> submission, not after.
+>
+> The bugs (Vaul body-style leak, PullToRefresh transform context) and the
+> first wave of native-feel polish (swipe-back gesture on `/comments`, tap-
+> target sweep, PullToRefresh refactor) shipped on
+> `fix/video-thumbnails-composer-reach`. This phase is the bigger structural
+> pass that makes tab switches feel instant.
+
+### 0.6.1 — Stale-while-revalidate caches for tab data
+
+- [ ] **0.6.1.1** Module-level cache for `getCollaborativeLists` results
+  (mirrors `tmdb-details-cache.ts`). On `/lists` mount, render cached
+  result synchronously; background-refresh and swap in fresh data when
+  ready. Eliminates the cold-mount skeleton on every visit after the first.
+- [ ] **0.6.1.2** Same pattern for `getHomeFeed` results — also persist
+  the last page to `localStorage` so a cold app open shows the prior feed
+  in <16ms instead of a skeleton.
+- [ ] **0.6.1.3** Same for the user's profile + following set.
+- [ ] **0.6.1.4** A `useStableCollection` wrapper around `useCollection`
+  that retains the last snapshot across remounts (so when a component re-
+  mounts because of a route change, it shows the prior data instantly
+  while the new subscription warms up).
+- [ ] **0.6.1.5 — Test:** open `/lists`, navigate to `/home`, back to
+  `/lists` — should show data immediately (no skeleton). Add to
+  `scripts/audit-tests/`.
+
+### 0.6.2 — Prefetch on touch-start
+
+- [ ] **0.6.2.1** Wrap `BottomNav`'s `Link` items with a `touchstart`
+  handler that warms the destination route's data fetch. Saves ~150ms of
+  perceived latency versus waiting for the tap to register.
+- [ ] **0.6.2.2** Same on movie tiles — touch-start triggers the
+  `getMovieOrTVDetails` warm-up.
+
+### 0.6.3 — Skeleton consistency
+
+- [ ] **0.6.3.1** Audit every loading state. Anywhere we still render a
+  spinner over a blank surface, replace with a skeleton matching the
+  shape of the data. Skeletons hide latency; spinners advertise it.
+
+### 0.6.4 — (Optional, deferrable) Parallel-route tab shell
+
+- [ ] **0.6.4.1** Refactor `/home`, `/lists`, `/profile` into a single
+  layout group with Next.js parallel routes (`@home`, `@lists`,
+  `@profile`). All three stay mounted; the bottom nav toggles which slot
+  is visible via CSS. This is the closest we can get to native-tab feel
+  inside a web stack. ~1 week of work. Defer to post-launch v1.1 if 0.6.1–
+  0.6.3 already feel good enough.
 
 ---
 
@@ -366,15 +402,50 @@ Same conventions as the audit tracker:
 ## Phase C — Share Extension (iOS) + Share Intent (Android)
 
 > **The hero feature.** ~2 weeks. iOS Share Extension is a separate Swift target inside the Capacitor-generated Xcode project — Claude Code can write the Swift, but you should at least skim what it produces.
+>
+> **Direction (2026-05-25):** share-URL → AI extract is the primary flow.
+> Screenshot OCR is the fallback when URL extraction fails. Reasoning:
+> a TikTok URL gives the backend access to caption + transcript + frames
+> — orders of magnitude more signal than a single screenshot, which is
+> how "top 5 nolan films" reliably yields 5 films instead of just whatever
+> happens to be on screen when the user hits screenshot.
 
-### C.1 — AI identification backend
+### C.1 — AI extraction backend (URL-first)
 
-- [ ] **C.1.1** `POST /api/v1/identify-movie` — accepts multipart image, returns `{ matches: [{ tmdbId, title, year, mediaType, posterUrl, confidence }] }`.
-- [ ] **C.1.2** Pipeline: receive image → resize/compress to ~1024px (cost control) → Claude vision with structured-output prompt asking for `{title, year, mediaType, confidence: 'high'|'medium'|'low'|'unknown'}` → if high/medium, TMDB search by title+year → return top 1-3 matches.
-- [ ] **C.1.3** Fallback: if Claude returns `unknown`, try OCR on the image (look for embedded subtitles/title cards) before giving up.
+- [ ] **C.1.1** `POST /api/v1/extract-films-from-url` — accepts
+  `{ url: string }`, returns `{ films: [{ tmdbId, title, year, mediaType,
+  posterUrl, confidence }], suggestedListName?: string }`. Auth required.
+- [ ] **C.1.2** Pipeline:
+  1. Identify provider (TikTok / Instagram / YouTube) from URL.
+  2. Fetch metadata via the platform's official API where available:
+     - TikTok oEmbed (title, author) + Display API for caption if a creator
+       token is in play.
+     - Instagram oEmbed (deprecated for public posts — fallback only).
+     - YouTube Data API for title, description, captions.
+  3. For richer signal, fall back to `yt-dlp` server-side to grab
+     transcript / audio. yt-dlp is fragile against TikTok specifically —
+     plan for failure and degrade gracefully.
+  4. If no transcript: download audio (yt-dlp `-x`), transcribe via
+     Whisper API (~$0.006/min — a 60s TikTok is ~$0.006).
+  5. Claude (with structured output) on `{ title, caption, transcript }`:
+     "Extract movies/TV shows mentioned. Return JSON array of
+     `{title, year, mediaType, confidence}`. Also suggest a list name if
+     the content reads like a curated list (e.g. 'top 5 nolan films')."
+  6. For each extracted film: TMDB search by title+year → top match +
+     poster. Drop unmatched.
+- [ ] **C.1.3** Fallback path — `POST /api/v1/identify-films-from-image`
+  accepts a multipart image. Same Claude vision pipeline as the original
+  spec. Triggered when URL extraction fails or returns 0 matches.
 - [ ] **C.1.4** Rate limit per user (use the same limiter from AUDIT.md 3.8).
-- [ ] **C.1.5** Auth: require valid ID token. The Share Extension will send its own.
-- [ ] **C.1.6 — Test:** curl with 10 sample screenshots from real TikToks/Reels covering: famous Hollywood, recent A24, anime, TV episode, ambiguous still. Verify identification rate and false-positive rate. Tune the prompt until ≥80% top-1 accuracy on the sample.
+  Whisper costs add up — cap at ~50 extractions/day per user free tier.
+- [ ] **C.1.5** Auth: require valid ID token. The Share Extension sends its
+  own (App Group shared token — see C.2).
+- [ ] **C.1.6 — Test:** curl with 15 sample URLs covering: a TikTok
+  "top 5 nolan films" countdown, a YouTube essay on Tarantino, an
+  Instagram Reel review of a single film, a TikTok with no film
+  mentioned (should return empty), a private TikTok (should error
+  gracefully), a deleted URL (gracefully). Tune until ≥80% extraction
+  accuracy on the curated-list cases.
 
 ### C.2 — Shared auth token (App Group)
 
@@ -385,19 +456,40 @@ Same conventions as the audit tracker:
 
 ### C.3 — iOS Share Extension target
 
-- [ ] **C.3.1** Add Share Extension target in Xcode. Configure `Info.plist`:
-  - `NSExtensionAttributes.NSExtensionActivationRule` — only activate for `NSExtensionActivationSupportsImageWithMaxCount = 1`
-- [ ] **C.3.2** Custom view controller (SwiftUI is fine for iOS 14+ extension UI) showing:
-  - Loading spinner while identifying
-  - Identified movie card (poster + title + year) with confirm button
-  - If multiple matches: pick one
-  - List selector (defaults to user's default list, dropdown to switch)
-  - "Add" → call `POST /api/v1/lists/[listId]/movies` → success animation → dismiss
-- [ ] **C.3.3** Handle the no-identification case gracefully — show "Couldn't identify, search manually?" with a deep-link into the main app's add flow.
-- [ ] **C.3.4 — Test:**
-  - Real iPhone, real screenshot from TikTok → share → Cinechrony appears in share sheet → identifies → adds → success
-  - Same flow with a screenshot of nothing identifiable → graceful fallback
-  - Same flow when logged-out → prompts to open the app first
+- [ ] **C.3.1** Add Share Extension target in Xcode. Configure `Info.plist`
+  `NSExtensionActivationRule` to accept BOTH:
+  - URLs (`NSExtensionActivationSupportsWebURLWithMaxCount = 1`) — primary
+  - Images (`NSExtensionActivationSupportsImageWithMaxCount = 1`) — fallback
+  
+  The TikTok / Instagram / YouTube share sheets all hand off URLs natively;
+  images are the screenshot path if the user shares a screenshot instead.
+- [ ] **C.3.2** Custom view controller (SwiftUI is fine for iOS 14+ extension UI). Two-phase UX:
+  1. **Extraction phase**: progress strip — "fetching transcript → extracting
+     films → matching on TMDB". Show 2-3 second checkpoints so the user
+     sees real progress; 10–30s end-to-end is fine if it's narrated.
+  2. **Confirmation phase**: the list of extracted films as cards (poster +
+     title + year + confidence). User can edit (remove a film, search to
+     add a missed one). Then choose target:
+     - Add to existing list (defaults to user's default list, dropdown to switch).
+     - **Or** create a new list with the AI-suggested name (e.g. "top 5
+       nolan films") pre-filled.
+  3. **Save** → call `POST /api/v1/lists/[listId]/movies` (batch) →
+     success animation → dismiss.
+- [ ] **C.3.3** Handle the no-extraction case gracefully — show "Couldn't
+  find any films in this video. Try a screenshot?" with a deep-link into
+  the main app's add flow, or the screenshot-fallback inline.
+- [ ] **C.3.4** Handle the logged-out case — prompt to open the app first
+  (App Group can detect missing token).
+- [ ] **C.3.5 — Test:**
+  - Real iPhone, share a "top 5 nolan films" TikTok → extension extracts
+    5 films → user confirms → all 5 added to a new "top 5 nolan films"
+    list.
+  - Same flow with a TikTok with no film mentions → graceful empty state.
+  - Same flow with an Instagram Reel review of a single film → 1 film
+    extracted.
+  - Same flow with a private/deleted URL → error state, offer screenshot
+    fallback.
+  - Same flow with a screenshot → image fallback pipeline → still works.
 
 ### C.4 — Share confirmation UX polish
 
@@ -574,18 +666,24 @@ Same conventions as the audit tracker:
 | Week | Primary work | Parallel |
 |------|--------------|----------|
 | — | Phase 0 — UI redesign (scope B) + UX patterns · **done, merged to main** | — |
-| 1-3 | Phase 0.5 — Discover (liked lists + showcase + user posts + home/search merge) | E.1-E.2 (account setup) |
-| 4-5 | Phase A.1-A.3 (server actions refactor + auth) | E.1-E.2 (account setup) |
-| 6 | Phase A.4-A.5 (client migration + static export) | E.3 (n8n) |
-| 7 | Phase B (Capacitor wrap) | E.3 (n8n) |
-| 8-9 | Phase C.1-C.3 (Share Extension + AI) | E.4-E.5 (Remotion + pipeline) |
-| 10 | Phase C.4-C.7 (Android share + onboarding + polish) | E.6 (posting workflow) |
-| 11 | Phase D.1-D.3 (TestFlight + iterate) | Audit Phase 2-3 in TestFlight |
-| 12 | Phase D.5-D.6 (App Store submission) | E.7 (back-catalog content) |
-| 13 | Apple review iterations | — |
-| 14 | **Launch** | — |
+| — | Phase 0.5 — Discover (liked lists + showcase + user posts + home/search merge) · **done, merged to main 2026-05-22** | — |
+| — | Composer + nav-feel hardening (body-style watchdog, swipe-back, tap-target sweep) · **on `fix/video-thumbnails-composer-reach`, pending merge** | — |
+| 1 | Phase 0.6 — Speed & Native Feel (SWR caches + prefetch) | E.1-E.2 (account setup) |
+| 2-4 | Phase A.1-A.3 (server actions refactor + auth) | E.1-E.2 (account setup) |
+| 5 | Phase A.4-A.5 (client migration + static export) | E.3 (n8n) |
+| 6 | Phase B (Capacitor wrap) | E.3 (n8n) |
+| 7-8 | Phase C.1-C.3 (Share Extension + AI — TikTok/Reel URL → AI extraction pipeline) | E.4-E.5 (Remotion + pipeline) |
+| 9 | Phase C.4-C.7 (Android share + onboarding + polish) | E.6 (posting workflow) |
+| 10 | Phase D.1-D.3 (TestFlight + iterate) | Audit Phase 2-3 in TestFlight |
+| 11 | Phase D.5-D.6 (App Store submission) | E.7 (back-catalog content) |
+| 12 | Apple review iterations | — |
+| 13 | **Launch** | — |
 
-~**14 weeks** of remaining work. Phase 0 (the redesign) is done and merged. Phase 0.5 adds ~3 weeks of discovery work pre-launch — user posts (0.5.4) is the heavy part, and it carries blocking (0.5.5) with it. Add 2-4 weeks of buffer for Apple review cycles + the Swift learning curve + the unexpected.
+~**13 weeks** of remaining work. Phase 0 + 0.5 are done and merged. The
+composer + nav-feel branch is pending merge. Phase 0.6 (Speed) is a small
+3–5 day pass; Phase A (the API-routes refactor) is the long pole at
+~3 weeks. Add 2–4 weeks of buffer for Apple review cycles + Swift learning
+curve + the unexpected.
 
 ---
 
@@ -601,3 +699,8 @@ Same conventions as the audit tracker:
 | 2026-05-21 | 0.5 | Plan | Added 0.5.5 — block a user (full mutual invisibility — filters every read surface, both directions). Pulled forward from D.0.1; D.0.1 is now the pre-submission checkpoint. |
 | 2026-05-22 | 0.5 | Done | **Phase 0.5 implemented in full** on `feat/home-discover-rebuild` (one preview branch, 11 commits). Home rebuilt as the unified editorial feed; bottom nav cut to 3 tabs (`home · lists · profile`). Shipped: 0.5.1 like public lists · 0.5.2 loved-lists showcase (recency-weighted, cold-start gated) · 0.5.3 home/search merge (search is a header overlay) · 0.5.4 user posts (text + image **and video** up to 200MB via presigned R2 uploads, movie/friend tags, place, composer with drafts, posts merged into the feed, post comments) · 0.5.5 block a user. Plus a "for you" recommendation engine + "more like this" on movie detail (TMDB recommendations), a saved/bookmark archive, ⋯ overflow menus, and mute. 52 new audit tests; full suite 126/126 green. |
 | 2026-05-22 | 0.5 | Decision | The `nearby` feed pill (0.5.3 / UX_PATTERNS) was **dropped** — it requires GPS, which this plan explicitly forbids (`place` is freeform text only). Shipped 5 pills: `all · saved · friends · for you · trending`. The pill bar is built to extend if a non-GPS reinterpretation is ever wanted. |
+| 2026-05-24 | — | Polish | Composer hardening on `fix/video-thumbnails-composer-reach`: video poster capture for iOS Safari (R2 sibling `_poster.jpg`), reachable composer toolbar (visualViewport-pinned), full-screen scrim + backdrop to mask the iOS file-picker keyboard-dismiss race. |
+| 2026-05-25 | — | Polish | Same branch — kill the "empty home + empty modal" round-trip bugs (PullToRefresh transform context + Vaul body-style leak + a silent-null overview branch). New `BodyStyleWatchdog` in the root layout scrubs stuck body styles on every pathname change. Defer `router.push` to `/comments` by 220ms so Vaul cleanup commits before route change. Persist "more like this" override movies so the round-trip rehydrates the swapped film. Paranoia refetch when a cached TMDB payload is structurally incomplete. |
+| 2026-05-25 | — | Polish | Same branch — first wave of native-feel: `SwipeBackContainer` component drives iOS-style edge-swipe-back on `/comments` (commit at >35% viewport OR fast flick, soft drop-shadow on the trailing edge, light haptic on commit). Tap-target sweep — every interactive icon I could find ≥40px (PostCard / ActivityCard / BookmarkButton like-row, comments header/send/spoiler/sort, modal glass back/more, MovieList view-mode switcher, ProfileOverflowMenu). PullToRefresh refactored to bind listeners ONCE via stable refs (the prior code re-bound on every touchmove frame). |
+| 2026-05-25 | 0.6 | Plan | Added Phase 0.6 — Speed & Native Feel. SWR caches for `getCollaborativeLists` / `getHomeFeed` / profile + a `useStableCollection` wrapper around `useCollection`. Prefetch on touch-start for nav links + movie tiles. Skeleton consistency. Optional parallel-route tab shell deferred to post-launch unless 0.6.1–0.6.3 don't get us there. |
+| 2026-05-25 | — | Decision | Hero feature direction confirmed: **share-URL → AI extract** (not screenshot OCR). User shares a TikTok/IG/YT URL via the iOS Share Extension; backend pulls transcript + caption + thumbnails, Claude extracts mentioned films, user picks the target list(s) or accepts a suggested new-list name (e.g. "top 5 nolan films"). Screenshot path becomes a fallback for URL-extraction failures. Updated C.1 pipeline in this plan to reflect the URL-first approach. |
