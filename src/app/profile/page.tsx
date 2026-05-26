@@ -24,7 +24,7 @@ import { ProfileListCard } from '@/components/profile-list-card';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { getFollowers, getFollowing, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
@@ -228,13 +228,19 @@ export default function MyProfilePage() {
     }
   };
 
-  const handleToggleVisibility = async (listId: string) => {
+  const handleToggleVisibility = async (listId: string, currentIsPublic: boolean) => {
     if (!user) return;
-    const result = await toggleListVisibility(await user.getIdToken(), user.uid, listId);
-    if ('error' in result) {
-      toast({ variant: 'destructive', title: 'Error', description: result.error });
-    } else {
-      toast({ title: result.isPublic ? 'list is now public' : 'list is now private' });
+    const nextIsPublic = !currentIsPublic;
+    try {
+      await apiCall(
+        'PATCH',
+        `/api/v1/lists/${user.uid}/${listId}`,
+        { isPublic: nextIsPublic },
+      );
+      toast({ title: nextIsPublic ? 'list is now public' : 'list is now private' });
+    } catch (err) {
+      const message = err instanceof ApiClientError ? err.message : 'Failed to update visibility.';
+      toast({ variant: 'destructive', title: 'Error', description: message });
     }
   };
 
@@ -541,7 +547,7 @@ export default function MyProfilePage() {
                                 <ImageIcon className="h-4 w-4 mr-2" />
                                 Set Cover
                               </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => handleToggleVisibility(list.id)}>
+                              <DropdownMenuItem onSelect={() => handleToggleVisibility(list.id, !!list.isPublic)}>
                                 {list.isPublic ? (
                                   <>
                                     <EyeOff className="h-4 w-4 mr-2" />

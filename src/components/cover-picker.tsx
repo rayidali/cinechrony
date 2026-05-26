@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { Camera, Loader2, Upload, X, ImageIcon } from 'lucide-react';
 
 import { useUser } from '@/firebase';
-import { uploadListCover, updateListCover } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -133,38 +133,28 @@ export function CoverPicker({
     const ownerId = listOwnerId || user.uid;
 
     try {
-      const result = await uploadListCover(
-        await user.getIdToken(),
-        ownerId,
-        listId,
-        selectedFile.base64,
-        selectedFile.name,
-        selectedFile.type
+      await apiCall(
+        'POST',
+        `/api/v1/lists/${ownerId}/${listId}/cover`,
+        { base64: selectedFile.base64, fileName: selectedFile.name, mimeType: selectedFile.type },
       );
-
-      if (result.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Upload failed',
-          description: result.error,
-        });
-        return;
-      }
-
       toast({
         title: 'Cover updated',
         description: 'Your list cover has been saved.',
       });
-
       onCoverChange?.();
       onClose();
     } catch (error) {
       console.error('Failed to upload cover:', error);
-      const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+      const message = error instanceof ApiClientError
+        ? error.message
+        : error instanceof Error
+          ? `Error: ${error.message}`
+          : 'Unknown error';
       toast({
         variant: 'destructive',
         title: 'Upload failed',
-        description: `Error: ${errorMsg}`,
+        description: message,
       });
     } finally {
       setIsUploading(false);
@@ -179,32 +169,22 @@ export function CoverPicker({
     const ownerId = listOwnerId || user.uid;
 
     try {
-      const result = await updateListCover(await user.getIdToken(), ownerId, listId, null);
-
-      if ('error' in result) {
-        toast({
-          variant: 'destructive',
-          title: 'Failed to remove cover',
-          description: result.error,
-        });
-        return;
-      }
-
+      await apiCall('DELETE', `/api/v1/lists/${ownerId}/${listId}/cover`);
       toast({
         title: 'Cover removed',
         description: 'Your list cover has been removed.',
       });
-
       setPreviewUrl(null);
       setSelectedFile(null);
       onCoverChange?.();
       onClose();
     } catch (error) {
       console.error('Failed to remove cover:', error);
+      const message = error instanceof ApiClientError ? error.message : 'Failed to remove cover. Please try again.';
       toast({
         variant: 'destructive',
-        title: 'Failed',
-        description: 'Failed to remove cover. Please try again.',
+        title: 'Failed to remove cover',
+        description: message,
       });
     } finally {
       setIsUploading(false);
