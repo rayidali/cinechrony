@@ -6,7 +6,7 @@ import { Camera, Check, Loader2, Upload, X } from 'lucide-react';
 
 import { DEFAULT_AVATARS } from '@/lib/avatars';
 import { useUser } from '@/firebase';
-import { uploadAvatar } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 
 /**
@@ -130,37 +130,24 @@ export function AvatarPicker({
       // ends up well under the server's 5MB ceiling.
       const { base64, mimeType, fileName } = await compressAvatar(file);
 
-      // Upload via server action
-      const result = await uploadAvatar(
-        await user.getIdToken(),
+      const { url } = await apiCall<{ url: string }>('POST', '/api/v1/me/avatar', {
         base64,
         fileName,
         mimeType,
-      );
-
-      if (result.error) {
-        toast({
-          variant: 'destructive',
-          title: 'Upload failed',
-          description: result.error,
-        });
-        return;
-      }
-
-      if (result.url) {
-        setSelectedUrl(result.url);
-        toast({
-          title: 'Image uploaded',
-          description: 'Click Save to use this as your profile picture.',
-        });
-      }
+      });
+      setSelectedUrl(url);
+      toast({
+        title: 'Image uploaded',
+        description: 'Click Save to use this as your profile picture.',
+      });
     } catch (error) {
       console.error('Failed to upload image:', error);
-      // Surface the friendly compressor message when present (decode failed,
-      // canvas unavailable, etc.). Falls back to a generic line otherwise.
+      // Surface the friendly message from either the compressor (decode
+      // failed, canvas unavailable) or the server (file-too-large, R2 down).
+      // Falls back to a generic line otherwise.
       const friendly =
-        error instanceof Error && error.message
-          ? error.message
+        error instanceof ApiClientError || (error instanceof Error && error.message)
+          ? (error as Error).message
           : 'Failed to upload image. Please try again.';
       toast({
         variant: 'destructive',

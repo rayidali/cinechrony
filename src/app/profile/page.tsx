@@ -24,7 +24,8 @@ import { ProfileListCard } from '@/components/profile-list-card';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, updateProfilePhoto, updateBio, getListsPreviews, getListPreview } from '@/app/actions';
+import { getFollowers, getFollowing, toggleListVisibility, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
@@ -190,13 +191,12 @@ export default function MyProfilePage() {
     if (!user) return;
     setIsSavingBio(true);
     try {
-      const result = await updateBio(await user.getIdToken(), newBio);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'bio updated' });
-        setIsEditingBio(false);
-      }
+      await apiCall('PATCH', '/api/v1/me', { bio: newBio });
+      toast({ title: 'bio updated' });
+      setIsEditingBio(false);
+    } catch (err) {
+      const message = err instanceof ApiClientError ? err.message : 'Failed to update bio.';
+      toast({ variant: 'destructive', title: 'Error', description: message });
     } finally {
       setIsSavingBio(false);
     }
@@ -272,10 +272,8 @@ export default function MyProfilePage() {
 
   const handleAvatarChange = async (newPhotoURL: string) => {
     if (!user) return;
-    const result = await updateProfilePhoto(await user.getIdToken(), newPhotoURL);
-    if ('error' in result) {
-      throw new Error(result.error);
-    }
+    // Throws ApiClientError on failure — the caller (AvatarPicker) handles it.
+    await apiCall('PATCH', '/api/v1/me', { photoURL: newPhotoURL });
   };
 
   const handleShare = async () => {

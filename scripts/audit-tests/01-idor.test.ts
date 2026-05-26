@@ -1,17 +1,15 @@
 /**
- * Phase 1 pilot exploit test — IDOR via client-supplied userId.
+ * Phase 1 pilot exploit test — IDOR via client-supplied userId. Migrated to
+ * Phase A's HTTP surface (PATCH /api/v1/me).
  *
- * Vulnerability (pre-fix): `updateBio(userId, bio)` wrote to
- * users/{userId} where userId was a client argument. Any caller could rewrite
- * ANY user's bio by passing the victim's uid.
+ * Vulnerability (pre-fix): `updateBio(userId, bio)` wrote to users/{userId}
+ * where userId was a client argument. Any caller could rewrite ANY user's bio.
  *
- * Fix (AUDIT.md Phase 1): signature is now `updateBio(idToken, bio)`. The
- * server verifies the token and writes to the *verified* uid. There is no
- * userId parameter left to forge — the attack is structurally impossible.
- *
- * These tests assert the post-fix guarantees. They are the regression net:
- * if anyone reintroduces a trusted-userId parameter, the "cannot touch another
- * user" test fails.
+ * Fix (AUDIT.md Phase 1 + Phase A): the new route is `PATCH /api/v1/me`. The
+ * verified uid in the Bearer token IS the target. There is no userId
+ * parameter at all — the attack is structurally impossible. These tests are
+ * the regression net: if anyone reintroduces a trusted-userId, the "cannot
+ * touch another user" test fails.
  */
 
 import { test, before, beforeEach, after } from 'node:test';
@@ -19,31 +17,26 @@ import assert from 'node:assert/strict';
 import {
   setupTestEnv,
   createTestUser,
-  callActionAs,
-  callActionWithRawToken,
   adminDb,
   clearFirestore,
   clearAuth,
   type TestUser,
 } from './harness.ts';
-
-// actions.ts is imported in before() (not top-level) so it loads only after
-// setup.ts has mocked next/cache, and to avoid CJS top-level-await.
-let updateBio: (idToken: unknown, bio: string) => Promise<any>;
+import { callRoute } from './lib/route-call.ts';
+import { PATCH as patchMe } from '@/app/api/v1/me/route';
 
 let alice: TestUser;
 let bob: TestUser;
 
-before(async () => {
+before(() => {
   setupTestEnv();
-  ({ updateBio } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
   await clearFirestore();
   alice = await createTestUser('alice');
   bob = await createTestUser('bob');
-  // Seed minimal profile docs (updateBio uses .update(), needs existing docs).
+  // Seed minimal profile docs (the route uses .update(), needs existing docs).
   await adminDb().collection('users').doc(alice.uid).set({
     uid: alice.uid, username: 'alice', bio: 'alice original',
   });
@@ -58,8 +51,9 @@ after(async () => {
 });
 
 test('legit: a user can update their OWN bio', async () => {
-  const res = await callActionAs(alice, updateBio, 'alice new bio');
-  assert.equal((res as any).success, true);
+  const token = await alice.getIdToken();
+  const res = await callRoute(patchMe, 'PATCH', { token, body: { bio: 'alice new bio' } });
+  assert.equal(res.status, 200);
 
   const doc = await adminDb().collection('users').doc(alice.uid).get();
   assert.equal(doc.data()?.bio, 'alice new bio');
@@ -68,7 +62,8 @@ test('legit: a user can update their OWN bio', async () => {
 test('attack is structurally impossible: alice cannot touch bob (no userId param exists)', async () => {
   // The strongest proof: even acting fully as alice, there is no argument by
   // which alice can target bob. bob's bio must remain untouched no matter what.
-  await callActionAs(alice, updateBio, 'pwned by alice');
+  const token = await alice.getIdToken();
+  await callRoute(patchMe, 'PATCH', { token, body: { bio: 'pwned by alice' } });
 
   const bobDoc = await adminDb().collection('users').doc(bob.uid).get();
   assert.equal(bobDoc.data()?.bio, 'bob original', "bob's bio was NOT modified");
@@ -78,24 +73,33 @@ test('attack is structurally impossible: alice cannot touch bob (no userId param
 });
 
 test('rejects a forged/garbage token', async () => {
-  const res = await callActionWithRawToken('not-a-real-token', updateBio, 'x');
-  assert.deepEqual(res, { error: 'Unauthorized' });
+  const res = await callRoute(patchMe, 'PATCH', {
+    token: 'not-a-real-token',
+    body: { bio: 'x' },
+  });
+  assert.equal(res.status, 401);
 
   const bobDoc = await adminDb().collection('users').doc(bob.uid).get();
   assert.equal(bobDoc.data()?.bio, 'bob original');
 });
 
-test('rejects a missing/empty token', async () => {
-  for (const bad of ['', undefined, null]) {
-    const res = await callActionWithRawToken(bad, updateBio, 'x');
-    assert.deepEqual(res, { error: 'Unauthorized' }, `rejected: ${String(bad)}`);
-  }
+test('rejects a missing token', async () => {
+  const res = await callRoute(patchMe, 'PATCH', { body: { bio: 'x' } });
+  assert.equal(res.status, 401);
+});
+
+test('rejects an empty bearer', async () => {
+  const res = await callRoute(patchMe, 'PATCH', {
+    headers: { Authorization: 'Bearer ' },
+    body: { bio: 'x' },
+  });
+  assert.equal(res.status, 401);
 });
 
 test("rejects another project's / expired-shaped token (well-formed JWT, bad signature)", async () => {
   // header.payload.sig that is syntactically a JWT but not emulator-signed.
   const fakeJwt =
     'eyJhbGciOiJSUzI1NiJ9.eyJ1c2VyX2lkIjoiYXR0YWNrZXIifQ.bm90YXJlYWxzaWc';
-  const res = await callActionWithRawToken(fakeJwt, updateBio, 'x');
-  assert.deepEqual(res, { error: 'Unauthorized' });
+  const res = await callRoute(patchMe, 'PATCH', { token: fakeJwt, body: { bio: 'x' } });
+  assert.equal(res.status, 401);
 });
