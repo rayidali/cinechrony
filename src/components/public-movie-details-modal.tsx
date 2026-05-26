@@ -12,6 +12,7 @@ import {
   Film,
   Tv,
   ChevronLeft,
+  ChevronRight,
   Clock,
   Calendar,
 } from 'lucide-react';
@@ -431,24 +432,34 @@ export function PublicMovieDetailsModal({
                         </p>
                       </button>
                     ))}
+                    {/* Settings-style nav row — 48px tap target, hairline
+                        divider, chevron right. Replaces a tiny text "→"
+                        link that didn't read as a tappable destination. */}
                     <button
                       onClick={handleOpenFullComments}
-                      className="cc-meta text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                      className="mt-2 w-full min-h-[48px] flex items-center justify-between gap-3 py-3 border-t border-border text-left active:bg-foreground/5 transition-colors"
+                      aria-label="View all reviews"
                     >
-                      see all reviews →
+                      <span className="cc-eyebrow">view all reviews</span>
+                      <ChevronRight
+                        className="h-4 w-4 text-muted-foreground flex-shrink-0"
+                        strokeWidth={2.5}
+                      />
                     </button>
                   </div>
                 ) : (
                   <button
                     onClick={handleOpenFullComments}
-                    className="w-full flex items-center justify-between gap-3 group"
+                    className="w-full min-h-[56px] flex items-center justify-between gap-3 py-3 text-left active:bg-foreground/5 transition-colors"
+                    aria-label="Be the first to review"
                   >
-                    <span className="font-serif italic text-[15px] text-muted-foreground text-left">
+                    <span className="font-serif italic text-[15px] text-muted-foreground">
                       be the first to review…
                     </span>
-                    <span className="cc-meta text-[11px] text-muted-foreground group-hover:text-foreground transition-colors flex-shrink-0">
-                      see all →
-                    </span>
+                    <ChevronRight
+                      className="h-5 w-5 text-muted-foreground flex-shrink-0"
+                      strokeWidth={2.5}
+                    />
                   </button>
                 )}
               </section>
