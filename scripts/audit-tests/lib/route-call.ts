@@ -15,7 +15,7 @@ import { NextRequest } from 'next/server';
 
 export type RouteHandler<P = Record<string, string>> = (
   req: NextRequest,
-  ctx: { params: P | Promise<P> },
+  ctx: { params: Promise<P> },
 ) => Promise<Response>;
 
 export type CallRouteOptions<P> = {
@@ -60,7 +60,7 @@ export async function callRoute<T = unknown, P = Record<string, string>>(
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
 
-  const params = (options.params ?? ({} as P));
+  const params = Promise.resolve(options.params ?? ({} as P));
   const res = await handler(req, { params });
 
   // 204 / empty body → still produce an envelope-shaped result for uniform asserts.
