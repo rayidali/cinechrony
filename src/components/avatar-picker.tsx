@@ -307,7 +307,7 @@ export function AvatarPicker({
               )}
             </label>
             <p className="text-xs text-muted-foreground mt-2 text-center">
-              Any phone photo works — we&apos;ll optimize it for you.
+              Max 15MB
             </p>
           </div>
 
