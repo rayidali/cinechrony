@@ -191,10 +191,12 @@ export async function verifyHttpCaller(req: Request): Promise<VerifiedCaller | n
 // ─── Route wrappers ───────────────────────────────────────────────────────
 
 /**
- * Next.js App Router passes the route params object as the second argument.
- * In recent versions it can be a Promise; the wrapper awaits either form.
+ * Next.js 15 App Router passes the route params as `Promise<P>`. The wrapper's
+ * `await` resolves both. We stay strict on `Promise<P>` because Next's
+ * build-time route validator inspects the handler signature and rejects
+ * union types like `P | Promise<P>`.
  */
-type RouteContext<P> = { params: P | Promise<P> };
+type RouteContext<P> = { params: Promise<P> };
 
 type AuthedHandler<P, R> = (
   req: NextRequest,
