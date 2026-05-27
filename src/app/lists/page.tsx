@@ -14,8 +14,7 @@ import { Fab } from '@/components/fab';
 import { NewListDrawer } from '@/components/new-list-drawer';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Card, CardContent } from '@/components/ui/card';
-import { useToast } from '@/hooks/use-toast';
-import { ensureUserProfile, migrateMoviesToList, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { ensureUserProfile, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import type { MovieList } from '@/lib/types';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { rememberListSeed } from '@/lib/list-detail-seed';
@@ -42,7 +41,6 @@ export default function ListsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const firestore = useFirestore();
-  const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
@@ -84,35 +82,22 @@ export default function ListsPage() {
 
     (async () => {
       try {
-        const result = await ensureUserProfile(
+        // Phase A PR #4: migrateMoviesToList (legacy users/{uid}/movies →
+        // users/{uid}/lists/{defaultListId}/movies one-shot migration) was
+        // deleted. By 2026 the legacy collection is empty for every active
+        // user; ensureUserProfile still runs (it's the default-list creator
+        // for fresh signups).
+        await ensureUserProfile(
           await user.getIdToken(),
           user.email || '',
           user.displayName,
         );
-        if (!('error' in result) && result.defaultListId) {
-          const migrateResult = await migrateMoviesToList(
-            await user.getIdToken(),
-            result.defaultListId,
-          );
-          if (
-            !('error' in migrateResult) &&
-            migrateResult.migratedCount &&
-            migrateResult.migratedCount > 0
-          ) {
-            toast({
-              title: 'Movies Migrated',
-              description: `${migrateResult.migratedCount} movies moved to your default list.`,
-            });
-          }
-        }
       } catch (error) {
         console.error('Failed to initialize user:', error);
-        // Reset so a future mount can retry — failure shouldn't permanently
-        // block the migration.
         initializedUsers.delete(user.uid);
       }
     })();
-  }, [user, isUserLoading, toast]);
+  }, [user, isUserLoading]);
 
   // Redirect to login if not authenticated
   useEffect(() => {

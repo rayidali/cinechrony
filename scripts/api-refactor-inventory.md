@@ -17,24 +17,22 @@
 
 ## Migration order (by PR)
 
-| PR | Domain | Endpoints | AUDIT items closed |
-|----|--------|-----------|--------------------|
-| #1 | **Foundation** | api-handler, api-client, `_whoami` smoke route, test helper | — |
-| #2 | User profile | `me` (GET, PATCH), `me/username`, `me/avatar`, `me` (DELETE) | 1.2, 1.10, 2.3a |
-| #3 | Lists | `lists` (POST), `lists/[id]` (PATCH, DELETE), `lists/[id]/transfer`, `lists/[id]/cover` | 1.3, 1.5, 2.1 |
-| #4 | Movies in lists | `lists/[id]/movies` (POST), `lists/[id]/movies/[mid]` (DELETE, status, note, social-link) | 1.6, 2.2 |
-| #5 | Invites | `invites` (POST), `invites/link`, `invites/[code]` (GET, accept, decline), `invites/[id]` (DELETE) | 1.11, 1.12, 1.14, 2.1, 2.9 |
-| #6 | Collaborators | `lists/[id]/collaborators/[uid]` (DELETE), `lists/[id]/leave` | 1.4 |
-| #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8 |
-| #8 | Reviews + ratings | `reviews` (POST), `reviews/[id]` (PATCH, DELETE, like), `reviews?tmdbId=`, `ratings` | 2.5, 2.6, 3.5, 3.10 |
-| #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — |
-| #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 |
-| #11 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 |
-| #12 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, home-feed, saved-feed | — |
-| #13 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 |
-| #14 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — |
-
-PR #1 (this one) ships the foundation only — no behavior change.
+| PR | Domain | Endpoints | AUDIT items closed | Status |
+|----|--------|-----------|--------------------|--------|
+| #1 | **Foundation** | api-handler, api-client, `_whoami` smoke route, test helper | — | ✅ merged |
+| #2 | User profile | `PATCH /me`, `POST /me/avatar`, `DELETE /me` | 1.2 | ✅ merged |
+| #3 | Lists | `POST /lists`, `PATCH/DELETE /lists/[ownerId]/[listId]`, `lists/.../transfer`, `lists/.../cover` | 1.3, 1.5, 2.1 | ✅ merged |
+| #4 | Movies in lists | `POST /lists/[ownerId]/[listId]/movies`, `DELETE/PATCH /lists/.../movies/[mid]` | 1.6, 2.2, 2.2-bypass | ✅ shipped on `feat/phase-a-movies-endpoints` |
+| #5 | Invites | `invites` (POST), `invites/link`, `invites/[code]` (GET, accept, decline), `invites/[id]` (DELETE) | 1.11, 1.12, 1.14, 2.1, 2.9 | next up |
+| #6 | Collaborators | `lists/[id]/collaborators/[uid]` (DELETE), `lists/[id]/leave` | 1.4 | pending |
+| #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8 | pending |
+| #8 | Reviews + ratings | `reviews` (POST), `reviews/[id]` (PATCH, DELETE, like), `reviews?tmdbId=`, `ratings` | 2.5, 2.6, 3.5, 3.10 | pending |
+| #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
+| #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
+| #11 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
+| #12 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, home-feed, saved-feed | — | pending |
+| #13 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
+| #14 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
 
 ---
 
@@ -56,11 +54,11 @@ Legend:
 | 363 | `updateListDescription` | WRITE | `PATCH /api/v1/lists/[id]` (description) | — |
 | 395 | `updateListVisibility` | WRITE | `PATCH /api/v1/lists/[id]` (isPublic) | — |
 | 428 | `deleteList` | WRITE | `DELETE /api/v1/lists/[id]` | — |
-| 492 | `addMovieToList` | WRITE | `POST /api/v1/lists/[id]/movies` | 2.2 |
-| 629 | `removeMovieFromList` | WRITE | `DELETE /api/v1/lists/[id]/movies/[mid]` | 2.2 |
-| 682 | `updateMovieStatus` | WRITE | `PATCH /api/v1/lists/[id]/movies/[mid]/status` | — |
-| 757 | `updateMovieNote` | WRITE | `PATCH /api/v1/lists/[id]/movies/[mid]/note` | 1.6 |
-| 839 | `migrateMoviesToList` | WRITE | (legacy — delete after PR #2) | 1.7 |
+| ✅ PR #4 | `addMovieToList` | WRITE | `POST /api/v1/lists/[ownerId]/[listId]/movies` | 2.2 |
+| ✅ PR #4 | `removeMovieFromList` | WRITE | `DELETE /api/v1/lists/[ownerId]/[listId]/movies/[mid]` | 2.2 |
+| ✅ PR #4 | `updateMovieStatus` | WRITE | `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[mid]` (status) | — |
+| ✅ PR #4 | `updateMovieNote` | WRITE | `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[mid]` (note) | 1.6 |
+| ✅ PR #4 | `migrateMoviesToList` | WRITE | **DELETED** (legacy one-shot, no callers) | 1.7 |
 | 889 | `searchUsers` | READ_ADMIN | `GET /api/v1/users/search` | 2.8 |
 | 977 | `getUserProfile` | READ_ADMIN | `GET /api/v1/users/[uid]` | — |
 | 1017 | `getUserByUsername` | READ_ADMIN | `GET /api/v1/users/by-username/[u]` | — |

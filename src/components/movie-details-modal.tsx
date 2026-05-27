@@ -25,13 +25,9 @@ import { Drawer } from 'vaul';
 
 import type { Movie, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
-import {
-  updateDocumentNonBlocking,
-  deleteDocumentNonBlocking,
-  useFirestore,
-  useUser,
-} from '@/firebase';
-import { getUserRating, createOrUpdateRating, deleteRating, createReview, updateMovieNote, getMovieReviews } from '@/app/actions';
+import { useFirestore, useUser } from '@/firebase';
+import { getUserRating, createOrUpdateRating, deleteRating, createReview, getMovieReviews } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import {
   type MediaDetails,
   getCachedDetails,
@@ -333,9 +329,23 @@ export function MovieDetailsModal({
       return;
     }
 
+    if (!listId || !effectiveOwnerId) return;
+
+    const prevStatus = localStatus;
     setLocalStatus(newStatus);
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { status: newStatus });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { status: newStatus },
+      ).catch((err) => {
+        setLocalStatus(prevStatus);
+        toast({
+          variant: 'destructive',
+          title: 'Update failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update status.',
+        });
+      });
     });
   };
 
@@ -368,9 +378,17 @@ export function MovieDetailsModal({
     }
 
     setLocalStatus('Watched');
-    startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
-    });
+    if (listId && effectiveOwnerId) {
+      startTransition(() => {
+        void apiCall(
+          'PATCH',
+          `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+          { status: 'Watched' },
+        ).catch((err) => {
+          console.error('[movie-modal] status PATCH failed:', err);
+        });
+      });
+    }
 
     toast({
       title: 'Marked as Watched',
@@ -380,15 +398,32 @@ export function MovieDetailsModal({
 
   const handleRateOnWatchSkip = () => {
     setLocalStatus('Watched');
+    if (!listId || !effectiveOwnerId) return;
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { status: 'Watched' },
+      ).catch((err) => {
+        console.error('[movie-modal] status PATCH failed:', err);
+      });
     });
   };
 
   const handleRemove = () => {
+    if (!listId || !effectiveOwnerId) return;
+    const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
     startTransition(() => {
-      deleteDocumentNonBlocking(movieDocRef);
-      const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
+      void apiCall(
+        'DELETE',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Remove failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to remove movie.',
+        });
+      });
       toast({
         title: `${itemType} Removed`,
         description: `${movie.title} has been removed from your list.`,
@@ -401,8 +436,19 @@ export function MovieDetailsModal({
   const handleSaveSocialLink = async (link: string) => {
     const trimmedLink = link.trim();
     setNewSocialLink(trimmedLink);
+    if (!listId || !effectiveOwnerId) return;
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { socialLink: trimmedLink || null });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { socialLink: trimmedLink },
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Update failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update link.',
+        });
+      });
       toast({
         title: 'Link Updated',
         description: trimmedLink ? 'Social link has been updated.' : 'Social link has been removed.',
@@ -460,19 +506,21 @@ export function MovieDetailsModal({
 
     setIsSavingNote(true);
     try {
-      const result = await updateMovieNote(await user.getIdToken(), listOwnerId, listId, movie.id, noteToSave);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-        throw new Error(result.error);
-      } else {
-        // Update local state with the saved note
-        setUserNote(noteToSave);
-        toast({
-          title: noteToSave.trim() ? 'Note saved' : 'Note removed',
-        });
-      }
+      await apiCall(
+        'PATCH',
+        `/api/v1/lists/${listOwnerId}/${listId}/movies/${movie.id}`,
+        { note: noteToSave },
+      );
+      setUserNote(noteToSave);
+      toast({
+        title: noteToSave.trim() ? 'Note saved' : 'Note removed',
+      });
     } catch (error) {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save note.' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to save note.',
+      });
       throw error;
     } finally {
       setIsSavingNote(false);

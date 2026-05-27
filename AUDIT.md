@@ -80,6 +80,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.6.1** Use the **verified UID** as the dot-notation key for `notes.${uid}` / `noteAuthors.${uid}` — never the client parameter.
 - [x] **1.6.2** **Test:** as User A (collaborator), call `updateMovieNote(userAUid, listId, movieId, userBUid, "spoofed")` → either rejected, or note saved under User A's uid (not User B's).
+- [x] **1.6.3** **Phase A PR #4**: action retired; new route `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (body `{ note }`) preserves the invariant — there is no `userId` field in the request, the note key is derived from the Bearer token. Tests migrated to `scripts/audit-tests/29-movies-endpoints.test.ts` + `07-special-cases-auth.test.ts`.
 
 ### 1.7 — `migrateMoviesToList` has no auth check (`actions.ts:719`)
 
@@ -143,6 +144,17 @@ Every fix in this document includes a **Test** field describing how we verify it
 - [x] **2.2.1** Done — `addMovieToList` + `removeMovieFromList` wrap existence-check + write + count in `db.runTransaction` (atomic; contention-retry collapses concurrent same-key races). Imports can't be one txn (500-op limit) → switched to authoritative subcollection recount + SET (idempotent, self-healing on re-import/overlap/partial failure).
 - [x] **2.2.2** **Done — emulator race tests** `scripts/audit-tests/09-moviecount.test.ts` (6 tests, green): single +1; concurrent same-movie → count **1 not 2**; re-add no-op; remove −1; already-gone remove → **no negative drift**; concurrent double-remove → one decrement.
 - [x] **2.2.3** **BONUS bug found via the test:** `movieDoc` passed raw `posterHint`/`title`/`year`/`posterUrl` — Firestore Admin rejects `undefined`, so any TMDB result missing `posterHint` hard-failed adds for real users. Coalesced to `null`. **Systemic follow-up (new, tracked in Phase 5.11 below):** set `firestore.settings({ ignoreUndefinedProperties: true })` so this whole bug class can't recur.
+- [x] **2.2.4** **Phase A PR #4**: transactional invariants live in `src/lib/movies-server.ts` (`addMovieToList`, `removeMovieFromList`) and are exercised end-to-end by `scripts/audit-tests/09-moviecount.test.ts` (migrated from Server-Action calls to the new POST/DELETE routes). 6 tests still green.
+
+### 2.2-bypass — Phase A PR #4 secondary finding
+
+The legacy client used `updateDocumentNonBlocking(movieDocRef, { status })` /
+`deleteDocumentNonBlocking(movieDocRef)` / `updateDocumentNonBlocking(movieDocRef, { socialLink })`
+to mutate movie docs **directly from the browser**, bypassing `canEditList`
+entirely. Firestore security rules were the sole guard. PR #4 routed status,
+socialLink, and movie delete through `PATCH`/`DELETE /api/v1/lists/.../movies/...`,
+which enforces `canEditList` server-side. Stranger-blocked-at-403 tests pinned
+in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 ### 2.3 — Denormalization has no propagation
 

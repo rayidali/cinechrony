@@ -3,8 +3,9 @@
 import { useState, useEffect, useTransition } from 'react';
 import { Drawer } from 'vaul';
 import { Loader2, ListPlus } from 'lucide-react';
-import { useUser, useAuth } from '@/firebase';
-import { getUserLists, addMovieToList } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { getUserLists } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import type { SearchResult } from '@/lib/types';
 
@@ -23,7 +24,6 @@ type AddToListSheetProps = {
  */
 export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) {
   const { user } = useUser();
-  const auth = useAuth();
   const { toast } = useToast();
   const [lists, setLists] = useState<ListRow[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,21 +58,12 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
     setAddingId(listId);
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const fd = new FormData();
-        fd.set('idToken', idToken);
-        fd.set('movieData', JSON.stringify(movie));
-        fd.set('listId', listId);
-        fd.set('listOwnerId', user.uid);
-        fd.set('socialLink', '');
-        fd.set('status', 'To Watch');
-        const res = await addMovieToList(fd);
-        if (res && 'error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-        } else {
-          toast({ title: 'added.', description: `${movie.title} → ${listName}` });
-          onClose();
-        }
+        await apiCall('POST', `/api/v1/lists/${user.uid}/${listId}/movies`, {
+          movieData: movie,
+          status: 'To Watch',
+        });
+        toast({ title: 'added.', description: `${movie.title} → ${listName}` });
+        onClose();
       } catch {
         toast({ variant: 'destructive', title: 'Error', description: 'Failed to add.' });
       } finally {

@@ -1,7 +1,11 @@
 /**
  * Phase 2.2 — movieCount integrity (atomicity + concurrency).
  *
- * Pre-fix bugs:
+ * Migrated to /api/v1 routes in Phase A PR #4. The transactional invariants
+ * the legacy Server Actions enforced are preserved in `src/lib/movies-server.ts`
+ * and exercised end-to-end through the route handlers here.
+ *
+ * Pre-fix bugs (still the regression we're protecting against):
  *  - add: set(movie) and increment(movieCount) were separate ops → a mid-op
  *    failure drifted the count; two concurrent adds of the SAME movie both
  *    read "not exists" and double-incremented.
@@ -17,14 +21,14 @@ import assert from 'node:assert/strict';
 import {
   setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as postMovie } from '@/app/api/v1/lists/[ownerId]/[listId]/movies/route';
+import { DELETE as deleteMovie } from '@/app/api/v1/lists/[ownerId]/[listId]/movies/[movieId]/route';
 
-let addMovieToList: (fd: FormData) => Promise<any>;
-let removeMovieFromList: (idToken: unknown, listOwnerId: string, listId: string, movieId: string) => Promise<any>;
 let owner: TestUser;
 
-before(async () => {
+before(() => {
   setupTestEnv();
-  ({ addMovieToList, removeMovieFromList } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -42,19 +46,34 @@ const moviesCount = async () =>
   (await listRef().collection('movies').count().get()).data().count;
 const storedCount = async () => (await listRef().get()).data()?.movieCount;
 
-function addFd(token: string, movieId: string) {
-  const f = new FormData();
-  f.append('idToken', token);
-  f.append('listId', 'L1');
-  f.append('listOwnerId', owner.uid);
-  f.append('movieData', JSON.stringify({ id: movieId, title: `M${movieId}`, year: '2020', posterUrl: '', mediaType: 'movie' }));
-  return f;
+async function callAdd(token: string, movieId: string) {
+  return callRoute(postMovie, 'POST', {
+    token,
+    params: { ownerId: owner.uid, listId: 'L1' },
+    body: {
+      movieData: {
+        id: movieId,
+        title: `M${movieId}`,
+        year: '2020',
+        posterUrl: '',
+        mediaType: 'movie',
+      },
+    },
+  });
+}
+
+async function callRemove(token: string, movieId: string) {
+  return callRoute(deleteMovie, 'DELETE', {
+    token,
+    params: { ownerId: owner.uid, listId: 'L1', movieId },
+  });
 }
 
 test('add: a single new movie increments movieCount by exactly 1', async () => {
   const tok = await owner.getIdToken();
-  const res = await addMovieToList(addFd(tok, '111'));
-  assert.ok(!('error' in res), `add failed: ${JSON.stringify(res)}`);
+  const res = await callAdd(tok, '111');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
   assert.equal(await moviesCount(), 1, 'one movie doc');
   assert.equal(await storedCount(), 1, 'movieCount == 1');
 });
@@ -62,8 +81,8 @@ test('add: a single new movie increments movieCount by exactly 1', async () => {
 test('add: concurrent adds of the SAME movie → movieCount is 1, not 2 (race fixed)', async () => {
   const tok = await owner.getIdToken();
   await Promise.all([
-    addMovieToList(addFd(tok, '222')),
-    addMovieToList(addFd(tok, '222')),
+    callAdd(tok, '222'),
+    callAdd(tok, '222'),
   ]);
   assert.equal(await moviesCount(), 1, 'still one movie doc (merge)');
   assert.equal(await storedCount(), 1, 'movieCount did NOT double-count');
@@ -71,8 +90,8 @@ test('add: concurrent adds of the SAME movie → movieCount is 1, not 2 (race fi
 
 test('add: re-adding an existing movie does NOT increment again', async () => {
   const tok = await owner.getIdToken();
-  await addMovieToList(addFd(tok, '333'));
-  await addMovieToList(addFd(tok, '333'));
+  await callAdd(tok, '333');
+  await callAdd(tok, '333');
   assert.equal(await storedCount(), 1, 'second add of same movie is a no-op for the count');
 });
 
@@ -80,8 +99,8 @@ test('remove: deleting an existing movie decrements by exactly 1', async () => {
   await listRef().collection('movies').doc('movie_999').set({ id: 'movie_999', title: 'X' });
   await listRef().update({ movieCount: 1 });
 
-  const res = await removeMovieFromList(await owner.getIdToken(), owner.uid, 'L1', 'movie_999');
-  assert.ok(!('error' in res), JSON.stringify(res));
+  const res = await callRemove(await owner.getIdToken(), 'movie_999');
+  assert.equal(res.status, 200);
   assert.equal(await storedCount(), 0, 'movieCount back to 0');
   assert.equal(await moviesCount(), 0, 'movie doc gone');
 });
@@ -91,8 +110,8 @@ test('remove: removing an already-gone movie does NOT decrement (no negative dri
   const tok = await owner.getIdToken();
 
   // Movie 'ghost' never existed.
-  const res = await removeMovieFromList(tok, owner.uid, 'L1', 'ghost');
-  assert.ok(!('error' in res), JSON.stringify(res));
+  const res = await callRemove(tok, 'ghost');
+  assert.equal(res.status, 200);
   assert.equal(await storedCount(), 0, 'count stayed at 0 — did NOT go to -1');
 });
 
@@ -102,8 +121,8 @@ test('remove: concurrent double-remove of the same movie decrements only once', 
   const tok = await owner.getIdToken();
 
   await Promise.all([
-    removeMovieFromList(tok, owner.uid, 'L1', 'm'),
-    removeMovieFromList(tok, owner.uid, 'L1', 'm'),
+    callRemove(tok, 'm'),
+    callRemove(tok, 'm'),
   ]);
   assert.equal(await storedCount(), 0, 'exactly one decrement, not two (no drift to -1)');
 });
