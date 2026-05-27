@@ -15,12 +15,16 @@ import {
   setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 
-let deleteUserAccount: (idToken: unknown, confirmUsername: string) => Promise<any>;
+// Phase A PR #2: the Server Action `deleteUserAccount` was retired; the
+// cascade logic now lives in `@/lib/account-server` (called by the route).
+// This test focuses on the cascade correctness (AUDIT.md 2.7) — auth is
+// covered in `27-me-endpoints.test.ts`.
+let deleteAccount: (uid: string, confirmUsername: string) => Promise<void>;
 let alice: TestUser, bob: TestUser, carol: TestUser, dave: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ deleteUserAccount } = await import('@/app/actions'));
+  ({ deleteAccount } = await import('@/lib/account-server'));
 });
 
 beforeEach(async () => {
@@ -56,8 +60,7 @@ beforeEach(async () => {
 after(async () => { await clearFirestore(); await clearAuth(); });
 
 test('removes the deletee from every collaborator list, across owners', async () => {
-  const res = await deleteUserAccount(await alice.getIdToken(), 'alice_handle');
-  assert.ok(!('error' in res), `delete failed: ${JSON.stringify(res)}`);
+  await deleteAccount(alice.uid, 'alice_handle');
 
   const L1 = (await adminDb().collection('users').doc(bob.uid).collection('lists').doc('L1').get()).data();
   assert.deepEqual(L1?.collaboratorIds, [], 'L1: Alice removed (was [alice])');
@@ -67,14 +70,14 @@ test('removes the deletee from every collaborator list, across owners', async ()
 });
 
 test('leaves unrelated lists alone (control)', async () => {
-  await deleteUserAccount(await alice.getIdToken(), 'alice_handle');
+  await deleteAccount(alice.uid, 'alice_handle');
 
   const L3 = (await adminDb().collection('users').doc(dave.uid).collection('lists').doc('L3').get()).data();
   assert.deepEqual(L3?.collaboratorIds, [dave.uid], "L3 unchanged — Alice was never on it");
 });
 
 test('Alice‘s own lists are deleted (step 5), not touched in step 4', async () => {
-  await deleteUserAccount(await alice.getIdToken(), 'alice_handle');
+  await deleteAccount(alice.uid, 'alice_handle');
 
   const L4 = await adminDb().collection('users').doc(alice.uid).collection('lists').doc('L4').get();
   assert.equal(L4.exists, false, 'L4 deleted as part of own-account teardown');

@@ -14,12 +14,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useUser } from '@/firebase';
-import {
-  createList,
-  uploadListCover,
-  updateListCover,
-  searchUsers,
-} from '@/app/actions';
+import { searchUsers } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { compressImage } from '@/lib/image-compress';
@@ -198,56 +194,46 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
     setIsSubmitting(true);
     startTransition(async () => {
       try {
-        const idToken = await user.getIdToken();
-        const res = await createList(idToken, name.trim(), {
-          isPublic,
-          description: description.trim() || undefined,
-          coverMode,
-          collaboratorInvites: invites.map((i) => ({
-            uid: i.uid,
-            username: i.username,
-          })),
-        });
-
-        if ('error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
+        let listId: string;
+        try {
+          const res = await apiCall<{ listId: string }>('POST', '/api/v1/lists', {
+            name: name.trim(),
+            isPublic,
+            description: description.trim() || undefined,
+            coverMode,
+            collaboratorInvites: invites.map((i) => ({
+              uid: i.uid,
+              username: i.username,
+            })),
+          });
+          listId = res.listId;
+        } catch (err) {
+          const message = err instanceof ApiClientError ? err.message : 'Failed to create list.';
+          toast({ variant: 'destructive', title: 'Error', description: message });
           setIsSubmitting(false);
           return;
         }
 
-        const listId = (res as { listId?: string }).listId;
-        if (!listId) {
-          toast({ variant: 'destructive', title: 'Error', description: 'List id missing.' });
-          setIsSubmitting(false);
-          return;
-        }
-
-        // Upload custom cover if provided + mode is custom.
+        // Upload custom cover if provided + mode is custom. The route writes
+        // the URL to Firestore in the same call — no follow-up needed.
         if (coverPreview && coverMode === 'custom') {
           try {
             const base64Data = coverPreview.split(',')[1];
             const mimeMatch = coverPreview.match(/data:([^;]+);/);
             const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
             const ext = mimeType.split('/')[1] || 'jpg';
-            const uploadRes = await uploadListCover(
-              idToken,
-              user.uid,
-              listId,
-              base64Data,
-              `cover.${ext}`,
-              mimeType,
+            await apiCall(
+              'POST',
+              `/api/v1/lists/${user.uid}/${listId}/cover`,
+              { base64: base64Data, fileName: `cover.${ext}`, mimeType },
             );
-            if (uploadRes.error) {
-              toast({
-                variant: 'destructive',
-                title: 'cover upload failed',
-                description: 'list created but cover did not save.',
-              });
-            } else if (uploadRes.url) {
-              await updateListCover(idToken, user.uid, listId, uploadRes.url);
-            }
           } catch (coverErr) {
             console.error('[NewListDrawer] cover upload failed:', coverErr);
+            toast({
+              variant: 'destructive',
+              title: 'cover upload failed',
+              description: 'list created but cover did not save.',
+            });
           }
         }
 

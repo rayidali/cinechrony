@@ -13,12 +13,13 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
+  setupTestEnv, createTestUser, callActionAs,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { DELETE as deleteMe } from '@/app/api/v1/me/route';
+import { POST as transferPost } from '@/app/api/v1/lists/[ownerId]/[listId]/transfer/route';
 
-let deleteUserAccount: (idToken: unknown, confirmUsername: string) => Promise<any>;
-let transferOwnership: (idToken: unknown, listId: string, newOwnerId: string) => Promise<any>;
 let removeCollaborator: (idToken: unknown, ownerId: string, listId: string, collaboratorId: string) => Promise<any>;
 let updateMovieNote: (idToken: unknown, listOwnerId: string, listId: string, movieId: string, note: string) => Promise<any>;
 
@@ -28,7 +29,7 @@ let collab: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ deleteUserAccount, transferOwnership, removeCollaborator, updateMovieNote } = await import('@/app/actions'));
+  ({ removeCollaborator, updateMovieNote } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -42,28 +43,44 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('1.2 deleteUserAccount: attacker cannot delete the victim via public username', async () => {
+test('1.2 DELETE /api/v1/me: attacker cannot delete the victim via public username', async () => {
   // Pre-fix: deleteUserAccount(victimUid, "ownername") would succeed.
-  // Now the uid comes from the token; attacker's token + victim's username fails
-  // the confirmation (it checks the CALLER's own username).
-  const res = await callActionAs(attacker, deleteUserAccount, 'ownername');
-  assert.ok('error' in res, 'attacker blocked');
+  // Now the uid comes from the token; attacker's token + victim's username
+  // fails the confirmation (which checks the CALLER's own username).
+  const attackerToken = await attacker.getIdToken();
+  const res = await callRoute(deleteMe, 'DELETE', {
+    token: attackerToken,
+    body: { confirmUsername: 'ownername' },
+  });
+  assert.equal(res.status, 400, 'attacker blocked at confirmation gate');
 
   const victim = await adminDb().collection('users').doc(owner.uid).get();
   assert.equal(victim.exists, true, 'victim profile still intact');
 
-  // Forged token entirely → Unauthorized.
-  const forged = await callActionWithRawToken('forged', deleteUserAccount, 'attackername');
-  assert.deepEqual(forged, { error: 'Unauthorized' });
+  // Forged token entirely → 401.
+  const forged = await callRoute(deleteMe, 'DELETE', {
+    token: 'forged',
+    body: { confirmUsername: 'attackername' },
+  });
+  assert.equal(forged.status, 401);
 });
 
-test('1.3 transferOwnership: non-owner cannot steal a list', async () => {
+test('1.3 POST /lists/[ownerId]/[listId]/transfer: non-owner cannot steal a list', async () => {
   await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1')
     .set({ id: 'L1', name: 'L', ownerId: owner.uid, collaboratorIds: [attacker.uid] });
 
-  // Attacker is a collaborator and tries to transfer ownership to themselves.
-  const res = await callActionAs(attacker, transferOwnership, 'L1', attacker.uid);
-  assert.ok('error' in res, 'attacker cannot transfer a list they do not own');
+  // Attacker is a collaborator and tries to transfer ownership to themselves
+  // by sending the real owner's path. The route's belt-and-suspenders check
+  // (params.ownerId !== auth.uid) → 403. Even if that check were dropped,
+  // the staged helper's pre-flight transaction would re-read the list and
+  // reject (data.ownerId !== caller).
+  const attackerToken = await attacker.getIdToken();
+  const res = await callRoute(transferPost, 'POST', {
+    token: attackerToken,
+    params: { ownerId: owner.uid, listId: 'L1' },
+    body: { newOwnerId: attacker.uid },
+  });
+  assert.equal(res.status, 403, 'attacker cannot transfer a list they do not own');
 
   const stolen = await adminDb()
     .collection('users').doc(attacker.uid).collection('lists').doc('L1').get();

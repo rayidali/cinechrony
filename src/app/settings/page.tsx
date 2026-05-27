@@ -7,7 +7,8 @@ import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock,
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport, importLetterboxdMovies, deleteUserAccount, getNotificationPreferences, updateNotificationPreferences } from '@/app/actions';
+import { parseLetterboxdExport, importLetterboxdMovies, getNotificationPreferences, updateNotificationPreferences } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
 import { signOut } from 'firebase/auth';
 import { useFirestore } from '@/firebase';
@@ -129,11 +130,7 @@ export default function SettingsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await deleteUserAccount(await user.getIdToken(), deleteConfirmUsername);
-
-      if ('error' in result) {
-        throw new Error(result.error);
-      }
+      await apiCall('DELETE', '/api/v1/me', { confirmUsername: deleteConfirmUsername });
 
       toast({
         title: "Account deleted",

@@ -33,14 +33,10 @@ import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import {
-  renameList,
-  updateListDescription,
-  updateListVisibility,
-  uploadListCover,
-  deleteList,
   getListMembers,
   removeCollaborator,
 } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { MovieList, ListMember } from '@/lib/types';
 import { processImage, fileToBase64, isImageFile } from '@/lib/image-utils';
 
@@ -212,42 +208,30 @@ export default function ListSettingsPage() {
 
     setIsSaving(true);
     try {
+      // Cover upload first (owner-or-collaborator can do this).
       if (coverFile) {
         const base64Data = await fileToBase64(coverFile);
-        const coverResult = await uploadListCover(await user.getIdToken(), effectiveOwnerId, listId, base64Data, coverFile.name, coverFile.type);
-        if (coverResult.error) {
-          toast({ variant: 'destructive', title: 'Error', description: coverResult.error });
-          setIsSaving(false);
-          return;
-        }
+        await apiCall(
+          'POST',
+          `/api/v1/lists/${effectiveOwnerId}/${listId}/cover`,
+          { base64: base64Data, fileName: coverFile.name, mimeType: coverFile.type },
+        );
       }
 
-      if (name !== listData.name) {
-        const nameResult = await renameList(await user.getIdToken(), effectiveOwnerId, listId, name);
-        if ('error' in nameResult) {
-          toast({ variant: 'destructive', title: 'Error', description: nameResult.error });
-          setIsSaving(false);
-          return;
-        }
-      }
+      // Collapse rename + description + visibility into one owner-only PATCH.
+      // Only include fields that actually changed; if none changed, skip the
+      // PATCH entirely (the route would 400 on empty body).
+      const fieldUpdates: Record<string, unknown> = {};
+      if (name !== listData.name) fieldUpdates.name = name;
+      if (description !== (listData.description || '')) fieldUpdates.description = description;
+      if (isOwner && isPublic !== listData.isPublic) fieldUpdates.isPublic = isPublic;
 
-      if (description !== (listData.description || '')) {
-        const descResult = await updateListDescription(await user.getIdToken(), effectiveOwnerId, listId, description);
-        if ('error' in descResult) {
-          toast({ variant: 'destructive', title: 'Error', description: descResult.error });
-          setIsSaving(false);
-          return;
-        }
-      }
-
-      // Visibility can only be changed by owner
-      if (isOwner && isPublic !== listData.isPublic) {
-        const visibilityResult = await updateListVisibility(await user.getIdToken(), effectiveOwnerId, listId, isPublic);
-        if ('error' in visibilityResult) {
-          toast({ variant: 'destructive', title: 'Error', description: visibilityResult.error });
-          setIsSaving(false);
-          return;
-        }
+      if (Object.keys(fieldUpdates).length > 0) {
+        await apiCall(
+          'PATCH',
+          `/api/v1/lists/${effectiveOwnerId}/${listId}`,
+          fieldUpdates,
+        );
       }
 
       toast({ title: 'Settings saved', description: 'List settings have been updated.' });
@@ -255,7 +239,8 @@ export default function ListSettingsPage() {
       router.refresh();
     } catch (error) {
       console.error('Failed to save settings:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save settings.' });
+      const message = error instanceof ApiClientError ? error.message : 'Failed to save settings.';
+      toast({ variant: 'destructive', title: 'Error', description: message });
     } finally {
       setIsSaving(false);
     }
@@ -267,16 +252,13 @@ export default function ListSettingsPage() {
 
     setIsDeleting(true);
     try {
-      const result = await deleteList(await user.getIdToken(), effectiveOwnerId, listId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'List deleted', description: 'The list has been permanently deleted.' });
-        router.push('/lists');
-      }
+      await apiCall('DELETE', `/api/v1/lists/${effectiveOwnerId}/${listId}`);
+      toast({ title: 'List deleted', description: 'The list has been permanently deleted.' });
+      router.push('/lists');
     } catch (error) {
       console.error('Failed to delete list:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete list.' });
+      const message = error instanceof ApiClientError ? error.message : 'Failed to delete list.';
+      toast({ variant: 'destructive', title: 'Error', description: message });
     } finally {
       setIsDeleting(false);
       setIsDeleteOpen(false);
