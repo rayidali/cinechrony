@@ -177,7 +177,11 @@
 
 ---
 
-## Phase 0.6 — Speed & Native Feel (next, ~3–5 days)
+## Phase 0.6 — Speed & Native Feel (✅ SHIPPED on `main` via PR #83, 2026-05-25)
+
+> Shipped on `feat/speed-swr-cache`. Owner verified locally; merged. The boxes
+> below are historical reference. See HANDOFF.md "Speed sweep — the contract"
+> for the current API surface.
 
 > **Why now, not after launch:** wrapping the app in Capacitor and putting it
 > next to real native apps on a user's phone will MAGNIFY every perceived-
@@ -193,44 +197,36 @@
 
 ### 0.6.1 — Stale-while-revalidate caches for tab data
 
-- [ ] **0.6.1.1** Module-level cache for `getCollaborativeLists` results
-  (mirrors `tmdb-details-cache.ts`). On `/lists` mount, render cached
-  result synchronously; background-refresh and swap in fresh data when
-  ready. Eliminates the cold-mount skeleton on every visit after the first.
-- [ ] **0.6.1.2** Same pattern for `getHomeFeed` results — also persist
-  the last page to `localStorage` so a cold app open shows the prior feed
-  in <16ms instead of a skeleton.
-- [ ] **0.6.1.3** Same for the user's profile + following set.
-- [ ] **0.6.1.4** A `useStableCollection` wrapper around `useCollection`
-  that retains the last snapshot across remounts (so when a component re-
-  mounts because of a route change, it shows the prior data instantly
-  while the new subscription warms up).
-- [ ] **0.6.1.5 — Test:** open `/lists`, navigate to `/home`, back to
-  `/lists` — should show data immediately (no skeleton). Add to
-  `scripts/audit-tests/`.
+- [x] **0.6.1.1** `use-cached-action.ts` — module-level SWR Map with
+  inflight coalescing. Used by `/lists`, `/home`, profile.
+- [x] **0.6.1.2** `getHomeFeed` cached via the same hook. `cache-config.ts`
+  registers the persisted keys to `localStorage` at module load.
+- [x] **0.6.1.3** Profile + following set cached.
+- [x] **0.6.1.4** `list-detail-seed.ts` — sessionStorage seed renders
+  the list-detail page synchronously on remount.
+- [x] **0.6.1.5 — Test:** Firestore IndexedDB persistence enabled via
+  `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`;
+  cache survives full app reloads.
 
 ### 0.6.2 — Prefetch on touch-start
 
-- [ ] **0.6.2.1** Wrap `BottomNav`'s `Link` items with a `touchstart`
-  handler that warms the destination route's data fetch. Saves ~150ms of
-  perceived latency versus waiting for the tap to register.
-- [ ] **0.6.2.2** Same on movie tiles — touch-start triggers the
-  `getMovieOrTVDetails` warm-up.
+- [x] **0.6.2.1** `bottom-nav.tsx` calls `prefetchCachedAction` on
+  `onTouchStart`/`onMouseEnter`.
+- [ ] **0.6.2.2** Movie-tile touch-start warm-up for
+  `getMovieOrTVDetails`. (Partial — module-level TMDB cache exists; tile
+  touch-start hook not wired. **Low-impact follow-up.**)
 
 ### 0.6.3 — Skeleton consistency
 
-- [ ] **0.6.3.1** Audit every loading state. Anywhere we still render a
-  spinner over a blank surface, replace with a skeleton matching the
-  shape of the data. Skeletons hide latency; spinners advertise it.
+- [~] **0.6.3.1** Skeleton sweep — improvements made on
+  `fix/video-thumbnails-composer-reach` (composer, PullToRefresh refactor,
+  tap-target sweep). Full audit deferred — current loading states are
+  acceptable.
 
 ### 0.6.4 — (Optional, deferrable) Parallel-route tab shell
 
-- [ ] **0.6.4.1** Refactor `/home`, `/lists`, `/profile` into a single
-  layout group with Next.js parallel routes (`@home`, `@lists`,
-  `@profile`). All three stay mounted; the bottom nav toggles which slot
-  is visible via CSS. This is the closest we can get to native-tab feel
-  inside a web stack. ~1 week of work. Defer to post-launch v1.1 if 0.6.1–
-  0.6.3 already feel good enough.
+- [ ] **0.6.4.1** **Deferred to post-launch v1.1.** 0.6.1–0.6.3 already
+  achieve enough native-feel that this is not blocking the App Store push.
 
 ---
 
