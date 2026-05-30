@@ -70,6 +70,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.4.1** Compare `listData.ownerId` against the **verified UID**, not the parameter.
 - [x] **1.4.2** **Test:** as User B (not the owner), call `removeCollaborator(userAUid, listId, victimUid)` → rejected.
+- [x] **1.4.3** **Phase A PR #6**: action retired; logic in `src/lib/collaborators-server.ts::removeCollaborator`. Route `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` enforces owner-only via the verified-token uid. Tests in `07-special-cases-auth.test.ts` + `31-collaborators-endpoints.test.ts`.
 
 ### 1.5 — `updateListCover` has no permission check (`actions.ts:2861`)
 
@@ -177,11 +178,13 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x]  **2.5.2** Fix the multi-tab broadcast: optional `BroadcastChannel` so rating in tab A appears in tab B.
 - [x]  **2.5.3** Cancel in-flight `getUserRatings` on logout so it doesn't repopulate the cleared cache.
 - [x]  **2.5.4** **Test:** seed 1200 ratings for a test user. Open the app — cache has 1200 entries, grid cards show ratings, modal matches.
+- [x]  **2.5.5 — Phase A PR #9**: cursor pagination preserved end-to-end. Route `GET /api/v1/users/[uid]/ratings?limit=&cursor=` returns `{ ratings, hasMore, nextCursor }`. Cursor is the previous page's last `updatedAt` ISO timestamp. `UserRatingsCacheProvider` loops until `hasMore === false`. Test in `13-ratings-pagination.test.ts` seeds 1200 ratings, walks via cursor, asserts every uid returned exactly once.
 
 ### 2.6 — Comment "edit" duplicates (`comments/page.tsx:305`)
 
 - [x]  **2.6.1** Either implement real edit (server action that updates the review doc) or remove the misleading edit affordance.
 - [x]  **2.6.2** **Test (manual):** tap edit on own comment, modify text, save. Original comment is updated in place — no duplicate appears.
+- [x]  **2.6.3** **Phase A PR #8**: real-edit invariant preserved end-to-end. Route `PATCH /api/v1/reviews/[id]` (owner-only) mutates the original doc. Test `33-reviews-endpoints.test.ts` ("owner real-edit mutates the same doc") asserts the collection size stays at 1 after the edit.
 
 ### 2.7 — `deleteUserAccount` full-collection scan (`actions.ts:1094`)
 
@@ -233,7 +236,8 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 ### 3.5 — `like` actions are not transactional (`likeReview:3128`, `unlikeReview:3195`, `likeActivity:5567`)
 
 - [x] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
-- [ ] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry.
+- [x] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry. Migrated to route in `14-like-atomicity.test.ts`; "concurrent double-like by the SAME user → likes 1, not 2".
+- [x] **Phase A PR #8**: `likeReview` / `unlikeReview` retired; transactional logic in `src/lib/reviews-server.ts`. Routes `POST` / `DELETE /api/v1/reviews/[id]/like` exercised by `14-like-atomicity.test.ts` (5 tests, all green) + `33-reviews-endpoints.test.ts`.
 
 ### 3.6 — `useToast` 16-minute leak (`use-toast.ts:11`)
 
@@ -249,6 +253,11 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 - [x] Add a per-UID Firestore-backed rate limiter (`/rate_limits/{uid}_{action}` with timestamp). Apply to: `followUser`, `likeReview`, `likeActivity`, `createReview`, `inviteToList`, `createInviteLink`, `savePushSubscription`.
 - [ ] **Test (exploit script):** fire 100 `followUser` calls in 10 seconds → some are rejected with rate-limit error.
+- [x] **Phase A PR #5 + PR #7**: `checkRateLimit` invocations preserved at the new route layer. Invites: `POST /api/v1/lists/.../invites` + `.../invite-link`. Follows: `POST /api/v1/users/[uid]/follow`. All return a 429 with `RATE_LIMITED` envelope when tripped — clients can branch on `error.code`.
+
+### 3.8a — Latent count-drift (parallel to AUDIT 2.2)
+
+- [x] **3.8a.1 — Phase A PR #7**: `unfollowUser` used to batch-delete + decrement WITHOUT checking that the follow doc existed. A ghost unfollow (concurrent double-tap, stale UI) drifted `followersCount`/`followingCount` negative. The route now wraps existence-check + delete + decrement in `db.runTransaction`. Idempotent; concurrent double-unfollow → exactly one decrement. Test in `32-follows-endpoints.test.ts`: "ghost unfollow is a no-op — counts do NOT drift negative".
 
 ### 3.9 — `apphosting.yaml` maxInstances: 1
 
@@ -257,8 +266,9 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 ### 3.10 — `getMovieReviews` / `getReviewReplies` cap at 50 with no pagination (`actions.ts:3050`)
 
-- [ ] Add cursor pagination matching `getActivityFeed`'s pattern. Update comments page to fetch more on scroll.
-- [ ] **Test:** seed 100 reviews on a movie — comments page shows all of them via infinite scroll.
+- [x] **Phase A PR #8**: cursor pagination added matching `getActivityFeed`'s pattern. Both `GET /api/v1/reviews?tmdbId=&cursor=` and `GET /api/v1/reviews/[id]/replies?cursor=` accept `limit` (1–100, default 50) and return `{ hasMore, nextCursor }`. Helper fetches `limit+1` to compute hasMore.
+- [x] **Test:** `33-reviews-endpoints.test.ts` seeds 5 reviews + asserts a 3-page sequence via cursor (page1: 2 newest, hasMore=true; page2: middle 2; page3: oldest 1, hasMore=false). Same pattern for replies.
+- [ ] Comments page UI: paginated load-more / infinite scroll wiring. The endpoint supports it; client-side scroll trigger is a UX follow-up.
 
 ### 3.11 — `comments/page.tsx` history.pushState without cleanup (line 83)
 

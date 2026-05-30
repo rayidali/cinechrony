@@ -21,12 +21,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import {
-  likeReview,
-  unlikeReview,
-  deleteReview,
-  reportContent,
-} from '@/app/actions';
+import { reportContent } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import type { Review } from '@/lib/types';
@@ -119,30 +115,26 @@ export const ReviewCard = memo(function ReviewCard({
     setIsLiking(true);
     try {
       if (isLiked) {
-        const result = await unlikeReview(
-          (await auth.currentUser?.getIdToken()) ?? '',
-          review.id,
+        const result = await apiCall<{ likes: number }>(
+          'DELETE',
+          `/api/v1/reviews/${review.id}/like`,
         );
-        if ('error' in result) {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        } else {
-          setLikes(result.likes ?? likes - 1);
-          setIsLiked(false);
-        }
+        setLikes(result.likes ?? likes - 1);
+        setIsLiked(false);
       } else {
-        const result = await likeReview(
-          (await auth.currentUser?.getIdToken()) ?? '',
-          review.id,
+        const result = await apiCall<{ likes: number }>(
+          'POST',
+          `/api/v1/reviews/${review.id}/like`,
         );
-        if ('error' in result) {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        } else {
-          setLikes(result.likes ?? likes + 1);
-          setIsLiked(true);
-        }
+        setLikes(result.likes ?? likes + 1);
+        setIsLiked(true);
       }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to update like.' });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to update like.',
+      });
     } finally {
       setIsLiking(false);
     }
@@ -152,18 +144,15 @@ export const ReviewCard = memo(function ReviewCard({
     if (!currentUserId || isDeleting) return;
     setIsDeleting(true);
     try {
-      const result = await deleteReview(
-        (await auth.currentUser?.getIdToken()) ?? '',
-        review.id,
-      );
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'deleted.', description: 'your review has been deleted.' });
-        onDelete?.(review.id);
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete review.' });
+      await apiCall('DELETE', `/api/v1/reviews/${review.id}`);
+      toast({ title: 'deleted.', description: 'your review has been deleted.' });
+      onDelete?.(review.id);
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to delete review.',
+      });
     } finally {
       setIsDeleting(false);
     }

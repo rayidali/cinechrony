@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useState, useCallback, useEffect, useRef, ReactNode } from 'react';
 import { useUser } from '@/firebase';
-import { getUserRatings } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import type { UserRating } from '@/lib/types';
 
 type RatingsMap = Map<number, number>; // tmdbId -> rating
@@ -58,24 +58,25 @@ export function UserRatingsCacheProvider({ children }: { children: ReactNode }) 
       // Defensive max-iterations cap protects against runaway loops if the
       // cursor mechanism ever misbehaves (e.g. ties in updatedAt).
       for (let i = 0; i < 50; i++) {
-        const result = await getUserRatings(user.uid, PAGE_SIZE, cursor);
+        const qs = new URLSearchParams({ limit: String(PAGE_SIZE) });
+        if (cursor) qs.set('cursor', cursor);
+        const result = await apiCall<{ ratings: UserRating[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          `/api/v1/users/${user.uid}/ratings?${qs.toString()}`,
+        );
         // If a newer fetch (or logout) bumped the generation, abandon — don't
         // pollute the new state.
         if (fetchGenRef.current !== myGen) return;
         if (!result.ratings || result.ratings.length === 0) break;
 
-        for (const r of result.ratings as UserRating[]) {
+        for (const r of result.ratings) {
           map.set(r.tmdbId, r.rating);
         }
 
-        if (result.ratings.length < PAGE_SIZE) break; // last page
+        if (!result.hasMore) break; // last page (route returns hasMore explicitly)
 
-        const last = result.ratings[result.ratings.length - 1] as UserRating;
-        const lastUpdated = last.updatedAt instanceof Date
-          ? last.updatedAt.toISOString()
-          : new Date(last.updatedAt as unknown as string).toISOString();
-        if (cursor === lastUpdated) break; // safety: identical cursor → tie, stop
-        cursor = lastUpdated;
+        if (!result.nextCursor || cursor === result.nextCursor) break; // safety
+        cursor = result.nextCursor;
       }
 
       // Final guard before writing.

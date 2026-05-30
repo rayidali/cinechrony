@@ -139,9 +139,18 @@ export function RatingSlider({
 
   return (
     <div className="space-y-3">
-      {label && (
+      {/* Header row: shown when there's a label, OR when there's a
+          clearable rating. Pre-v2 the Clear affordance was nested inside
+          the `label &&` conditional, so callers that passed `label=""`
+          (the movie modal) silently lost the Clear button. Now they're
+          independent. */}
+      {(label || (value !== null && showClearButton && onClear)) && (
         <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-muted-foreground">{label}</span>
+          {label ? (
+            <span className="text-sm font-medium text-muted-foreground">{label}</span>
+          ) : (
+            <span aria-hidden="true" />
+          )}
           {value !== null && showClearButton && onClear && (
             <Button
               variant="ghost"
@@ -149,6 +158,7 @@ export function RatingSlider({
               onClick={onClear}
               disabled={disabled}
               className="h-6 px-2 text-xs text-muted-foreground hover:text-foreground"
+              aria-label="Clear rating"
             >
               <X className="h-3 w-3 mr-1" />
               Clear

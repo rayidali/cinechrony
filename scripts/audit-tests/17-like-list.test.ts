@@ -1,8 +1,11 @@
 /**
  * LAUNCH 0.5.1 — like / unlike public lists.
  *
- * `likeList`/`unlikeList` clone the hardened `likeReview` pattern:
- * verifyCaller → rate-limit → transactional read-check-write. This asserts
+ * Migrated to /api/v1 routes in Phase A PR #9 — see
+ * `src/lib/lists-server.ts` and the route file at
+ * `src/app/api/v1/lists/[ownerId]/[listId]/like/route.ts`.
+ *
+ * Invariants asserted:
  *  - only public lists are likeable;
  *  - `likes` never drifts from `likedBy.length` under a concurrent burst;
  *  - a forged token is rejected;
@@ -13,18 +16,16 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken, adminDb,
+  setupTestEnv, createTestUser, adminDb,
   clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as likePost, DELETE as unlikeDelete }
+  from '@/app/api/v1/lists/[ownerId]/[listId]/like/route';
 
-let likeList: (idToken: unknown, ownerId: string, listId: string) => Promise<any>;
-let unlikeList: (idToken: unknown, ownerId: string, listId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  ({ likeList, unlikeList } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 /** Seed a list owned by `ownerUid`. */
 async function seedList(ownerUid: string, listId: string, isPublic: boolean) {
@@ -46,10 +47,22 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
+async function like(user: TestUser, ownerUid: string, listId: string) {
+  return callRoute(likePost, 'POST', {
+    token: await user.getIdToken(), params: { ownerId: ownerUid, listId },
+  });
+}
+
+async function unlike(user: TestUser, ownerUid: string, listId: string) {
+  return callRoute(unlikeDelete, 'DELETE', {
+    token: await user.getIdToken(), params: { ownerId: ownerUid, listId },
+  });
+}
+
 test('like a public list → likes 1, likedBy holds the liker', async () => {
   await seedList(bob.uid, 'L1', true);
-  const res = await callActionAs(alice, likeList, bob.uid, 'L1');
-  assert.equal(res.success, true);
+  const res = await like(alice, bob.uid, 'L1');
+  assert.equal(res.status, 200);
   const d = await listDoc(bob.uid, 'L1');
   assert.equal(d?.likes, 1);
   assert.deepEqual(d?.likedBy, [alice.uid]);
@@ -57,16 +70,13 @@ test('like a public list → likes 1, likedBy holds the liker', async () => {
 
 test('private lists cannot be liked', async () => {
   await seedList(bob.uid, 'L1', false);
-  const res = await callActionAs(alice, likeList, bob.uid, 'L1');
-  assert.deepEqual(res, { error: 'Only public lists can be liked.' });
+  const res = await like(alice, bob.uid, 'L1');
+  assert.equal(res.status, 403);
 });
 
 test('concurrent double-like by the SAME user → likes 1, not 2', async () => {
   await seedList(bob.uid, 'L1', true);
-  await Promise.all([
-    callActionAs(alice, likeList, bob.uid, 'L1'),
-    callActionAs(alice, likeList, bob.uid, 'L1'),
-  ]);
+  await Promise.all([like(alice, bob.uid, 'L1'), like(alice, bob.uid, 'L1')]);
   const d = await listDoc(bob.uid, 'L1');
   assert.equal(d?.likes, 1, 'likes did not double-count');
   assert.equal(d?.likes, (d?.likedBy as string[]).length, 'count matches array');
@@ -74,32 +84,36 @@ test('concurrent double-like by the SAME user → likes 1, not 2', async () => {
 
 test('like then unlike returns to zero', async () => {
   await seedList(bob.uid, 'L1', true);
-  await callActionAs(alice, likeList, bob.uid, 'L1');
-  await callActionAs(alice, unlikeList, bob.uid, 'L1');
+  await like(alice, bob.uid, 'L1');
+  await unlike(alice, bob.uid, 'L1');
   const d = await listDoc(bob.uid, 'L1');
   assert.equal(d?.likes, 0);
   assert.deepEqual(d?.likedBy, []);
 });
 
-test('like already-liked / unlike not-liked are rejected', async () => {
+test('like already-liked / unlike not-liked are rejected with 409', async () => {
   await seedList(bob.uid, 'L1', true);
-  await callActionAs(alice, likeList, bob.uid, 'L1');
-  assert.deepEqual(await callActionAs(alice, likeList, bob.uid, 'L1'), { error: 'Already liked.' });
-  await callActionAs(alice, unlikeList, bob.uid, 'L1');
-  assert.deepEqual(await callActionAs(alice, unlikeList, bob.uid, 'L1'), { error: 'Not liked yet.' });
+  await like(alice, bob.uid, 'L1');
+  const dupeLike = await like(alice, bob.uid, 'L1');
+  assert.equal(dupeLike.status, 409);
+  await unlike(alice, bob.uid, 'L1');
+  const ghostUnlike = await unlike(alice, bob.uid, 'L1');
+  assert.equal(ghostUnlike.status, 409);
 });
 
 test('a forged / empty token is rejected', async () => {
   await seedList(bob.uid, 'L1', true);
-  const res = await callActionWithRawToken('', likeList, bob.uid, 'L1');
-  assert.ok('error' in res, 'empty token must be rejected');
+  const res = await callRoute(likePost, 'POST', {
+    token: '', params: { ownerId: bob.uid, listId: 'L1' },
+  });
+  assert.equal(res.status, 401, 'empty token must be rejected');
   const d = await listDoc(bob.uid, 'L1');
   assert.equal(d?.likes, 0, 'no like was recorded');
 });
 
 test('liking a list notifies its owner', async () => {
   await seedList(bob.uid, 'L1', true);
-  await callActionAs(alice, likeList, bob.uid, 'L1');
+  await like(alice, bob.uid, 'L1');
   const notifs = await adminDb()
     .collection('notifications').where('userId', '==', bob.uid).get();
   const likeNotif = notifs.docs.map((d) => d.data()).find((n) => n.type === 'list_like');
@@ -111,9 +125,8 @@ test('liking a list notifies its owner', async () => {
 test('list members (owner + collaborator) cannot like their own list', async () => {
   // Owner can't like their own list.
   await seedList(alice.uid, 'OWN', true);
-  assert.deepEqual(await callActionAs(alice, likeList, alice.uid, 'OWN'), {
-    error: "You can't like a list you're part of.",
-  });
+  const ownLike = await like(alice, alice.uid, 'OWN');
+  assert.equal(ownLike.status, 403);
 
   // A collaborator can't like a list they're on.
   await adminDb()
@@ -123,9 +136,8 @@ test('list members (owner + collaborator) cannot like their own list', async () 
       id: 'COLLAB', name: 'collab', ownerId: bob.uid, isPublic: true,
       likes: 0, likedBy: [], collaboratorIds: [alice.uid],
     });
-  assert.deepEqual(await callActionAs(alice, likeList, bob.uid, 'COLLAB'), {
-    error: "You can't like a list you're part of.",
-  });
+  const collabLike = await like(alice, bob.uid, 'COLLAB');
+  assert.equal(collabLike.status, 403);
 });
 
 test('a member can still remove a stale like (self-heal)', async () => {
@@ -137,8 +149,8 @@ test('a member can still remove a stale like (self-heal)', async () => {
       id: 'STALE', name: 'stale', ownerId: bob.uid, isPublic: true,
       likes: 1, likedBy: [alice.uid], collaboratorIds: [alice.uid],
     });
-  const res = await callActionAs(alice, unlikeList, bob.uid, 'STALE');
-  assert.equal(res.success, true);
+  const res = await unlike(alice, bob.uid, 'STALE');
+  assert.equal(res.status, 200);
   const d = await listDoc(bob.uid, 'STALE');
   assert.equal(d?.likes, 0);
   assert.deepEqual(d?.likedBy, []);
@@ -148,10 +160,11 @@ test('the shared `like` rate-limit bucket trips', async () => {
   // 60 likes/60s — alice likes bob's lists (she's not a member of any).
   const COUNT = 62;
   for (let i = 0; i < COUNT; i++) await seedList(bob.uid, `L${i}`, true);
-  const results: any[] = [];
+  const results: number[] = [];
   for (let i = 0; i < COUNT; i++) {
-    results.push(await callActionAs(alice, likeList, bob.uid, `L${i}`));
+    const r = await like(alice, bob.uid, `L${i}`);
+    results.push(r.status);
   }
-  assert.equal(results[0].success, true, 'the first like succeeds');
-  assert.ok(results[COUNT - 1].error, 'the 62nd like is rate-limited');
+  assert.equal(results[0], 200, 'the first like succeeds');
+  assert.equal(results[COUNT - 1], 429, 'the 62nd like is rate-limited');
 });

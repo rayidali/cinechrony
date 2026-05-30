@@ -419,3 +419,149 @@ export async function setListCover(
     .collection('lists').doc(listId)
     .update({ coverImageUrl, updatedAt: FieldValue.serverTimestamp() });
 }
+
+// ─── List likes (Phase A PR #9, LAUNCH 0.5.1) ─────────────────────────────
+
+export class ListNotPublicError extends Error {
+  constructor(message = 'Only public lists can be liked.') {
+    super(message);
+    this.name = 'ListNotPublicError';
+  }
+}
+
+export class CannotLikeOwnListError extends Error {
+  constructor(message = "You can't like a list you're part of.") {
+    super(message);
+    this.name = 'CannotLikeOwnListError';
+  }
+}
+
+export class ListAlreadyLikedError extends Error {
+  constructor(message = 'Already liked.') {
+    super(message);
+    this.name = 'ListAlreadyLikedError';
+  }
+}
+
+export class ListNotLikedError extends Error {
+  constructor(message = 'Not liked yet.') {
+    super(message);
+    this.name = 'ListNotLikedError';
+  }
+}
+
+/**
+ * Like a public list (LAUNCH 0.5.1). Read-check-write inside a transaction
+ * matches the AUDIT 3.5 pattern. `likes`/`likedBy`/`lastLikedAt` are
+ * server-only fields — `firestore.rules` blocks the owner from editing
+ * them, so counts can't be forged client-side.
+ *
+ * Members (owner + collaborators) cannot like their own list — keeps the
+ * loved-lists showcase from being gamed by the team itself.
+ *
+ * Best-effort `list_like` notification to the owner post-commit.
+ */
+export async function likeList(
+  callerUid: string,
+  listOwnerId: string,
+  listId: string,
+): Promise<{ likes: number }> {
+  const db = getDb();
+  const listRef = db
+    .collection('users').doc(listOwnerId)
+    .collection('lists').doc(listId);
+
+  type TxOk = {
+    kind: 'ok';
+    listData: FirebaseFirestore.DocumentData;
+    newLikes: number;
+  };
+  type TxErr = { kind: 'err'; error: Error };
+  const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(listRef);
+    if (!snap.exists) return { kind: 'err' as const, error: new ListNotFoundError() };
+    const data = snap.data() || {};
+    if (data.isPublic !== true) {
+      return { kind: 'err' as const, error: new ListNotPublicError() };
+    }
+    const collaboratorIds: string[] = data.collaboratorIds || [];
+    if (listOwnerId === callerUid || collaboratorIds.includes(callerUid)) {
+      return { kind: 'err' as const, error: new CannotLikeOwnListError() };
+    }
+    const likedBy: string[] = data.likedBy || [];
+    if (likedBy.includes(callerUid)) {
+      return { kind: 'err' as const, error: new ListAlreadyLikedError() };
+    }
+    tx.update(listRef, {
+      likes: FieldValue.increment(1),
+      likedBy: FieldValue.arrayUnion(callerUid),
+      lastLikedAt: FieldValue.serverTimestamp(),
+    });
+    return { kind: 'ok' as const, listData: data, newLikes: (data.likes || 0) + 1 };
+  });
+  if (result.kind === 'err') throw result.error;
+
+  // Notify the owner — best-effort, never self.
+  if (listOwnerId !== callerUid) {
+    try {
+      const ownerDoc = await db.collection('users').doc(listOwnerId).get();
+      const prefs = ownerDoc.data()?.notificationPreferences;
+      if (!prefs || prefs.likes !== false) {
+        const likerDoc = await db.collection('users').doc(callerUid).get();
+        const likerData = likerDoc.data();
+        await db.collection('notifications').add({
+          userId: listOwnerId,
+          type: 'list_like',
+          fromUserId: callerUid,
+          fromUsername: likerData?.username || null,
+          fromDisplayName: likerData?.displayName || null,
+          fromPhotoUrl: likerData?.photoURL || null,
+          listId,
+          listOwnerId,
+          listName: result.listData?.name || 'your list',
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+      }
+    } catch (err) {
+      console.error('[likeList] notification create failed:', err);
+    }
+  }
+
+  return { likes: result.newLikes };
+}
+
+/**
+ * Unlike a public list. `lastLikedAt` is intentionally NOT touched —
+ * unliking is not "activity" that should refresh the recency signal that
+ * powers the loved-lists showcase.
+ */
+export async function unlikeList(
+  callerUid: string,
+  listOwnerId: string,
+  listId: string,
+): Promise<{ likes: number }> {
+  const db = getDb();
+  const listRef = db
+    .collection('users').doc(listOwnerId)
+    .collection('lists').doc(listId);
+
+  type TxOk = { kind: 'ok'; newLikes: number };
+  type TxErr = { kind: 'err'; error: Error };
+  const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(listRef);
+    if (!snap.exists) return { kind: 'err' as const, error: new ListNotFoundError() };
+    const data = snap.data() || {};
+    const likedBy: string[] = data.likedBy || [];
+    if (!likedBy.includes(callerUid)) {
+      return { kind: 'err' as const, error: new ListNotLikedError() };
+    }
+    tx.update(listRef, {
+      likes: FieldValue.increment(-1),
+      likedBy: FieldValue.arrayRemove(callerUid),
+    });
+    return { kind: 'ok' as const, newLikes: Math.max(0, (data.likes || 1) - 1) };
+  });
+  if (result.kind === 'err') throw result.error;
+  return { likes: result.newLikes };
+}

@@ -12,18 +12,19 @@ import {
   setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as followPost } from '@/app/api/v1/users/[uid]/follow/route';
 
 let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let unblockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let getMyBlockContext: (idToken: unknown) => Promise<any>;
-let followUser: (idToken: unknown, followingId: string) => Promise<any>;
 let searchUsers: (q: string, currentUserId?: string) => Promise<any>;
 let getNotifications: (userId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ blockUser, unblockUser, getMyBlockContext, followUser, searchUsers, getNotifications } =
+  ({ blockUser, unblockUser, getMyBlockContext, searchUsers, getNotifications } =
     await import('@/app/actions'));
 });
 
@@ -77,8 +78,16 @@ test('blocking severs the follow relationship in both directions', async () => {
 
 test('a blocked user cannot follow you', async () => {
   await callActionAs(alice, blockUser, bob.uid);
-  const res = await callActionAs(bob, followUser, alice.uid);
-  assert.deepEqual(res, { error: 'Unable to follow this user.' });
+  // Need a users/{uid} doc for the route's target-exists check.
+  await adminDb().collection('users').doc(alice.uid).set({
+    uid: alice.uid, username: 'alice', followersCount: 0, followingCount: 0,
+  }, { merge: true });
+  const bobToken = await bob.getIdToken();
+  const res = await callRoute(followPost, 'POST', {
+    token: bobToken, params: { uid: alice.uid },
+  });
+  // Block in either direction → 403 FollowBlockedError.
+  assert.equal(res.status, 403);
 });
 
 test('a blocked user is excluded from search', async () => {

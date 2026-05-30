@@ -26,7 +26,7 @@ import { Drawer } from 'vaul';
 import type { Movie, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { useFirestore, useUser } from '@/firebase';
-import { getUserRating, createOrUpdateRating, deleteRating, createReview, getMovieReviews } from '@/app/actions';
+// Ratings migrated to /api/v1 routes in PR #9 — see apiCall imports above.
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import {
   type MediaDetails,
@@ -232,7 +232,10 @@ export function MovieDetailsModal({
       if (!movie || !isOpen || !user?.uid || !tmdbId) return;
 
       try {
-        const result = await getUserRating(user.uid, tmdbId);
+        const result = await apiCall<{ rating: { rating: number } | null }>(
+          'GET',
+          `/api/v1/ratings/by-user?userId=${user.uid}&tmdbId=${tmdbId}`,
+        );
         if (result.rating) {
           setUserRating(result.rating.rating);
         }
@@ -253,8 +256,11 @@ export function MovieDetailsModal({
     setReviewPreviews([]);
     (async () => {
       try {
-        const result = await getMovieReviews(tmdbId, 'likes', 2);
-        if (!cancelled) setReviewPreviews((result.reviews ?? []) as Review[]);
+        const result = await apiCall<{ reviews: Review[] }>(
+          'GET',
+          `/api/v1/reviews?tmdbId=${tmdbId}&sort=likes&limit=2`,
+        );
+        if (!cancelled) setReviewPreviews(result.reviews ?? []);
       } catch {
         /* the preview is non-critical — leave it empty on failure */
       }
@@ -355,26 +361,32 @@ export function MovieDetailsModal({
 
     const finalRating = rating ?? 7;
 
-    await createOrUpdateRating(
-      await user.getIdToken(),
-      tmdbId,
-      movie.mediaType || 'movie',
-      movie.title,
-      movie.posterUrl,
-      finalRating
-    );
+    try {
+      await apiCall('POST', '/api/v1/ratings', {
+        tmdbId,
+        mediaType: movie.mediaType || 'movie',
+        movieTitle: movie.title,
+        moviePosterUrl: movie.posterUrl,
+        rating: finalRating,
+      });
+    } catch (err) {
+      console.error('[rate-on-watch] rating POST failed:', err);
+    }
     setUserRating(finalRating);
 
     if (comment.trim()) {
-      await createReview(
-        await user.getIdToken(),
-        tmdbId,
-        movie.mediaType || 'movie',
-        movie.title,
-        movie.posterUrl,
-        comment,
-        finalRating
-      );
+      try {
+        await apiCall('POST', '/api/v1/reviews', {
+          tmdbId,
+          mediaType: movie.mediaType || 'movie',
+          movieTitle: movie.title,
+          moviePosterUrl: movie.posterUrl,
+          text: comment,
+          ratingAtTime: finalRating,
+        });
+      } catch (err) {
+        console.error('[rate-on-watch] review POST failed:', err);
+      }
     }
 
     setLocalStatus('Watched');
@@ -461,22 +473,21 @@ export function MovieDetailsModal({
 
     setIsSavingRating(true);
     try {
-      const result = await createOrUpdateRating(
-        await user.getIdToken(),
+      await apiCall('POST', '/api/v1/ratings', {
         tmdbId,
-        movie.mediaType || 'movie',
-        movie.title,
-        movie.posterUrl,
-        rating
-      );
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        setUserRating(rating);
-        toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to save rating.' });
+        mediaType: movie.mediaType || 'movie',
+        movieTitle: movie.title,
+        moviePosterUrl: movie.posterUrl,
+        rating,
+      });
+      setUserRating(rating);
+      toast({ title: 'Rating saved', description: `You rated this ${rating.toFixed(1)}/10` });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to save rating.',
+      });
     } finally {
       setIsSavingRating(false);
     }
@@ -487,15 +498,15 @@ export function MovieDetailsModal({
 
     setIsSavingRating(true);
     try {
-      const result = await deleteRating(await user.getIdToken(), tmdbId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        setUserRating(null);
-        toast({ title: 'Rating removed' });
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove rating.' });
+      await apiCall('DELETE', `/api/v1/ratings/${tmdbId}`);
+      setUserRating(null);
+      toast({ title: 'Rating removed' });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to remove rating.',
+      });
     } finally {
       setIsSavingRating(false);
     }

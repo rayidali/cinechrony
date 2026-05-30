@@ -9,7 +9,7 @@ import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { SwipeBackContainer } from '@/components/swipe-back-container';
 import { useUser, useFirestore } from '@/firebase';
-import { getMovieReviews, createReview, updateReview, getReviewReplies } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { doc, getDoc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { getRatingStyle, cn } from '@/lib/utils';
@@ -113,10 +113,11 @@ function CommentsPageContent() {
     async function fetchReviews() {
       setIsLoading(true);
       try {
-        const result = await getMovieReviews(tmdbId, sortBy);
-        if (result.reviews) {
-          setReviews(result.reviews as Review[]);
-        }
+        const result = await apiCall<{ reviews: Review[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          `/api/v1/reviews?tmdbId=${tmdbId}&sort=${sortBy}`,
+        );
+        setReviews(result.reviews);
       } catch (error) {
         console.error('Failed to fetch reviews:', error);
       } finally {
@@ -189,8 +190,10 @@ function CommentsPageContent() {
     if (editingReview) {
       try {
         const newText = commentText.trim();
-        const res = await updateReview(await user.getIdToken(), editingReview.id, newText, commentHasSpoiler);
-        if ('error' in res) throw new Error(res.error);
+        await apiCall('PATCH', `/api/v1/reviews/${editingReview.id}`, {
+          text: newText,
+          hasSpoiler: commentHasSpoiler,
+        });
 
         // Patch local state so the UI updates without a refetch. Top-level
         // reviews live in `reviews`; replies live under their root in
@@ -214,8 +217,12 @@ function CommentsPageContent() {
         setCommentHasSpoiler(false);
         inputRef.current?.blur();
         toast({ title: 'Comment updated' });
-      } catch (error: any) {
-        toast({ variant: 'destructive', title: 'Failed to update comment', description: error.message || 'Please try again.' });
+      } catch (error: unknown) {
+        toast({
+          variant: 'destructive',
+          title: 'Failed to update comment',
+          description: error instanceof ApiClientError ? error.message : 'Please try again.',
+        });
       } finally {
         setIsSubmitting(false);
       }
@@ -226,21 +233,19 @@ function CommentsPageContent() {
     const parentId = rootParentId || null;
 
     try {
-      const result = await createReview(
-        await user.getIdToken(),
-        tmdbId,
-        mediaType,
-        movieTitle,
-        moviePoster || undefined,
-        commentText.trim(),
-        undefined, // ratingAtTime
-        parentId, // parentId for replies
-        commentHasSpoiler, // v3: author-flagged spoiler shield
+      const result = await apiCall<{ review: Review }>(
+        'POST',
+        '/api/v1/reviews',
+        {
+          tmdbId,
+          mediaType,
+          movieTitle,
+          moviePosterUrl: moviePoster || undefined,
+          text: commentText.trim(),
+          parentId, // null = top-level, string = reply
+          hasSpoiler: commentHasSpoiler,
+        },
       );
-
-      if ('error' in result) {
-        throw new Error(result.error);
-      }
 
       if (result.review) {
         if (parentId) {
@@ -274,11 +279,11 @@ function CommentsPageContent() {
           description: parentId ? 'Your reply has been added.' : 'Your comment has been added.',
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: 'destructive',
         title: 'Failed to post comment',
-        description: error.message || 'Please try again.',
+        description: error instanceof ApiClientError ? error.message : 'Please try again.',
       });
     } finally {
       setIsSubmitting(false);
@@ -335,13 +340,14 @@ function CommentsPageContent() {
     // Fetch replies
     setLoadingReplies(prev => ({ ...prev, [parentId]: true }));
     try {
-      const result = await getReviewReplies(parentId);
-      if (result.replies) {
-        setExpandedReplies(prev => ({
-          ...prev,
-          [parentId]: result.replies as Review[],
-        }));
-      }
+      const result = await apiCall<{ replies: Review[]; hasMore: boolean; nextCursor?: string }>(
+        'GET',
+        `/api/v1/reviews/${parentId}/replies`,
+      );
+      setExpandedReplies(prev => ({
+        ...prev,
+        [parentId]: result.replies,
+      }));
     } catch (error) {
       console.error('Failed to fetch replies:', error);
       toast({

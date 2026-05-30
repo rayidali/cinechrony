@@ -21,10 +21,9 @@ import {
   getUserByUsername,
   getUserPublicLists,
   getCollaborativeLists,
-  getFollowers,
-  getFollowing,
   getListPreview,
 } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import type { UserProfile, MovieList } from '@/lib/types';
 
 interface CollaborativeList extends MovieList {
@@ -169,7 +168,10 @@ export default function UserProfilePage() {
   const handleLoadFollowers = async () => {
     if (!profile) return;
     try {
-      const result = await getFollowers(profile.uid);
+      const result = await apiCall<{ users: UserProfile[] }>(
+        'GET',
+        `/api/v1/users/${profile.uid}/followers`,
+      );
       setFollowers(result.users || []);
       setShowFollowers(true);
     } catch {
@@ -182,7 +184,10 @@ export default function UserProfilePage() {
   const handleLoadFollowing = async () => {
     if (!profile) return;
     try {
-      const result = await getFollowing(profile.uid);
+      const result = await apiCall<{ users: UserProfile[] }>(
+        'GET',
+        `/api/v1/users/${profile.uid}/following`,
+      );
       setFollowing(result.users || []);
       setShowFollowing(true);
     } catch {

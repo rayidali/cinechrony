@@ -276,7 +276,8 @@ Same conventions as the audit tracker:
 - [x] **A.3.3** `DELETE /api/v1/lists/[ownerId]/[listId]` — `deleteList` — PR #3
 - [x] **A.3.4** `POST /api/v1/lists/[ownerId]/[listId]/transfer` — `transferOwnership` (closes AUDIT.md 2.1 + 1.3) — PR #3
 - [x] **A.3.5** `POST /api/v1/lists/[ownerId]/[listId]/cover` — `setListCover` (closes AUDIT.md 1.5) — PR #3
-- [ ] **A.3.6** `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4) — PR #6
+- [x] **A.3.6** `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4) — PR #6
+- [x] **A.3.6a** `POST /api/v1/lists/[ownerId]/[listId]/leave` — `leaveList` (caller self-removes; owner cannot leave own list) — PR #6
 - [ ] **A.3.7** `GET /api/v1/lists/[ownerId]/[listId]/preview` — `getListPreview` w/ privacy check (closes AUDIT.md 1.13) — PR #12
 
 **Movies in lists**
@@ -306,18 +307,26 @@ Same conventions as the audit tracker:
 - [ ] **A.3.25** `POST /api/v1/me/notification-preferences` — `updateNotificationPreferences`
 
 **Follows**
-- [ ] **A.3.26** `POST /api/v1/users/[uid]/follow` — `followUser` (with rate limit — closes AUDIT.md 3.8 segment)
-- [ ] **A.3.27** `DELETE /api/v1/users/[uid]/follow` — `unfollowUser`
+- [x] **A.3.26** `POST /api/v1/users/[uid]/follow` — `followUser` (rate-limited, closes AUDIT.md 3.8 follow segment; transactional fixes the count-drift bug, block-check enforces LAUNCH.md 0.5.5) — PR #7
+- [x] **A.3.27** `DELETE /api/v1/users/[uid]/follow` — `unfollowUser` (idempotent, no negative count drift) — PR #7
+- [x] **A.3.27a** `GET /api/v1/users/[uid]/followers` — `getFollowers` (public, paginated via `?limit=`) — PR #7
+- [x] **A.3.27b** `GET /api/v1/users/[uid]/following` — `getFollowing` (public, paginated via `?limit=`) — PR #7
 
 **Reviews & ratings**
-- [ ] **A.3.28** `POST /api/v1/reviews` — `createReview` (length cap, sanitize — closes AUDIT.md 2.16 segment)
-- [ ] **A.3.29** `PATCH /api/v1/reviews/[id]` — `updateReview` (real edit — closes AUDIT.md 2.6)
-- [ ] **A.3.30** `DELETE /api/v1/reviews/[id]` — `deleteReview` (also cleans activities)
-- [ ] **A.3.31** `POST /api/v1/reviews/[id]/like` — `likeReview` (transactional — closes AUDIT.md 3.5)
-- [ ] **A.3.32** `DELETE /api/v1/reviews/[id]/like` — `unlikeReview`
-- [ ] **A.3.33** `GET /api/v1/reviews?tmdbId=...&cursor=...` — `getMovieReviews` w/ pagination (closes AUDIT.md 3.10)
-- [ ] **A.3.34** `POST /api/v1/ratings` — `createOrUpdateRating`
-- [ ] **A.3.35** `DELETE /api/v1/ratings/[tmdbId]` — `deleteRating`
+- [x] **A.3.28** `POST /api/v1/reviews` — `createReview` (rate-limited, length cap 2000, mention+reply notifications, AUDIT 3.8) — PR #8
+- [x] **A.3.29** `PATCH /api/v1/reviews/[id]` — `updateReview` (real edit, closes AUDIT.md 2.6) — PR #8
+- [x] **A.3.30** `DELETE /api/v1/reviews/[id]` — `deleteReview` (owner-only hard delete) — PR #8
+- [x] **A.3.31** `POST /api/v1/reviews/[id]/like` — `likeReview` (transactional, closes AUDIT.md 3.5; rate-limited) — PR #8
+- [x] **A.3.32** `DELETE /api/v1/reviews/[id]/like` — `unlikeReview` (transactional) — PR #8
+- [x] **A.3.33** `GET /api/v1/reviews?tmdbId=&sort=&cursor=` — `getMovieReviews` w/ cursor pagination (closes AUDIT.md 3.10 top-level read) — PR #8
+- [x] **A.3.33a** `GET /api/v1/reviews/[id]/replies?cursor=` — `getReviewReplies` w/ cursor pagination (closes AUDIT.md 3.10 replies read) — PR #8
+- [x] **A.3.33b** `GET /api/v1/reviews/by-user?userId=&tmdbId=` — `getUserReviewForMovie` — PR #8
+- [x] **A.3.34** `POST /api/v1/ratings` — `createOrUpdateRating` (1–10 validation, rounds to one decimal, emits `rated` activity on first rating only) — PR #9
+- [x] **A.3.35** `DELETE /api/v1/ratings/[tmdbId]` — `deleteRating` (owner-only; doc id encodes ownership) — PR #9
+- [x] **A.3.35a** `GET /api/v1/ratings/by-user?userId=&tmdbId=` — `getUserRating` (single lookup) — PR #9
+- [x] **A.3.35b** `GET /api/v1/users/[uid]/ratings?cursor=` — `getUserRatings` w/ cursor pagination (closes AUDIT.md 2.5) — PR #9
+- [x] **A.3.35c** `POST /api/v1/lists/[ownerId]/[listId]/like` — `likeList` (transactional, members-cannot-like-own-list guard, rate-limited) — PR #9
+- [x] **A.3.35d** `DELETE /api/v1/lists/[ownerId]/[listId]/like` — `unlikeList` (transactional; lastLikedAt preserved on unlike) — PR #9
 
 **Activities**
 - [ ] **A.3.36** `GET /api/v1/activities?cursor=...` — `getActivityFeed`
@@ -352,6 +361,34 @@ Same conventions as the audit tracker:
 - [ ] **A.5.3** Resolve dynamic route handling for static export — `/lists/[listId]`, `/profile/[username]`, etc. (use `generateStaticParams` returning `[]` + `dynamicParams: true` won't work for export; use a single client-side router pattern instead). May need to introduce a catch-all client-rendered router.
 - [ ] **A.5.4** `npm run build` outputs a clean `out/` directory.
 - [ ] **A.5.5 — Test:** serve `out/` with a static server (e.g. `npx serve out`); every route works as a client-side app.
+
+---
+
+## Phase A.6 — Pre-launch UX polish (post-Phase-A, pre-Capacitor)
+
+> Small backlog of UX gaps surfaced during Phase A local verification.
+> None are launch-blockers individually; each is ~½–1 day. Ship as
+> small focused PRs off main once Phase A is fully merged.
+
+- [ ] **A.6.1 — @-mention autocomplete in composers.** Typing `@` in
+  the comments composer (and review composer in the movie modal) should
+  open an inline user-search picker, the way Twitter / Instagram /
+  Slack handle it. Today: only the post composer has a mention picker,
+  and it's triggered by an explicit toolbar button — not by typing `@`.
+  Comments composer has NO picker at all (you have to type the
+  username yourself; mentions still resolve on the server, just no UX
+  affordance to find people). **Scope**: build a shared
+  `<MentionAutocomplete>` hook + sheet that lives above the on-screen
+  keyboard (mirror the existing `visualViewport` handling on
+  `/comments`). Reuse the existing `searchUsers` action; on select,
+  replace `@partial` with `@username` and reposition the caret. Apply
+  in `comments/page.tsx` first, then port the post-composer to it so
+  the two stay consistent. ~1 day. Discovered during PR #8 verify.
+- [ ] **A.6.2 — Cursor pagination wire-up on /comments.** Endpoint
+  ships infinite-scroll-ready in PR #8 (`?cursor=`), but the
+  `comments/page.tsx` client still loads only the first page. Add an
+  intersection-observer-based "load more" on scroll. ~½ day.
+  AUDIT 3.10 follow-up.
 
 ---
 

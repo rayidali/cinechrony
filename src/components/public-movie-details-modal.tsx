@@ -24,7 +24,7 @@ import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
-import { getMovieReviews } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { formatDistanceToNow } from 'date-fns';
 import { ImdbLogo } from './imdb-logo';
 import { SimilarMoviesRow } from './similar-movies-row';
@@ -207,8 +207,11 @@ export function PublicMovieDetailsModal({
     setReviewPreviews([]);
     (async () => {
       try {
-        const result = await getMovieReviews(tmdbId, 'likes', 2);
-        if (!cancelled) setReviewPreviews((result.reviews ?? []) as Review[]);
+        const result = await apiCall<{ reviews: Review[] }>(
+          'GET',
+          `/api/v1/reviews?tmdbId=${tmdbId}&sort=likes&limit=2`,
+        );
+        if (!cancelled) setReviewPreviews(result.reviews ?? []);
       } catch {
         /* the preview is non-critical — leave it empty on failure */
       }
