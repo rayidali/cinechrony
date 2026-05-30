@@ -110,12 +110,14 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.11.1** Wrap the read-check-write in `db.runTransaction`. Re-read invite status (might have been revoked) and list `collaboratorIds` length inside the transaction.
 - [x] **1.11.2** **Test (emulator):** fire two `acceptInvite` calls in parallel for the same invite, and separately for two different invites on a list with 9 members. Result: never more than 10 members; revoked invites can't be accepted.
+- [x] **1.11.3** **Phase A PR #5**: action retired; transactional logic preserved in `src/lib/invites-server.ts::acceptInvite`. Route `POST /api/v1/invites/accept` exercised by `scripts/audit-tests/30-invites-endpoints.test.ts` (incl. concurrent-double-accept race test) and `08-special-cases-b.test.ts`.
 
 ### 1.12 — `revokeInvite` permission too narrow + racy (`actions.ts:2214`)
 
 - [x] **1.12.1** Allow either the inviter or the list owner to revoke (currently only inviter).
 - [x] **1.12.2** Wrap revocation + status check in the same transaction as 1.11 so revoke ↔ accept races resolve cleanly.
 - [x] **1.12.3** **Test:** list owner revokes a collaborator's pending invite → succeeds. Acceptance of a freshly-revoked invite → fails.
+- [x] **1.12.4** **Phase A PR #5**: action retired; transactional logic preserved in `src/lib/invites-server.ts::revokeInvite`. Route `DELETE /api/v1/invites/[inviteId]`.
 
 ### 1.13 — `getListPreview` / `getListsPreviews` bypass privacy (`actions.ts:2655`, `2700`)
 
@@ -126,6 +128,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.14.1** Omit `inviteCode` from the response unless the caller is the list owner; OR invalidate codes when a member is removed.
 - [x] **1.14.2** **Test:** as a collaborator, fetch pending invites → response has no `inviteCode` field.
+- [x] **1.14.3** **Phase A PR #5**: action retired; route `GET /api/v1/lists/[ownerId]/[listId]/invites` enforces member-only access AND strips `inviteCode` for non-owners.
 
 ---
 
@@ -196,6 +199,7 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 - [x] **2.9.1** Done — used `crypto.randomInt()` (CSPRNG *and* rejection-samples internally → no modulo bias, better than a raw `randomBytes` modulo).
 - [~] **2.9.2** No dedicated unit test (1-line RNG swap; verified by typecheck + `npm run build`). Low risk; can add a quick generator test if desired.
+- [x] **2.9.3** **Phase A PR #5**: enumeration vector closed end-to-end. `generateInviteCode` lives in `src/lib/invites-server.ts`. `GET /api/v1/invites/by-code/[code]` requires a Bearer token (legacy action was unauthenticated). Test in `30-invites-endpoints.test.ts`: "unauth → 401 (AUDIT 2.9 enumeration vector closed)".
 
 ### 2.10 — `forgot-password` confirms account existence (`(auth)/forgot-password/page.tsx:37`)
 

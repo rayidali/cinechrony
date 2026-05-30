@@ -287,12 +287,14 @@ Same conventions as the audit tracker:
 - [x] **A.3.12** `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (socialLink) — collapsed into the movie PATCH; ALSO closes the read-bypass where the client was direct-writing `socialLink` via `updateDocumentNonBlocking`, skipping `canEditList`. Stranger writes now → 403. — PR #4
 
 **Invites**
-- [ ] **A.3.13** `POST /api/v1/invites` — `inviteToList`
-- [ ] **A.3.14** `POST /api/v1/invites/link` — `createInviteLink` (CSPRNG code — closes AUDIT.md 2.9)
-- [ ] **A.3.15** `POST /api/v1/invites/[code]/accept` — `acceptInvite` (transactional — closes AUDIT.md 1.11)
-- [ ] **A.3.16** `POST /api/v1/invites/[code]/decline` — `declineInvite`
-- [ ] **A.3.17** `DELETE /api/v1/invites/[id]` — `revokeInvite` (owner OR inviter — closes AUDIT.md 1.12)
-- [ ] **A.3.18** `GET /api/v1/invites/[code]` — `getInviteByCode` (require auth — closes AUDIT.md 2.9 enumeration vector)
+- [x] **A.3.13** `POST /api/v1/lists/[ownerId]/[listId]/invites` — `inviteToList` — PR #5
+- [x] **A.3.14** `POST /api/v1/lists/[ownerId]/[listId]/invite-link` — `createInviteLink` (CSPRNG 12-char code; closes AUDIT.md 2.9 generation half) — PR #5
+- [x] **A.3.15** `POST /api/v1/invites/accept` — `acceptInvite` (body: `inviteId?` OR `inviteCode?`; transactional; closes AUDIT.md 1.11) — PR #5
+- [x] **A.3.16** `POST /api/v1/invites/[inviteId]/decline` — `declineInvite` — PR #5
+- [x] **A.3.17** `DELETE /api/v1/invites/[inviteId]` — `revokeInvite` (owner OR inviter; closes AUDIT.md 1.12) — PR #5
+- [x] **A.3.18** `GET /api/v1/invites/by-code/[code]` — `getInviteByCode` (auth required; closes AUDIT.md 2.9 enumeration vector) — PR #5
+- [x] **A.3.18a** `GET /api/v1/lists/[ownerId]/[listId]/invites` — `getListPendingInvites` (member-only; collaborator does NOT see `inviteCode`; closes AUDIT.md 1.14) — PR #5
+- [x] **A.3.18b** `GET /api/v1/me/invites` — `getMyPendingInvites` (verified caller from token; closes IDOR vector) — PR #5
 
 **User**
 - [x] **A.3.19** `PATCH /api/v1/me` — collapsed bio+photo+favorites — PR #2

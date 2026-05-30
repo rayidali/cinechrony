@@ -8,7 +8,7 @@ import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { getInviteByCode, acceptInvite } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import type { ListInvite } from '@/lib/types';
 
@@ -33,46 +33,56 @@ export default function InvitePage() {
         setIsLoading(false);
         return;
       }
+      // AUDIT.md 2.9: invite preview now requires auth. If the user isn't
+      // signed in yet, don't load — the "Sign in to view invite" gate below
+      // handles that case. We re-run this effect once the user is set.
+      if (isUserLoading) return;
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
 
       try {
-        const result = await getInviteByCode(inviteCode);
-        if (result.error) {
-          setError(result.error);
-        } else if (result.invite) {
-          setInvite(result.invite);
-        }
+        const { invite: previewInvite } = await apiCall<{ invite: ListInvite }>(
+          'GET',
+          `/api/v1/invites/by-code/${encodeURIComponent(inviteCode)}`,
+        );
+        setInvite(previewInvite);
       } catch (err) {
         console.error('Failed to load invite:', err);
-        setError('Failed to load invite');
+        setError(err instanceof ApiClientError ? err.message : 'Failed to load invite');
       } finally {
         setIsLoading(false);
       }
     }
 
     loadInvite();
-  }, [inviteCode]);
+  }, [inviteCode, user, isUserLoading]);
 
   const handleAccept = async () => {
     if (!user || !invite) return;
 
     setIsAccepting(true);
     try {
-      const result = await acceptInvite(await user.getIdToken(), undefined, inviteCode);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({
-          title: 'Invite Accepted!',
-          description: `You are now a collaborator on "${invite.listName}"`,
-        });
-        // The collaborative-lists cache is now stale.
-        invalidateCachedAction(`collab-lists:${user.uid}`);
-        const ownerId = result.listOwnerId || invite.listOwnerId;
-        router.push(`/lists/${invite.listId}?owner=${ownerId}`);
-      }
+      const result = await apiCall<{ listId: string; listOwnerId: string }>(
+        'POST',
+        '/api/v1/invites/accept',
+        { inviteCode },
+      );
+      toast({
+        title: 'Invite Accepted!',
+        description: `You are now a collaborator on "${invite.listName}"`,
+      });
+      // The collaborative-lists cache is now stale.
+      invalidateCachedAction(`collab-lists:${user.uid}`);
+      router.push(`/lists/${result.listId}?owner=${result.listOwnerId}`);
     } catch (err) {
       console.error('Failed to accept invite:', err);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to accept invite' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
+      });
     } finally {
       setIsAccepting(false);
     }
@@ -83,6 +93,37 @@ export default function InvitePage() {
       <div className="flex items-center justify-center min-h-screen">
         <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
+    );
+  }
+
+  // AUDIT.md 2.9: unauthenticated users see the sign-in gate, NOT the
+  // error screen — the lack of invite data here is by design.
+  if (!user) {
+    return (
+      <main className="min-h-screen font-body text-foreground">
+        <div className="container mx-auto p-4 md:p-8">
+          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+            <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
+              <CardHeader className="text-center">
+                <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border border-border">
+                  <Users className="h-8 w-8 text-primary-foreground" />
+                </div>
+                <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
+                <CardDescription>
+                  Sign in to view and accept this invite.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <Link href={`/login?redirect=/invite/${inviteCode}`} className="block">
+                  <Button className={`${retroButtonClass} w-full bg-primary text-primary-foreground font-bold`}>
+                    Sign In to View Invite
+                  </Button>
+                </Link>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      </main>
     );
   }
 
@@ -101,42 +142,6 @@ export default function InvitePage() {
             <Link href="/lists">
               <Button className={`${retroButtonClass} bg-primary text-primary-foreground font-bold`}>Go to My Lists</Button>
             </Link>
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (!user) {
-    return (
-      <main className="min-h-screen font-body text-foreground">
-        <div className="container mx-auto p-4 md:p-8">
-          <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
-              <CardHeader className="text-center">
-                <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border border-border">
-                  <Users className="h-8 w-8 text-primary-foreground" />
-                </div>
-                <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
-                <CardDescription>
-                  @{invite.inviterUsername} has invited you to collaborate on
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center gap-3 p-4 bg-secondary rounded-2xl border border-border">
-                  <List className="h-6 w-6 text-primary" />
-                  <span className="font-bold text-lg">{invite.listName}</span>
-                </div>
-                <p className="text-center text-muted-foreground">
-                  Sign in to accept this invitation and start collaborating.
-                </p>
-                <Link href={`/login?redirect=/invite/${inviteCode}`} className="block">
-                  <Button className={`${retroButtonClass} w-full bg-primary text-primary-foreground font-bold`}>
-                    Sign In to Accept
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </main>

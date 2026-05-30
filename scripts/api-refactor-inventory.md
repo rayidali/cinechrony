@@ -23,8 +23,8 @@
 | #2 | User profile | `PATCH /me`, `POST /me/avatar`, `DELETE /me` | 1.2 | ✅ merged |
 | #3 | Lists | `POST /lists`, `PATCH/DELETE /lists/[ownerId]/[listId]`, `lists/.../transfer`, `lists/.../cover` | 1.3, 1.5, 2.1 | ✅ merged |
 | #4 | Movies in lists | `POST /lists/[ownerId]/[listId]/movies`, `DELETE/PATCH /lists/.../movies/[mid]` | 1.6, 2.2, 2.2-bypass | ✅ shipped on `feat/phase-a-movies-endpoints` |
-| #5 | Invites | `invites` (POST), `invites/link`, `invites/[code]` (GET, accept, decline), `invites/[id]` (DELETE) | 1.11, 1.12, 1.14, 2.1, 2.9 | next up |
-| #6 | Collaborators | `lists/[id]/collaborators/[uid]` (DELETE), `lists/[id]/leave` | 1.4 | pending |
+| #5 | Invites | 8 endpoints — list-scoped POST/GET + invite-link + by-code lookup + accept/decline/revoke + me/invites | 1.11, 1.12, 1.14, 2.9 | ✅ shipped on `feat/phase-a-invites-endpoints` |
+| #6 | Collaborators | `lists/[id]/collaborators/[uid]` (DELETE), `lists/[id]/leave` | 1.4 | next up |
 | #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8 | pending |
 | #8 | Reviews + ratings | `reviews` (POST), `reviews/[id]` (PATCH, DELETE, like), `reviews?tmdbId=`, `ratings` | 2.5, 2.6, 3.5, 3.10 | pending |
 | #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
@@ -78,14 +78,14 @@ Legend:
 | 2000 | `backfillUserSearchFields` | INTERNAL | admin-only | 2.8 |
 | 2082 | `canEditList` | INTERNAL | helper — stays internal | — |
 | 2097 | `getListMembers` | READ_ADMIN | `GET /api/v1/lists/[id]/members` | — |
-| 2140 | `inviteToList` | WRITE | `POST /api/v1/invites` | 3.8 |
-| 2254 | `createInviteLink` | WRITE | `POST /api/v1/invites/link` | 2.9 |
-| 2322 | `getInviteByCode` | READ_ADMIN | `GET /api/v1/invites/[code]` (auth required) | 2.9 |
-| 2368 | `getMyPendingInvites` | READ_ADMIN | `GET /api/v1/me/invites` | — |
-| 2403 | `getListPendingInvites` | READ_ADMIN | `GET /api/v1/lists/[id]/invites` | 1.14 |
-| 2466 | `acceptInvite` | WRITE | `POST /api/v1/invites/[code]/accept` | 1.11, 2.1 |
-| 2574 | `declineInvite` | WRITE | `POST /api/v1/invites/[id]/decline` | — |
-| 2626 | `revokeInvite` | WRITE | `DELETE /api/v1/invites/[id]` | 1.12 |
+| ✅ PR #5 | `inviteToList` | WRITE | `POST /api/v1/lists/[ownerId]/[listId]/invites` | — |
+| ✅ PR #5 | `createInviteLink` | WRITE | `POST /api/v1/lists/[ownerId]/[listId]/invite-link` | 2.9 |
+| ✅ PR #5 | `getInviteByCode` | READ_ADMIN | `GET /api/v1/invites/by-code/[code]` (auth required) | 2.9 |
+| ✅ PR #5 | `getMyPendingInvites` | READ_ADMIN | `GET /api/v1/me/invites` | — |
+| ✅ PR #5 | `getListPendingInvites` | READ_ADMIN | `GET /api/v1/lists/[ownerId]/[listId]/invites` | 1.14 |
+| ✅ PR #5 | `acceptInvite` | WRITE | `POST /api/v1/invites/accept` (body: inviteId? OR inviteCode?) | 1.11 |
+| ✅ PR #5 | `declineInvite` | WRITE | `POST /api/v1/invites/[inviteId]/decline` | — |
+| ✅ PR #5 | `revokeInvite` | WRITE | `DELETE /api/v1/invites/[inviteId]` | 1.12 |
 | 2668 | `removeCollaborator` | WRITE | `DELETE /api/v1/lists/[id]/collaborators/[uid]` | 1.4 |
 | 2711 | `leaveList` | WRITE | `POST /api/v1/lists/[id]/leave` | — |
 | 2756 | `transferOwnership` | WRITE | `POST /api/v1/lists/[id]/transfer` | 1.3, 2.1 |

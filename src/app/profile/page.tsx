@@ -24,7 +24,7 @@ import { ProfileListCard } from '@/components/profile-list-card';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { getFollowers, getFollowing, getMyPendingInvites, acceptInvite, declineInvite, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { getFollowers, getFollowing, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
@@ -135,7 +135,7 @@ export default function MyProfilePage() {
       if (!user) return;
       try {
         const [invitesResult, collabResult] = await Promise.all([
-          getMyPendingInvites(user.uid),
+          apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
           getCollaborativeLists(user.uid),
         ]);
         setPendingInvites(invitesResult.invites || []);
@@ -247,32 +247,32 @@ export default function MyProfilePage() {
   const handleAcceptInvite = async (invite: ListInvite) => {
     if (!user) return;
     try {
-      const result = await acceptInvite(await user.getIdToken(), invite.id);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
-        setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
-        const collabResult = await getCollaborativeLists(user.uid);
-        setCollaborativeLists(collabResult.lists || []);
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to accept invite' });
+      await apiCall('POST', '/api/v1/invites/accept', { inviteId: invite.id });
+      toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
+      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+      const collabResult = await getCollaborativeLists(user.uid);
+      setCollaborativeLists(collabResult.lists || []);
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
+      });
     }
   };
 
   const handleDeclineInvite = async (invite: ListInvite) => {
     if (!user) return;
     try {
-      const result = await declineInvite(await user.getIdToken(), invite.id);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'invite declined' });
-        setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to decline invite' });
+      await apiCall('POST', `/api/v1/invites/${invite.id}/decline`);
+      toast({ title: 'invite declined' });
+      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
+      });
     }
   };
 
@@ -302,7 +302,7 @@ export default function MyProfilePage() {
   const handleRefresh = useCallback(async () => {
     if (!user) return;
     const [invitesResult, collabResult] = await Promise.all([
-      getMyPendingInvites(user.uid),
+      apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
       getCollaborativeLists(user.uid),
     ]);
     setPendingInvites(invitesResult.invites || []);
