@@ -10,7 +10,7 @@ import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
 import { checkRateLimit } from '@/lib/rate-limit';
-import { createActivity } from '@/lib/activities-server';
+import { createActivity, activityFromDoc } from '@/lib/activities-server';
 import { isBlockedBetween, getBlockSet } from '@/lib/blocks-server';
 import {
   createMentionNotifications,
@@ -3129,76 +3129,10 @@ export async function getRecommendationsForUser(
 // their graph (which would turn every export here into a Server Action).
 // Imported at the top of the file alongside the other lib helpers.
 
-/** Map an `activities` collection doc to the Activity type. */
-function activityFromDoc(
-  doc: FirebaseFirestore.DocumentSnapshot,
-): Activity {
-  const data = doc.data() || {};
-  return {
-    id: doc.id,
-    userId: data.userId,
-    username: data.username,
-    displayName: data.displayName,
-    photoURL: data.photoURL,
-    type: data.type,
-    tmdbId: data.tmdbId,
-    movieTitle: data.movieTitle,
-    moviePosterUrl: data.moviePosterUrl,
-    movieYear: data.movieYear,
-    mediaType: data.mediaType,
-    rating: data.rating,
-    reviewText: data.reviewText,
-    reviewId: data.reviewId,
-    listId: data.listId,
-    listName: data.listName,
-    likes: data.likes || 0,
-    likedBy: data.likedBy || [],
-    createdAt: data.createdAt?.toDate?.() || new Date(),
-  };
-}
 
-/**
- * Get global activity feed with pagination.
- */
-export async function getActivityFeed(
-  cursor?: string,
-  limit: number = 20
-): Promise<{ activities: Activity[]; hasMore: boolean; nextCursor?: string; error?: string }> {
-  const db = getDb();
+// activityFromDoc + getActivityFeed moved to src/lib/activities-server.ts
+// in Phase A PR #10. Imported at the top alongside createActivity.
 
-  try {
-    let query = db
-      .collection('activities')
-      .orderBy('createdAt', 'desc')
-      .limit(limit + 1); // Fetch one extra to determine if there's more
-
-    // If cursor provided, start after that document
-    if (cursor) {
-      const cursorDoc = await db.collection('activities').doc(cursor).get();
-      if (cursorDoc.exists) {
-        query = query.startAfter(cursorDoc);
-      }
-    }
-
-    const snapshot = await query.get();
-    const docs = snapshot.docs;
-
-    // Check if there are more results
-    const hasMore = docs.length > limit;
-    const activitiesData = hasMore ? docs.slice(0, limit) : docs;
-
-    const activities: Activity[] = activitiesData.map(activityFromDoc);
-
-    return {
-      activities,
-      hasMore,
-      nextCursor: hasMore ? activitiesData[activitiesData.length - 1].id : undefined,
-    };
-  } catch (error) {
-    console.error('[getActivityFeed] Failed:', error);
-    return { activities: [], hasMore: false, error: 'Failed to fetch activity feed' };
-  }
-}
 
 // ============================================
 // BOOKMARKS — the `saved` feed (LAUNCH 0.5 / Phase 5)
@@ -4422,85 +4356,12 @@ export async function unlikePostComment(idToken: string, postId: string, comment
   }
 }
 
-/**
- * Like an activity.
- */
-export async function likeActivity(idToken: string, activityId: string) {
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
-  const userId = auth.uid;
 
-  // AUDIT.md 3.8: cap scripted like spam.
-  const rl = await checkRateLimit(userId, 'like');
-  if (!rl.ok) return { error: rl.error };
+// likeActivity + unlikeActivity moved to src/lib/activities-server.ts in
+// Phase A PR #10 (closes AUDIT 3.5 activity-like leg). Routes:
+//   POST   /api/v1/activities/[id]/like   (rate-limited, transactional)
+//   DELETE /api/v1/activities/[id]/like   (transactional)
 
-  const db = getDb();
-
-  try {
-    const activityRef = db.collection('activities').doc(activityId);
-
-    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
-    const txResult = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(activityRef);
-      if (!snap.exists) return { error: 'Activity not found.' as const };
-      const data = snap.data() || {};
-      const likedBy: string[] = data.likedBy || [];
-      if (likedBy.includes(userId)) return { error: 'Already liked.' as const };
-      tx.update(activityRef, {
-        likes: FieldValue.increment(1),
-        likedBy: FieldValue.arrayUnion(userId),
-      });
-      return { ok: true as const, newLikes: (data.likes || 0) + 1 };
-    });
-    // txResult.error is `string` at runtime in this branch; the `| undefined`
-    // is only a TS union-normalization artifact (the ok-variant never carries
-    // `error`). The cast keeps the function's return type clean.
-    if ('error' in txResult) return { error: txResult.error as string };
-
-    return { success: true, likes: txResult.newLikes };
-  } catch (error) {
-    console.error('[likeActivity] Failed:', error);
-    return { error: 'Failed to like activity.' };
-  }
-}
-
-/**
- * Unlike an activity.
- */
-export async function unlikeActivity(idToken: string, activityId: string) {
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
-  const userId = auth.uid;
-
-  const db = getDb();
-
-  try {
-    const activityRef = db.collection('activities').doc(activityId);
-
-    // AUDIT.md 3.5: atomic read-check-write (see likeReview).
-    const txResult = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(activityRef);
-      if (!snap.exists) return { error: 'Activity not found.' as const };
-      const data = snap.data() || {};
-      const likedBy: string[] = data.likedBy || [];
-      if (!likedBy.includes(userId)) return { error: 'Not liked.' as const };
-      tx.update(activityRef, {
-        likes: FieldValue.increment(-1),
-        likedBy: FieldValue.arrayRemove(userId),
-      });
-      return { ok: true as const, newLikes: Math.max(0, (data.likes || 0) - 1) };
-    });
-    // txResult.error is `string` at runtime in this branch; the `| undefined`
-    // is only a TS union-normalization artifact (the ok-variant never carries
-    // `error`). The cast keeps the function's return type clean.
-    if ('error' in txResult) return { error: txResult.error as string };
-
-    return { success: true, likes: txResult.newLikes };
-  } catch (error) {
-    console.error('[unlikeActivity] Failed:', error);
-    return { error: 'Failed to unlike activity.' };
-  }
-}
 
 /**
  * AUDIT.md (App Store §1.2 — User-Generated Content): lets a user report

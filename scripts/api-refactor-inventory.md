@@ -28,12 +28,14 @@
 | #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8, 3.8a (count-drift) | ✅ shipped on `feat/phase-a-follows-endpoints` |
 | #8 | Reviews | 8 endpoints — POST/GET/PATCH/DELETE + replies + like/unlike + by-user; cursor pagination | 2.6, 3.5, 3.10 | ✅ shipped on `feat/phase-a-reviews-endpoints` |
 | #9 | Ratings + List likes | `ratings`, `ratings/[tmdbId]`, `ratings/by-user`, `users/[uid]/ratings`, `lists/.../like` | 2.5 | ✅ shipped on `feat/phase-a-ratings-listlikes-endpoints` |
-| #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
-| #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
-| #11 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
-| #12 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, home-feed, saved-feed | — | pending |
-| #13 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
-| #14 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
+| #10 | Activities | `activities` (GET), `activities/[id]/like` (POST + DELETE) | 3.5 (activity leg) | ✅ shipped on `feat/phase-a-activities-endpoints` |
+| #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | — | next up |
+| #12 | Post comments | comment CRUD + comment likes (5 actions) | — | pending |
+| #13 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
+| #14 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
+| #15 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, saved-feed | — | pending |
+| #16 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
+| #17 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
 
 ---
 

@@ -329,8 +329,9 @@ Same conventions as the audit tracker:
 - [x] **A.3.35d** `DELETE /api/v1/lists/[ownerId]/[listId]/like` — `unlikeList` (transactional; lastLikedAt preserved on unlike) — PR #9
 
 **Activities**
-- [ ] **A.3.36** `GET /api/v1/activities?cursor=...` — `getActivityFeed`
-- [ ] **A.3.37** `POST /api/v1/activities/[id]/like` — `likeActivity` (transactional)
+- [x] **A.3.36** `GET /api/v1/activities?cursor=` — `getActivityFeed` (public, cursor-paginated) — PR #10
+- [x] **A.3.37** `POST /api/v1/activities/[id]/like` — `likeActivity` (rate-limited, transactional, closes AUDIT.md 3.5 activity-like leg) — PR #10
+- [x] **A.3.37a** `DELETE /api/v1/activities/[id]/like` — `unlikeActivity` (transactional) — PR #10
 
 **Notifications**
 - [ ] **A.3.38** `GET /api/v1/notifications` — list
