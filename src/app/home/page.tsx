@@ -4,8 +4,9 @@ import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, Users, Bookmark } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { getFollowing } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
+import type { UserProfile } from '@/lib/types';
 import { UserAvatar } from '@/components/user-avatar';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
@@ -55,7 +56,10 @@ export default function HomePage() {
     user ? `following:${user.uid}` : null,
     async () => {
       if (!user) return [];
-      const res = await getFollowing(user.uid);
+      const res = await apiCall<{ users: UserProfile[] }>(
+        'GET',
+        `/api/v1/users/${user.uid}/following`,
+      );
       return (res.users ?? []).map((u) => u.uid);
     },
   );

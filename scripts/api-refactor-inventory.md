@@ -25,7 +25,7 @@
 | #4 | Movies in lists | `POST /lists/[ownerId]/[listId]/movies`, `DELETE/PATCH /lists/.../movies/[mid]` | 1.6, 2.2, 2.2-bypass | ✅ shipped on `feat/phase-a-movies-endpoints` |
 | #5 | Invites | 8 endpoints — list-scoped POST/GET + invite-link + by-code lookup + accept/decline/revoke + me/invites | 1.11, 1.12, 1.14, 2.9 | ✅ shipped on `feat/phase-a-invites-endpoints` |
 | #6 | Collaborators | `lists/[ownerId]/[listId]/collaborators/[uid]` (DELETE), `lists/[ownerId]/[listId]/leave` (POST) | 1.4 | ✅ shipped on `feat/phase-a-collaborators-endpoints` |
-| #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8 | pending |
+| #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8, 3.8a (count-drift) | ✅ shipped on `feat/phase-a-follows-endpoints` |
 | #8 | Reviews + ratings | `reviews` (POST), `reviews/[id]` (PATCH, DELETE, like), `reviews?tmdbId=`, `ratings` | 2.5, 2.6, 3.5, 3.10 | pending |
 | #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
 | #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
@@ -64,11 +64,11 @@ Legend:
 | 1017 | `getUserByUsername` | READ_ADMIN | `GET /api/v1/users/by-username/[u]` | — |
 | 1091 | `updateUsername` | WRITE | `PATCH /api/v1/me/username` | 1.10, 2.3a |
 | 1158 | `deleteUserAccount` | WRITE | `DELETE /api/v1/me` | 1.2 |
-| 1359 | `followUser` | WRITE | `POST /api/v1/users/[uid]/follow` | 3.8 |
-| 1467 | `unfollowUser` | WRITE | `DELETE /api/v1/users/[uid]/follow` | — |
-| 1511 | `isFollowing` | READ_ADMIN | (folded into profile fetch) | — |
-| 1532 | `getFollowers` | READ_ADMIN | `GET /api/v1/users/[uid]/followers` | — |
-| 1584 | `getFollowing` | READ_ADMIN | `GET /api/v1/users/[uid]/following` | — |
+| ✅ PR #7 | `followUser` | WRITE | `POST /api/v1/users/[uid]/follow` | 3.8 |
+| ✅ PR #7 | `unfollowUser` | WRITE | `DELETE /api/v1/users/[uid]/follow` | 3.8a |
+| — | `isFollowing` | READ_ADMIN | stays in actions.ts until PR #11 folds into profile fetch | — |
+| ✅ PR #7 | `getFollowers` | READ_ADMIN | `GET /api/v1/users/[uid]/followers` | — |
+| ✅ PR #7 | `getFollowing` | READ_ADMIN | `GET /api/v1/users/[uid]/following` | — |
 | 1636 | `getUserPublicLists` | READ_ADMIN | `GET /api/v1/users/[uid]/lists` | — |
 | 1756 | `getLovedLists` | READ_ADMIN | `GET /api/v1/lists/loved` | — |
 | 1802 | `searchPublicLists` | READ_ADMIN | `GET /api/v1/lists/search` | — |

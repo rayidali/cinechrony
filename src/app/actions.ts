@@ -11,6 +11,7 @@ import { getFirebaseAdminApp, getDb } from '@/firebase/admin';
 import { verifyCaller, isAuthError } from '@/lib/auth-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 import { createActivity } from '@/lib/activities-server';
+import { isBlockedBetween, getBlockSet } from '@/lib/blocks-server';
 import { randomUUID } from 'node:crypto';
 
 // AUDIT.md 5.11: getDb is now the single source of truth in @/firebase/admin
@@ -492,157 +493,20 @@ export async function updateUsername(adminSecret: string, userId: string, newUse
   }
 }
 
-/**
- * Follow a user.
- */
-export async function followUser(idToken: string, followingId: string) {
-  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
-  const followerId = auth.uid;
 
-  // AUDIT.md 3.8: cap scripted follow/notification spam.
-  const rl = await checkRateLimit(followerId, 'follow');
-  if (!rl.ok) return { error: rl.error };
+// Phase A PR #7 (LAUNCH.md A.3.26–A.3.27): four follow actions migrated to
+// /api/v1 routes — see `src/lib/follows-server.ts` and the route files
+// under `src/app/api/v1/users/[uid]/`. Deleted:
+//   - followUser       → POST   /api/v1/users/[uid]/follow      (AUDIT 3.8 rate-limited)
+//   - unfollowUser     → DELETE /api/v1/users/[uid]/follow      (idempotent, fixes count-drift bug)
+//   - getFollowers     → GET    /api/v1/users/[uid]/followers
+//   - getFollowing     → GET    /api/v1/users/[uid]/following
+//
+// `isFollowing` STAYS in this file for now — it's a single boolean read
+// used by `<FollowButton>`. It will fold into the user-profile fetch when
+// PR #11 migrates `getUserByUsername`/`getUserProfile`. Keeping it here
+// is intentional (inventory note: "folded into profile fetch").
 
-  const db = getDb();
-
-  try {
-    if (followerId === followingId) {
-      return { error: "You can't follow yourself." };
-    }
-
-    // LAUNCH 0.5.5: a block in either direction severs interaction.
-    if (await isBlockedBetween(db, followerId, followingId)) {
-      return { error: 'Unable to follow this user.' };
-    }
-
-    // Check if already following
-    const existingFollow = await db
-      .collection('users')
-      .doc(followerId)
-      .collection('following')
-      .doc(followingId)
-      .get();
-
-    if (existingFollow.exists) {
-      return { error: 'Already following this user.' };
-    }
-
-    const batch = db.batch();
-
-    // Add to follower's following list
-    batch.set(
-      db.collection('users').doc(followerId).collection('following').doc(followingId),
-      {
-        id: followingId,
-        followerId: followerId,
-        followingId: followingId,
-        createdAt: FieldValue.serverTimestamp(),
-      }
-    );
-
-    // Add to target's followers list
-    batch.set(
-      db.collection('users').doc(followingId).collection('followers').doc(followerId),
-      {
-        id: followerId,
-        followerId: followerId,
-        followingId: followingId,
-        createdAt: FieldValue.serverTimestamp(),
-      }
-    );
-
-    // Update counts
-    batch.update(db.collection('users').doc(followerId), {
-      followingCount: FieldValue.increment(1),
-    });
-
-    batch.update(db.collection('users').doc(followingId), {
-      followersCount: FieldValue.increment(1),
-    });
-
-    await batch.commit();
-
-    // Create follow notification
-    try {
-      // Check if user has follows notifications enabled
-      const followedUserDoc = await db.collection('users').doc(followingId).get();
-      const followedUserData = followedUserDoc.data();
-      const prefs = followedUserData?.notificationPreferences;
-
-      // Only create notification if follows are enabled (default true)
-      if (!prefs || prefs.follows !== false) {
-        const followerDoc = await db.collection('users').doc(followerId).get();
-        const followerData = followerDoc.data();
-
-        await db.collection('notifications').add({
-          userId: followingId, // Recipient (the person being followed)
-          type: 'follow',
-          fromUserId: followerId,
-          fromUsername: followerData?.username || null,
-          fromDisplayName: followerData?.displayName || null,
-          fromPhotoUrl: followerData?.photoURL || null,
-          read: false,
-          createdAt: FieldValue.serverTimestamp(),
-        });
-      }
-    } catch (err) {
-      console.error('[followUser] Failed to create notification:', err);
-    }
-
-    revalidatePath('/profile');
-    revalidatePath(`/profile/${followingId}`);
-    return { success: true };
-  } catch (error) {
-    console.error('Failed to follow user:', error);
-    return { error: 'Failed to follow user.' };
-  }
-}
-
-/**
- * Unfollow a user.
- */
-export async function unfollowUser(idToken: string, followingId: string) {
-  // AUDIT.md Phase 1: actor identity from verified token, not a client param.
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
-  const followerId = auth.uid;
-
-  const db = getDb();
-
-  try {
-    const batch = db.batch();
-
-    // Remove from follower's following list
-    batch.delete(
-      db.collection('users').doc(followerId).collection('following').doc(followingId)
-    );
-
-    // Remove from target's followers list
-    batch.delete(
-      db.collection('users').doc(followingId).collection('followers').doc(followerId)
-    );
-
-    // Update counts
-    batch.update(db.collection('users').doc(followerId), {
-      followingCount: FieldValue.increment(-1),
-    });
-
-    batch.update(db.collection('users').doc(followingId), {
-      followersCount: FieldValue.increment(-1),
-    });
-
-    await batch.commit();
-
-    revalidatePath('/profile');
-    revalidatePath(`/profile/${followingId}`);
-    return { success: true };
-  } catch (error) {
-    console.error('Failed to unfollow user:', error);
-    return { error: 'Failed to unfollow user.' };
-  }
-}
 
 /**
  * Check if a user is following another user.
@@ -662,110 +526,6 @@ export async function isFollowing(followerId: string, followingId: string) {
   } catch (error) {
     console.error('Failed to check follow status:', error);
     return { error: 'Failed to check follow status.' };
-  }
-}
-
-/**
- * Get a user's followers.
- */
-export async function getFollowers(userId: string, limit: number = 50) {
-  const db = getDb();
-
-  try {
-    // Try without orderBy first (doesn't require index)
-    const followersSnapshot = await db
-      .collection('users')
-      .doc(userId)
-      .collection('followers')
-      .limit(limit)
-      .get();
-
-    console.log(`[getFollowers] Found ${followersSnapshot.size} followers for user ${userId}`);
-
-    if (followersSnapshot.empty) {
-      return { users: [] };
-    }
-
-    // Get user profiles for each follower
-    const followerIds = followersSnapshot.docs.map((doc) => doc.id);
-    const users: UserProfile[] = [];
-
-    for (const id of followerIds) {
-      const userDoc = await db.collection('users').doc(id).get();
-      if (userDoc.exists) {
-        const data = userDoc.data();
-        // Convert Firestore Timestamp to ISO string for serialization
-        users.push({
-          uid: data?.uid || id,
-          email: data?.email || '',
-          displayName: data?.displayName || null,
-          photoURL: data?.photoURL || null,
-          username: data?.username || null,
-          bio: data?.bio || null,
-          createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          followersCount: data?.followersCount || 0,
-          followingCount: data?.followingCount || 0,
-        });
-      }
-    }
-
-    console.log(`[getFollowers] Returning ${users.length} user profiles`);
-    return { users };
-  } catch (error) {
-    console.error('[getFollowers] Failed:', error);
-    return { error: 'Failed to get followers.', users: [] };
-  }
-}
-
-/**
- * Get users that a user is following.
- */
-export async function getFollowing(userId: string, limit: number = 50) {
-  const db = getDb();
-
-  try {
-    // Try without orderBy first (doesn't require index)
-    const followingSnapshot = await db
-      .collection('users')
-      .doc(userId)
-      .collection('following')
-      .limit(limit)
-      .get();
-
-    console.log(`[getFollowing] Found ${followingSnapshot.size} following for user ${userId}`);
-
-    if (followingSnapshot.empty) {
-      return { users: [] };
-    }
-
-    // Get user profiles for each following
-    const followingIds = followingSnapshot.docs.map((doc) => doc.id);
-    const users: UserProfile[] = [];
-
-    for (const id of followingIds) {
-      const userDoc = await db.collection('users').doc(id).get();
-      if (userDoc.exists) {
-        const data = userDoc.data();
-        // Convert Firestore Timestamp to ISO string for serialization
-        users.push({
-          uid: data?.uid || id,
-          email: data?.email || '',
-          displayName: data?.displayName || null,
-          photoURL: data?.photoURL || null,
-          username: data?.username || null,
-          bio: data?.bio || null,
-          createdAt: data?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-          followersCount: data?.followersCount || 0,
-          followingCount: data?.followingCount || 0,
-        });
-      }
-    }
-
-    console.log(`[getFollowing] Returning ${users.length} user profiles`);
-    return { users };
-  } catch (error) {
-    console.error('[getFollowing] Failed:', error);
-    return { error: 'Failed to get following.', users: [] };
   }
 }
 
@@ -4609,34 +4369,9 @@ export async function getFriendsWatching(
 // BLOCK — full mutual invisibility (LAUNCH 0.5.5)
 // ============================================
 
-/** True if a block exists in EITHER direction between two users. */
-async function isBlockedBetween(
-  db: FirebaseFirestore.Firestore,
-  a: string,
-  b: string,
-): Promise<boolean> {
-  const [ab, ba] = await Promise.all([
-    db.collection('blocks').doc(`${a}_${b}`).get(),
-    db.collection('blocks').doc(`${b}_${a}`).get(),
-  ]);
-  return ab.exists || ba.exists;
-}
-
-/** The set of uids invisible to `uid` — everyone they blocked + everyone who
- *  blocked them. Used to filter server-side read surfaces. */
-async function getBlockSet(
-  db: FirebaseFirestore.Firestore,
-  uid: string,
-): Promise<Set<string>> {
-  const [iBlocked, blockedMe] = await Promise.all([
-    db.collection('blocks').where('blockerId', '==', uid).get(),
-    db.collection('blocks').where('blockedId', '==', uid).get(),
-  ]);
-  const set = new Set<string>();
-  iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
-  blockedMe.docs.forEach((d) => set.add(d.data().blockerId as string));
-  return set;
-}
+// Phase A PR #7: isBlockedBetween + getBlockSet extracted to
+// `src/lib/blocks-server.ts` so follows-server can import them. Other
+// existing actions in this file import from the same lib module.
 
 /**
  * Block a user — full mutual invisibility. Also severs the relationship:

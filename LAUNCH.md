@@ -307,8 +307,10 @@ Same conventions as the audit tracker:
 - [ ] **A.3.25** `POST /api/v1/me/notification-preferences` — `updateNotificationPreferences`
 
 **Follows**
-- [ ] **A.3.26** `POST /api/v1/users/[uid]/follow` — `followUser` (with rate limit — closes AUDIT.md 3.8 segment)
-- [ ] **A.3.27** `DELETE /api/v1/users/[uid]/follow` — `unfollowUser`
+- [x] **A.3.26** `POST /api/v1/users/[uid]/follow` — `followUser` (rate-limited, closes AUDIT.md 3.8 follow segment; transactional fixes the count-drift bug, block-check enforces LAUNCH.md 0.5.5) — PR #7
+- [x] **A.3.27** `DELETE /api/v1/users/[uid]/follow` — `unfollowUser` (idempotent, no negative count drift) — PR #7
+- [x] **A.3.27a** `GET /api/v1/users/[uid]/followers` — `getFollowers` (public, paginated via `?limit=`) — PR #7
+- [x] **A.3.27b** `GET /api/v1/users/[uid]/following` — `getFollowing` (public, paginated via `?limit=`) — PR #7
 
 **Reviews & ratings**
 - [ ] **A.3.28** `POST /api/v1/reviews` — `createReview` (length cap, sanitize — closes AUDIT.md 2.16 segment)

@@ -9,8 +9,9 @@ import { prefetchCachedAction } from '@/lib/use-cached-action';
 import {
   getCollaborativeLists,
   getHomeFeed,
-  getFollowing,
 } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
+import type { UserProfile } from '@/lib/types';
 
 interface NavItem {
   href: string;
@@ -58,7 +59,10 @@ export function BottomNav() {
     const uid = user.uid;
     if (href === '/home') {
       prefetchCachedAction(`following:${uid}`, async () => {
-        const res = await getFollowing(uid);
+        const res = await apiCall<{ users: UserProfile[] }>(
+          'GET',
+          `/api/v1/users/${uid}/following`,
+        );
         return (res.users ?? []).map((u) => u.uid);
       });
       prefetchCachedAction(`home-feed:${uid}:all`, async () => {

@@ -250,6 +250,11 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 - [x] Add a per-UID Firestore-backed rate limiter (`/rate_limits/{uid}_{action}` with timestamp). Apply to: `followUser`, `likeReview`, `likeActivity`, `createReview`, `inviteToList`, `createInviteLink`, `savePushSubscription`.
 - [ ] **Test (exploit script):** fire 100 `followUser` calls in 10 seconds → some are rejected with rate-limit error.
+- [x] **Phase A PR #5 + PR #7**: `checkRateLimit` invocations preserved at the new route layer. Invites: `POST /api/v1/lists/.../invites` + `.../invite-link`. Follows: `POST /api/v1/users/[uid]/follow`. All return a 429 with `RATE_LIMITED` envelope when tripped — clients can branch on `error.code`.
+
+### 3.8a — Latent count-drift (parallel to AUDIT 2.2)
+
+- [x] **3.8a.1 — Phase A PR #7**: `unfollowUser` used to batch-delete + decrement WITHOUT checking that the follow doc existed. A ghost unfollow (concurrent double-tap, stale UI) drifted `followersCount`/`followingCount` negative. The route now wraps existence-check + delete + decrement in `db.runTransaction`. Idempotent; concurrent double-unfollow → exactly one decrement. Test in `32-follows-endpoints.test.ts`: "ghost unfollow is a no-op — counts do NOT drift negative".
 
 ### 3.9 — `apphosting.yaml` maxInstances: 1
 

@@ -16,8 +16,9 @@ import {
   setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as followPost } from '@/app/api/v1/users/[uid]/follow/route';
 
-let followUser: (idToken: unknown, followingId: string) => Promise<any>;
 let likeReview: (idToken: unknown, reviewId: string) => Promise<any>;
 
 let alice: TestUser;
@@ -25,7 +26,7 @@ let bob: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ followUser, likeReview } = await import('@/app/actions'));
+  ({ likeReview } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -38,9 +39,19 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('followUser: actor is the TOKEN owner, not a forgeable param', async () => {
-  const res = await callActionAs(alice, followUser, bob.uid);
-  assert.equal((res as any).success, true);
+test('POST /users/[uid]/follow: actor is the TOKEN owner, not a forgeable param', async () => {
+  // Ensure target exists (the route checks).
+  await adminDb().collection('users').doc(bob.uid).set({
+    uid: bob.uid, username: 'bob', followersCount: 0, followingCount: 0,
+  });
+  await adminDb().collection('users').doc(alice.uid).set({
+    uid: alice.uid, username: 'alice', followersCount: 0, followingCount: 0,
+  });
+  const token = await alice.getIdToken();
+  const res = await callRoute(followPost, 'POST', {
+    token, params: { uid: bob.uid },
+  });
+  assert.equal(res.status, 200);
 
   const aliceFollowing = await adminDb()
     .collection('users').doc(alice.uid).collection('following').doc(bob.uid).get();
@@ -51,9 +62,11 @@ test('followUser: actor is the TOKEN owner, not a forgeable param', async () => 
   assert.equal(bobFollowers.exists, true, 'bob has alice as a follower');
 });
 
-test('followUser: forged token cannot create a follow as someone else', async () => {
-  const res = await callActionWithRawToken('forged', followUser, bob.uid);
-  assert.deepEqual(res, { error: 'Unauthorized' });
+test('POST /users/[uid]/follow: forged token cannot create a follow as someone else', async () => {
+  const res = await callRoute(followPost, 'POST', {
+    token: 'forged', params: { uid: bob.uid },
+  });
+  assert.equal(res.status, 401);
 
   const snap = await adminDb().collection('users').doc(bob.uid).collection('followers').get();
   assert.equal(snap.size, 0, 'no follow relationship was created');

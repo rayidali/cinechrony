@@ -24,7 +24,7 @@ import { ProfileListCard } from '@/components/profile-list-card';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { getFollowers, getFollowing, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
@@ -205,7 +205,10 @@ export default function MyProfilePage() {
   const handleLoadFollowers = async () => {
     if (!user) return;
     try {
-      const result = await getFollowers(user.uid);
+      const result = await apiCall<{ users: UserProfile[] }>(
+        'GET',
+        `/api/v1/users/${user.uid}/followers`,
+      );
       setFollowers(result.users || []);
       setShowFollowers(true);
     } catch {
@@ -218,7 +221,10 @@ export default function MyProfilePage() {
   const handleLoadFollowing = async () => {
     if (!user) return;
     try {
-      const result = await getFollowing(user.uid);
+      const result = await apiCall<{ users: UserProfile[] }>(
+        'GET',
+        `/api/v1/users/${user.uid}/following`,
+      );
       setFollowing(result.users || []);
       setShowFollowing(true);
     } catch {

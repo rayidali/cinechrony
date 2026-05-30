@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import { Loader2, UserPlus, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { followUser, unfollowUser, isFollowing } from '@/app/actions';
+import { isFollowing } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
@@ -58,28 +59,26 @@ export function FollowButton({
     setIsLoading(true);
     try {
       if (following) {
-        const result = await unfollowUser(await user.getIdToken(), targetUserId);
-        if ('error' in result) {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        } else {
-          setFollowing(false);
-          onFollowChange?.(false);
-          // Invalidate the cached following set so the home `friends` filter
-          // reflects the change immediately on the next mount.
-          invalidateCachedAction(`following:${user.uid}`);
-          toast({ title: 'Unfollowed', description: `You unfollowed @${targetUsername}` });
-        }
+        await apiCall('DELETE', `/api/v1/users/${targetUserId}/follow`);
+        setFollowing(false);
+        onFollowChange?.(false);
+        // Invalidate the cached following set so the home `friends` filter
+        // reflects the change immediately on the next mount.
+        invalidateCachedAction(`following:${user.uid}`);
+        toast({ title: 'Unfollowed', description: `You unfollowed @${targetUsername}` });
       } else {
-        const result = await followUser(await user.getIdToken(), targetUserId);
-        if ('error' in result) {
-          toast({ variant: 'destructive', title: 'Error', description: result.error });
-        } else {
-          setFollowing(true);
-          onFollowChange?.(true);
-          invalidateCachedAction(`following:${user.uid}`);
-          toast({ title: 'Following', description: `You are now following @${targetUsername}` });
-        }
+        await apiCall('POST', `/api/v1/users/${targetUserId}/follow`);
+        setFollowing(true);
+        onFollowChange?.(true);
+        invalidateCachedAction(`following:${user.uid}`);
+        toast({ title: 'Following', description: `You are now following @${targetUsername}` });
       }
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to update follow.',
+      });
     } finally {
       setIsLoading(false);
     }

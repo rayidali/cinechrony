@@ -6,7 +6,8 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, Search, Loader2, UserPlus, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { searchUsers, followUser } from '@/app/actions';
+import { searchUsers } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useDebouncedCallback } from 'use-debounce';
 
 const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
@@ -83,11 +84,7 @@ export function FindFriendsScreen({
     setFollowingInProgress(prev => new Set(prev).add(targetUser.uid));
 
     try {
-      const result = await followUser(await user.getIdToken(), targetUser.uid);
-
-      if ('error' in result) {
-        throw new Error(result.error);
-      }
+      await apiCall('POST', `/api/v1/users/${targetUser.uid}/follow`);
 
       setFollowedUsers(prev => new Set(prev).add(targetUser.uid));
       setFollowedCount(followedCount + 1);
@@ -95,11 +92,11 @@ export function FindFriendsScreen({
       toast({
         title: `Following @${targetUser.username}`,
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to follow user",
+        description: error instanceof ApiClientError ? error.message : "Failed to follow user",
       });
     } finally {
       setFollowingInProgress(prev => {
