@@ -12,6 +12,7 @@ import {
   Loader2,
   Crown,
   UserMinus,
+  LogOut,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -34,6 +35,7 @@ import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
 import { getListMembers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { invalidateCachedAction } from '@/lib/use-cached-action';
 import type { MovieList, ListMember } from '@/lib/types';
 import { processImage, fileToBase64, isImageFile } from '@/lib/image-utils';
 
@@ -77,6 +79,8 @@ export default function ListSettingsPage() {
   const [isInviteOpen, setIsInviteOpen] = useState(false);
   const [memberToRemove, setMemberToRemove] = useState<ListMember | null>(null);
   const [isRemoveOpen, setIsRemoveOpen] = useState(false);
+  const [isLeaveOpen, setIsLeaveOpen] = useState(false);
+  const [isLeaving, setIsLeaving] = useState(false);
 
   // Initialize form when list data loads
   useEffect(() => {
@@ -290,6 +294,46 @@ export default function ListSettingsPage() {
     setMembers(updatedMembers);
   };
 
+  // Collaborator leaves the list — only callable when !isOwner.
+  // Owners cannot leave their own list (server rejects with 400); the
+  // button is gated client-side so this is defense-in-depth.
+  const handleLeave = async () => {
+    if (!user || !effectiveOwnerId || isOwner) return;
+
+    setIsLeaving(true);
+    try {
+      await apiCall(
+        'POST',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/leave`,
+      );
+      toast({
+        title: 'Left list',
+        description: `You are no longer a collaborator on "${listData?.name ?? 'this list'}".`,
+      });
+      // The /lists page reads this user's collaborative lists via a cached
+      // action; invalidate so the next mount fetches fresh data without
+      // the list we just left.
+      invalidateCachedAction(`collab-lists:${user.uid}`);
+      // Members cache for THIS list is now stale too — the membership we
+      // had is gone.
+      invalidateCache(effectiveOwnerId, listId);
+      // Navigate away — we no longer have edit access to this list's
+      // settings page (its useDoc subscription will continue returning
+      // data but the route gate that brought us here is gone).
+      router.push('/lists');
+    } catch (error) {
+      console.error('Failed to leave list:', error);
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to leave list.',
+      });
+    } finally {
+      setIsLeaving(false);
+      setIsLeaveOpen(false);
+    }
+  };
+
   // Show loading spinner while user or list is loading
   if (isUserLoading || isLoadingList) {
     return (
@@ -466,6 +510,19 @@ export default function ListSettingsPage() {
             <span className="font-medium">delete this list</span>
           </button>
         )}
+
+        {/* Leave Button - Collaborator only.
+            Owners cannot leave (would orphan the list); the server enforces
+            this too, but the UI hides the option so it's never offered. */}
+        {!isOwner && listData && (
+          <button
+            onClick={() => setIsLeaveOpen(true)}
+            className="w-full flex items-center justify-center gap-2 text-destructive py-3 hover:bg-destructive/10 rounded-xl transition-colors"
+          >
+            <LogOut className="h-5 w-5" />
+            <span className="font-medium">leave this list</span>
+          </button>
+        )}
       </div>
 
       {/* Fixed Save Button */}
@@ -529,6 +586,28 @@ export default function ListSettingsPage() {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Leave Confirmation (collaborator-only) */}
+      <AlertDialog open={isLeaveOpen} onOpenChange={(open) => !isLeaving && setIsLeaveOpen(open)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Leave List</AlertDialogTitle>
+            <AlertDialogDescription>
+              Leave &quot;{listData?.name}&quot;? You&apos;ll lose access to the list and will need a new invite to rejoin.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isLeaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleLeave}
+              disabled={isLeaving}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isLeaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Leave'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
