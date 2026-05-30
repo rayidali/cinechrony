@@ -13,23 +13,21 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { DELETE as deleteMe } from '@/app/api/v1/me/route';
 import { POST as transferPost } from '@/app/api/v1/lists/[ownerId]/[listId]/transfer/route';
 import { PATCH as patchMovie } from '@/app/api/v1/lists/[ownerId]/[listId]/movies/[movieId]/route';
-
-let removeCollaborator: (idToken: unknown, ownerId: string, listId: string, collaboratorId: string) => Promise<any>;
+import { DELETE as removeCollabDelete } from '@/app/api/v1/lists/[ownerId]/[listId]/collaborators/[uid]/route';
 
 let owner: TestUser;
 let attacker: TestUser;
 let collab: TestUser;
 
-before(async () => {
+before(() => {
   setupTestEnv();
-  ({ removeCollaborator } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -89,19 +87,29 @@ test('1.3 POST /lists/[ownerId]/[listId]/transfer: non-owner cannot steal a list
   assert.equal(orig.data()?.ownerId, owner.uid, 'ownership unchanged');
 });
 
-test('1.4 removeCollaborator: non-owner cannot kick collaborators', async () => {
+test('1.4 DELETE /collaborators/[uid]: non-owner cannot kick collaborators', async () => {
   await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1')
     .set({ id: 'L1', name: 'L', ownerId: owner.uid, collaboratorIds: [collab.uid] });
 
-  const attack = await callActionAs(attacker, removeCollaborator, owner.uid, 'L1', collab.uid);
-  assert.deepEqual(attack, { error: 'Only the list owner can remove collaborators.' });
+  const params = { ownerId: owner.uid, listId: 'L1', uid: collab.uid };
+
+  // Attacker is NOT the owner. Should be 403 — and the owner's check is
+  // against the STORED ownerId, not a client-supplied param.
+  const attackerToken = await attacker.getIdToken();
+  const attack = await callRoute(removeCollabDelete, 'DELETE', {
+    token: attackerToken, params,
+  });
+  assert.equal(attack.status, 403);
 
   const list1 = await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1').get();
   assert.deepEqual(list1.data()?.collaboratorIds, [collab.uid], 'collaborator still present');
 
   // Real owner can remove.
-  const ok = await callActionAs(owner, removeCollaborator, owner.uid, 'L1', collab.uid);
-  assert.equal((ok as any).success, true);
+  const ownerToken = await owner.getIdToken();
+  const ok = await callRoute(removeCollabDelete, 'DELETE', {
+    token: ownerToken, params,
+  });
+  assert.equal(ok.status, 200);
   const list2 = await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1').get();
   assert.deepEqual(list2.data()?.collaboratorIds, [], 'owner removed the collaborator');
 });

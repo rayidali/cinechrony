@@ -32,10 +32,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
-import {
-  getListMembers,
-  removeCollaborator,
-} from '@/app/actions';
+import { getListMembers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { MovieList, ListMember } from '@/lib/types';
 import { processImage, fileToBase64, isImageFile } from '@/lib/image-utils';
@@ -270,16 +267,19 @@ export default function ListSettingsPage() {
     if (!user || !memberToRemove || !isOwner || !effectiveOwnerId) return;
 
     try {
-      const result = await removeCollaborator(await user.getIdToken(), effectiveOwnerId, listId, memberToRemove.uid);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'Collaborator removed', description: `@${memberToRemove.username} has been removed.` });
-        setMembers(prev => prev.filter(m => m.uid !== memberToRemove.uid));
-      }
+      await apiCall(
+        'DELETE',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/collaborators/${memberToRemove.uid}`,
+      );
+      toast({ title: 'Collaborator removed', description: `@${memberToRemove.username} has been removed.` });
+      setMembers(prev => prev.filter(m => m.uid !== memberToRemove.uid));
     } catch (error) {
       console.error('Failed to remove:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to remove collaborator' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to remove collaborator',
+      });
     } finally {
       setIsRemoveOpen(false);
       setMemberToRemove(null);

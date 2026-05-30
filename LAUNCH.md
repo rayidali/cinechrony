@@ -276,7 +276,8 @@ Same conventions as the audit tracker:
 - [x] **A.3.3** `DELETE /api/v1/lists/[ownerId]/[listId]` — `deleteList` — PR #3
 - [x] **A.3.4** `POST /api/v1/lists/[ownerId]/[listId]/transfer` — `transferOwnership` (closes AUDIT.md 2.1 + 1.3) — PR #3
 - [x] **A.3.5** `POST /api/v1/lists/[ownerId]/[listId]/cover` — `setListCover` (closes AUDIT.md 1.5) — PR #3
-- [ ] **A.3.6** `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4) — PR #6
+- [x] **A.3.6** `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4) — PR #6
+- [x] **A.3.6a** `POST /api/v1/lists/[ownerId]/[listId]/leave` — `leaveList` (caller self-removes; owner cannot leave own list) — PR #6
 - [ ] **A.3.7** `GET /api/v1/lists/[ownerId]/[listId]/preview` — `getListPreview` w/ privacy check (closes AUDIT.md 1.13) — PR #12
 
 **Movies in lists**

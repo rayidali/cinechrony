@@ -70,6 +70,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.4.1** Compare `listData.ownerId` against the **verified UID**, not the parameter.
 - [x] **1.4.2** **Test:** as User B (not the owner), call `removeCollaborator(userAUid, listId, victimUid)` → rejected.
+- [x] **1.4.3** **Phase A PR #6**: action retired; logic in `src/lib/collaborators-server.ts::removeCollaborator`. Route `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` enforces owner-only via the verified-token uid. Tests in `07-special-cases-auth.test.ts` + `31-collaborators-endpoints.test.ts`.
 
 ### 1.5 — `updateListCover` has no permission check (`actions.ts:2861`)
 

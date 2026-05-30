@@ -1223,93 +1223,13 @@ export async function getListMembers(listOwnerId: string, listId: string) {
   }
 }
 
-/**
- * Remove a collaborator from a list (owner only).
- */
-export async function removeCollaborator(idToken: string, ownerId: string, listId: string, collaboratorId: string) {
-  // AUDIT.md 1.4: the old check `listData.ownerId !== ownerId` was tautological
-  // (ownerId was both the path AND the comparison target — always passed).
-  // Now we compare the stored owner against the cryptographically-verified
-  // caller, so only the real owner can remove collaborators.
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
+// Phase A PR #6 (LAUNCH.md A.3.6): removeCollaborator + leaveList migrated
+// to /api/v1 routes — see `src/lib/collaborators-server.ts` and
+// `src/app/api/v1/lists/[ownerId]/[listId]/collaborators/[uid]/route.ts`
+// (DELETE) + `.../leave/route.ts` (POST). Closes AUDIT.md 1.4 — caller
+// identity comes from the verified token; the stored ownerId is the
+// comparison anchor.
 
-  const db = getDb();
-
-  try {
-    const listRef = db.collection('users').doc(ownerId).collection('lists').doc(listId);
-    const listDoc = await listRef.get();
-
-    if (!listDoc.exists) {
-      return { error: 'List not found.' };
-    }
-
-    const listData = listDoc.data();
-
-    // Only the verified list owner may remove collaborators.
-    if (listData?.ownerId !== auth.uid) {
-      return { error: 'Only the list owner can remove collaborators.' };
-    }
-
-    // Remove collaborator
-    await listRef.update({
-      collaboratorIds: FieldValue.arrayRemove(collaboratorId),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    revalidatePath('/lists');
-    revalidatePath(`/lists/${listId}`);
-    return { success: true };
-  } catch (error) {
-    console.error('[removeCollaborator] Failed:', error);
-    return { error: 'Failed to remove collaborator.' };
-  }
-}
-
-/**
- * Leave a list (collaborator only - owner must transfer ownership first).
- */
-export async function leaveList(idToken: string, listOwnerId: string, listId: string) {
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return auth;
-  const userId = auth.uid;
-
-  const db = getDb();
-
-  try {
-    // Owner cannot leave without transferring ownership
-    if (userId === listOwnerId) {
-      return { error: 'As the owner, you must transfer ownership before leaving or delete the list.' };
-    }
-
-    const listRef = db.collection('users').doc(listOwnerId).collection('lists').doc(listId);
-    const listDoc = await listRef.get();
-
-    if (!listDoc.exists) {
-      return { error: 'List not found.' };
-    }
-
-    const listData = listDoc.data();
-    const collaboratorIds: string[] = listData?.collaboratorIds || [];
-
-    // Check if user is a collaborator
-    if (!collaboratorIds.includes(userId)) {
-      return { error: 'You are not a collaborator on this list.' };
-    }
-
-    // Remove user from collaborators
-    await listRef.update({
-      collaboratorIds: FieldValue.arrayRemove(userId),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
-
-    revalidatePath('/lists');
-    return { success: true };
-  } catch (error) {
-    console.error('[leaveList] Failed:', error);
-    return { error: 'Failed to leave list.' };
-  }
-}
 
 /**
  * Get all lists owned by a user.
