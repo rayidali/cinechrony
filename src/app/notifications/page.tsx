@@ -273,10 +273,18 @@ export default function NotificationsPage() {
         ) : (
           <div className="space-y-1">
             {notifications.map(notification => (
-              <button
+              <div
                 key={notification.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleNotificationClick(notification)}
-                className={`w-full text-left flex items-start gap-3 p-3 rounded-xl transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleNotificationClick(notification);
+                  }
+                }}
+                className={`w-full cursor-pointer text-left flex items-start gap-3 p-3 rounded-xl transition-colors ${
                   notification.read
                     ? 'hover:bg-secondary/50'
                     : 'bg-primary/5 hover:bg-primary/10'
@@ -376,7 +384,7 @@ export default function NotificationsPage() {
                     <div className="w-2 h-2 rounded-full bg-primary" />
                   </div>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}
