@@ -321,8 +321,12 @@ Same conventions as the audit tracker:
 - [x] **A.3.33** `GET /api/v1/reviews?tmdbId=&sort=&cursor=` — `getMovieReviews` w/ cursor pagination (closes AUDIT.md 3.10 top-level read) — PR #8
 - [x] **A.3.33a** `GET /api/v1/reviews/[id]/replies?cursor=` — `getReviewReplies` w/ cursor pagination (closes AUDIT.md 3.10 replies read) — PR #8
 - [x] **A.3.33b** `GET /api/v1/reviews/by-user?userId=&tmdbId=` — `getUserReviewForMovie` — PR #8
-- [ ] **A.3.34** `POST /api/v1/ratings` — `createOrUpdateRating`
-- [ ] **A.3.35** `DELETE /api/v1/ratings/[tmdbId]` — `deleteRating`
+- [x] **A.3.34** `POST /api/v1/ratings` — `createOrUpdateRating` (1–10 validation, rounds to one decimal, emits `rated` activity on first rating only) — PR #9
+- [x] **A.3.35** `DELETE /api/v1/ratings/[tmdbId]` — `deleteRating` (owner-only; doc id encodes ownership) — PR #9
+- [x] **A.3.35a** `GET /api/v1/ratings/by-user?userId=&tmdbId=` — `getUserRating` (single lookup) — PR #9
+- [x] **A.3.35b** `GET /api/v1/users/[uid]/ratings?cursor=` — `getUserRatings` w/ cursor pagination (closes AUDIT.md 2.5) — PR #9
+- [x] **A.3.35c** `POST /api/v1/lists/[ownerId]/[listId]/like` — `likeList` (transactional, members-cannot-like-own-list guard, rate-limited) — PR #9
+- [x] **A.3.35d** `DELETE /api/v1/lists/[ownerId]/[listId]/like` — `unlikeList` (transactional; lastLikedAt preserved on unlike) — PR #9
 
 **Activities**
 - [ ] **A.3.36** `GET /api/v1/activities?cursor=...` — `getActivityFeed`
@@ -357,6 +361,34 @@ Same conventions as the audit tracker:
 - [ ] **A.5.3** Resolve dynamic route handling for static export — `/lists/[listId]`, `/profile/[username]`, etc. (use `generateStaticParams` returning `[]` + `dynamicParams: true` won't work for export; use a single client-side router pattern instead). May need to introduce a catch-all client-rendered router.
 - [ ] **A.5.4** `npm run build` outputs a clean `out/` directory.
 - [ ] **A.5.5 — Test:** serve `out/` with a static server (e.g. `npx serve out`); every route works as a client-side app.
+
+---
+
+## Phase A.6 — Pre-launch UX polish (post-Phase-A, pre-Capacitor)
+
+> Small backlog of UX gaps surfaced during Phase A local verification.
+> None are launch-blockers individually; each is ~½–1 day. Ship as
+> small focused PRs off main once Phase A is fully merged.
+
+- [ ] **A.6.1 — @-mention autocomplete in composers.** Typing `@` in
+  the comments composer (and review composer in the movie modal) should
+  open an inline user-search picker, the way Twitter / Instagram /
+  Slack handle it. Today: only the post composer has a mention picker,
+  and it's triggered by an explicit toolbar button — not by typing `@`.
+  Comments composer has NO picker at all (you have to type the
+  username yourself; mentions still resolve on the server, just no UX
+  affordance to find people). **Scope**: build a shared
+  `<MentionAutocomplete>` hook + sheet that lives above the on-screen
+  keyboard (mirror the existing `visualViewport` handling on
+  `/comments`). Reuse the existing `searchUsers` action; on select,
+  replace `@partial` with `@username` and reposition the caret. Apply
+  in `comments/page.tsx` first, then port the post-composer to it so
+  the two stay consistent. ~1 day. Discovered during PR #8 verify.
+- [ ] **A.6.2 — Cursor pagination wire-up on /comments.** Endpoint
+  ships infinite-scroll-ready in PR #8 (`?cursor=`), but the
+  `comments/page.tsx` client still loads only the first page. Add an
+  intersection-observer-based "load more" on scroll. ~½ day.
+  AUDIT 3.10 follow-up.
 
 ---
 

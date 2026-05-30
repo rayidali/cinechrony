@@ -2,8 +2,8 @@
 
 import { useState, useTransition, useMemo } from 'react';
 import { Heart } from 'lucide-react';
-import { useAuth, useUser } from '@/firebase';
-import { likeList, unlikeList } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { apiCall } from '@/lib/api-client';
 import { cn } from '@/lib/utils';
 
 type ListLikeButtonProps = {
@@ -36,7 +36,6 @@ export function ListLikeButton({
   className,
 }: ListLikeButtonProps) {
   const { user } = useUser();
-  const auth = useAuth();
   const [isPending, startTransition] = useTransition();
 
   const [likes, setLikes] = useState(initialLikes);
@@ -59,18 +58,18 @@ export function ListLikeButton({
 
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         const res = next
-          ? await likeList(idToken, listOwnerId, listId)
-          : await unlikeList(idToken, listOwnerId, listId);
-        if ('error' in res && res.error) {
-          // Roll back on failure.
-          setIsLiked(!next);
-          setLikes((n) => Math.max(0, next ? n - 1 : n + 1));
-        } else if ('likes' in res && typeof res.likes === 'number') {
+          ? await apiCall<{ likes: number }>(
+              'POST', `/api/v1/lists/${listOwnerId}/${listId}/like`,
+            )
+          : await apiCall<{ likes: number }>(
+              'DELETE', `/api/v1/lists/${listOwnerId}/${listId}/like`,
+            );
+        if (typeof res.likes === 'number') {
           setLikes(res.likes);
         }
       } catch {
+        // Roll back on failure.
         setIsLiked(!next);
         setLikes((n) => Math.max(0, next ? n - 1 : n + 1));
       }

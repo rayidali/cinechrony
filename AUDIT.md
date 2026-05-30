@@ -178,6 +178,7 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x]  **2.5.2** Fix the multi-tab broadcast: optional `BroadcastChannel` so rating in tab A appears in tab B.
 - [x]  **2.5.3** Cancel in-flight `getUserRatings` on logout so it doesn't repopulate the cleared cache.
 - [x]  **2.5.4** **Test:** seed 1200 ratings for a test user. Open the app — cache has 1200 entries, grid cards show ratings, modal matches.
+- [x]  **2.5.5 — Phase A PR #9**: cursor pagination preserved end-to-end. Route `GET /api/v1/users/[uid]/ratings?limit=&cursor=` returns `{ ratings, hasMore, nextCursor }`. Cursor is the previous page's last `updatedAt` ISO timestamp. `UserRatingsCacheProvider` loops until `hasMore === false`. Test in `13-ratings-pagination.test.ts` seeds 1200 ratings, walks via cursor, asserts every uid returned exactly once.
 
 ### 2.6 — Comment "edit" duplicates (`comments/page.tsx:305`)
 

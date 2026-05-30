@@ -14,14 +14,12 @@ import {
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { POST as createReviewPost } from '@/app/api/v1/reviews/route';
-
-let createOrUpdateRating: (idToken: unknown, tmdbId: number, mediaType: string, title: string, poster: string | undefined, rating: number) => Promise<any>;
+import { POST as createRatingPost } from '@/app/api/v1/ratings/route';
 
 let alice: TestUser;
 
-before(async () => {
+before(() => {
   setupTestEnv();
-  ({ createOrUpdateRating } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -57,13 +55,20 @@ test('POST /reviews: forged token cannot post a review as someone', async () => 
   assert.equal(reviews.size, 0, 'no review written');
 });
 
-test('createOrUpdateRating: rating keyed to verified uid; forged rejected', async () => {
-  const ok = await callActionAs(alice, createOrUpdateRating, 603, 'movie', 'The Matrix', undefined, 9);
-  assert.ok(!('error' in ok));
+test('POST /ratings: rating keyed to verified uid; forged rejected', async () => {
+  const aliceToken = await alice.getIdToken();
+  const ok = await callRoute(createRatingPost, 'POST', {
+    token: aliceToken,
+    body: { tmdbId: 603, mediaType: 'movie', movieTitle: 'The Matrix', rating: 9 },
+  });
+  assert.equal(ok.status, 200);
   const rating = await adminDb().collection('ratings').doc(`${alice.uid}_603`).get();
   assert.equal(rating.exists, true, 'rating doc id is {verifiedUid}_{tmdbId}');
   assert.equal(rating.data()?.rating, 9);
 
-  const bad = await callActionWithRawToken(null, createOrUpdateRating, 603, 'movie', 'X', undefined, 1);
-  assert.deepEqual(bad, { error: 'Unauthorized' });
+  const bad = await callRoute(createRatingPost, 'POST', {
+    token: 'forged',
+    body: { tmdbId: 603, mediaType: 'movie', movieTitle: 'X', rating: 1 },
+  });
+  assert.equal(bad.status, 401);
 });

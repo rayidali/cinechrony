@@ -20,8 +20,8 @@ import {
   createPost,
   getPostMediaUploadUrl,
   searchUsers,
-  getUserRating,
 } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
 import { captureVideoPoster } from '@/lib/video-poster';
@@ -300,7 +300,10 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   useEffect(() => {
     if (!taggedMovie || !user) return;
     let cancelled = false;
-    getUserRating(user.uid, taggedMovie.tmdbId)
+    apiCall<{ rating: { rating: number } | null }>(
+      'GET',
+      `/api/v1/ratings/by-user?userId=${user.uid}&tmdbId=${taggedMovie.tmdbId}`,
+    )
       .then((res) => {
         if (cancelled) return;
         if (res?.rating?.rating) setTempRating(res.rating.rating);
