@@ -26,7 +26,7 @@ import { Drawer } from 'vaul';
 import type { Movie, TMDBCast, Review } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { useFirestore, useUser } from '@/firebase';
-import { getUserRating, createOrUpdateRating, deleteRating, createReview, getMovieReviews } from '@/app/actions';
+import { getUserRating, createOrUpdateRating, deleteRating } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import {
   type MediaDetails,
@@ -253,8 +253,11 @@ export function MovieDetailsModal({
     setReviewPreviews([]);
     (async () => {
       try {
-        const result = await getMovieReviews(tmdbId, 'likes', 2);
-        if (!cancelled) setReviewPreviews((result.reviews ?? []) as Review[]);
+        const result = await apiCall<{ reviews: Review[] }>(
+          'GET',
+          `/api/v1/reviews?tmdbId=${tmdbId}&sort=likes&limit=2`,
+        );
+        if (!cancelled) setReviewPreviews(result.reviews ?? []);
       } catch {
         /* the preview is non-critical — leave it empty on failure */
       }
@@ -366,15 +369,18 @@ export function MovieDetailsModal({
     setUserRating(finalRating);
 
     if (comment.trim()) {
-      await createReview(
-        await user.getIdToken(),
-        tmdbId,
-        movie.mediaType || 'movie',
-        movie.title,
-        movie.posterUrl,
-        comment,
-        finalRating
-      );
+      try {
+        await apiCall('POST', '/api/v1/reviews', {
+          tmdbId,
+          mediaType: movie.mediaType || 'movie',
+          movieTitle: movie.title,
+          moviePosterUrl: movie.posterUrl,
+          text: comment,
+          ratingAtTime: finalRating,
+        });
+      } catch (err) {
+        console.error('[rate-on-watch] review POST failed:', err);
+      }
     }
 
     setLocalStatus('Watched');

@@ -26,7 +26,8 @@
 | #5 | Invites | 8 endpoints — list-scoped POST/GET + invite-link + by-code lookup + accept/decline/revoke + me/invites | 1.11, 1.12, 1.14, 2.9 | ✅ shipped on `feat/phase-a-invites-endpoints` |
 | #6 | Collaborators | `lists/[ownerId]/[listId]/collaborators/[uid]` (DELETE), `lists/[ownerId]/[listId]/leave` (POST) | 1.4 | ✅ shipped on `feat/phase-a-collaborators-endpoints` |
 | #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8, 3.8a (count-drift) | ✅ shipped on `feat/phase-a-follows-endpoints` |
-| #8 | Reviews + ratings | `reviews` (POST), `reviews/[id]` (PATCH, DELETE, like), `reviews?tmdbId=`, `ratings` | 2.5, 2.6, 3.5, 3.10 | pending |
+| #8 | Reviews | 8 endpoints — POST/GET/PATCH/DELETE + replies + like/unlike + by-user; cursor pagination | 2.6, 3.5, 3.10 | ✅ shipped on `feat/phase-a-reviews-endpoints` |
+| #9 | Ratings + List likes | `ratings`, `ratings/[tmdbId]`, `users/[uid]/ratings`, `lists/.../like` | 2.5 | next up |
 | #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
 | #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
 | #11 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |

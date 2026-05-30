@@ -313,12 +313,14 @@ Same conventions as the audit tracker:
 - [x] **A.3.27b** `GET /api/v1/users/[uid]/following` — `getFollowing` (public, paginated via `?limit=`) — PR #7
 
 **Reviews & ratings**
-- [ ] **A.3.28** `POST /api/v1/reviews` — `createReview` (length cap, sanitize — closes AUDIT.md 2.16 segment)
-- [ ] **A.3.29** `PATCH /api/v1/reviews/[id]` — `updateReview` (real edit — closes AUDIT.md 2.6)
-- [ ] **A.3.30** `DELETE /api/v1/reviews/[id]` — `deleteReview` (also cleans activities)
-- [ ] **A.3.31** `POST /api/v1/reviews/[id]/like` — `likeReview` (transactional — closes AUDIT.md 3.5)
-- [ ] **A.3.32** `DELETE /api/v1/reviews/[id]/like` — `unlikeReview`
-- [ ] **A.3.33** `GET /api/v1/reviews?tmdbId=...&cursor=...` — `getMovieReviews` w/ pagination (closes AUDIT.md 3.10)
+- [x] **A.3.28** `POST /api/v1/reviews` — `createReview` (rate-limited, length cap 2000, mention+reply notifications, AUDIT 3.8) — PR #8
+- [x] **A.3.29** `PATCH /api/v1/reviews/[id]` — `updateReview` (real edit, closes AUDIT.md 2.6) — PR #8
+- [x] **A.3.30** `DELETE /api/v1/reviews/[id]` — `deleteReview` (owner-only hard delete) — PR #8
+- [x] **A.3.31** `POST /api/v1/reviews/[id]/like` — `likeReview` (transactional, closes AUDIT.md 3.5; rate-limited) — PR #8
+- [x] **A.3.32** `DELETE /api/v1/reviews/[id]/like` — `unlikeReview` (transactional) — PR #8
+- [x] **A.3.33** `GET /api/v1/reviews?tmdbId=&sort=&cursor=` — `getMovieReviews` w/ cursor pagination (closes AUDIT.md 3.10 top-level read) — PR #8
+- [x] **A.3.33a** `GET /api/v1/reviews/[id]/replies?cursor=` — `getReviewReplies` w/ cursor pagination (closes AUDIT.md 3.10 replies read) — PR #8
+- [x] **A.3.33b** `GET /api/v1/reviews/by-user?userId=&tmdbId=` — `getUserReviewForMovie` — PR #8
 - [ ] **A.3.34** `POST /api/v1/ratings` — `createOrUpdateRating`
 - [ ] **A.3.35** `DELETE /api/v1/ratings/[tmdbId]` — `deleteRating`
 

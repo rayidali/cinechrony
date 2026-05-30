@@ -12,15 +12,16 @@ import {
   setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as createReviewPost } from '@/app/api/v1/reviews/route';
 
-let createReview: (idToken: unknown, tmdbId: number, mediaType: string, title: string, poster: string | undefined, text: string) => Promise<any>;
 let createOrUpdateRating: (idToken: unknown, tmdbId: number, mediaType: string, title: string, poster: string | undefined, rating: number) => Promise<any>;
 
 let alice: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ createReview, createOrUpdateRating } = await import('@/app/actions'));
+  ({ createOrUpdateRating } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -33,18 +34,25 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('createReview: review is attributed to the TOKEN owner', async () => {
-  const res = await callActionAs(alice, createReview, 603, 'movie', 'The Matrix', undefined, 'peak cinema');
-  assert.ok(!('error' in res), 'review created');
+test('POST /reviews: review is attributed to the TOKEN owner', async () => {
+  const aliceToken = await alice.getIdToken();
+  const res = await callRoute(createReviewPost, 'POST', {
+    token: aliceToken,
+    body: { tmdbId: 603, mediaType: 'movie', movieTitle: 'The Matrix', text: 'peak cinema' },
+  });
+  assert.equal(res.status, 200, 'review created');
 
   const reviews = await adminDb().collection('reviews').where('tmdbId', '==', 603).get();
   assert.equal(reviews.size, 1);
   assert.equal(reviews.docs[0].data().userId, alice.uid, 'authored by verified caller');
 });
 
-test('createReview: forged token cannot post a review as someone', async () => {
-  const res = await callActionWithRawToken('forged', createReview, 603, 'movie', 'X', undefined, 'spam');
-  assert.deepEqual(res, { error: 'Unauthorized' });
+test('POST /reviews: forged token cannot post a review as someone', async () => {
+  const res = await callRoute(createReviewPost, 'POST', {
+    token: 'forged',
+    body: { tmdbId: 603, mediaType: 'movie', movieTitle: 'X', text: 'spam' },
+  });
+  assert.equal(res.status, 401);
   const reviews = await adminDb().collection('reviews').get();
   assert.equal(reviews.size, 0, 'no review written');
 });

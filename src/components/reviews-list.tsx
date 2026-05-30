@@ -6,7 +6,7 @@ import { Loader2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ReviewCard } from '@/components/review-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { getMovieReviews } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { getRatingStyle } from '@/lib/utils';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Review } from '@/lib/types';
@@ -52,9 +52,12 @@ export const ReviewsList = memo(function ReviewsList({
     async function fetchReviews() {
       setIsLoading(true);
       try {
-        const result = await getMovieReviews(tmdbId, sortBy);
-        if (!cancelled && result.reviews) {
-          setReviews(result.reviews as Review[]);
+        const result = await apiCall<{ reviews: Review[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          `/api/v1/reviews?tmdbId=${tmdbId}&sort=${sortBy}`,
+        );
+        if (!cancelled) {
+          setReviews(result.reviews);
         }
       } catch (error) {
         if (!cancelled) {

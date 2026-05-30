@@ -183,6 +183,7 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 - [x]  **2.6.1** Either implement real edit (server action that updates the review doc) or remove the misleading edit affordance.
 - [x]  **2.6.2** **Test (manual):** tap edit on own comment, modify text, save. Original comment is updated in place — no duplicate appears.
+- [x]  **2.6.3** **Phase A PR #8**: real-edit invariant preserved end-to-end. Route `PATCH /api/v1/reviews/[id]` (owner-only) mutates the original doc. Test `33-reviews-endpoints.test.ts` ("owner real-edit mutates the same doc") asserts the collection size stays at 1 after the edit.
 
 ### 2.7 — `deleteUserAccount` full-collection scan (`actions.ts:1094`)
 
@@ -234,7 +235,8 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 ### 3.5 — `like` actions are not transactional (`likeReview:3128`, `unlikeReview:3195`, `likeActivity:5567`)
 
 - [x] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
-- [ ] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry.
+- [x] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry. Migrated to route in `14-like-atomicity.test.ts`; "concurrent double-like by the SAME user → likes 1, not 2".
+- [x] **Phase A PR #8**: `likeReview` / `unlikeReview` retired; transactional logic in `src/lib/reviews-server.ts`. Routes `POST` / `DELETE /api/v1/reviews/[id]/like` exercised by `14-like-atomicity.test.ts` (5 tests, all green) + `33-reviews-endpoints.test.ts`.
 
 ### 3.6 — `useToast` 16-minute leak (`use-toast.ts:11`)
 
@@ -263,8 +265,9 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 ### 3.10 — `getMovieReviews` / `getReviewReplies` cap at 50 with no pagination (`actions.ts:3050`)
 
-- [ ] Add cursor pagination matching `getActivityFeed`'s pattern. Update comments page to fetch more on scroll.
-- [ ] **Test:** seed 100 reviews on a movie — comments page shows all of them via infinite scroll.
+- [x] **Phase A PR #8**: cursor pagination added matching `getActivityFeed`'s pattern. Both `GET /api/v1/reviews?tmdbId=&cursor=` and `GET /api/v1/reviews/[id]/replies?cursor=` accept `limit` (1–100, default 50) and return `{ hasMore, nextCursor }`. Helper fetches `limit+1` to compute hasMore.
+- [x] **Test:** `33-reviews-endpoints.test.ts` seeds 5 reviews + asserts a 3-page sequence via cursor (page1: 2 newest, hasMore=true; page2: middle 2; page3: oldest 1, hasMore=false). Same pattern for replies.
+- [ ] Comments page UI: paginated load-more / infinite scroll wiring. The endpoint supports it; client-side scroll trigger is a UX follow-up.
 
 ### 3.11 — `comments/page.tsx` history.pushState without cleanup (line 83)
 

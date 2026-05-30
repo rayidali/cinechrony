@@ -13,20 +13,18 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { POST as followPost } from '@/app/api/v1/users/[uid]/follow/route';
-
-let likeReview: (idToken: unknown, reviewId: string) => Promise<any>;
+import { POST as likePost } from '@/app/api/v1/reviews/[id]/like/route';
 
 let alice: TestUser;
 let bob: TestUser;
 
-before(async () => {
+before(() => {
   setupTestEnv();
-  ({ likeReview } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -72,16 +70,20 @@ test('POST /users/[uid]/follow: forged token cannot create a follow as someone e
   assert.equal(snap.size, 0, 'no follow relationship was created');
 });
 
-test('likeReview: valid token likes once; forged token rejected', async () => {
+test('POST /reviews/[id]/like: valid token likes once; forged token rejected', async () => {
   await adminDb().collection('reviews').doc('r1').set({
-    userId: bob.uid, text: 'great film', likes: 0, likedBy: [],
+    userId: bob.uid, text: 'great film', likes: 0, likedBy: [], tmdbId: 1, mediaType: 'movie',
   });
+  await adminDb().collection('users').doc(alice.uid).set({
+    uid: alice.uid, username: 'alice',
+  }, { merge: true });
 
-  const ok = await callActionAs(alice, likeReview, 'r1');
-  assert.ok(!('error' in ok), 'valid like succeeded');
+  const aliceToken = await alice.getIdToken();
+  const ok = await callRoute(likePost, 'POST', { token: aliceToken, params: { id: 'r1' } });
+  assert.equal(ok.status, 200, 'valid like succeeded');
   const liked = await adminDb().collection('reviews').doc('r1').get();
   assert.deepEqual(liked.data()?.likedBy, [alice.uid], 'liked by the token owner');
 
-  const bad = await callActionWithRawToken('', likeReview, 'r1');
-  assert.deepEqual(bad, { error: 'Unauthorized' });
+  const bad = await callRoute(likePost, 'POST', { token: '', params: { id: 'r1' } });
+  assert.equal(bad.status, 401);
 });
