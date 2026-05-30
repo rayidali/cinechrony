@@ -16,13 +16,8 @@ import { Button } from '@/components/ui/button';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import {
-  searchUsers,
-  inviteToList,
-  createInviteLink,
-  getListPendingInvites,
-  revokeInvite,
-} from '@/app/actions';
+import { searchUsers } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { ListMember, ListInvite, UserProfile } from '@/lib/types';
 
 interface InviteCollaboratorModalProps {
@@ -66,8 +61,11 @@ export function InviteCollaboratorModal({
 
       setIsLoadingInvites(true);
       try {
-        const result = await getListPendingInvites(await user.getIdToken(), listOwnerId, listId);
-        setPendingInvites('invites' in result ? (result.invites || []) : []);
+        const result = await apiCall<{ invites: ListInvite[] }>(
+          'GET',
+          `/api/v1/lists/${listOwnerId}/${listId}/invites`,
+        );
+        setPendingInvites(result.invites || []);
       } catch (error) {
         console.error('Failed to load pending invites:', error);
       } finally {
@@ -122,21 +120,28 @@ export function InviteCollaboratorModal({
 
     setIsInviting(true);
     try {
-      const result = await inviteToList(await user.getIdToken(), listOwnerId, listId, inviteeId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'Invite Sent', description: 'User has been invited to collaborate.' });
-        setSearchQuery('');
-        setSearchResults([]);
-        setStep('options');
-        // Reload pending invites
-        const invitesResult = await getListPendingInvites(await user.getIdToken(), listOwnerId, listId);
-        setPendingInvites('invites' in invitesResult ? (invitesResult.invites || []) : []);
-      }
+      await apiCall(
+        'POST',
+        `/api/v1/lists/${listOwnerId}/${listId}/invites`,
+        { inviteeId },
+      );
+      toast({ title: 'Invite Sent', description: 'User has been invited to collaborate.' });
+      setSearchQuery('');
+      setSearchResults([]);
+      setStep('options');
+      // Reload pending invites
+      const invitesResult = await apiCall<{ invites: ListInvite[] }>(
+        'GET',
+        `/api/v1/lists/${listOwnerId}/${listId}/invites`,
+      );
+      setPendingInvites(invitesResult.invites || []);
     } catch (error) {
       console.error('Failed to invite:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to send invite' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to send invite',
+      });
     } finally {
       setIsInviting(false);
     }
@@ -147,16 +152,19 @@ export function InviteCollaboratorModal({
 
     setIsCreatingLink(true);
     try {
-      const result = await createInviteLink(await user.getIdToken(), listOwnerId, listId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else if (result.inviteCode) {
-        const link = `${window.location.origin}/invite/${result.inviteCode}`;
-        setInviteLink(link);
-      }
+      const result = await apiCall<{ inviteCode: string }>(
+        'POST',
+        `/api/v1/lists/${listOwnerId}/${listId}/invite-link`,
+      );
+      const link = `${window.location.origin}/invite/${result.inviteCode}`;
+      setInviteLink(link);
     } catch (error) {
       console.error('Failed to create link:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to create invite link' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to create invite link',
+      });
     } finally {
       setIsCreatingLink(false);
     }
@@ -174,16 +182,16 @@ export function InviteCollaboratorModal({
     if (!user) return;
 
     try {
-      const result = await revokeInvite(await user.getIdToken(), inviteId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({ title: 'Invite Cancelled', description: 'The invite has been revoked.' });
-        setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
-      }
+      await apiCall('DELETE', `/api/v1/invites/${inviteId}`);
+      toast({ title: 'Invite Cancelled', description: 'The invite has been revoked.' });
+      setPendingInvites(prev => prev.filter(i => i.id !== inviteId));
     } catch (error) {
       console.error('Failed to revoke:', error);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to revoke invite' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: error instanceof ApiClientError ? error.message : 'Failed to revoke invite',
+      });
     }
   };
 

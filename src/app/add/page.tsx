@@ -21,7 +21,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { addMovieToList, getCollaborativeLists } from '@/app/actions';
+import { getCollaborativeLists } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { collection, orderBy, query as firestoreQuery } from 'firebase/firestore';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
 
@@ -272,33 +273,32 @@ export default function AddPage() {
     setQuery('');
   };
 
-  const handleAddMovie = async (formData: FormData) => {
+  const handleAddMovie = async (_formData: FormData) => {
     if (!selectedMovie || !user || !selectedListId || !selectedListOwnerId) return;
 
-    formData.append('movieData', JSON.stringify(selectedMovie));
-    formData.append('idToken', await user.getIdToken());
-    formData.append('listId', selectedListId);
-    formData.append('listOwnerId', selectedListOwnerId);
-    if (socialLink) {
-      formData.set('socialLink', socialLink);
-    }
-
     startAddingTransition(async () => {
-      const result = await addMovieToList(formData);
       const itemType = selectedMovie.mediaType === 'tv' ? 'TV Show' : 'Movie';
-      if (result && 'error' in result) {
-        toast({
-          variant: 'destructive',
-          title: `Error adding ${itemType.toLowerCase()}`,
-          description: result.error,
-        });
-      } else {
+      try {
+        await apiCall(
+          'POST',
+          `/api/v1/lists/${selectedListOwnerId}/${selectedListId}/movies`,
+          {
+            movieData: selectedMovie,
+            socialLink: socialLink || undefined,
+          },
+        );
         toast({
           title: `${itemType} Added!`,
           description: `${selectedMovie.title} has been added to your list.`,
         });
         setSelectedMovie(null);
         setSocialLink('');
+      } catch (err) {
+        toast({
+          variant: 'destructive',
+          title: `Error adding ${itemType.toLowerCase()}`,
+          description: err instanceof ApiClientError ? err.message : 'Failed to add movie.',
+        });
       }
     });
   };

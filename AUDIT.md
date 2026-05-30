@@ -80,6 +80,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.6.1** Use the **verified UID** as the dot-notation key for `notes.${uid}` / `noteAuthors.${uid}` — never the client parameter.
 - [x] **1.6.2** **Test:** as User A (collaborator), call `updateMovieNote(userAUid, listId, movieId, userBUid, "spoofed")` → either rejected, or note saved under User A's uid (not User B's).
+- [x] **1.6.3** **Phase A PR #4**: action retired; new route `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (body `{ note }`) preserves the invariant — there is no `userId` field in the request, the note key is derived from the Bearer token. Tests migrated to `scripts/audit-tests/29-movies-endpoints.test.ts` + `07-special-cases-auth.test.ts`.
 
 ### 1.7 — `migrateMoviesToList` has no auth check (`actions.ts:719`)
 
@@ -109,12 +110,14 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.11.1** Wrap the read-check-write in `db.runTransaction`. Re-read invite status (might have been revoked) and list `collaboratorIds` length inside the transaction.
 - [x] **1.11.2** **Test (emulator):** fire two `acceptInvite` calls in parallel for the same invite, and separately for two different invites on a list with 9 members. Result: never more than 10 members; revoked invites can't be accepted.
+- [x] **1.11.3** **Phase A PR #5**: action retired; transactional logic preserved in `src/lib/invites-server.ts::acceptInvite`. Route `POST /api/v1/invites/accept` exercised by `scripts/audit-tests/30-invites-endpoints.test.ts` (incl. concurrent-double-accept race test) and `08-special-cases-b.test.ts`.
 
 ### 1.12 — `revokeInvite` permission too narrow + racy (`actions.ts:2214`)
 
 - [x] **1.12.1** Allow either the inviter or the list owner to revoke (currently only inviter).
 - [x] **1.12.2** Wrap revocation + status check in the same transaction as 1.11 so revoke ↔ accept races resolve cleanly.
 - [x] **1.12.3** **Test:** list owner revokes a collaborator's pending invite → succeeds. Acceptance of a freshly-revoked invite → fails.
+- [x] **1.12.4** **Phase A PR #5**: action retired; transactional logic preserved in `src/lib/invites-server.ts::revokeInvite`. Route `DELETE /api/v1/invites/[inviteId]`.
 
 ### 1.13 — `getListPreview` / `getListsPreviews` bypass privacy (`actions.ts:2655`, `2700`)
 
@@ -125,6 +128,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.14.1** Omit `inviteCode` from the response unless the caller is the list owner; OR invalidate codes when a member is removed.
 - [x] **1.14.2** **Test:** as a collaborator, fetch pending invites → response has no `inviteCode` field.
+- [x] **1.14.3** **Phase A PR #5**: action retired; route `GET /api/v1/lists/[ownerId]/[listId]/invites` enforces member-only access AND strips `inviteCode` for non-owners.
 
 ---
 
@@ -143,6 +147,17 @@ Every fix in this document includes a **Test** field describing how we verify it
 - [x] **2.2.1** Done — `addMovieToList` + `removeMovieFromList` wrap existence-check + write + count in `db.runTransaction` (atomic; contention-retry collapses concurrent same-key races). Imports can't be one txn (500-op limit) → switched to authoritative subcollection recount + SET (idempotent, self-healing on re-import/overlap/partial failure).
 - [x] **2.2.2** **Done — emulator race tests** `scripts/audit-tests/09-moviecount.test.ts` (6 tests, green): single +1; concurrent same-movie → count **1 not 2**; re-add no-op; remove −1; already-gone remove → **no negative drift**; concurrent double-remove → one decrement.
 - [x] **2.2.3** **BONUS bug found via the test:** `movieDoc` passed raw `posterHint`/`title`/`year`/`posterUrl` — Firestore Admin rejects `undefined`, so any TMDB result missing `posterHint` hard-failed adds for real users. Coalesced to `null`. **Systemic follow-up (new, tracked in Phase 5.11 below):** set `firestore.settings({ ignoreUndefinedProperties: true })` so this whole bug class can't recur.
+- [x] **2.2.4** **Phase A PR #4**: transactional invariants live in `src/lib/movies-server.ts` (`addMovieToList`, `removeMovieFromList`) and are exercised end-to-end by `scripts/audit-tests/09-moviecount.test.ts` (migrated from Server-Action calls to the new POST/DELETE routes). 6 tests still green.
+
+### 2.2-bypass — Phase A PR #4 secondary finding
+
+The legacy client used `updateDocumentNonBlocking(movieDocRef, { status })` /
+`deleteDocumentNonBlocking(movieDocRef)` / `updateDocumentNonBlocking(movieDocRef, { socialLink })`
+to mutate movie docs **directly from the browser**, bypassing `canEditList`
+entirely. Firestore security rules were the sole guard. PR #4 routed status,
+socialLink, and movie delete through `PATCH`/`DELETE /api/v1/lists/.../movies/...`,
+which enforces `canEditList` server-side. Stranger-blocked-at-403 tests pinned
+in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 
 ### 2.3 — Denormalization has no propagation
 
@@ -184,6 +199,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **2.9.1** Done — used `crypto.randomInt()` (CSPRNG *and* rejection-samples internally → no modulo bias, better than a raw `randomBytes` modulo).
 - [~] **2.9.2** No dedicated unit test (1-line RNG swap; verified by typecheck + `npm run build`). Low risk; can add a quick generator test if desired.
+- [x] **2.9.3** **Phase A PR #5**: enumeration vector closed end-to-end. `generateInviteCode` lives in `src/lib/invites-server.ts`. `GET /api/v1/invites/by-code/[code]` requires a Bearer token (legacy action was unauthenticated). Test in `30-invites-endpoints.test.ts`: "unauth → 401 (AUDIT 2.9 enumeration vector closed)".
 
 ### 2.10 — `forgot-password` confirms account existence (`(auth)/forgot-password/page.tsx:37`)
 

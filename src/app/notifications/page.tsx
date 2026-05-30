@@ -7,7 +7,8 @@ import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users }
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
-import { getNotifications, markNotificationsRead, acceptInvite, declineInvite } from '@/app/actions';
+import { getNotifications, markNotificationsRead } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
@@ -88,23 +89,26 @@ export default function NotificationsPage() {
 
     setProcessingInvites(prev => ({ ...prev, [notification.id]: 'accepting' }));
     try {
-      const result = await acceptInvite(await user.getIdToken(), notification.inviteId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({
-          title: 'Invite Accepted!',
-          description: `You are now a collaborator on "${notification.listName}"`,
-        });
-        setNotifications(prev => prev.filter(n => n.id !== notification.id));
-        // The collaborative-lists cache is now stale (this list joined it).
-        invalidateCachedAction(`collab-lists:${user.uid}`);
-        const ownerId = result.listOwnerId || notification.listOwnerId;
-        router.push(`/lists/${notification.listId}?owner=${ownerId}`);
-      }
+      const result = await apiCall<{ listId: string; listOwnerId: string }>(
+        'POST',
+        '/api/v1/invites/accept',
+        { inviteId: notification.inviteId },
+      );
+      toast({
+        title: 'Invite Accepted!',
+        description: `You are now a collaborator on "${notification.listName}"`,
+      });
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+      // The collaborative-lists cache is now stale (this list joined it).
+      invalidateCachedAction(`collab-lists:${user.uid}`);
+      router.push(`/lists/${result.listId}?owner=${result.listOwnerId}`);
     } catch (err) {
       console.error('Failed to accept invite:', err);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to accept invite' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
+      });
     } finally {
       setProcessingInvites(prev => {
         const updated = { ...prev };
@@ -121,20 +125,20 @@ export default function NotificationsPage() {
 
     setProcessingInvites(prev => ({ ...prev, [notification.id]: 'declining' }));
     try {
-      const result = await declineInvite(await user.getIdToken(), notification.inviteId);
-      if ('error' in result) {
-        toast({ variant: 'destructive', title: 'Error', description: result.error });
-      } else {
-        toast({
-          title: 'Invite Declined',
-          description: 'The invitation has been declined.',
-        });
-        // Remove this notification from the list
-        setNotifications(prev => prev.filter(n => n.id !== notification.id));
-      }
+      await apiCall('POST', `/api/v1/invites/${notification.inviteId}/decline`);
+      toast({
+        title: 'Invite Declined',
+        description: 'The invitation has been declined.',
+      });
+      // Remove this notification from the list
+      setNotifications(prev => prev.filter(n => n.id !== notification.id));
     } catch (err) {
       console.error('Failed to decline invite:', err);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to decline invite' });
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
+      });
     } finally {
       setProcessingInvites(prev => {
         const updated = { ...prev };
@@ -269,10 +273,18 @@ export default function NotificationsPage() {
         ) : (
           <div className="space-y-1">
             {notifications.map(notification => (
-              <button
+              <div
                 key={notification.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => handleNotificationClick(notification)}
-                className={`w-full text-left flex items-start gap-3 p-3 rounded-xl transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    handleNotificationClick(notification);
+                  }
+                }}
+                className={`w-full cursor-pointer text-left flex items-start gap-3 p-3 rounded-xl transition-colors ${
                   notification.read
                     ? 'hover:bg-secondary/50'
                     : 'bg-primary/5 hover:bg-primary/10'
@@ -372,7 +384,7 @@ export default function NotificationsPage() {
                     <div className="w-2 h-2 rounded-full bg-primary" />
                   </div>
                 )}
-              </button>
+              </div>
             ))}
           </div>
         )}

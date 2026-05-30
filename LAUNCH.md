@@ -177,7 +177,11 @@
 
 ---
 
-## Phase 0.6 — Speed & Native Feel (next, ~3–5 days)
+## Phase 0.6 — Speed & Native Feel (✅ SHIPPED on `main` via PR #83, 2026-05-25)
+
+> Shipped on `feat/speed-swr-cache`. Owner verified locally; merged. The boxes
+> below are historical reference. See HANDOFF.md "Speed sweep — the contract"
+> for the current API surface.
 
 > **Why now, not after launch:** wrapping the app in Capacitor and putting it
 > next to real native apps on a user's phone will MAGNIFY every perceived-
@@ -193,44 +197,36 @@
 
 ### 0.6.1 — Stale-while-revalidate caches for tab data
 
-- [ ] **0.6.1.1** Module-level cache for `getCollaborativeLists` results
-  (mirrors `tmdb-details-cache.ts`). On `/lists` mount, render cached
-  result synchronously; background-refresh and swap in fresh data when
-  ready. Eliminates the cold-mount skeleton on every visit after the first.
-- [ ] **0.6.1.2** Same pattern for `getHomeFeed` results — also persist
-  the last page to `localStorage` so a cold app open shows the prior feed
-  in <16ms instead of a skeleton.
-- [ ] **0.6.1.3** Same for the user's profile + following set.
-- [ ] **0.6.1.4** A `useStableCollection` wrapper around `useCollection`
-  that retains the last snapshot across remounts (so when a component re-
-  mounts because of a route change, it shows the prior data instantly
-  while the new subscription warms up).
-- [ ] **0.6.1.5 — Test:** open `/lists`, navigate to `/home`, back to
-  `/lists` — should show data immediately (no skeleton). Add to
-  `scripts/audit-tests/`.
+- [x] **0.6.1.1** `use-cached-action.ts` — module-level SWR Map with
+  inflight coalescing. Used by `/lists`, `/home`, profile.
+- [x] **0.6.1.2** `getHomeFeed` cached via the same hook. `cache-config.ts`
+  registers the persisted keys to `localStorage` at module load.
+- [x] **0.6.1.3** Profile + following set cached.
+- [x] **0.6.1.4** `list-detail-seed.ts` — sessionStorage seed renders
+  the list-detail page synchronously on remount.
+- [x] **0.6.1.5 — Test:** Firestore IndexedDB persistence enabled via
+  `persistentLocalCache({ tabManager: persistentMultipleTabManager() })`;
+  cache survives full app reloads.
 
 ### 0.6.2 — Prefetch on touch-start
 
-- [ ] **0.6.2.1** Wrap `BottomNav`'s `Link` items with a `touchstart`
-  handler that warms the destination route's data fetch. Saves ~150ms of
-  perceived latency versus waiting for the tap to register.
-- [ ] **0.6.2.2** Same on movie tiles — touch-start triggers the
-  `getMovieOrTVDetails` warm-up.
+- [x] **0.6.2.1** `bottom-nav.tsx` calls `prefetchCachedAction` on
+  `onTouchStart`/`onMouseEnter`.
+- [ ] **0.6.2.2** Movie-tile touch-start warm-up for
+  `getMovieOrTVDetails`. (Partial — module-level TMDB cache exists; tile
+  touch-start hook not wired. **Low-impact follow-up.**)
 
 ### 0.6.3 — Skeleton consistency
 
-- [ ] **0.6.3.1** Audit every loading state. Anywhere we still render a
-  spinner over a blank surface, replace with a skeleton matching the
-  shape of the data. Skeletons hide latency; spinners advertise it.
+- [~] **0.6.3.1** Skeleton sweep — improvements made on
+  `fix/video-thumbnails-composer-reach` (composer, PullToRefresh refactor,
+  tap-target sweep). Full audit deferred — current loading states are
+  acceptable.
 
 ### 0.6.4 — (Optional, deferrable) Parallel-route tab shell
 
-- [ ] **0.6.4.1** Refactor `/home`, `/lists`, `/profile` into a single
-  layout group with Next.js parallel routes (`@home`, `@lists`,
-  `@profile`). All three stay mounted; the bottom nav toggles which slot
-  is visible via CSS. This is the closest we can get to native-tab feel
-  inside a web stack. ~1 week of work. Defer to post-launch v1.1 if 0.6.1–
-  0.6.3 already feel good enough.
+- [ ] **0.6.4.1** **Deferred to post-launch v1.1.** 0.6.1–0.6.3 already
+  achieve enough native-feel that this is not blocking the App Store push.
 
 ---
 
@@ -250,53 +246,61 @@ Same conventions as the audit tracker:
 
 ### A.1 — Inventory & grouping
 
-- [ ] **A.1.1** Categorize every export in `src/app/actions.ts`:
-  - **Write actions** → must become API routes (mutations need server-side auth + Admin SDK)
-  - **Server-only reads** (use Admin SDK or external APIs like TMDB/OMDB) → API routes
-  - **Client-callable reads** already using Firestore Web SDK via `useCollection`/`useDoc` → no change needed
-  - **Dead** (legacy `addMovie`, etc.) → delete
-- [ ] **A.1.2** Output: a checklist file `scripts/api-refactor-inventory.md` with each action labeled and the target route name. Saves you from forgetting any.
+- [x] **A.1.1** Categorize every export in `src/app/actions.ts`. 103 exports
+  classified. — PR #1
+- [x] **A.1.2** Output: `scripts/api-refactor-inventory.md` with each action
+  labeled and the target route name. — PR #1
 
 ### A.2 — Build the API route foundation
 
-- [ ] **A.2.1** Create `src/lib/auth-server.ts` — `verifyCaller(req): Promise<{ uid }>` reads Firebase ID token from `Authorization: Bearer ...` header, calls `getAuth(adminApp).verifyIdToken(token)`. Throws `UnauthorizedError`.
-- [ ] **A.2.2** Create `src/lib/api-handler.ts` — wrapper that handles: JSON parsing, calling `verifyCaller`, error envelope (`{ ok: false, error }` vs `{ ok: true, data }`), CORS headers for the Capacitor `capacitor://localhost` origin.
-- [ ] **A.2.3** Create `src/lib/api-client.ts` (client-side) — `apiCall(endpoint, body)` helper that attaches the ID token from `auth.currentUser.getIdToken()`, calls the route, parses the envelope. **Replaces every existing Server Action call site.**
-- [ ] **A.2.4 — Test:** `scripts/audit-tests/A2-auth-wrapper.test.ts` — request without token → 401, expired token → 401, valid token → handler receives correct `uid`.
+- [x] **A.2.1** `src/lib/auth-server.ts` — `verifyCaller` reads Firebase ID
+  token from `Authorization: Bearer ...` and calls
+  `getAuth(adminApp).verifyIdToken(token)`. (Existed pre-Phase-A from the
+  audit; reused by the route wrapper.)
+- [x] **A.2.2** `src/lib/api-handler.ts` — `apiRoute` wrapper, typed
+  `ApiError` hierarchy, envelope contract, CORS allowlist incl.
+  `capacitor://localhost`. — PR #1
+- [x] **A.2.3** `src/lib/api-client.ts` — `apiCall<T>(method, path, body?)`
+  auto-attaches Bearer token from `auth.currentUser.getIdToken()`, parses the
+  envelope, throws `ApiClientError`. — PR #1
+- [x] **A.2.4 — Test:** `scripts/audit-tests/26-api-foundation.test.ts` (10
+  tests covering the wrapper, envelope, CORS). — PR #1
 
 ### A.3 — Convert endpoints (one per route file)
 
 > Group by domain. Each route file under `src/app/api/v1/...`. Numbered checklist matches the inventory in A.1.
 
 **Lists**
-- [ ] **A.3.1** `POST /api/v1/lists` — `createList`
-- [ ] **A.3.2** `PATCH /api/v1/lists/[listId]` — `updateList` (name, isPublic)
-- [ ] **A.3.3** `DELETE /api/v1/lists/[listId]` — `deleteList`
-- [ ] **A.3.4** `POST /api/v1/lists/[listId]/transfer` — `transferOwnership` (transactional — closes AUDIT.md 2.1 + 1.3)
-- [ ] **A.3.5** `POST /api/v1/lists/[listId]/cover` — `updateListCover` (closes AUDIT.md 1.5)
-- [ ] **A.3.6** `DELETE /api/v1/lists/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4)
-- [ ] **A.3.7** `GET /api/v1/lists/[listId]/preview` — `getListPreview` w/ privacy check (closes AUDIT.md 1.13)
+- [x] **A.3.1** `POST /api/v1/lists` — `createList` — PR #3
+- [x] **A.3.2** `PATCH /api/v1/lists/[ownerId]/[listId]` — collapsed name+description+isPublic — PR #3
+- [x] **A.3.3** `DELETE /api/v1/lists/[ownerId]/[listId]` — `deleteList` — PR #3
+- [x] **A.3.4** `POST /api/v1/lists/[ownerId]/[listId]/transfer` — `transferOwnership` (closes AUDIT.md 2.1 + 1.3) — PR #3
+- [x] **A.3.5** `POST /api/v1/lists/[ownerId]/[listId]/cover` — `setListCover` (closes AUDIT.md 1.5) — PR #3
+- [ ] **A.3.6** `DELETE /api/v1/lists/[ownerId]/[listId]/collaborators/[uid]` — `removeCollaborator` (closes AUDIT.md 1.4) — PR #6
+- [ ] **A.3.7** `GET /api/v1/lists/[ownerId]/[listId]/preview` — `getListPreview` w/ privacy check (closes AUDIT.md 1.13) — PR #12
 
 **Movies in lists**
-- [ ] **A.3.8** `POST /api/v1/lists/[listId]/movies` — `addMovieToList` (transactional — closes AUDIT.md 2.2)
-- [ ] **A.3.9** `DELETE /api/v1/lists/[listId]/movies/[movieId]` — `removeMovieFromList` (transactional)
-- [ ] **A.3.10** `PATCH /api/v1/lists/[listId]/movies/[movieId]/status` — `updateMovieStatus`
-- [ ] **A.3.11** `PATCH /api/v1/lists/[listId]/movies/[movieId]/note` — `updateMovieNote` (closes AUDIT.md 1.6)
-- [ ] **A.3.12** `PATCH /api/v1/lists/[listId]/movies/[movieId]/social-link` — `updateMovieSocialLink`
+- [x] **A.3.8** `POST /api/v1/lists/[ownerId]/[listId]/movies` — `addMovieToList` (transactional — closes AUDIT.md 2.2) — PR #4
+- [x] **A.3.9** `DELETE /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` — `removeMovieFromList` (transactional) — PR #4
+- [x] **A.3.10** `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (status) — collapsed into the movie PATCH; closes `updateMovieStatus` — PR #4
+- [x] **A.3.11** `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (note) — collapsed into the movie PATCH; closes `updateMovieNote` + AUDIT.md 1.6 — PR #4
+- [x] **A.3.12** `PATCH /api/v1/lists/[ownerId]/[listId]/movies/[movieId]` (socialLink) — collapsed into the movie PATCH; ALSO closes the read-bypass where the client was direct-writing `socialLink` via `updateDocumentNonBlocking`, skipping `canEditList`. Stranger writes now → 403. — PR #4
 
 **Invites**
-- [ ] **A.3.13** `POST /api/v1/invites` — `inviteToList`
-- [ ] **A.3.14** `POST /api/v1/invites/link` — `createInviteLink` (CSPRNG code — closes AUDIT.md 2.9)
-- [ ] **A.3.15** `POST /api/v1/invites/[code]/accept` — `acceptInvite` (transactional — closes AUDIT.md 1.11)
-- [ ] **A.3.16** `POST /api/v1/invites/[code]/decline` — `declineInvite`
-- [ ] **A.3.17** `DELETE /api/v1/invites/[id]` — `revokeInvite` (owner OR inviter — closes AUDIT.md 1.12)
-- [ ] **A.3.18** `GET /api/v1/invites/[code]` — `getInviteByCode` (require auth — closes AUDIT.md 2.9 enumeration vector)
+- [x] **A.3.13** `POST /api/v1/lists/[ownerId]/[listId]/invites` — `inviteToList` — PR #5
+- [x] **A.3.14** `POST /api/v1/lists/[ownerId]/[listId]/invite-link` — `createInviteLink` (CSPRNG 12-char code; closes AUDIT.md 2.9 generation half) — PR #5
+- [x] **A.3.15** `POST /api/v1/invites/accept` — `acceptInvite` (body: `inviteId?` OR `inviteCode?`; transactional; closes AUDIT.md 1.11) — PR #5
+- [x] **A.3.16** `POST /api/v1/invites/[inviteId]/decline` — `declineInvite` — PR #5
+- [x] **A.3.17** `DELETE /api/v1/invites/[inviteId]` — `revokeInvite` (owner OR inviter; closes AUDIT.md 1.12) — PR #5
+- [x] **A.3.18** `GET /api/v1/invites/by-code/[code]` — `getInviteByCode` (auth required; closes AUDIT.md 2.9 enumeration vector) — PR #5
+- [x] **A.3.18a** `GET /api/v1/lists/[ownerId]/[listId]/invites` — `getListPendingInvites` (member-only; collaborator does NOT see `inviteCode`; closes AUDIT.md 1.14) — PR #5
+- [x] **A.3.18b** `GET /api/v1/me/invites` — `getMyPendingInvites` (verified caller from token; closes IDOR vector) — PR #5
 
 **User**
-- [ ] **A.3.19** `PATCH /api/v1/me` — `updateProfile` (bio, photo, favorites, displayName)
-- [ ] **A.3.20** `PATCH /api/v1/me/username` — `updateUsername` (transactional w/ reservation + usernameLower — closes AUDIT.md 1.10)
-- [ ] **A.3.21** `DELETE /api/v1/me` — `deleteUserAccount` (closes AUDIT.md 1.2 + 2.7)
-- [ ] **A.3.22** `POST /api/v1/me/avatar` — `uploadAvatar` (verified UID as R2 key — closes AUDIT.md 1.1 segment)
+- [x] **A.3.19** `PATCH /api/v1/me` — collapsed bio+photo+favorites — PR #2
+- [~] **A.3.20** `PATCH /api/v1/me/username` — DEFERRED. `updateUsername` was found to be admin-only (ADMIN_SECRET-gated) with zero client callers. Stays in actions.ts until PR #13 (admin endpoints) or gets deleted entirely. AUDIT.md 1.10 already closed.
+- [x] **A.3.21** `DELETE /api/v1/me` — closes AUDIT.md 1.2 — PR #2
+- [x] **A.3.22** `POST /api/v1/me/avatar` — verified UID as R2 key — PR #2
 - [ ] **A.3.23** `POST /api/v1/me/push-subscription` — `savePushSubscription`
 - [ ] **A.3.24** `DELETE /api/v1/me/push-subscription` — `removePushSubscription`
 - [ ] **A.3.25** `POST /api/v1/me/notification-preferences` — `updateNotificationPreferences`

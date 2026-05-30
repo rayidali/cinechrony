@@ -15,6 +15,9 @@ import { getDb } from '@/firebase/admin';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
+/** Owner + 9 collaborators. Used by invites + collaborators routes. */
+export const MAX_LIST_MEMBERS = 10;
+
 // ─── Typed errors → route maps to HTTP status ─────────────────────────────
 
 export class ListNotFoundError extends Error {

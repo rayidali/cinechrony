@@ -5,14 +5,9 @@ import { useTransition, memo, useMemo } from 'react';
 import { Eye, EyeOff, Loader2, Star, Trash2, Film, Tv } from 'lucide-react';
 
 import type { Movie } from '@/lib/types';
-import {
-  updateDocumentNonBlocking,
-  deleteDocumentNonBlocking,
-  useFirestore,
-  useUser,
-} from '@/firebase';
+import { useUser } from '@/firebase';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-import { doc } from 'firebase/firestore';
 import { useToast } from '@/hooks/use-toast';
 import { getRatingStyle } from '@/lib/utils';
 import { useUserProfile } from '@/contexts/user-profile-cache';
@@ -34,7 +29,6 @@ export const MovieCardList = memo(function MovieCardList({
 }: MovieCardListProps) {
   const [isPending, startTransition] = useTransition();
   const { user } = useUser();
-  const firestore = useFirestore();
   const { toast } = useToast();
 
   // Get rating style for movie rating badge
@@ -81,22 +75,40 @@ export const MovieCardList = memo(function MovieCardList({
   if (!user) return null;
 
   const effectiveOwnerId = listOwnerId || user.uid;
-  const movieDocRef = listId
-    ? doc(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies', movie.id)
-    : doc(firestore, 'users', user.uid, 'movies', movie.id);
 
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!listId) return;
+    const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
     startTransition(() => {
-      const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
-      updateDocumentNonBlocking(movieDocRef, { status: newStatus });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { status: newStatus },
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Update failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update status.',
+        });
+      });
     });
   };
 
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!listId) return;
     startTransition(() => {
-      deleteDocumentNonBlocking(movieDocRef);
+      void apiCall(
+        'DELETE',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Remove failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to remove movie.',
+        });
+      });
       const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
       toast({
         title: `${itemType} Removed`,

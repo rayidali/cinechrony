@@ -22,13 +22,9 @@ import {
 import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { getImdbRating } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useUserProfile } from '@/contexts/user-profile-cache';
-import {
-  updateDocumentNonBlocking,
-  deleteDocumentNonBlocking,
-  useFirestore,
-  useUser,
-} from '@/firebase';
+import { useUser } from '@/firebase';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -50,7 +46,6 @@ import {
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { useToast } from '@/hooks/use-toast';
-import { doc } from 'firebase/firestore';
 
 type MovieCardProps = {
   movie: Movie;
@@ -206,7 +201,6 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const { toast } = useToast();
   const { user } = useUser();
-  const firestore = useFirestore();
 
   // AUDIT.md 2.3b: live profile cache overrides the denormalized snapshot on
   // the movie doc for the adder's display name + photo.
@@ -236,21 +230,37 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   // Use listOwnerId for collaborative lists, otherwise use current user
   const effectiveOwnerId = listOwnerId || user.uid;
 
-  // Build the correct document reference based on whether we have a listId
-  const movieDocRef = listId
-    ? doc(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies', movie.id)
-    : doc(firestore, 'users', user.uid, 'movies', movie.id);
-
   const handleToggle = () => {
+    if (!listId) return;
+    const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
     startTransition(() => {
-      const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
-      updateDocumentNonBlocking(movieDocRef, { status: newStatus });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { status: newStatus },
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Update failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update status.',
+        });
+      });
     });
   };
 
   const handleRemove = () => {
+    if (!listId) return;
     startTransition(() => {
-      deleteDocumentNonBlocking(movieDocRef);
+      void apiCall(
+        'DELETE',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Remove failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to remove movie.',
+        });
+      });
       toast({
         title: 'Movie Removed',
         description: `${movie.title} has been removed from your list.`,
@@ -259,8 +269,19 @@ export const MovieCard = memo(function MovieCard({ movie, listId, listOwnerId, u
   };
 
   const handleSaveSocialLink = () => {
+    if (!listId) return;
     startTransition(() => {
-      updateDocumentNonBlocking(movieDocRef, { socialLink: newSocialLink || null });
+      void apiCall(
+        'PATCH',
+        `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
+        { socialLink: newSocialLink },
+      ).catch((err) => {
+        toast({
+          variant: 'destructive',
+          title: 'Update failed',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update link.',
+        });
+      });
       toast({
         title: 'Link Updated',
         description: newSocialLink ? 'Social link has been updated.' : 'Social link has been removed.',

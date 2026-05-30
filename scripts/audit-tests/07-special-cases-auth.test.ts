@@ -19,9 +19,9 @@ import {
 import { callRoute } from './lib/route-call.ts';
 import { DELETE as deleteMe } from '@/app/api/v1/me/route';
 import { POST as transferPost } from '@/app/api/v1/lists/[ownerId]/[listId]/transfer/route';
+import { PATCH as patchMovie } from '@/app/api/v1/lists/[ownerId]/[listId]/movies/[movieId]/route';
 
 let removeCollaborator: (idToken: unknown, ownerId: string, listId: string, collaboratorId: string) => Promise<any>;
-let updateMovieNote: (idToken: unknown, listOwnerId: string, listId: string, movieId: string, note: string) => Promise<any>;
 
 let owner: TestUser;
 let attacker: TestUser;
@@ -29,7 +29,7 @@ let collab: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ removeCollaborator, updateMovieNote } = await import('@/app/actions'));
+  ({ removeCollaborator } = await import('@/app/actions'));
 });
 
 beforeEach(async () => {
@@ -106,7 +106,7 @@ test('1.4 removeCollaborator: non-owner cannot kick collaborators', async () => 
   assert.deepEqual(list2.data()?.collaboratorIds, [], 'owner removed the collaborator');
 });
 
-test('1.6 updateMovieNote: a member cannot spoof/delete another member\'s note', async () => {
+test('1.6 PATCH /movies/[id] (note): a member cannot spoof/delete another member\'s note', async () => {
   // owner + collab both on the list; a movie carries owner's note.
   await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1')
     .set({ id: 'L1', name: 'L', ownerId: owner.uid, collaboratorIds: [collab.uid] });
@@ -119,7 +119,13 @@ test('1.6 updateMovieNote: a member cannot spoof/delete another member\'s note',
   // collab acts; pre-fix they could pass userId=owner and overwrite owner's note.
   // Now the note key is the verified caller's uid — collab can only write
   // notes.{collab.uid}, never touch notes.{owner.uid}.
-  await callActionAs(collab, updateMovieNote, owner.uid, 'L1', 'm1', 'collab note');
+  const collabToken = await collab.getIdToken();
+  const res = await callRoute(patchMovie, 'PATCH', {
+    token: collabToken,
+    params: { ownerId: owner.uid, listId: 'L1', movieId: 'm1' },
+    body: { note: 'collab note' },
+  });
+  assert.equal(res.status, 200, 'collab can write their OWN note');
 
   const movie = await adminDb()
     .collection('users').doc(owner.uid).collection('lists').doc('L1')

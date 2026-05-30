@@ -16,6 +16,10 @@ import {
   setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as acceptPost } from '@/app/api/v1/invites/accept/route';
+import { DELETE as revokeDelete } from '@/app/api/v1/invites/[inviteId]/route';
+import { GET as listInvitesGet } from '@/app/api/v1/lists/[ownerId]/[listId]/invites/route';
 
 let A: typeof import('@/app/actions');
 let owner: TestUser, attacker: TestUser, collab: TestUser;
@@ -82,7 +86,7 @@ test('1.10/2.3a updateUsername: admin-only (users CANNOT change); admin path sti
   assert.deepEqual(await A.updateUsername('wrong-secret', owner.uid, 'whatever'), { error: 'Unauthorized' });
 });
 
-test('1.12 revokeInvite: owner OR inviter can revoke; unrelated user + forged cannot', async () => {
+test('1.12 DELETE /invites/[inviteId]: owner OR inviter can revoke; unrelated user + forged cannot', async () => {
   const mk = async (inviterId: string) => {
     const ref = adminDb().collection('invites').doc();
     await ref.set({ listId: 'L1', listOwnerId: owner.uid, inviterId, status: 'pending' });
@@ -91,28 +95,54 @@ test('1.12 revokeInvite: owner OR inviter can revoke; unrelated user + forged ca
 
   // Unrelated attacker blocked.
   const i1 = await mk(collab.uid);
-  const bad = await callActionAs(attacker, A.revokeInvite, i1);
-  assert.ok('error' in bad && bad.error.includes('owner or the inviter'));
+  const attackerToken = await attacker.getIdToken();
+  const bad = await callRoute(revokeDelete, 'DELETE', {
+    token: attackerToken, params: { inviteId: i1 },
+  });
+  assert.equal(bad.status, 403);
+  if (bad.body.ok === false) {
+    assert.ok(bad.body.error.message.includes('owner or the inviter'));
+  }
 
   // Owner can revoke a collaborator-created invite.
-  const ok1 = await callActionAs(owner, A.revokeInvite, i1);
-  assert.equal((ok1 as any).success, true);
+  const ownerToken = await owner.getIdToken();
+  const ok1 = await callRoute(revokeDelete, 'DELETE', {
+    token: ownerToken, params: { inviteId: i1 },
+  });
+  assert.equal(ok1.status, 200);
 
   // Inviter can revoke their own.
   const i2 = await mk(collab.uid);
-  const ok2 = await callActionAs(collab, A.revokeInvite, i2);
-  assert.equal((ok2 as any).success, true);
+  const collabToken = await collab.getIdToken();
+  const ok2 = await callRoute(revokeDelete, 'DELETE', {
+    token: collabToken, params: { inviteId: i2 },
+  });
+  assert.equal(ok2.status, 200);
 
-  assert.deepEqual(await callActionWithRawToken('', A.revokeInvite, i1), { error: 'Unauthorized' });
+  // Forged → 401.
+  const forged = await callRoute(revokeDelete, 'DELETE', {
+    token: 'forged', params: { inviteId: i1 },
+  });
+  assert.equal(forged.status, 401);
 });
 
-test('1.11 acceptInvite: forged blocked; a revoked invite cannot be accepted', async () => {
-  assert.deepEqual(await callActionWithRawToken('forged', A.acceptInvite, 'x'), { error: 'Unauthorized' });
+test('1.11 POST /invites/accept: forged blocked; a revoked invite cannot be accepted', async () => {
+  const forged = await callRoute(acceptPost, 'POST', {
+    token: 'forged',
+    body: { inviteId: 'x' },
+  });
+  assert.equal(forged.status, 401);
 
   const ref = adminDb().collection('invites').doc();
   await ref.set({ listId: 'L1', listOwnerId: owner.uid, inviterId: owner.uid, status: 'revoked', inviteeId: collab.uid });
-  const res = await callActionAs(collab, A.acceptInvite, ref.id);
-  assert.ok('error' in res, 'revoked invite rejected');
+  const collabToken = await collab.getIdToken();
+  const res = await callRoute(acceptPost, 'POST', {
+    token: collabToken,
+    body: { inviteId: ref.id },
+  });
+  assert.notEqual(res.status, 200, 'revoked invite rejected');
+  // Specifically, our InviteNotPendingError → ConflictError → 409
+  assert.equal(res.status, 409);
 });
 
 test('1.13 getListPreview: private list hidden from outsiders, visible to owner', async () => {
@@ -132,7 +162,7 @@ test('1.13 getListPreview: private list hidden from outsiders, visible to owner'
   assert.equal(ownerView.movieCount, 1, 'owner sees the private preview');
 });
 
-test('1.14 getListPendingInvites: collaborator gets NO inviteCode; outsider blocked', async () => {
+test('1.14 GET /lists/[ownerId]/[listId]/invites: collaborator gets NO inviteCode; outsider blocked', async () => {
   await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L1')
     .set({ id: 'L1', name: 'L', ownerId: owner.uid, collaboratorIds: [collab.uid] });
   await adminDb().collection('invites').doc('inv1').set({
@@ -140,18 +170,29 @@ test('1.14 getListPendingInvites: collaborator gets NO inviteCode; outsider bloc
     inviteCode: 'SECRETCODE', listName: 'L',
   });
 
-  const asCollab = await callActionAs(collab, A.getListPendingInvites, owner.uid, 'L1');
-  assert.ok('invites' in asCollab && asCollab.invites.length === 1);
-  assert.equal(asCollab.invites[0].inviteCode, undefined, 'collaborator does NOT get the join code');
+  const params = { ownerId: owner.uid, listId: 'L1' };
 
-  const asOwner = await callActionAs(owner, A.getListPendingInvites, owner.uid, 'L1');
-  assert.equal((asOwner as any).invites[0].inviteCode, 'SECRETCODE', 'owner gets the code');
-
-  const asOutsider = await callActionAs(attacker, A.getListPendingInvites, owner.uid, 'L1');
-  assert.ok('error' in asOutsider, 'non-member blocked');
-
-  assert.deepEqual(
-    await callActionWithRawToken('forged', A.getListPendingInvites, owner.uid, 'L1'),
-    { error: 'Unauthorized' }
+  const collabToken = await collab.getIdToken();
+  const asCollab = await callRoute<{ invites: Array<{ inviteCode?: string }> }>(
+    listInvitesGet, 'GET', { token: collabToken, params },
   );
+  assert.equal(asCollab.status, 200);
+  if (asCollab.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(asCollab.body.data.invites.length, 1);
+  assert.equal(asCollab.body.data.invites[0].inviteCode, undefined, 'collaborator does NOT get the join code');
+
+  const ownerToken = await owner.getIdToken();
+  const asOwner = await callRoute<{ invites: Array<{ inviteCode?: string }> }>(
+    listInvitesGet, 'GET', { token: ownerToken, params },
+  );
+  assert.equal(asOwner.status, 200);
+  if (asOwner.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(asOwner.body.data.invites[0].inviteCode, 'SECRETCODE', 'owner gets the code');
+
+  const attackerToken = await attacker.getIdToken();
+  const asOutsider = await callRoute(listInvitesGet, 'GET', { token: attackerToken, params });
+  assert.equal(asOutsider.status, 403, 'non-member blocked');
+
+  const forged = await callRoute(listInvitesGet, 'GET', { token: 'forged', params });
+  assert.equal(forged.status, 401);
 });

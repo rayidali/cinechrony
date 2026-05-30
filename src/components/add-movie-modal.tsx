@@ -7,7 +7,8 @@ import { Drawer } from 'vaul';
 import { TiktokIcon } from './icons';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
-import { addMovieToList, getUserLists, getCollaborativeLists, getListPreview } from '@/app/actions';
+import { getUserLists, getCollaborativeLists, getListPreview } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -300,20 +301,21 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
 
       // Add to each selected list
       for (const selection of selectedLists.values()) {
-        const formData = new FormData();
-        formData.append('movieData', JSON.stringify(selectedMovie));
-        formData.append('idToken', await user.getIdToken());
-        formData.append('listId', selection.listId);
-        formData.append('listOwnerId', selection.listOwnerId);
-        formData.append('status', 'To Watch');
-        if (socialLink) formData.append('socialLink', socialLink);
-        if (selection.note) formData.append('note', selection.note);
-
-        const result = await addMovieToList(formData);
-        if (result && 'error' in result) {
-          errorCount++;
-        } else {
+        try {
+          await apiCall(
+            'POST',
+            `/api/v1/lists/${selection.listOwnerId}/${selection.listId}/movies`,
+            {
+              movieData: selectedMovie,
+              status: 'To Watch',
+              socialLink: socialLink || undefined,
+              note: selection.note || undefined,
+            },
+          );
           successCount++;
+        } catch (err) {
+          console.error('[add-movie-modal] add failed:', err);
+          errorCount++;
         }
       }
 
