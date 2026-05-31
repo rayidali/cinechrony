@@ -191,3 +191,87 @@ export async function createLikeNotification(
     createdAt: FieldValue.serverTimestamp(),
   });
 }
+
+// ─── Post tag + post like notifications (Phase A PR #11) ──────────────────
+
+export type PostTagNotificationCtx = {
+  postId: string;
+  previewText: string;
+  recipientId: string;
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+  /** Skip recipients who set `notificationPreferences.mentions === false`.
+   *  Inline @-mention notifications use the `mentions` pref; legacy
+   *  `taggedUserIds` notifications do NOT (they were explicit picks). */
+  respectMentionsPref?: boolean;
+};
+
+/**
+ * Fires a `post_tag` notification for a tagged or @-mentioned user.
+ * Skips self-tags. Optionally respects the mentions pref.
+ */
+export async function createPostTagNotification(
+  db: FirebaseFirestore.Firestore,
+  ctx: PostTagNotificationCtx,
+): Promise<void> {
+  if (ctx.recipientId === ctx.fromUserId) return;
+
+  if (ctx.respectMentionsPref) {
+    const userDoc = await db.collection('users').doc(ctx.recipientId).get();
+    const prefs = userDoc.data()?.notificationPreferences;
+    if (prefs && prefs.mentions === false) return;
+  }
+
+  await db.collection('notifications').add({
+    userId: ctx.recipientId,
+    type: 'post_tag',
+    fromUserId: ctx.fromUserId,
+    fromUsername: ctx.fromUsername,
+    fromDisplayName: ctx.fromDisplayName,
+    fromPhotoUrl: ctx.fromPhotoUrl,
+    postId: ctx.postId,
+    previewText: ctx.previewText,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}
+
+export type PostLikeNotificationCtx = {
+  postId: string;
+  previewText: string;
+  postAuthorId: string;
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+};
+
+/**
+ * Fires a `post_like` notification when a user likes someone else's post.
+ * Skips self-likes; respects the author's `likes` notification pref.
+ */
+export async function createPostLikeNotification(
+  db: FirebaseFirestore.Firestore,
+  ctx: PostLikeNotificationCtx,
+): Promise<void> {
+  if (ctx.postAuthorId === ctx.fromUserId) return;
+
+  const authorDoc = await db.collection('users').doc(ctx.postAuthorId).get();
+  const prefs = authorDoc.data()?.notificationPreferences;
+  if (prefs && prefs.likes === false) return;
+
+  await db.collection('notifications').add({
+    userId: ctx.postAuthorId,
+    type: 'post_like',
+    fromUserId: ctx.fromUserId,
+    fromUsername: ctx.fromUsername,
+    fromDisplayName: ctx.fromDisplayName,
+    fromPhotoUrl: ctx.fromPhotoUrl,
+    postId: ctx.postId,
+    previewText: ctx.previewText,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}

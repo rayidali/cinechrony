@@ -333,6 +333,16 @@ Same conventions as the audit tracker:
 - [x] **A.3.37** `POST /api/v1/activities/[id]/like` — `likeActivity` (rate-limited, transactional, closes AUDIT.md 3.5 activity-like leg) — PR #10
 - [x] **A.3.37a** `DELETE /api/v1/activities/[id]/like` — `unlikeActivity` (transactional) — PR #10
 
+**Posts** (split out of original "Activities + Posts" PR)
+- [x] **A.3.37b** `POST /api/v1/posts` — `createPost` (rate-limited, validation, mention+tag notifications, rating upsert) — PR #11
+- [x] **A.3.37c** `GET /api/v1/posts/[id]` — `getPost` (block-aware; returns null across a block) — PR #11
+- [x] **A.3.37d** `PATCH /api/v1/posts/[id]` — `updatePost` (owner-only, writes editedAt) — PR #11
+- [x] **A.3.37e** `DELETE /api/v1/posts/[id]` — `deletePost` (owner-only) — PR #11
+- [x] **A.3.37f** `POST /api/v1/posts/media-upload-url` — presigned R2 PUT (uid-scoped key, image/video, ≤200MB) — PR #11
+- [x] **A.3.37g** `POST /api/v1/posts/[id]/like` — `likePost` (transactional, closes AUDIT.md 3.5 post-like leg — FOURTH and FINAL like surface; rate-limited) — PR #11
+- [x] **A.3.37h** `DELETE /api/v1/posts/[id]/like` — `unlikePost` (transactional) — PR #11
+- [x] **A.3.37i** `GET /api/v1/home-feed?cursor=` — `getHomeFeed` (merged activities+posts, block-filtered server-side, timestamp cursor) — PR #11
+
 **Notifications**
 - [ ] **A.3.38** `GET /api/v1/notifications` — list
 - [ ] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`

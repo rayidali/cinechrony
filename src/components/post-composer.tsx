@@ -17,11 +17,9 @@ import {
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import {
-  createPost,
-  getPostMediaUploadUrl,
   searchUsers,
 } from '@/app/actions';
-import { apiCall } from '@/lib/api-client';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
 import { captureVideoPoster } from '@/lib/video-poster';
@@ -390,16 +388,15 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       (async () => {
         try {
           const uploadFile = isVideo ? file : await compressImage(file);
-          const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-          const res = await getPostMediaUploadUrl(
-            idToken,
-            uploadFile.name,
-            uploadFile.type,
-            uploadFile.size,
+          const res = await apiCall<{ uploadUrl: string; publicUrl: string }>(
+            'POST',
+            '/api/v1/posts/media-upload-url',
+            {
+              fileName: uploadFile.name,
+              contentType: uploadFile.type,
+              fileSize: uploadFile.size,
+            },
           );
-          if (res.error || !res.uploadUrl || !res.publicUrl) {
-            throw new Error(res.error || 'upload failed');
-          }
           await uploadToR2(res.uploadUrl, uploadFile, (pct) => {
             setMedia((prev) =>
               prev.map((m) => (m.id === id ? { ...m, progress: pct } : m)),
@@ -420,11 +417,14 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                   `poster_${id}.jpg`,
                   { type: 'image/jpeg' },
                 );
-                const posterRes = await getPostMediaUploadUrl(
-                  idToken,
-                  posterFile.name,
-                  posterFile.type,
-                  posterFile.size,
+                const posterRes = await apiCall<{ uploadUrl: string; publicUrl: string }>(
+                  'POST',
+                  '/api/v1/posts/media-upload-url',
+                  {
+                    fileName: posterFile.name,
+                    contentType: posterFile.type,
+                    fileSize: posterFile.size,
+                  },
                 );
                 if (posterRes.uploadUrl && posterRes.publicUrl) {
                   await uploadToR2(posterRes.uploadUrl, posterFile, () => {});
@@ -587,38 +587,35 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     setIsPosting(true);
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await createPost(idToken, {
+        const res = await apiCall<{ postId: string }>('POST', '/api/v1/posts', {
           text: text.trim(),
           media: doneMedia.map((m) => m.media!),
           taggedMovie,
           rating,
           place: place.trim(),
         });
-        if (res && 'error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-          setIsPosting(false);
-        } else {
-          if (draftId) {
-            const remaining = drafts.filter((d) => d.id !== draftId);
-            saveDrafts(remaining);
-            setDrafts(remaining);
-          }
-          // Home feed caches now stale — drop them so the next mount /
-          // refreshKey++ fetches fresh. Prefix wipe covers every feedFilter
-          // variant (all / saved / friends).
-          if (auth.currentUser) {
-            invalidateCachedActionsByPrefix(`home-feed:${auth.currentUser.uid}`);
-          }
-          toast({ title: 'posted.' });
-          const postId = (res as { postId?: string }).postId;
-          resetAll();
-          setIsPosting(false);
-          onPosted?.(postId ?? '');
-          onClose();
+        if (draftId) {
+          const remaining = drafts.filter((d) => d.id !== draftId);
+          saveDrafts(remaining);
+          setDrafts(remaining);
         }
-      } catch {
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to post.' });
+        // Home feed caches now stale — drop them so the next mount /
+        // refreshKey++ fetches fresh. Prefix wipe covers every feedFilter
+        // variant (all / saved / friends).
+        if (auth.currentUser) {
+          invalidateCachedActionsByPrefix(`home-feed:${auth.currentUser.uid}`);
+        }
+        toast({ title: 'posted.' });
+        resetAll();
+        setIsPosting(false);
+        onPosted?.(res.postId);
+        onClose();
+      } catch (err) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: err instanceof ApiClientError ? err.message : 'Failed to post.',
+        });
         setIsPosting(false);
       }
     });

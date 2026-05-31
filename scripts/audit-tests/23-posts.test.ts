@@ -1,35 +1,45 @@
 /**
  * LAUNCH 0.5.4 — user posts (composer + backend).
  *
- * createPost / updatePost / deletePost / getPost / getPostMediaUploadUrl.
- * Asserts content guards, owner-only edits, tagged-friend notifications,
- * block-aware tagging, and the presigned-upload validation.
+ * Migrated to /api/v1 routes in Phase A PR #11. createPost / updatePost /
+ * deletePost / getPost / getPostMediaUploadUrl all go through the route
+ * handlers. The invariants — content guards, owner-only edits,
+ * tagged-friend notifications, block-aware tagging + visibility, and
+ * presigned-upload validation — are preserved.
  */
 
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
+  setupTestEnv, createTestUser, callActionAs,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
 
-let createPost: (idToken: unknown, input: any) => Promise<any>;
-let updatePost: (idToken: unknown, postId: string, input: any) => Promise<any>;
-let deletePost: (idToken: unknown, postId: string) => Promise<any>;
-let getPost: (postId: string, viewerIdToken?: unknown) => Promise<any>;
-let getPostMediaUploadUrl: (idToken: unknown, name: string, type: string, size: number) => Promise<any>;
+import { POST as createPostPost } from '@/app/api/v1/posts/route';
+import { GET as getPostGet, PATCH as updatePostPatch, DELETE as deletePostDelete }
+  from '@/app/api/v1/posts/[id]/route';
+import { POST as mediaUploadPost } from '@/app/api/v1/posts/media-upload-url/route';
+
 let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser, carol: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ createPost, updatePost, deletePost, getPost, getPostMediaUploadUrl, blockUser } =
-    await import('@/app/actions'));
+  ({ blockUser } = await import('@/app/actions'));
 });
 
 async function seedUser(uid: string, username: string) {
   await adminDb().collection('users').doc(uid).set({
-    username, displayName: username, followersCount: 0, followingCount: 0,
+    username, usernameLower: username, displayName: username,
+    followersCount: 0, followingCount: 0,
+  });
+}
+
+async function createPostAs(user: TestUser, body: Record<string, unknown>) {
+  return callRoute<{ postId: string }>(createPostPost, 'POST', {
+    token: await user.getIdToken(),
+    body: { taggedMovie: { tmdbId: 1, mediaType: 'movie', title: 'X' }, ...body },
   });
 }
 
@@ -46,30 +56,37 @@ beforeEach(async () => {
 after(async () => { await clearFirestore(); await clearAuth(); });
 
 test('create a text post → it is stored with the author', async () => {
-  const res = await callActionAs(alice, createPost, { text: 'devastating.' });
-  assert.equal(res.success, true);
-  const doc = await adminDb().collection('posts').doc(res.postId).get();
+  const res = await createPostAs(alice, { text: 'devastating.' });
+  assert.equal(res.status, 200);
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  const doc = await adminDb().collection('posts').doc(res.body.data.postId).get();
   assert.equal(doc.data()?.authorId, alice.uid);
   assert.equal(doc.data()?.text, 'devastating.');
 });
 
 test('an empty post is rejected', async () => {
-  const res = await callActionAs(alice, createPost, { text: '   ' });
-  assert.ok('error' in res);
+  const res = await callRoute(createPostPost, 'POST', {
+    token: await alice.getIdToken(),
+    body: { text: '   ', media: [], taggedMovie: null },
+  });
+  assert.equal(res.status, 400);
 });
 
 test('a forged token cannot post', async () => {
-  const res = await callActionWithRawToken('', createPost, { text: 'hi' });
-  assert.ok('error' in res);
+  const res = await callRoute(createPostPost, 'POST', {
+    token: '', body: { text: 'hi', taggedMovie: { tmdbId: 1, mediaType: 'movie', title: 'X' } },
+  });
+  assert.equal(res.status, 401);
 });
 
 test('tagged friends are notified; blocked users cannot be tagged', async () => {
   await callActionAs(alice, blockUser, carol.uid);
-  const res = await callActionAs(alice, createPost, {
+  const res = await createPostAs(alice, {
     text: 'watched with the crew',
     taggedUserIds: [bob.uid, carol.uid],
   });
-  const post = (await adminDb().collection('posts').doc(res.postId).get()).data();
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  const post = (await adminDb().collection('posts').doc(res.body.data.postId).get()).data();
   assert.deepEqual(post?.taggedUserIds, [bob.uid], 'blocked carol dropped from tags');
 
   const bobNotifs = await adminDb()
@@ -81,27 +98,68 @@ test('tagged friends are notified; blocked users cannot be tagged', async () => 
 });
 
 test('only the author can edit or delete a post', async () => {
-  const { postId } = await callActionAs(alice, createPost, { text: 'mine' });
-  assert.ok('error' in (await callActionAs(bob, updatePost, postId, { text: 'hacked' })));
-  assert.ok('error' in (await callActionAs(bob, deletePost, postId)));
-  assert.equal((await callActionAs(alice, deletePost, postId)).success, true);
+  const created = await createPostAs(alice, { text: 'mine' });
+  if (created.body.ok !== true) return assert.fail('expected ok');
+  const postId = created.body.data.postId;
+
+  const bobToken = await bob.getIdToken();
+  const hijackUpdate = await callRoute(updatePostPatch, 'PATCH', {
+    token: bobToken, params: { id: postId },
+    body: { text: 'hacked', taggedMovie: { tmdbId: 1, mediaType: 'movie', title: 'X' } },
+  });
+  assert.equal(hijackUpdate.status, 403);
+
+  const hijackDelete = await callRoute(deletePostDelete, 'DELETE', {
+    token: bobToken, params: { id: postId },
+  });
+  assert.equal(hijackDelete.status, 403);
+
+  const aliceToken = await alice.getIdToken();
+  const ok = await callRoute(deletePostDelete, 'DELETE', {
+    token: aliceToken, params: { id: postId },
+  });
+  assert.equal(ok.status, 200);
   assert.equal((await adminDb().collection('posts').doc(postId).get()).exists, false);
 });
 
-test('getPost is block-aware', async () => {
-  const { postId } = await callActionAs(alice, createPost, { text: 'hello' });
-  // bob can see it…
-  assert.ok((await getPost(postId, await bob.getIdToken())).post);
-  // …until alice blocks bob.
+test('GET /posts/[id] is block-aware', async () => {
+  const created = await createPostAs(alice, { text: 'hello' });
+  if (created.body.ok !== true) return assert.fail('expected ok');
+  const postId = created.body.data.postId;
+
+  const bobToken = await bob.getIdToken();
+  const beforeBlock = await callRoute<{ post: unknown }>(getPostGet, 'GET', {
+    token: bobToken, params: { id: postId },
+  });
+  if (beforeBlock.body.ok !== true) return assert.fail('expected ok');
+  assert.ok(beforeBlock.body.data.post, 'bob can see it');
+
   await callActionAs(alice, blockUser, bob.uid);
-  assert.equal((await getPost(postId, await bob.getIdToken())).post, null);
+
+  const afterBlock = await callRoute<{ post: unknown }>(getPostGet, 'GET', {
+    token: bobToken, params: { id: postId },
+  });
+  if (afterBlock.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(afterBlock.body.data.post, null, 'blocked → null');
 });
 
-test('getPostMediaUploadUrl validates mime + size', async () => {
-  assert.ok('error' in (await callActionAs(alice, getPostMediaUploadUrl, 'a.txt', 'text/plain', 100)));
-  assert.ok(
-    'error' in (await callActionAs(alice, getPostMediaUploadUrl, 'a.mp4', 'video/mp4', 999_000_000)),
-    'a 999MB file is rejected',
-  );
-  assert.ok('error' in (await callActionWithRawToken('', getPostMediaUploadUrl, 'a.jpg', 'image/jpeg', 100)));
+test('media-upload-url validates mime + size + auth', async () => {
+  const aliceToken = await alice.getIdToken();
+
+  const badType = await callRoute(mediaUploadPost, 'POST', {
+    token: aliceToken,
+    body: { fileName: 'a.txt', contentType: 'text/plain', fileSize: 100 },
+  });
+  assert.equal(badType.status, 400);
+
+  const tooBig = await callRoute(mediaUploadPost, 'POST', {
+    token: aliceToken,
+    body: { fileName: 'a.mp4', contentType: 'video/mp4', fileSize: 999_000_000 },
+  });
+  assert.equal(tooBig.status, 400);
+
+  const unauth = await callRoute(mediaUploadPost, 'POST', {
+    body: { fileName: 'a.jpg', contentType: 'image/jpeg', fileSize: 100 },
+  });
+  assert.equal(unauth.status, 401);
 });

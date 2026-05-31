@@ -4,14 +4,14 @@ import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } fro
 import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
 import {
-  getHomeFeed,
   getSavedFeed,
   getRecommendationsForUser,
   getFriendsWatching,
   type RecommendationSet,
   type FriendsWatchingCard as FWCard,
-  type FeedItem,
 } from '@/app/actions';
+import type { FeedItem } from '@/lib/posts-server';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import {
   readCachedAction,
@@ -168,10 +168,32 @@ export function ActivityFeed({
   // merged home feed (activities + posts).
   const fetchPage = useCallback(
     async (pageCursor?: string) => {
-      const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-      return feedFilter === 'saved'
-        ? getSavedFeed(idToken, pageCursor)
-        : getHomeFeed(idToken, pageCursor);
+      if (feedFilter === 'saved') {
+        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
+        return getSavedFeed(idToken, pageCursor);
+      }
+      // Home feed via /api/v1/home-feed — apiCall throws on error; we map
+      // back to the {error} shape callers below expect.
+      try {
+        const qs = new URLSearchParams();
+        if (pageCursor) qs.set('cursor', pageCursor);
+        const r = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          `/api/v1/home-feed${qs.toString() ? `?${qs.toString()}` : ''}`,
+        );
+        return { items: r.items, hasMore: r.hasMore, nextCursor: r.nextCursor } as {
+          items: FeedItem[];
+          hasMore: boolean;
+          nextCursor?: string;
+          error?: string;
+        };
+      } catch (err) {
+        return {
+          items: [] as FeedItem[],
+          hasMore: false,
+          error: err instanceof ApiClientError ? err.message : 'Failed to load the feed.',
+        };
+      }
     },
     [feedFilter, auth],
   );

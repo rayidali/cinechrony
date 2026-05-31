@@ -7,13 +7,13 @@ import { ChevronLeft, Heart, Loader2, Send, X, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useUser, useAuth } from '@/firebase';
 import {
-  getPost,
   getPostComments,
   createPostComment,
   deletePostComment,
   likePostComment,
   unlikePostComment,
 } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { PostCard } from '@/components/post-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { BottomNav } from '@/components/bottom-nav';
@@ -42,7 +42,7 @@ export default function PostPage() {
     try {
       const idToken = user ? await user.getIdToken() : undefined;
       const [postRes, commentsRes] = await Promise.all([
-        getPost(postId, idToken),
+        apiCall<{ post: Post | null }>('GET', `/api/v1/posts/${postId}`),
         getPostComments(postId, idToken),
       ]);
       if (!postRes.post) {

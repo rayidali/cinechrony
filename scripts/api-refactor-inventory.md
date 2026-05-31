@@ -29,7 +29,7 @@
 | #8 | Reviews | 8 endpoints — POST/GET/PATCH/DELETE + replies + like/unlike + by-user; cursor pagination | 2.6, 3.5, 3.10 | ✅ shipped on `feat/phase-a-reviews-endpoints` |
 | #9 | Ratings + List likes | `ratings`, `ratings/[tmdbId]`, `ratings/by-user`, `users/[uid]/ratings`, `lists/.../like` | 2.5 | ✅ shipped on `feat/phase-a-ratings-listlikes-endpoints` |
 | #10 | Activities | `activities` (GET), `activities/[id]/like` (POST + DELETE) | 3.5 (activity leg) | ✅ shipped on `feat/phase-a-activities-endpoints` |
-| #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | — | next up |
+| #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | 3.5 (post leg) | ✅ shipped on `feat/phase-a-posts-endpoints` |
 | #12 | Post comments | comment CRUD + comment likes (5 actions) | — | pending |
 | #13 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
 | #14 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |

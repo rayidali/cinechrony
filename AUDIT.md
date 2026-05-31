@@ -238,7 +238,8 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
 - [x] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry. Migrated to route in `14-like-atomicity.test.ts`; "concurrent double-like by the SAME user → likes 1, not 2".
 - [x] **Phase A PR #8**: `likeReview` / `unlikeReview` retired; transactional logic in `src/lib/reviews-server.ts`. Routes `POST` / `DELETE /api/v1/reviews/[id]/like` exercised by `14-like-atomicity.test.ts` (5 tests, all green) + `33-reviews-endpoints.test.ts`.
-- [x] **Phase A PR #10**: `likeActivity` / `unlikeActivity` retired — the third like-target (after reviews + lists). Transactional logic in `src/lib/activities-server.ts`. Routes `POST` / `DELETE /api/v1/activities/[id]/like` exercised by `35-activities-endpoints.test.ts` including a concurrent-double-like race test. AUDIT 3.5 is now closed end-to-end across **all three** like surfaces (reviews, lists, activities).
+- [x] **Phase A PR #10**: `likeActivity` / `unlikeActivity` retired — the third like-target (after reviews + lists). Transactional logic in `src/lib/activities-server.ts`. Routes `POST` / `DELETE /api/v1/activities/[id]/like` exercised by `35-activities-endpoints.test.ts` including a concurrent-double-like race test. AUDIT 3.5 closed across reviews + lists + activities.
+- [x] **Phase A PR #11**: `likePost` / `unlikePost` retired — the FOURTH and FINAL like-target. Transactional logic in `src/lib/posts-server.ts`. Routes `POST` / `DELETE /api/v1/posts/[id]/like` exercised by `36-posts-endpoints.test.ts` + the migrated `24-home-feed.test.ts`. **AUDIT 3.5 is now closed end-to-end across all four like surfaces (reviews, lists, activities, posts).**
 
 ### 3.6 — `useToast` 16-minute leak (`use-toast.ts:11`)
 
