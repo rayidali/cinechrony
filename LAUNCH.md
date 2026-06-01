@@ -350,9 +350,17 @@ Same conventions as the audit tracker:
 - [x] **A.3.37m** `POST /api/v1/posts/[id]/comments/[cid]/like` — `likePostComment` (transactional read-check-write, AUDIT.md 3.5; rate-limited via `like` bucket) — PR #12
 - [x] **A.3.37n** `DELETE /api/v1/posts/[id]/comments/[cid]/like` — `unlikePostComment` (transactional) — PR #12
 
-**Notifications**
-- [ ] **A.3.38** `GET /api/v1/notifications` — list
-- [ ] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`
+**Notifications — PR #13 (also closes a pre-existing auth gap)**
+- [x] **A.3.38** `GET /api/v1/notifications?cursor=&limit=` — `listNotifications` (cursor-paginated, block-filtered). Caller-scoped via Bearer token only — replaces the legacy `getNotifications(userId)` that trusted any UID arg. — PR #13
+- [x] **A.3.38a** `GET /api/v1/notifications/unread-count` — `getUnreadNotificationCount` (Firestore `count()` aggregate). Same auth-gap closure. — PR #13
+- [x] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`. With ids → only docs owned by caller are flipped; no ids → all caller's unread. — PR #13
+- [x] **A.3.39a** `POST /api/v1/me/push-subscription` — `savePushSubscription` (rate-limited via `pushSubscribe`, idempotent by endpoint). Validates https endpoint + `keys.p256dh/auth` shape. — PR #13
+- [x] **A.3.39b** `DELETE /api/v1/me/push-subscription` — `removePushSubscription`. Flips `pushEnabled=false` when last sub removed. — PR #13
+- [x] **A.3.39c** `GET /api/v1/me/push-status` — `getPushStatus`. — PR #13
+- [x] **A.3.39d** `GET /api/v1/me/notification-preferences` — `getNotificationPreferences` (returns defaults for unset keys). — PR #13
+- [x] **A.3.39e** `PATCH /api/v1/me/notification-preferences` — `updateNotificationPreferences` (merge-update; unknown keys / non-booleans dropped). — PR #13
+
+> **Note on AUDIT.md 4.2** — web-push fan-out from notification creators is still TODO. PR #13 migrated the *management* surface and added cursor pagination + closed a userId-as-arg auth gap, but the in-app `createMentionNotifications` / `createReplyNotification` / etc. helpers in `src/lib/notifications-server.ts` do **not** yet call `webpush.sendNotification` for each subscription. That's a separate workstream (sized at ~1 PR; requires a `web-push` lib import + the `webpush.sendNotification` integration + per-event "respect notificationPreferences" gating).
 
 **Search & external**
 - [ ] **A.3.40** `GET /api/v1/users/search?q=...` — `searchUsers` w/ prefix query (closes AUDIT.md 2.8)

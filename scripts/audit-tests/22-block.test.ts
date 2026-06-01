@@ -14,17 +14,17 @@ import {
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { POST as followPost } from '@/app/api/v1/users/[uid]/follow/route';
+import { GET as notificationsGet } from '@/app/api/v1/notifications/route';
 
 let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let unblockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let getMyBlockContext: (idToken: unknown) => Promise<any>;
 let searchUsers: (q: string, currentUserId?: string) => Promise<any>;
-let getNotifications: (userId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ blockUser, unblockUser, getMyBlockContext, searchUsers, getNotifications } =
+  ({ blockUser, unblockUser, getMyBlockContext, searchUsers } =
     await import('@/app/actions'));
 });
 
@@ -110,10 +110,18 @@ test('a blocked user’s notifications are dropped', async () => {
     userId: alice.uid, type: 'follow', fromUserId: bob.uid,
     fromUsername: 'bobby', read: false, createdAt: new Date(),
   });
-  let res = await getNotifications(alice.uid);
-  assert.equal(res.notifications.length, 1, 'notification visible before block');
+  const aliceToken = await alice.getIdToken();
+
+  let res = await callRoute<{ notifications: unknown[] }>(notificationsGet, 'GET', {
+    token: aliceToken,
+  });
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(res.body.data.notifications.length, 1, 'notification visible before block');
 
   await callActionAs(alice, blockUser, bob.uid);
-  res = await getNotifications(alice.uid);
-  assert.equal(res.notifications.length, 0, 'notification hidden after block');
+  res = await callRoute<{ notifications: unknown[] }>(notificationsGet, 'GET', {
+    token: aliceToken,
+  });
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(res.body.data.notifications.length, 0, 'notification hidden after block');
 });

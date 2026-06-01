@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Bell, BellOff, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
-import { savePushSubscription, removePushSubscription, getPushStatus } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 
 const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
 
@@ -53,8 +53,14 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
   useEffect(() => {
     const checkStatus = async () => {
       if (!user?.uid) return;
-      const result = await getPushStatus(user.uid);
-      setIsEnabled(result.enabled);
+      try {
+        const { enabled } = await apiCall<{ enabled: boolean }>(
+          'GET', '/api/v1/me/push-status',
+        );
+        setIsEnabled(enabled);
+      } catch (err) {
+        console.error('Failed to get push status:', err);
+      }
     };
     checkStatus();
   }, [user?.uid]);
@@ -92,17 +98,14 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
       }
 
       // Save to Firestore
-      const result = await savePushSubscription(await user.getIdToken(), {
+      await apiCall('POST', '/api/v1/me/push-subscription', {
         endpoint: subscriptionJson.endpoint,
         keys: {
           p256dh: subscriptionJson.keys.p256dh!,
           auth: subscriptionJson.keys.auth!,
         },
       });
-
-      if (!('error' in result)) {
-        setIsEnabled(true);
-      }
+      setIsEnabled(true);
     } catch (error) {
       console.error('Failed to enable push notifications:', error);
     } finally {
@@ -121,7 +124,9 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
         const subscription = await registration.pushManager.getSubscription();
         if (subscription) {
           await subscription.unsubscribe();
-          await removePushSubscription(await user.getIdToken(), subscription.endpoint);
+          await apiCall('DELETE', '/api/v1/me/push-subscription', {
+            endpoint: subscription.endpoint,
+          });
         }
       }
       setIsEnabled(false);
@@ -215,8 +220,14 @@ export function PushNotificationToggle() {
   useEffect(() => {
     const checkStatus = async () => {
       if (!user?.uid) return;
-      const result = await getPushStatus(user.uid);
-      setIsEnabled(result.enabled);
+      try {
+        const { enabled } = await apiCall<{ enabled: boolean }>(
+          'GET', '/api/v1/me/push-status',
+        );
+        setIsEnabled(enabled);
+      } catch (err) {
+        console.error('Failed to get push status:', err);
+      }
     };
     checkStatus();
   }, [user?.uid]);
@@ -233,7 +244,9 @@ export function PushNotificationToggle() {
           const subscription = await registration.pushManager.getSubscription();
           if (subscription) {
             await subscription.unsubscribe();
-            await removePushSubscription(await user.getIdToken(), subscription.endpoint);
+            await apiCall('DELETE', '/api/v1/me/push-subscription', {
+              endpoint: subscription.endpoint,
+            });
           }
         }
         setIsEnabled(false);
@@ -258,7 +271,7 @@ export function PushNotificationToggle() {
         const subscriptionJson = subscription.toJSON();
 
         if (subscriptionJson.endpoint && subscriptionJson.keys) {
-          await savePushSubscription(await user.getIdToken(), {
+          await apiCall('POST', '/api/v1/me/push-subscription', {
             endpoint: subscriptionJson.endpoint,
             keys: {
               p256dh: subscriptionJson.keys.p256dh!,

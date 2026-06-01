@@ -7,7 +7,7 @@ import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock,
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport, importLetterboxdMovies, getNotificationPreferences, updateNotificationPreferences } from '@/app/actions';
+import { parseLetterboxdExport, importLetterboxdMovies } from '@/app/actions';
 import { apiCall } from '@/lib/api-client';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
 import { signOut } from 'firebase/auth';
@@ -84,7 +84,9 @@ export default function SettingsPage() {
     async function fetchNotificationPrefs() {
       if (!user?.uid) return;
       try {
-        const result = await getNotificationPreferences(user.uid);
+        const result = await apiCall<{ preferences: NotificationPreferences }>(
+          'GET', '/api/v1/me/notification-preferences',
+        );
         setNotifPrefs(result.preferences);
       } catch (err) {
         console.error('Failed to fetch notification preferences:', err);
@@ -104,7 +106,7 @@ export default function SettingsPage() {
     setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
 
     try {
-      await updateNotificationPreferences(await user.getIdToken(), { [key]: newValue });
+      await apiCall('PATCH', '/api/v1/me/notification-preferences', { [key]: newValue });
     } catch (err) {
       // Revert on error
       setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));

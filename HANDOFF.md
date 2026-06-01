@@ -8,24 +8,33 @@
 
 ## TL;DR — where things stand
 
-**Phase A: PRs #1–#11 merged to main. PR #12 pushed on
-`feat/phase-a-post-comments-endpoints`, awaiting owner merge.**
+**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 stacked on
+`feat/phase-a-notifications-endpoints` (off `feat/phase-a-post-comments-endpoints`),
+awaiting owner merge of the tip branch.**
 
 | PR | Status | Tests |
 |----|--------|-------|
 | #1–#11 | ✅ merged to main | 339/339 |
-| #12 — Post comments (5 endpoints) | `feat/phase-a-post-comments-endpoints` | **354/354** |
+| #12 — Post comments (5 endpoints) | `feat/phase-a-post-comments-endpoints` | 354/354 |
+| #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | **376/376** |
 
-**Phase A scoreboard: 12/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
+**Phase A scoreboard: 13/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6, 2.9, 3.5 (now closed
 across **all five** like surfaces — reviews, lists, activities, posts,
-post-comments), 3.8, 3.10 + the 2.2-bypass + 3.8a findings.
+post-comments), 3.8, 3.10, **4.2a (new — userId-as-arg auth gap on the
+notification reads, closed by PR #13)** + the 2.2-bypass + 3.8a findings.
+
+> **AUDIT 4.2 main fix still TODO** — web-push fan-out from
+> `createMentionNotifications` / `createReplyNotification` / `inviteToList`
+> wasn't wired by PR #13 (that PR migrated the management surface only).
+> Sized at ~1 PR; do it after Phase A or as a small interleaved task.
 
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PR #12 (single-PR-on-tip merge). Then Claude
-starts PR #13 (Notifications + push).
+**Next:** owner merges PRs #12 + #13 (single-PR-on-tip merge of
+`feat/phase-a-notifications-endpoints`). Then Claude starts PR #14
+(Search + TMDB/OMDB proxies, closes AUDIT 2.8).
 
 ### Local dev setup (do once)
 

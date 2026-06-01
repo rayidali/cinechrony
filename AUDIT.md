@@ -297,6 +297,14 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [ ] Decide scope. Minimum-useful set: per-event push for `mention`, `reply`, `list_invite`. Lower priority for `like`, `follow` (noisier).
 - [ ] In each in-app notification creator (`createMentionNotifications`, `createReplyNotification`, `inviteToList`), look up the recipient's push subscriptions and call `webpush.sendNotification` alongside the Firestore write. Respect `notificationPreferences`.
 - [ ] **Test (manual):** with a real iOS PWA installed and push permission granted, trigger each event from another account → push lands on device.
+- [x] **Phase A PR #13 (partial)**: the notification *management* surface migrated to `/api/v1` — `listNotifications` (cursor-paginated), `markNotificationsRead`, `getUnreadNotificationCount`, `savePushSubscription`, `removePushSubscription`, `getPushStatus`, `getNotificationPreferences`, `updateNotificationPreferences`. Helpers live in `src/lib/notifications-server.ts` — the right place for the future web-push fan-out call. PR #13 did NOT wire `webpush.sendNotification` into the creators; that remains the AUDIT 4.2 fix proper.
+
+### 4.2a — Caller identity not enforced on notification reads (pre-migration gap, closed by PR #13)
+
+> The legacy Server Actions `getNotifications(userId)`, `getUnreadNotificationCount(userId)`, `getPushStatus(userId)`, and `getNotificationPreferences(userId)` all took a plain `userId` arg with **no server-side identity check**. Because Server Actions in Next.js are invocable by any client, this meant any authenticated user could read **any other user's** notifications, unread badge, push enablement, or notification preferences just by passing their UID.
+
+- [x] **Phase A PR #13**: the four read actions are gone. The replacement routes (`GET /api/v1/notifications`, `/unread-count`, `/me/push-status`, `/me/notification-preferences`) all derive caller identity from the verified Bearer token via `apiRoute()`. No userId-in-arg surface remains.
+- [x] **Phase A PR #13**: `markNotificationsRead(uid, ids)` similarly gained a per-doc ownership check — if a client passes an `ids[]` that includes another user's notification, the server filters it out instead of flipping it.
 
 ### 4.3 — `addMovie` legacy action skips activity creation (`actions.ts:666`)
 

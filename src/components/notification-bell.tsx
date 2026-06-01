@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Bell } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { getUnreadNotificationCount } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 
 export function NotificationBell() {
   const { user } = useUser();
@@ -14,8 +14,10 @@ export function NotificationBell() {
   const fetchCount = useCallback(async () => {
     if (!user?.uid) return;
     try {
-      const result = await getUnreadNotificationCount(user.uid);
-      setUnreadCount(result.count || 0);
+      const { count } = await apiCall<{ count: number }>(
+        'GET', '/api/v1/notifications/unread-count',
+      );
+      setUnreadCount(count || 0);
     } catch (err) {
       console.error('Failed to fetch notification count:', err);
     }

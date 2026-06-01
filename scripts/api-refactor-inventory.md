@@ -31,7 +31,7 @@
 | #10 | Activities | `activities` (GET), `activities/[id]/like` (POST + DELETE) | 3.5 (activity leg) | ✅ shipped on `feat/phase-a-activities-endpoints` |
 | #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | 3.5 (post leg) | ✅ shipped on `feat/phase-a-posts-endpoints` |
 | #12 | Post comments | `posts/[id]/comments` (POST/GET), `posts/[id]/comments/[cid]` (DELETE), `posts/[id]/comments/[cid]/like` (POST/DELETE) — 5 actions | 3.5 (comment leg) | ✅ shipped on `feat/phase-a-post-comments-endpoints` |
-| #13 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
+| #13 | Notifications + push + prefs | `notifications` (GET, cursor-paginated), `notifications/unread-count` (GET), `notifications/read` (POST), `me/push-subscription` (POST/DELETE), `me/push-status` (GET), `me/notification-preferences` (GET/PATCH) — 8 actions; closes the userId-as-arg auth gap on 4 reads. AUDIT 4.2 (web-push fan-out from creators) NOT yet wired — separate workstream. | — | ✅ shipped on `feat/phase-a-notifications-endpoints` |
 | #14 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
 | #15 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, saved-feed | — | pending |
 | #16 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
