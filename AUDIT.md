@@ -197,6 +197,7 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x] **2.8.1** Done — two parallel single-field prefix-range queries on `usernameLower` / `displayNameLower`, each limited 20 (max ~40 reads/search). Firestore auto-indexes single fields. Aligns with 1.9: no email search, email never returned. Inline scan-based migration removed (the dedicated `backfillUserSearchFields` action is the right place).
 - [ ] **2.8.2** Client-side debounce on user-search inputs — not done; lower priority now that each keystroke costs ~40 reads instead of thousands. Trivial follow-up if needed.
 - [x] **2.8.3** Done — `11-search-users.test.ts` (8 tests, green): prefix on each field, currentUserId excluded, dedupe when both fields match, 2-char minimum, no false positives, legacy-user excluded (needs backfill), no email in results.
+- [x] **2.8.4 — Phase A PR #14**: legacy `searchUsers(query, currentUserId)` Server Action retired. Logic now lives in `src/lib/search-server.ts` (`searchUsersForViewer`). Route: `GET /api/v1/users/search?q=...` — public + auth-aware (Bearer token only; the `currentUserId` arg surface is gone). `11-search-users.test.ts` migrated to exercise the route directly + a new "unauth viewer still gets matches" case added. AUDIT 2.8 is now closed end-to-end through the API layer.
 
 ### 2.9 — `Math.random()` invite codes (`actions.ts:1684`)
 

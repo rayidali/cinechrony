@@ -14,7 +14,6 @@ import {
   Loader2,
 } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { searchUsers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -111,7 +110,9 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
       return;
     }
     const t = setTimeout(() => {
-      searchUsers(q, user.uid)
+      apiCall<{ users: UserProfile[] }>(
+        'GET', `/api/v1/users/search?q=${encodeURIComponent(q)}`,
+      )
         .then((r) => setFriendResults(r.users ?? []))
         .catch(() => {});
     }, 260);

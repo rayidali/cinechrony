@@ -21,7 +21,6 @@ import {
 
 import type { Movie, TMDBMovieDetails, TMDBCast } from '@/lib/types';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
-import { getImdbRating } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useUser } from '@/firebase';
@@ -151,11 +150,12 @@ async function fetchMovieDetails(tmdbId: number): Promise<ExtendedMovieDetails |
   }
 }
 
-// Fetch IMDB rating from server action
+// Fetch IMDB rating via the OMDB-proxy route (server holds the key).
 async function fetchOMDBRating(imdbId: string): Promise<{ imdbRating?: string; imdbVotes?: string } | null> {
   try {
-    const result = await getImdbRating(imdbId);
-    if (result.error) return null;
+    const result = await apiCall<{ imdbRating?: string; imdbVotes?: string }>(
+      'GET', `/api/v1/movies/imdb-rating/${encodeURIComponent(imdbId)}`,
+    );
     return {
       imdbRating: result.imdbRating,
       imdbVotes: result.imdbVotes,

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import Image from 'next/image';
-import { type TrendingMovie } from '@/app/actions';
+import type { TrendingMovie } from '@/lib/tmdb-server';
 import type { Movie } from '@/lib/types';
 import { getCachedSimilar, getSimilarWithCache } from '@/lib/tmdb-details-cache';
 

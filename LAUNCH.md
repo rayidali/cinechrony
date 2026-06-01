@@ -362,11 +362,13 @@ Same conventions as the audit tracker:
 
 > **Note on AUDIT.md 4.2** — web-push fan-out from notification creators is still TODO. PR #13 migrated the *management* surface and added cursor pagination + closed a userId-as-arg auth gap, but the in-app `createMentionNotifications` / `createReplyNotification` / etc. helpers in `src/lib/notifications-server.ts` do **not** yet call `webpush.sendNotification` for each subscription. That's a separate workstream (sized at ~1 PR; requires a `web-push` lib import + the `webpush.sendNotification` integration + per-event "respect notificationPreferences" gating).
 
-**Search & external**
-- [ ] **A.3.40** `GET /api/v1/users/search?q=...` — `searchUsers` w/ prefix query (closes AUDIT.md 2.8)
-- [ ] **A.3.41** `GET /api/v1/movies/search?q=...` — TMDB proxy
-- [ ] **A.3.42** `GET /api/v1/movies/[tmdbId]` — TMDB details
-- [ ] **A.3.43** `GET /api/v1/movies/[tmdbId]/imdb-rating` — OMDB proxy
+**Search & external — PR #14**
+- [x] **A.3.40** `GET /api/v1/users/search?q=...` — `searchUsersForViewer` (publicApiRoute; auth-aware: excludes self + block-filters when Bearer token present). Closes AUDIT.md 2.8 end-to-end. — PR #14
+- [x] **A.3.41** `GET /api/v1/movies/trending` — TMDB trending/day enriched with IMDB ratings (server-only OMDB key). Public. — PR #14
+- [x] **A.3.42** `GET /api/v1/movies/[tmdbId]/similar?mediaType=movie|tv&limit=N` — TMDB recommendations → fallback to similar. Public. — PR #14
+- [x] **A.3.43** `GET /api/v1/movies/imdb-rating/[imdbId]` — OMDB proxy (server-only key). Public. — PR #14
+- [x] **A.3.43a** `GET /api/v1/recommendations` — `getRecommendationsForUser` (Bearer auth required; gated on viewer's ratings). — PR #14
+- Note: TMDB **search** (`searchTmdbMulti`) and **details** (`fetchTmdbDetailsWithCache`) intentionally stay client-side via `src/lib/tmdb-client.ts` / `tmdb-details-cache.ts` — the TMDB read token is `NEXT_PUBLIC_*` and safe to use from the browser. Adding server proxies for those would add a latency hop with no security benefit.
 
 **Admin**
 - [ ] **A.3.44** `POST /api/v1/admin/backfill-movies` — strict `ADMIN_SECRET` (closes AUDIT.md 1.8)

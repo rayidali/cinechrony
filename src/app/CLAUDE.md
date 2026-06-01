@@ -90,9 +90,23 @@ const { data: lists, isLoading } = useCollection<MovieList>(listsQuery);
 
 ---
 
-## Server Actions (actions.ts)
+## Server Actions (actions.ts) — **being migrated to /api/v1/* in Phase A**
 
-This is the **single source of truth** for all mutations. ~3000 lines organized by domain:
+> **Migration status (2026-06-01)** — Phase A is actively replacing Server
+> Actions with `/api/v1/*` route handlers (for the iOS Share Extension via
+> Capacitor — Server Actions are a Next.js-only RSC affordance and can't
+> be called from a separate Swift process). Tracker:
+> [`scripts/api-refactor-inventory.md`](../../scripts/api-refactor-inventory.md).
+> PRs #1–#13 done. Domains migrated so far: foundation, /me profile,
+> lists CRUD, movies-in-lists, invites, collaborators, follows, reviews,
+> ratings + list-likes, activities, posts, post-comments, notifications +
+> push + preferences. Tables below describe the legacy Server Action
+> surface; many of these functions no longer exist as Server Actions and
+> have moved to `src/lib/<domain>-server.ts` helpers behind routes. When
+> in doubt, search `src/app/api/v1/` for the route and follow imports.
+
+This used to be the **single source of truth** for all mutations
+(originally ~4800 lines, organized by domain):
 
 ### User Management
 | Function | Purpose |

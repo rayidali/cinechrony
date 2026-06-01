@@ -6,8 +6,8 @@ import { Input } from '@/components/ui/input';
 import { ArrowLeft, Search, Loader2, UserPlus, Check } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { searchUsers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { UserProfile } from '@/lib/types';
 import { useDebouncedCallback } from 'use-debounce';
 
 const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
@@ -54,9 +54,12 @@ export function FindFriendsScreen({
     }
 
     try {
-      const result = await searchUsers(query);
+      const result = await apiCall<{ users: UserProfile[] }>(
+        'GET', `/api/v1/users/search?q=${encodeURIComponent(query)}`,
+      );
       if (result.users) {
-        // Filter out current user
+        // Filter out current user (route already excludes when authenticated,
+        // but defends against the unauthenticated path).
         const filtered = result.users.filter(u => u.uid !== user?.uid);
         setSearchResults(filtered);
       }

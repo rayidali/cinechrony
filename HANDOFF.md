@@ -8,33 +8,41 @@
 
 ## TL;DR — where things stand
 
-**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 stacked on
-`feat/phase-a-notifications-endpoints` (off `feat/phase-a-post-comments-endpoints`),
-awaiting owner merge of the tip branch.**
+**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 + #14 stacked on
+`feat/phase-a-search-tmdb-endpoints`, awaiting owner merge of the tip
+branch.**
 
 | PR | Status | Tests |
 |----|--------|-------|
 | #1–#11 | ✅ merged to main | 339/339 |
 | #12 — Post comments (5 endpoints) | `feat/phase-a-post-comments-endpoints` | 354/354 |
-| #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | **376/376** |
+| #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | 376/376 |
+| #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | **380/380** |
 
-**Phase A scoreboard: 13/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
-1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6, 2.9, 3.5 (now closed
-across **all five** like surfaces — reviews, lists, activities, posts,
-post-comments), 3.8, 3.10, **4.2a (new — userId-as-arg auth gap on the
-notification reads, closed by PR #13)** + the 2.2-bypass + 3.8a findings.
+**Phase A scoreboard: 14/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
+1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6, **2.8 (end-to-end via the
+route layer — PR #14)**, 2.9, 3.5 (across **all five** like surfaces —
+reviews, lists, activities, posts, post-comments), 3.8, 3.10, **4.2a
+(userId-as-arg auth gap on the notification reads — PR #13)** + the
+2.2-bypass + 3.8a findings.
 
 > **AUDIT 4.2 main fix still TODO** — web-push fan-out from
-> `createMentionNotifications` / `createReplyNotification` / `inviteToList`
-> wasn't wired by PR #13 (that PR migrated the management surface only).
+> `createMentionNotifications` / `createReplyNotification` / `inviteToList`.
 > Sized at ~1 PR; do it after Phase A or as a small interleaved task.
+
+> **PR #14 scope note** — original plan listed 7 endpoints; came out as 5.
+> TMDB search + details intentionally stay client-side via
+> `src/lib/tmdb-client.ts` (the TMDB read token is `NEXT_PUBLIC_*`, so a
+> server proxy would add latency without security benefit). Only the
+> OMDB-keyed paths and the auth-gated recommendations endpoint became
+> routes.
 
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PRs #12 + #13 (single-PR-on-tip merge of
-`feat/phase-a-notifications-endpoints`). Then Claude starts PR #14
-(Search + TMDB/OMDB proxies, closes AUDIT 2.8).
+**Next:** owner merges PRs #12 + #13 + #14 (single-PR-on-tip merge of
+`feat/phase-a-search-tmdb-endpoints`). Then Claude starts PR #15
+(Bookmarks + mutes + blocks + reports + saved-feed).
 
 ### Local dev setup (do once)
 

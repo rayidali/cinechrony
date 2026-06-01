@@ -5,11 +5,10 @@ import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
 import {
   getSavedFeed,
-  getRecommendationsForUser,
   getFriendsWatching,
-  type RecommendationSet,
   type FriendsWatchingCard as FWCard,
 } from '@/app/actions';
+import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
@@ -246,15 +245,14 @@ export function ActivityFeed({
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (!idToken) return;
         const [recs, fw] = await Promise.all([
-          getRecommendationsForUser(idToken),
+          apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations')
+            .catch(() => ({ sets: [] as RecommendationSet[] })),
           getFriendsWatching(idToken),
         ]);
         if (cancelled) return;
-        if ('sets' in recs) {
-          const sets = recs.sets ?? [];
-          setRecSets(sets);
-          if (recKey) setCachedAction(recKey, sets);
-        }
+        const sets = recs.sets ?? [];
+        setRecSets(sets);
+        if (recKey) setCachedAction(recKey, sets);
         if ('cards' in fw) {
           const cards = fw.cards ?? [];
           setFwCards(cards);

@@ -32,7 +32,7 @@
 | #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | 3.5 (post leg) | ✅ shipped on `feat/phase-a-posts-endpoints` |
 | #12 | Post comments | `posts/[id]/comments` (POST/GET), `posts/[id]/comments/[cid]` (DELETE), `posts/[id]/comments/[cid]/like` (POST/DELETE) — 5 actions | 3.5 (comment leg) | ✅ shipped on `feat/phase-a-post-comments-endpoints` |
 | #13 | Notifications + push + prefs | `notifications` (GET, cursor-paginated), `notifications/unread-count` (GET), `notifications/read` (POST), `me/push-subscription` (POST/DELETE), `me/push-status` (GET), `me/notification-preferences` (GET/PATCH) — 8 actions; closes the userId-as-arg auth gap on 4 reads. AUDIT 4.2 (web-push fan-out from creators) NOT yet wired — separate workstream. | — | ✅ shipped on `feat/phase-a-notifications-endpoints` |
-| #14 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
+| #14 | Search + TMDB/OMDB | `users/search` (public, auth-aware), `movies/trending`, `movies/[id]/similar`, `movies/imdb-rating/[id]`, `recommendations` — 5 actions. TMDB *search* + *details* intentionally stay client-side via `src/lib/tmdb-client.ts` (token is `NEXT_PUBLIC_*`); only the OMDB-keyed + auth-gated paths needed proxies. | 2.8 | ✅ shipped on `feat/phase-a-search-tmdb-endpoints` |
 | #15 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, saved-feed | — | pending |
 | #16 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
 | #17 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
@@ -132,10 +132,10 @@ Legend:
 | 5923 | `getPushStatus` | READ_ADMIN | `GET /api/v1/me/push-status` | — |
 | 5943 | `getNotificationPreferences` | READ_ADMIN | `GET /api/v1/me/notification-preferences` | — |
 | 5976 | `updateNotificationPreferences` | WRITE | `PATCH /api/v1/me/notification-preferences` | — |
-| 6086 | `getImdbRating` | READ_OMDB | `GET /api/v1/movies/imdb-rating?imdbId=` | — |
+| 6086 | `getImdbRating` | READ_OMDB | `GET /api/v1/movies/imdb-rating/[imdbId]` | — |
 | 6127 | `getTrendingMovies` | READ_TMDB | `GET /api/v1/movies/trending` | — |
 | 6183 | `getSimilarMovies` | READ_TMDB | `GET /api/v1/movies/[tmdbId]/similar` | — |
-| 6250 | `getRecommendationsForUser` | READ_TMDB | `GET /api/v1/movies/[tmdbId]/recommendations` | — |
+| 6250 | `getRecommendationsForUser` | READ_TMDB | `GET /api/v1/recommendations` (Bearer auth) | — |
 | 6301 | `createActivity` | INTERNAL | helper — stays internal | — |
 | 6385 | `getActivityFeed` | READ_ADMIN | `GET /api/v1/activities` | — |
 | 6432 | `saveItem` | WRITE | `POST /api/v1/me/bookmarks` | — |

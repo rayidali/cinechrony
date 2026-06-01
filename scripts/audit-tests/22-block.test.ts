@@ -15,18 +15,27 @@ import {
 import { callRoute } from './lib/route-call.ts';
 import { POST as followPost } from '@/app/api/v1/users/[uid]/follow/route';
 import { GET as notificationsGet } from '@/app/api/v1/notifications/route';
+import { GET as searchGet } from '@/app/api/v1/users/search/route';
 
 let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let unblockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let getMyBlockContext: (idToken: unknown) => Promise<any>;
-let searchUsers: (q: string, currentUserId?: string) => Promise<any>;
 let alice: TestUser, bob: TestUser;
 
 before(async () => {
   setupTestEnv();
-  ({ blockUser, unblockUser, getMyBlockContext, searchUsers } =
+  ({ blockUser, unblockUser, getMyBlockContext } =
     await import('@/app/actions'));
 });
+
+async function searchAs(q: string, viewer: TestUser) {
+  const url = `http://test/api/v1/users/search?q=${encodeURIComponent(q)}`;
+  const res = await callRoute<{ users: Array<{ uid: string }> }>(
+    searchGet, 'GET', { token: await viewer.getIdToken(), url },
+  );
+  if (res.body.ok !== true) throw new Error('search failed');
+  return res.body.data;
+}
 
 beforeEach(async () => {
   await clearFirestore();
@@ -97,12 +106,12 @@ test('a blocked user is excluded from search', async () => {
     followersCount: 0, followingCount: 0,
   });
   // Visible before the block.
-  let res = await searchUsers('bob', alice.uid);
-  assert.ok(res.users.some((u: any) => u.uid === bob.uid), 'found before block');
+  let res = await searchAs('bob', alice);
+  assert.ok(res.users.some((u) => u.uid === bob.uid), 'found before block');
 
   await callActionAs(alice, blockUser, bob.uid);
-  res = await searchUsers('bob', alice.uid);
-  assert.ok(!res.users.some((u: any) => u.uid === bob.uid), 'hidden after block');
+  res = await searchAs('bob', alice);
+  assert.ok(!res.users.some((u) => u.uid === bob.uid), 'hidden after block');
 });
 
 test('a blocked user’s notifications are dropped', async () => {

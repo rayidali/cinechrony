@@ -19,7 +19,8 @@
  */
 
 import type { TMDBMovieDetails, TMDBTVDetails } from '@/lib/types';
-import { getImdbRating, getSimilarMovies, type TrendingMovie } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
+import type { TrendingMovie } from '@/lib/tmdb-server';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -92,7 +93,10 @@ async function fetchAndCache(
       let withImdb: MediaDetails = { ...data, imdbId };
       if (imdbId) {
         try {
-          const omdbData = await getImdbRating(imdbId);
+          const omdbData = await apiCall<{
+            imdbRating?: string; metascore?: string; imdbVotes?: string;
+            rated?: string; runtime?: string;
+          }>('GET', `/api/v1/movies/imdb-rating/${encodeURIComponent(imdbId)}`);
           if (omdbData.imdbRating) {
             withImdb = {
               ...withImdb,
@@ -165,7 +169,10 @@ export async function getSimilarWithCache(
 
   const promise = (async (): Promise<TrendingMovie[]> => {
     try {
-      const res = await getSimilarMovies(tmdbId, mediaType);
+      const res = await apiCall<{ movies: TrendingMovie[] }>(
+        'GET',
+        `/api/v1/movies/${tmdbId}/similar?mediaType=${mediaType}`,
+      );
       const movies = res.movies ?? [];
       // Only cache non-empty results. An empty result on a transient failure
       // shouldn't poison the cache and prevent the next attempt from

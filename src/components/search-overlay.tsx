@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { ChevronLeft, Search, Loader2, X, Film, Tv, ListVideo } from 'lucide-react';
-import { searchUsers, searchPublicLists, type LovedListCard } from '@/app/actions';
+import { searchPublicLists, type LovedListCard } from '@/app/actions';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
+import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
@@ -66,7 +67,10 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
       try {
         const [filmResults, peopleResults, listResults] = await Promise.all([
           searchTmdbMulti(q),
-          user ? searchUsers(q, user.uid) : Promise.resolve({ users: [] as UserProfile[] }),
+          apiCall<{ users: UserProfile[] }>(
+            'GET',
+            `/api/v1/users/search?q=${encodeURIComponent(q)}`,
+          ).catch(() => ({ users: [] as UserProfile[] })),
           searchPublicLists(q),
         ]);
         setFilms(filmResults);

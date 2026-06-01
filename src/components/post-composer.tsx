@@ -16,9 +16,6 @@ import {
   Play,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
-import {
-  searchUsers,
-} from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { compressImage } from '@/lib/image-compress';
@@ -335,7 +332,9 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
       return;
     }
     const t = setTimeout(() => {
-      searchUsers(q, user.uid)
+      apiCall<{ users: UserProfile[] }>(
+        'GET', `/api/v1/users/search?q=${encodeURIComponent(q)}`,
+      )
         .then((r) => setMentionResults(r.users ?? []))
         .catch(() => {});
     }, 280);

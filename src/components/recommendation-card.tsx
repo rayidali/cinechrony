@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Image from 'next/image';
 import { Plus, Star } from 'lucide-react';
-import type { RecommendationSet, TrendingMovie } from '@/app/actions';
+import type { RecommendationSet, TrendingMovie } from '@/lib/tmdb-server';
 import type { Movie, SearchResult } from '@/lib/types';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { AddToListSheet } from './add-to-list-sheet';

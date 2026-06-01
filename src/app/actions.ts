@@ -231,11 +231,11 @@ export async function ensureUserProfile(idToken: string, email: string, displayN
 
 // --- SOCIAL FEATURES ---
 
-/**
- * Search for users by username, email, or display name.
- * Also migrates users missing normalized fields on-the-fly.
- */
-export async function searchUsers(query: string, currentUserId?: string) {
+// searchUsers moved to `src/lib/search-server.ts` in Phase A PR #14.
+// Route: GET /api/v1/users/search?q=...   (publicApiRoute; auth-aware —
+// excludes self + applies block-filter when a Bearer token is present).
+// The AUDIT.md 2.8 prefix-range optimization is preserved verbatim.
+async function _removed_searchUsers_pr14(query: string, currentUserId?: string) { void query; void currentUserId; if (false as boolean) {
   // AUDIT.md 2.8: this used to fetch EVERY user doc on every keystroke and
   // filter client-side — at 5k users that's ~5MB per character typed. Now: two
   // parallel single-field prefix-range queries (Firestore auto-indexes
@@ -318,7 +318,7 @@ export async function searchUsers(query: string, currentUserId?: string) {
     console.error('[searchUsers] Failed:', error);
     return { error: 'Failed to search users.', users: [] };
   }
-}
+} }
 
 /**
  * Get a user's profile by ID.
@@ -2531,283 +2531,14 @@ export async function backfillReviewsThreading() {
 // server-side identity check, so any client could read any user's
 // notifications/push state. The new routes derive UID from the verified
 // Bearer token only.
-// ============================================
-// TRENDING MOVIES
-// ============================================
+// --- TRENDING / SIMILAR / OMDB / RECOMMENDATIONS ---
+// All migrated to /api/v1 in Phase A PR #14. Logic + the `TrendingMovie` and
+// `RecommendationSet` types live in `src/lib/tmdb-server.ts`. Routes:
+//   GET /api/v1/movies/trending                        getTrendingMovies (public)
+//   GET /api/v1/movies/[tmdbId]/similar?mediaType=...  getSimilarMovies (public)
+//   GET /api/v1/movies/imdb-rating/[imdbId]            getImdbRating (public, OMDB key server-only)
+//   GET /api/v1/recommendations                        getRecommendationsForUser (Bearer auth)
 
-export type TrendingMovie = {
-  id: number;
-  title: string;
-  posterPath: string | null;
-  releaseDate: string;
-  voteAverage: number;
-  mediaType: 'movie' | 'tv';
-  imdbId?: string;
-  imdbRating?: string;
-};
-
-// OMDB API key from environment variable (server-side only)
-function getOmdbApiKey(): string {
-  const key = process.env.OMDB_API_KEY;
-  if (!key) {
-    console.warn('[OMDB] API key not configured');
-    return '';
-  }
-  return key;
-}
-
-async function fetchImdbRating(tmdbId: number, tmdbAccessToken: string): Promise<{ imdbId?: string; imdbRating?: string }> {
-  const OMDB_API_KEY = getOmdbApiKey();
-  if (!OMDB_API_KEY) return {};
-
-  try {
-    // First get IMDB ID from TMDB
-    const externalIdsResponse = await fetch(
-      `https://api.themoviedb.org/3/movie/${tmdbId}/external_ids`,
-      {
-        headers: {
-          Authorization: `Bearer ${tmdbAccessToken}`,
-          'Content-Type': 'application/json',
-        },
-      }
-    );
-
-    if (!externalIdsResponse.ok) return {};
-
-    const externalIds = await externalIdsResponse.json();
-    const imdbId = externalIds.imdb_id;
-
-    if (!imdbId) return {};
-
-    // Fetch OMDB data
-    const omdbResponse = await fetch(
-      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`
-    );
-
-    if (!omdbResponse.ok) return { imdbId };
-
-    const omdbData = await omdbResponse.json();
-
-    return {
-      imdbId,
-      imdbRating: omdbData.imdbRating !== 'N/A' ? omdbData.imdbRating : undefined,
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Get IMDB rating for a movie by IMDB ID.
- * This is a server action so the OMDB API key stays server-side.
- */
-export async function getImdbRating(imdbId: string): Promise<{
-  imdbRating?: string;
-  metascore?: string;
-  imdbVotes?: string;
-  rated?: string;
-  runtime?: string;
-  error?: string;
-}> {
-  const OMDB_API_KEY = getOmdbApiKey();
-  if (!OMDB_API_KEY) {
-    return { error: 'OMDB API key not configured' };
-  }
-
-  try {
-    const response = await fetch(
-      `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`
-    );
-
-    if (!response.ok) {
-      return { error: 'Failed to fetch OMDB data' };
-    }
-
-    const data = await response.json();
-
-    if (data.Response === 'False') {
-      return { error: data.Error || 'Movie not found' };
-    }
-
-    return {
-      imdbRating: data.imdbRating !== 'N/A' ? data.imdbRating : undefined,
-      metascore: data.Metascore !== 'N/A' ? data.Metascore : undefined,
-      imdbVotes: data.imdbVotes !== 'N/A' ? data.imdbVotes : undefined,
-      rated: data.Rated !== 'N/A' ? data.Rated : undefined,
-      runtime: data.Runtime !== 'N/A' ? data.Runtime : undefined,
-    };
-  } catch (error) {
-    console.error('[getImdbRating] Failed:', error);
-    return { error: 'Failed to fetch IMDB rating' };
-  }
-}
-
-export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[]; error?: string }> {
-  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-
-  if (!TMDB_ACCESS_TOKEN) {
-    return { movies: [], error: 'TMDB not configured' };
-  }
-
-  try {
-    const response = await fetch(
-      'https://api.themoviedb.org/3/trending/movie/day?language=en-US',
-      {
-        headers: {
-          Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
-          'Content-Type': 'application/json',
-        },
-        next: { revalidate: 3600 }, // Cache for 1 hour
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`TMDB API error: ${response.status}`);
-    }
-
-    const data = await response.json();
-    const trendingResults = data.results.slice(0, 10);
-
-    // Fetch IMDB ratings in parallel for all movies
-    const imdbDataPromises = trendingResults.map((movie: any) =>
-      fetchImdbRating(movie.id, TMDB_ACCESS_TOKEN)
-    );
-    const imdbDataResults = await Promise.all(imdbDataPromises);
-
-    const movies: TrendingMovie[] = trendingResults.map((movie: any, index: number) => ({
-      id: movie.id,
-      title: movie.title || movie.name,
-      posterPath: movie.poster_path,
-      releaseDate: movie.release_date || movie.first_air_date || '',
-      voteAverage: movie.vote_average,
-      mediaType: 'movie' as const,
-      imdbId: imdbDataResults[index].imdbId,
-      imdbRating: imdbDataResults[index].imdbRating,
-    }));
-
-    return { movies };
-  } catch (error) {
-    console.error('[getTrendingMovies] Failed:', error);
-    return { movies: [], error: 'Failed to fetch trending movies' };
-  }
-}
-
-/**
- * Movies similar to a given title — TMDB `recommendations` (its own algorithm),
- * falling back to `similar` (genre/keyword based) when recommendations is empty.
- * Powers the "more like this" row on the movie-detail screen and the home
- * "if you liked X" feed cards. Cached 24h.
- */
-export async function getSimilarMovies(
-  tmdbId: number,
-  mediaType: 'movie' | 'tv' = 'movie',
-  limit = 12,
-): Promise<{ movies: TrendingMovie[]; error?: string }> {
-  const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
-  if (!TMDB_ACCESS_TOKEN) {
-    console.warn('[getSimilarMovies] NEXT_PUBLIC_TMDB_ACCESS_TOKEN missing on the server');
-    return { movies: [], error: 'TMDB not configured' };
-  }
-  if (!tmdbId || Number.isNaN(Number(tmdbId))) return { movies: [] };
-
-  const type = mediaType === 'tv' ? 'tv' : 'movie';
-  const headers = {
-    Authorization: `Bearer ${TMDB_ACCESS_TOKEN}`,
-    'Content-Type': 'application/json',
-  };
-
-  async function fetchEndpoint(endpoint: 'recommendations' | 'similar') {
-    const res = await fetch(
-      `https://api.themoviedb.org/3/${type}/${tmdbId}/${endpoint}?language=en-US&page=1`,
-      { headers, next: { revalidate: 86400 } },
-    );
-    if (!res.ok) return [];
-    const data = await res.json();
-    return Array.isArray(data.results) ? data.results : [];
-  }
-
-  try {
-    let results = await fetchEndpoint('recommendations');
-    if (results.length === 0) results = await fetchEndpoint('similar');
-
-    const movies: TrendingMovie[] = results
-      .filter((m: { poster_path?: string | null }) => m.poster_path)
-      .slice(0, limit)
-      .map((m: Record<string, unknown>) => ({
-        id: m.id as number,
-        title: (m.title as string) || (m.name as string) || 'untitled',
-        posterPath: (m.poster_path as string) ?? null,
-        releaseDate: (m.release_date as string) || (m.first_air_date as string) || '',
-        voteAverage: (m.vote_average as number) ?? 0,
-        mediaType: (m.media_type === 'tv' || type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
-      }));
-    return { movies };
-  } catch (error) {
-    console.error('[getSimilarMovies] Failed:', error);
-    return { movies: [], error: 'Failed to fetch similar movies.' };
-  }
-}
-
-/** One "if you liked X" recommendation set for the home feed. */
-export type RecommendationSet = {
-  basisTmdbId: number;
-  basisTitle: string;
-  basisMediaType: 'movie' | 'tv';
-  reason: string;
-  recommendations: TrendingMovie[];
-};
-
-/**
- * "For you" recommendation sets for the home feed.
- *
- * Bases each set on a film the viewer rated, preferring loved films
- * (>= 8) but tiering down so anyone with rating history gets recommendations:
- * loved (>= 8, up to 3) → liked (>= 6.5, up to 2) → the single most-recent
- * rating. Each set is TMDB recommendations off that basis film.
- */
-export async function getRecommendationsForUser(
-  idToken: string,
-): Promise<{ sets: RecommendationSet[]; error?: string }> {
-  const auth = await verifyCaller(idToken);
-  if (isAuthError(auth)) return { sets: [], error: auth.error };
-  const userId = auth.uid;
-
-  try {
-    const { ratings } = await getUserRatingsLib(userId, { limit: 40 });
-    // getUserRatings is ordered by updatedAt desc, so this stays recency-first.
-    const seen = new Set<number>();
-    const rated = (ratings || []).filter((r) => {
-      if (typeof r.rating !== 'number' || !r.tmdbId || seen.has(r.tmdbId)) return false;
-      seen.add(r.tmdbId);
-      return true;
-    });
-
-    // Tiered: loved → liked → whatever's most recent. The feature stays alive
-    // for cautious raters who rarely hand out an 8.
-    let bases = rated.filter((r) => r.rating >= 8).slice(0, 3);
-    if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
-    if (bases.length === 0) bases = rated.slice(0, 1);
-
-    if (bases.length === 0) return { sets: [] };
-
-    const sets = await Promise.all(
-      bases.map(async (b): Promise<RecommendationSet> => {
-        const { movies } = await getSimilarMovies(b.tmdbId, b.mediaType || 'movie', 9);
-        return {
-          basisTmdbId: b.tmdbId,
-          basisTitle: b.movieTitle || 'a film you loved',
-          basisMediaType: (b.mediaType || 'movie') as 'movie' | 'tv',
-          reason: `more films in the orbit of ${(b.movieTitle || 'it').toLowerCase()}.`,
-          recommendations: movies,
-        };
-      }),
-    );
-    return { sets: sets.filter((s) => s.recommendations.length > 0) };
-  } catch (error) {
-    console.error('[getRecommendationsForUser] Failed:', error);
-    return { sets: [], error: 'Failed to build recommendations.' };
-  }
-}
 
 // ============================================
 // ACTIVITY FEED
