@@ -2,8 +2,8 @@
 
 import { useTransition } from 'react';
 import { Bookmark } from 'lucide-react';
-import { useAuth, useUser } from '@/firebase';
-import { saveItem, unsaveItem } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { apiCall } from '@/lib/api-client';
 import { useUserBookmarksCache } from '@/contexts/user-bookmarks-cache';
 import { cn } from '@/lib/utils';
 
@@ -20,7 +20,6 @@ type BookmarkButtonProps = {
  */
 export function BookmarkButton({ itemType, itemId, className }: BookmarkButtonProps) {
   const { user } = useUser();
-  const auth = useAuth();
   const { isSaved, setSaved } = useUserBookmarksCache();
   const [isPending, startTransition] = useTransition();
 
@@ -33,15 +32,16 @@ export function BookmarkButton({ itemType, itemId, className }: BookmarkButtonPr
 
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = next
-          ? await saveItem(idToken, itemType, itemId)
-          : await unsaveItem(idToken, itemType, itemId);
-        if (res && 'error' in res && res.error) {
-          setSaved(itemType, itemId, !next); // roll back
+        if (next) {
+          await apiCall('POST', '/api/v1/bookmarks', { itemType, itemId });
+        } else {
+          await apiCall(
+            'DELETE',
+            `/api/v1/bookmarks/${itemType}/${encodeURIComponent(itemId)}`,
+          );
         }
       } catch {
-        setSaved(itemType, itemId, !next);
+        setSaved(itemType, itemId, !next); // roll back
       }
     });
   };

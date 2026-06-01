@@ -10,8 +10,8 @@ import {
   VolumeX,
   type LucideIcon,
 } from 'lucide-react';
-import { useAuth, useUser } from '@/firebase';
-import { saveItem, unsaveItem, muteUser } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { apiCall } from '@/lib/api-client';
 import { useUserBookmarksCache } from '@/contexts/user-bookmarks-cache';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useToast } from '@/hooks/use-toast';
@@ -58,7 +58,6 @@ export function CardOverflowMenu({
   onMuted,
 }: CardOverflowMenuProps) {
   const { user } = useUser();
-  const auth = useAuth();
   const { toast } = useToast();
   const { isSaved, setSaved } = useUserBookmarksCache();
   const { setMuted } = useUserMutesCache();
@@ -84,11 +83,14 @@ export function CardOverflowMenu({
     close();
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = next
-          ? await saveItem(idToken, itemType, itemId)
-          : await unsaveItem(idToken, itemType, itemId);
-        if (res && 'error' in res && res.error) setSaved(itemType, itemId, !next);
+        if (next) {
+          await apiCall('POST', '/api/v1/bookmarks', { itemType, itemId });
+        } else {
+          await apiCall(
+            'DELETE',
+            `/api/v1/bookmarks/${itemType}/${encodeURIComponent(itemId)}`,
+          );
+        }
       } catch {
         setSaved(itemType, itemId, !next);
       }
@@ -128,16 +130,11 @@ export function CardOverflowMenu({
     onMuted?.();
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await muteUser(idToken, authorId);
-        if (res && 'error' in res && res.error) {
-          setMuted(authorId, false);
-        } else {
-          toast({
-            title: `you won't see @${authorUsername ?? 'them'} for now.`,
-            description: 'unmute anytime in settings.',
-          });
-        }
+        await apiCall('POST', `/api/v1/users/${authorId}/mute`);
+        toast({
+          title: `you won't see @${authorUsername ?? 'them'} for now.`,
+          description: 'unmute anytime in settings.',
+        });
       } catch {
         setMuted(authorId, false);
       }

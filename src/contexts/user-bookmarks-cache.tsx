@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { getMyBookmarks } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 
 type UserBookmarksCacheContextType = {
   /** O(1) check — is this feed item in the viewer's archive? */
@@ -42,8 +42,7 @@ export function UserBookmarksCacheProvider({ children }: { children: ReactNode }
     }
     const myGen = ++genRef.current;
     try {
-      const idToken = await user.getIdToken();
-      const res = await getMyBookmarks(idToken);
+      const res = await apiCall<{ keys: string[] }>('GET', '/api/v1/bookmarks');
       if (genRef.current !== myGen) return;
       setKeys(new Set(res.keys ?? []));
       setIsLoaded(true);

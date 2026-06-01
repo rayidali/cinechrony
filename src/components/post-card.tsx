@@ -7,7 +7,6 @@ import { useRouter } from 'next/navigation';
 import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag, Play, Film } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
-import { reportContent } from '@/app/actions';
 import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -86,8 +85,11 @@ export const PostCard = memo(function PostCard({
   const handleReport = () => {
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        await reportContent(idToken, 'post', post.id, `Reported post ${post.id}`);
+        await apiCall('POST', '/api/v1/reports', {
+          contentType: 'post',
+          targetId: post.id,
+          reason: `Reported post ${post.id}`,
+        });
         toast({ title: 'reported.', description: 'thanks for flagging — we’ll take a look.' });
       } catch {
         toast({ variant: 'destructive', title: 'Error', description: 'Failed to report.' });

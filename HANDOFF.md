@@ -8,23 +8,30 @@
 
 ## TL;DR — where things stand
 
-**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 + #14 stacked on
-`feat/phase-a-search-tmdb-endpoints`, awaiting owner merge of the tip
-branch.**
+**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 + #14 + #15 stacked
+on `feat/phase-a-safety-bookmarks-endpoints`, awaiting owner merge of
+the tip branch.**
 
 | PR | Status | Tests |
 |----|--------|-------|
 | #1–#11 | ✅ merged to main | 339/339 |
 | #12 — Post comments (5 endpoints) | `feat/phase-a-post-comments-endpoints` | 354/354 |
 | #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | 376/376 |
-| #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | **380/380** |
+| #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | 380/380 |
+| #15 — Bookmarks + safety + friends-watching (13 endpoints) | `feat/phase-a-safety-bookmarks-endpoints` (stacked #14) | **389/389** |
 
-**Phase A scoreboard: 14/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
+**Phase A scoreboard: 15/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6, **2.8 (end-to-end via the
 route layer — PR #14)**, 2.9, 3.5 (across **all five** like surfaces —
 reviews, lists, activities, posts, post-comments), 3.8, 3.10, **4.2a
 (userId-as-arg auth gap on the notification reads — PR #13)** + the
 2.2-bypass + 3.8a findings.
+
+> **PR #15 bonus fix** — the legacy `reportContent` Server Action
+> declared `contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment'`
+> in its TypeScript signature, but its runtime validator only accepted
+> the first three. Post + post-comment reports were silently 400-ing.
+> The new route accepts all five.
 
 > **AUDIT 4.2 main fix still TODO** — web-push fan-out from
 > `createMentionNotifications` / `createReplyNotification` / `inviteToList`.
@@ -40,9 +47,9 @@ reviews, lists, activities, posts, post-comments), 3.8, 3.10, **4.2a
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PRs #12 + #13 + #14 (single-PR-on-tip merge of
-`feat/phase-a-search-tmdb-endpoints`). Then Claude starts PR #15
-(Bookmarks + mutes + blocks + reports + saved-feed).
+**Next:** owner merges PRs #12 + #13 + #14 + #15 (single-PR-on-tip merge
+of `feat/phase-a-safety-bookmarks-endpoints`). Then Claude starts PR #16
+(Admin backfills, closes AUDIT 1.8) and finally PR #17 (static export).
 
 ### Local dev setup (do once)
 

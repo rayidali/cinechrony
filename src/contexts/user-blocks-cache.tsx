@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { getMyBlockContext } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 
 type UserBlocksCacheContextType = {
   /** Invisible either way — the viewer blocked them OR they blocked the viewer. */
@@ -46,8 +46,9 @@ export function UserBlocksCacheProvider({ children }: { children: ReactNode }) {
     }
     const myGen = ++genRef.current;
     try {
-      const idToken = await user.getIdToken();
-      const res = await getMyBlockContext(idToken);
+      const res = await apiCall<{ blockedIds: string[]; iBlocked: string[] }>(
+        'GET', '/api/v1/me/block-context',
+      );
       if (genRef.current !== myGen) return;
       const ib = new Set(res.iBlocked ?? []);
       const union = new Set(res.blockedIds ?? []);

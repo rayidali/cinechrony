@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { getMyMutes } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 
 type UserMutesCacheContextType = {
   /** O(1) check — has the viewer muted this user? */
@@ -38,8 +38,9 @@ export function UserMutesCacheProvider({ children }: { children: ReactNode }) {
     }
     const myGen = ++genRef.current;
     try {
-      const idToken = await user.getIdToken();
-      const res = await getMyMutes(idToken);
+      const res = await apiCall<{ mutedIds: string[] }>(
+        'GET', '/api/v1/me/mutes',
+      );
       if (genRef.current !== myGen) return;
       setIds(new Set(res.mutedIds ?? []));
       setIsLoaded(true);

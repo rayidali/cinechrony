@@ -2,8 +2,8 @@
 
 import { useEffect, useState, useTransition } from 'react';
 import { Ban, Loader2 } from 'lucide-react';
-import { useUser, useAuth } from '@/firebase';
-import { getBlockedUsers, unblockUser } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { apiCall } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { UserProfile } from '@/lib/types';
@@ -14,7 +14,6 @@ import type { UserProfile } from '@/lib/types';
  */
 export function BlockedUsersSection() {
   const { user } = useUser();
-  const auth = useAuth();
   const { setBlocked } = useUserBlocksCache();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -24,9 +23,7 @@ export function BlockedUsersSection() {
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
-    user
-      .getIdToken()
-      .then((t) => getBlockedUsers(t))
+    apiCall<{ users: UserProfile[] }>('GET', '/api/v1/me/blocked-users')
       .then((res) => {
         if (!cancelled) setUsers(res.users ?? []);
       })
@@ -43,12 +40,11 @@ export function BlockedUsersSection() {
     setUnblockingId(uid);
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await unblockUser(idToken, uid);
-        if (!res || !('error' in res) || !res.error) {
-          setUsers((prev) => prev.filter((u) => u.uid !== uid));
-          setBlocked(uid, false);
-        }
+        await apiCall('DELETE', `/api/v1/users/${uid}/block`);
+        setUsers((prev) => prev.filter((u) => u.uid !== uid));
+        setBlocked(uid, false);
+      } catch {
+        /* keep in list on failure */
       } finally {
         setUnblockingId(null);
       }

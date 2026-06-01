@@ -21,7 +21,6 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useToast } from '@/hooks/use-toast';
-import { reportContent } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import { useUserProfile } from '@/contexts/user-profile-cache';
@@ -160,19 +159,18 @@ export const ReviewCard = memo(function ReviewCard({
 
   const handleReport = async () => {
     try {
-      const res = await reportContent(
-        (await auth.currentUser?.getIdToken()) ?? '',
-        'review',
-        review.id,
-        '',
-      );
-      if ('error' in res) {
-        toast({ variant: 'destructive', title: 'Error', description: res.error });
-      } else {
-        toast({ title: 'reported.', description: "thanks — we'll review this." });
-      }
-    } catch {
-      toast({ variant: 'destructive', title: 'Error', description: 'Could not submit report.' });
+      await apiCall('POST', '/api/v1/reports', {
+        contentType: 'review',
+        targetId: review.id,
+        reason: '',
+      });
+      toast({ title: 'reported.', description: "thanks — we'll review this." });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Could not submit report.',
+      });
     }
   };
 

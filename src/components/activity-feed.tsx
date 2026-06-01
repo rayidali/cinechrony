@@ -3,11 +3,7 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
-import {
-  getSavedFeed,
-  getFriendsWatching,
-  type FriendsWatchingCard as FWCard,
-} from '@/app/actions';
+import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';
 import { apiCall, ApiClientError } from '@/lib/api-client';
@@ -168,8 +164,22 @@ export function ActivityFeed({
   const fetchPage = useCallback(
     async (pageCursor?: string) => {
       if (feedFilter === 'saved') {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        return getSavedFeed(idToken, pageCursor);
+        const qs = new URLSearchParams();
+        if (pageCursor) qs.set('cursor', pageCursor);
+        try {
+          const r = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(
+            'GET',
+            `/api/v1/saved-feed${qs.toString() ? `?${qs.toString()}` : ''}`,
+          );
+          return { items: r.items, hasMore: r.hasMore, nextCursor: r.nextCursor } as {
+            items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string;
+          };
+        } catch (err) {
+          return {
+            items: [], hasMore: false,
+            error: err instanceof ApiClientError ? err.message : 'failed to load saved feed.',
+          };
+        }
       }
       // Home feed via /api/v1/home-feed — apiCall throws on error; we map
       // back to the {error} shape callers below expect.
@@ -247,17 +257,16 @@ export function ActivityFeed({
         const [recs, fw] = await Promise.all([
           apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations')
             .catch(() => ({ sets: [] as RecommendationSet[] })),
-          getFriendsWatching(idToken),
+          apiCall<{ cards: FWCard[] }>('GET', '/api/v1/friends-watching')
+            .catch(() => ({ cards: [] as FWCard[] })),
         ]);
         if (cancelled) return;
         const sets = recs.sets ?? [];
         setRecSets(sets);
         if (recKey) setCachedAction(recKey, sets);
-        if ('cards' in fw) {
-          const cards = fw.cards ?? [];
-          setFwCards(cards);
-          if (fwKey) setCachedAction(fwKey, cards);
-        }
+        const cards = fw.cards ?? [];
+        setFwCards(cards);
+        if (fwKey) setCachedAction(fwKey, cards);
       } catch {
         /* non-critical */
       }

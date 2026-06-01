@@ -10,20 +10,17 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
+import { blockUserAs } from './lib/safety-helpers.ts';
 import { GET as homeFeedGet } from '@/app/api/v1/home-feed/route';
 import { POST as likePost, DELETE as unlikePost } from '@/app/api/v1/posts/[id]/like/route';
 
-let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  ({ blockUser } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 async function seedActivity(id: string, userId: string, atMs: number) {
   await adminDb().collection('activities').doc(id).set({
@@ -81,7 +78,7 @@ test('home-feed merges activities + posts newest-first', async () => {
 test('home-feed drops a blocked author', async () => {
   await seedPost('bobs-post', bob.uid, 5_000);
   await seedActivity('alice-act', alice.uid, 4_000);
-  await callActionAs(alice, blockUser, bob.uid);
+  await blockUserAs(alice, bob.uid);
 
   const res = await feedAs(alice);
   if (res.body.ok !== true) return assert.fail('expected ok');

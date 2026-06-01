@@ -370,6 +370,21 @@ Same conventions as the audit tracker:
 - [x] **A.3.43a** `GET /api/v1/recommendations` — `getRecommendationsForUser` (Bearer auth required; gated on viewer's ratings). — PR #14
 - Note: TMDB **search** (`searchTmdbMulti`) and **details** (`fetchTmdbDetailsWithCache`) intentionally stay client-side via `src/lib/tmdb-client.ts` / `tmdb-details-cache.ts` — the TMDB read token is `NEXT_PUBLIC_*` and safe to use from the browser. Adding server proxies for those would add a latency hop with no security benefit.
 
+**Bookmarks + safety + friends-watching + reports — PR #15**
+- [x] **A.3.46** `POST /api/v1/bookmarks` — `saveItem` (body `{ itemType, itemId }`; deterministic doc id, idempotent). — PR #15
+- [x] **A.3.46a** `GET /api/v1/bookmarks` — `getMyBookmarks` (cache hydrator; up to 1000 keys). — PR #15
+- [x] **A.3.46b** `DELETE /api/v1/bookmarks/[itemType]/[itemId]` — `unsaveItem` (idempotent). — PR #15
+- [x] **A.3.46c** `GET /api/v1/saved-feed?cursor=&limit=` — `getSavedFeed` (cursor-paginated, hydrated; dangling-bookmark-safe). — PR #15
+- [x] **A.3.47** `POST /api/v1/users/[uid]/mute` — `muteUser` (rejects self-mute). — PR #15
+- [x] **A.3.47a** `DELETE /api/v1/users/[uid]/mute` — `unmuteUser`. — PR #15
+- [x] **A.3.47b** `GET /api/v1/me/mutes` — `getMyMutes` (cache hydrator). — PR #15
+- [x] **A.3.48** `POST /api/v1/users/[uid]/block` — `blockUser` (severs follows BOTH ways with count decrements; revokes pending invites both ways; rejects self-block). — PR #15
+- [x] **A.3.48a** `DELETE /api/v1/users/[uid]/block` — `unblockUser` (does NOT restore the severed follow). — PR #15
+- [x] **A.3.48b** `GET /api/v1/me/block-context` — `getMyBlockContext` (returns `{ blockedIds, iBlocked }`). — PR #15
+- [x] **A.3.48c** `GET /api/v1/me/blocked-users` — `getBlockedUsers` (full UserProfile[] for the settings unblock list; email never returned per AUDIT 1.9). — PR #15
+- [x] **A.3.49** `GET /api/v1/friends-watching` — `getFriendsWatching` (aggregated; ≥2 followed-user activities on the same film collapse into one card; Bearer auth). — PR #15
+- [x] **A.3.50** `POST /api/v1/reports` — `reportContent` (rate-limited via `report` bucket; accepts ALL five content types — fixes legacy validator bug). — PR #15
+
 **Admin**
 - [ ] **A.3.44** `POST /api/v1/admin/backfill-movies` — strict `ADMIN_SECRET` (closes AUDIT.md 1.8)
 - [ ] **A.3.45** Other backfill routes — same hardening

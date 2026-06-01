@@ -11,7 +11,7 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
@@ -21,13 +21,11 @@ import { GET as getPostGet, PATCH as updatePostPatch, DELETE as deletePostDelete
   from '@/app/api/v1/posts/[id]/route';
 import { POST as mediaUploadPost } from '@/app/api/v1/posts/media-upload-url/route';
 
-let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
+import { blockUserAs } from './lib/safety-helpers.ts';
+
 let alice: TestUser, bob: TestUser, carol: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  ({ blockUser } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 async function seedUser(uid: string, username: string) {
   await adminDb().collection('users').doc(uid).set({
@@ -80,7 +78,7 @@ test('a forged token cannot post', async () => {
 });
 
 test('tagged friends are notified; blocked users cannot be tagged', async () => {
-  await callActionAs(alice, blockUser, carol.uid);
+  await blockUserAs(alice, carol.uid);
   const res = await createPostAs(alice, {
     text: 'watched with the crew',
     taggedUserIds: [bob.uid, carol.uid],
@@ -134,7 +132,7 @@ test('GET /posts/[id] is block-aware', async () => {
   if (beforeBlock.body.ok !== true) return assert.fail('expected ok');
   assert.ok(beforeBlock.body.data.post, 'bob can see it');
 
-  await callActionAs(alice, blockUser, bob.uid);
+  await blockUserAs(alice, bob.uid);
 
   const afterBlock = await callRoute<{ post: unknown }>(getPostGet, 'GET', {
     token: bobToken, params: { id: postId },

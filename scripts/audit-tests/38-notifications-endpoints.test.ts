@@ -27,10 +27,11 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
+import { blockUserAs } from './lib/safety-helpers.ts';
 
 import { GET as listGet }                from '@/app/api/v1/notifications/route';
 import { GET as unreadGet }              from '@/app/api/v1/notifications/unread-count/route';
@@ -41,13 +42,9 @@ import { GET as pushStatusGet }          from '@/app/api/v1/me/push-status/route
 import { GET as prefsGet, PATCH as prefsPatch }
   from '@/app/api/v1/me/notification-preferences/route';
 
-let blockUser: (idToken: unknown, blockedId: string) => Promise<any>;
 let alice: TestUser, bob: TestUser, carol: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  ({ blockUser } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 async function seedNotification(
   id: string,
@@ -100,7 +97,7 @@ test('GET /notifications: returns ONLY the caller\'s notifications', async () =>
 test('GET /notifications: block-filtered (sender blocked)', async () => {
   await seedNotification('n-from-bob', alice.uid, { from: bob.uid });
   await seedNotification('n-from-carol', alice.uid, { from: carol.uid });
-  await callActionAs(alice, blockUser, bob.uid);
+  await blockUserAs(alice, bob.uid);
 
   const token = await alice.getIdToken();
   const res = await callRoute<{ notifications: Array<{ id: string; fromUserId: string }> }>(
