@@ -275,3 +275,41 @@ export async function createPostLikeNotification(
     createdAt: FieldValue.serverTimestamp(),
   });
 }
+
+// ─── Post comment notification (Phase A PR #12) ───────────────────────────
+
+export type PostCommentNotificationCtx = {
+  postId: string;
+  previewText: string;
+  /** Top-level comment → post author. Reply → parent comment's author. */
+  recipientId: string;
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+};
+
+/**
+ * Fires a `post_comment` notification. Skips self-comments. Recipient
+ * differs by depth: top-level → POST author; reply → PARENT COMMENT's
+ * author. The caller resolves which is which.
+ */
+export async function createPostCommentNotification(
+  db: FirebaseFirestore.Firestore,
+  ctx: PostCommentNotificationCtx,
+): Promise<void> {
+  if (ctx.recipientId === ctx.fromUserId) return;
+
+  await db.collection('notifications').add({
+    userId: ctx.recipientId,
+    type: 'post_comment',
+    fromUserId: ctx.fromUserId,
+    fromUsername: ctx.fromUsername,
+    fromDisplayName: ctx.fromDisplayName,
+    fromPhotoUrl: ctx.fromPhotoUrl,
+    postId: ctx.postId,
+    previewText: ctx.previewText,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+}

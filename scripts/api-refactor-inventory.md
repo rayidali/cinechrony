@@ -30,7 +30,7 @@
 | #9 | Ratings + List likes | `ratings`, `ratings/[tmdbId]`, `ratings/by-user`, `users/[uid]/ratings`, `lists/.../like` | 2.5 | ✅ shipped on `feat/phase-a-ratings-listlikes-endpoints` |
 | #10 | Activities | `activities` (GET), `activities/[id]/like` (POST + DELETE) | 3.5 (activity leg) | ✅ shipped on `feat/phase-a-activities-endpoints` |
 | #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | 3.5 (post leg) | ✅ shipped on `feat/phase-a-posts-endpoints` |
-| #12 | Post comments | comment CRUD + comment likes (5 actions) | — | pending |
+| #12 | Post comments | `posts/[id]/comments` (POST/GET), `posts/[id]/comments/[cid]` (DELETE), `posts/[id]/comments/[cid]/like` (POST/DELETE) — 5 actions | 3.5 (comment leg) | ✅ shipped on `feat/phase-a-post-comments-endpoints` |
 | #13 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
 | #14 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
 | #15 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, saved-feed | — | pending |
@@ -160,11 +160,11 @@ Legend:
 | 7296 | `getHomeFeed` | READ_ADMIN | `GET /api/v1/home-feed` | — |
 | 7353 | `likePost` | WRITE | `POST /api/v1/posts/[id]/like` | 3.8 |
 | 7408 | `unlikePost` | WRITE | `DELETE /api/v1/posts/[id]/like` | — |
-| 7442 | `createPostComment` | WRITE | `POST /api/v1/posts/[id]/comments` | — |
+| 7442 | `createPostComment` | WRITE | `POST /api/v1/posts/[id]/comments` | 3.8 |
 | 7538 | `getPostComments` | READ_ADMIN | `GET /api/v1/posts/[id]/comments` | — |
 | 7582 | `deletePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]` | — |
-| 7617 | `likePostComment` | WRITE | `POST /api/v1/posts/[id]/comments/[cid]/like` | 3.8 |
-| 7646 | `unlikePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]/like` | — |
+| 7617 | `likePostComment` | WRITE | `POST /api/v1/posts/[id]/comments/[cid]/like` | 3.5, 3.8 |
+| 7646 | `unlikePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]/like` | 3.5 |
 | 7675 | `likeActivity` | WRITE | `POST /api/v1/activities/[id]/like` | 3.5, 3.8 |
 | 7717 | `unlikeActivity` | WRITE | `DELETE /api/v1/activities/[id]/like` | 3.5 |
 | 7760 | `reportContent` | WRITE | `POST /api/v1/reports` | — |

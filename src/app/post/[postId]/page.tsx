@@ -5,15 +5,8 @@ import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { ChevronLeft, Heart, Loader2, Send, X, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
-import { useUser, useAuth } from '@/firebase';
-import {
-  getPostComments,
-  createPostComment,
-  deletePostComment,
-  likePostComment,
-  unlikePostComment,
-} from '@/app/actions';
-import { apiCall } from '@/lib/api-client';
+import { useUser } from '@/firebase';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { PostCard } from '@/components/post-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { BottomNav } from '@/components/bottom-nav';
@@ -27,7 +20,6 @@ export default function PostPage() {
   const router = useRouter();
   const postId = params.postId as string;
   const { user, isUserLoading } = useUser();
-  const auth = useAuth();
   const { toast } = useToast();
 
   const [post, setPost] = useState<Post | null>(null);
@@ -40,10 +32,9 @@ export default function PostPage() {
 
   const load = useCallback(async () => {
     try {
-      const idToken = user ? await user.getIdToken() : undefined;
       const [postRes, commentsRes] = await Promise.all([
         apiCall<{ post: Post | null }>('GET', `/api/v1/posts/${postId}`),
-        getPostComments(postId, idToken),
+        apiCall<{ comments: PostComment[] }>('GET', `/api/v1/posts/${postId}/comments`),
       ]);
       if (!postRes.post) {
         setNotFound(true);
@@ -56,7 +47,7 @@ export default function PostPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [postId, user]);
+  }, [postId]);
 
   useEffect(() => {
     if (isUserLoading) return;
@@ -68,17 +59,19 @@ export default function PostPage() {
     if (!text || !user || isPending) return;
     startTransition(async () => {
       try {
-        const idToken = await user.getIdToken();
-        const res = await createPostComment(idToken, postId, text, replyTo?.id ?? null);
-        if (res && 'error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-        } else {
-          setDraft('');
-          setReplyTo(null);
-          await load();
-        }
-      } catch {
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to comment.' });
+        await apiCall('POST', `/api/v1/posts/${postId}/comments`, {
+          text,
+          parentId: replyTo?.id ?? null,
+        });
+        setDraft('');
+        setReplyTo(null);
+        await load();
+      } catch (err) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: err instanceof ApiClientError ? err.message : 'Failed to comment.',
+        });
       }
     });
   };
@@ -86,11 +79,8 @@ export default function PostPage() {
   const handleDeleteComment = (commentId: string) => {
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await deletePostComment(idToken, postId, commentId);
-        if (!res || !('error' in res) || !res.error) {
-          setComments((prev) => prev.filter((c) => c.id !== commentId && c.parentId !== commentId));
-        }
+        await apiCall('DELETE', `/api/v1/posts/${postId}/comments/${commentId}`);
+        setComments((prev) => prev.filter((c) => c.id !== commentId && c.parentId !== commentId));
       } catch {
         /* ignore */
       }
@@ -272,7 +262,6 @@ function CommentRow({
   onReply: () => void;
   onDelete: () => void;
 }) {
-  const auth = useAuth();
   const [liked, setLiked] = useState(
     currentUserId ? comment.likedBy?.includes(currentUserId) : false,
   );
@@ -288,13 +277,16 @@ function CommentRow({
     setLikes((n) => Math.max(0, next ? n + 1 : n - 1));
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = next
-          ? await likePostComment(idToken, comment.postId, comment.id)
-          : await unlikePostComment(idToken, comment.postId, comment.id);
-        if (res && 'error' in res && res.error) {
-          setLiked(!next);
-          setLikes((n) => Math.max(0, next ? n - 1 : n + 1));
+        if (next) {
+          await apiCall(
+            'POST',
+            `/api/v1/posts/${comment.postId}/comments/${comment.id}/like`,
+          );
+        } else {
+          await apiCall(
+            'DELETE',
+            `/api/v1/posts/${comment.postId}/comments/${comment.id}/like`,
+          );
         }
       } catch {
         setLiked(!next);

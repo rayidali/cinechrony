@@ -343,6 +343,13 @@ Same conventions as the audit tracker:
 - [x] **A.3.37h** `DELETE /api/v1/posts/[id]/like` — `unlikePost` (transactional) — PR #11
 - [x] **A.3.37i** `GET /api/v1/home-feed?cursor=` — `getHomeFeed` (merged activities+posts, block-filtered server-side, timestamp cursor) — PR #11
 
+**Post comments — PR #12 (ships AUDIT.md 3.5 comment-like leg)**
+- [x] **A.3.37j** `POST /api/v1/posts/[id]/comments` — `createPostComment` (rate-limited via `review` bucket, block-aware vs post author, 1-level replies, recipient = post author for top-level / parent comment author for replies) — PR #12
+- [x] **A.3.37k** `GET /api/v1/posts/[id]/comments` — `getPostComments` (public; block-filtered server-side from viewer's perspective; capped at 300) — PR #12
+- [x] **A.3.37l** `DELETE /api/v1/posts/[id]/comments/[cid]` — `deletePostComment` (comment author OR post author; decrements parent `replyCount` for replies, post `commentCount` for top-level) — PR #12
+- [x] **A.3.37m** `POST /api/v1/posts/[id]/comments/[cid]/like` — `likePostComment` (transactional read-check-write, AUDIT.md 3.5; rate-limited via `like` bucket) — PR #12
+- [x] **A.3.37n** `DELETE /api/v1/posts/[id]/comments/[cid]/like` — `unlikePostComment` (transactional) — PR #12
+
 **Notifications**
 - [ ] **A.3.38** `GET /api/v1/notifications` — list
 - [ ] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`
