@@ -33,7 +33,6 @@ import { useToast } from '@/hooks/use-toast';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { doc } from 'firebase/firestore';
-import { getListMembers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import type { MovieList, ListMember } from '@/lib/types';
@@ -125,7 +124,9 @@ export default function ListSettingsPage() {
       // Not cached or collaboratorIds changed, fetch from server
       setIsLoadingMembers(true);
       try {
-        const result = await getListMembers(effectiveOwnerId, listId);
+        const result = await apiCall<{ members: ListMember[] }>(
+          'GET', `/api/v1/lists/${effectiveOwnerId}/${listId}/members`,
+        );
         const loadedMembers = result.members || [];
         setMembers(loadedMembers);
         cacheMembers(effectiveOwnerId, listId, loadedMembers);

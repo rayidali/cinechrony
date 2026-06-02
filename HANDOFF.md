@@ -8,9 +8,8 @@
 
 ## TL;DR — where things stand
 
-**Phase A: PRs #1–#11 merged to main. PRs #12 + #13 + #14 + #15 stacked
-on `feat/phase-a-safety-bookmarks-endpoints`, awaiting owner merge of
-the tip branch.**
+**Phase A: PRs #1–#11 merged to main. PRs #12 → #18 stacked on
+`feat/phase-a-leftover-actions`, awaiting owner merge of the tip branch.**
 
 | PR | Status | Tests |
 |----|--------|-------|
@@ -20,29 +19,26 @@ the tip branch.**
 | #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | 380/380 |
 | #15 — Bookmarks + safety + friends-watching (13 endpoints) | `feat/phase-a-safety-bookmarks-endpoints` (stacked #14) | 389/389 |
 | #16 — Admin backfills (4 endpoints, closes AUDIT 1.8) | `feat/phase-a-admin-endpoints` (stacked #15) | 397/397 |
-| #17 — Static-export foundation (no new endpoints) | `feat/phase-a-static-export` (stacked #16) | **397/397** |
+| #17 — Static-export foundation (no new endpoints) | `feat/phase-a-static-export` (stacked #16) | 397/397 |
+| #18 — Phase A.5: 18 leftover actions migrated; `actions.ts` deleted | `feat/phase-a-leftover-actions` (stacked #17) | **397/397 + `out/` ✓** |
 
-**Phase A scoreboard: 17/17 PRs done** *(but static build still blocked
-on a follow-up — see below).* AUDIT items closed: **1.8 (end-to-end via
-the route layer with unified `ADMIN_SECRET` + constant-time compare —
-PR #16)**, 1.2, 1.3, 1.4, 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6,
-**2.8 (end-to-end via the route layer — PR #14)**, 2.9, 3.5 (across **all
-five** like surfaces — reviews, lists, activities, posts, post-comments),
-3.8, 3.10, **4.2a (userId-as-arg auth gap on the notification reads —
-PR #13)** + the 2.2-bypass + 3.8a findings.
+**Phase A scoreboard: 18/18 PRs done. 🎉 Phase A complete.**
 
-> **⚠ PR #17 ships the static-export *foundation* — not a working static
-> build yet.** The plumbing is in place (env-gated `output: 'export'`,
-> `npm run build:static` script that moves `src/app/api/` aside, 7
-> dynamic-page wrappers with `generateStaticParams` + `<Suspense>`,
-> `NEXT_PUBLIC_API_BASE_URL` prefix in api-client). But `actions.ts` still
-> has `'use server'` at the top with ~15 functions left (search,
-> getLovedLists, list-previews, isFollowing, onboarding, Letterboxd
-> import). Next.js's `output: 'export'` refuses to build when any Server
-> Action exists. Running `npm run build:static` today gets to the right
-> error message ("Server Actions are not supported with static export")
-> then cleanly restores `src/app/api/`. **PR #18 / Phase A.5** migrates
-> those last actions so the static build can actually succeed.
+AUDIT items closed: **1.8 (end-to-end via the route layer with unified
+`ADMIN_SECRET` + constant-time compare — PR #16)**, 1.2, 1.3, 1.4, 1.5,
+1.6, 1.11, 1.12, **1.13 (private-list preview privacy — surfaced through
+the new `/lists/[ownerId]/[listId]/preview` route — PR #18)**, 1.14, 2.1,
+2.2, 2.5, 2.6, **2.8 (end-to-end via the route layer — PR #14)**, 2.9,
+3.5 (across **all five** like surfaces — reviews, lists, activities,
+posts, post-comments), 3.8, 3.10, **4.2a (userId-as-arg auth gap on the
+notification reads — PR #13)** + the 2.2-bypass + 3.8a findings.
+
+> **🎉 `src/app/actions.ts` is gone.** Every former Server Action either
+> ships as a `/api/v1/*` route (with token-based auth) or has been
+> deleted as dead code (`createUserProfile` legacy, `getUserProfile`,
+> `updateUsername` admin escape hatch with no callable surface).
+> `npm run build:static` produces a clean ~3.7MB `out/` directory —
+> the Capacitor wrap target is ready.
 
 > **PR #15 bonus fix** — the legacy `reportContent` Server Action
 > declared `contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment'`
@@ -64,11 +60,12 @@ PR #13)** + the 2.2-bypass + 3.8a findings.
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PRs #12 + #13 + #14 + #15 + #16 + #17 (single-PR-
-on-tip merge of `feat/phase-a-static-export`). Then Claude does **PR #18
-/ Phase A.5** — migrate the ~15 remaining Server Actions in `actions.ts`
-so `npm run build:static` actually produces an `out/` directory. After
-that, Capacitor wrap can begin (Phase B).
+**Next:** owner merges PRs #12 → #18 (single-PR-on-tip merge of
+`feat/phase-a-leftover-actions`). After that, **Phase B = Capacitor
+wrap** — the iOS Share Extension hero feature that motivated all of
+Phase A. The `out/` directory from `npm run build:static` is the
+Capacitor bundle target; the Vercel deploy stays as the `/api/v1/*` API
+host; the static client reaches it via `NEXT_PUBLIC_API_BASE_URL`.
 
 ### Local dev setup (do once)
 

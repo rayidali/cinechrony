@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { ChevronLeft, Search, Loader2, X, Film, Tv, ListVideo } from 'lucide-react';
-import { searchPublicLists, type LovedListCard } from '@/app/actions';
+import type { LovedListCard } from '@/lib/lists-server';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';
@@ -71,7 +71,9 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
             'GET',
             `/api/v1/users/search?q=${encodeURIComponent(q)}`,
           ).catch(() => ({ users: [] as UserProfile[] })),
-          searchPublicLists(q),
+          apiCall<{ lists: LovedListCard[] }>(
+            'GET', `/api/v1/lists/search?q=${encodeURIComponent(q)}`,
+          ).catch(() => ({ lists: [] as LovedListCard[] })),
         ]);
         setFilms(filmResults);
         setPeople(peopleResults.users ?? []);

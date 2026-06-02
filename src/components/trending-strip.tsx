@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Film } from 'lucide-react';
-import { getLovedLists, type LovedListCard } from '@/app/actions';
+import type { LovedListCard } from '@/lib/lists-server';
 import { apiCall } from '@/lib/api-client';
 import type { TrendingMovie } from '@/lib/tmdb-server';
 import { useMovieModal } from '@/contexts/movie-modal-context';
@@ -46,7 +46,8 @@ export function TrendingStrip() {
       apiCall<{ movies: TrendingMovie[] }>('GET', '/api/v1/movies/trending').catch(
         () => ({ movies: [] as TrendingMovie[] }),
       ),
-      getLovedLists(),
+      apiCall<{ lists: LovedListCard[]; gated: boolean }>('GET', '/api/v1/lists/loved')
+        .catch(() => ({ lists: [] as LovedListCard[], gated: false })),
     ])
       .then(([trending, loved]) => {
         if (cancelled) return;

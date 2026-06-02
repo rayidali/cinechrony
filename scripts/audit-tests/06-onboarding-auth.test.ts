@@ -1,76 +1,107 @@
 /**
  * Phase 1 — onboarding creators regression test.
  *
- * createUserProfile / ensureUserProfile / createUserProfileWithUsername run
- * right after Firebase signup. Pre-fix they trusted a client `userId`, so an
- * attacker could create/overwrite the profile doc of ANY uid. Post-fix the
- * profile is created for the verified token's uid only.
+ * Migrated to /api/v1 in Phase A.5 (PR #18). Routes:
+ *   POST /api/v1/me/ensure   — ensureUserProfile (idempotent boot helper)
+ *   POST /api/v1/me/profile  — createUserProfileWithUsername (onboarding pick-handle step)
  *
- * Also a regression guard: ensureUserProfile runs on EVERY app load — it must
- * still create the profile + default list for a brand-new authed user.
+ * The legacy `createUserProfile` Server Action (token + email + displayName,
+ * generating a username from the email) was dead code (no remaining callers
+ * once onboarding moved fully to `createUserProfileWithUsername`) and is gone.
+ *
+ * Asserts: profile is keyed to the verified token UID; forged/missing
+ * tokens are rejected; default list is created.
  */
 
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
-
-let ensureUserProfile: (idToken: unknown, email: string, displayName: string | null) => Promise<any>;
-let createUserProfile: (idToken: unknown, email: string, displayName: string | null) => Promise<any>;
-let createUserProfileWithUsername: (idToken: unknown, email: string, username: string, displayName: string | null) => Promise<any>;
+import { callRoute } from './lib/route-call.ts';
+import { POST as ensurePost } from '@/app/api/v1/me/ensure/route';
+import { POST as profilePost } from '@/app/api/v1/me/profile/route';
 
 let alice: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  ({ ensureUserProfile, createUserProfile, createUserProfileWithUsername } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 beforeEach(async () => {
   await clearFirestore();
-  alice = await createTestUser('alice'); // auth user exists, NO profile doc yet
+  alice = await createTestUser('alice');
 });
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('ensureUserProfile: valid token creates profile + default list for the token uid (regression)', async () => {
-  const res = await callActionAs(alice, ensureUserProfile, 'alice@example.com', 'Alice');
-  assert.ok(!('error' in res), `expected success, got ${JSON.stringify(res)}`);
-  assert.ok(res.defaultListId, 'returns a defaultListId');
+test('POST /me/ensure: valid token creates profile + default list for the token uid', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute<{ defaultListId: string }>(ensurePost, 'POST', {
+    token, body: { email: 'alice@example.com', displayName: 'Alice' },
+  });
+  assert.equal(res.status, 200);
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  assert.ok(res.body.data.defaultListId);
 
   const profile = await adminDb().collection('users').doc(alice.uid).get();
-  assert.equal(profile.exists, true, 'profile doc created');
-  assert.equal(profile.data()?.uid, alice.uid, 'profile keyed to verified uid');
+  assert.equal(profile.exists, true);
+  assert.equal(profile.data()?.uid, alice.uid);
 
   const list = await adminDb()
-    .collection('users').doc(alice.uid).collection('lists').doc(res.defaultListId).get();
-  assert.equal(list.data()?.isDefault, true, 'default list created');
+    .collection('users').doc(alice.uid).collection('lists').doc(res.body.data.defaultListId).get();
+  assert.equal(list.data()?.isDefault, true);
 });
 
-test('ensureUserProfile: forged/missing token rejected, no doc created', async () => {
-  const forged = await callActionWithRawToken('forged', ensureUserProfile, 'x@x.com', 'X');
-  assert.deepEqual(forged, { error: 'Unauthorized' });
-  const missing = await callActionWithRawToken(undefined, ensureUserProfile, 'x@x.com', 'X');
-  assert.deepEqual(missing, { error: 'Unauthorized' });
+test('POST /me/ensure: forged/missing token rejected, no doc created', async () => {
+  const forged = await callRoute(ensurePost, 'POST', {
+    token: 'forged', body: { email: 'x@x.com', displayName: 'X' },
+  });
+  assert.equal(forged.status, 401);
+
+  const missing = await callRoute(ensurePost, 'POST', {
+    body: { email: 'x@x.com', displayName: 'X' },
+  });
+  assert.equal(missing.status, 401);
 
   const profile = await adminDb().collection('users').doc(alice.uid).get();
-  assert.equal(profile.exists, false, 'no profile written for anyone');
+  assert.equal(profile.exists, false);
 });
 
-test('createUserProfile: forged token cannot create a profile for another uid', async () => {
-  const res = await callActionWithRawToken('forged', createUserProfile, 'v@x.com', 'Victim');
-  assert.deepEqual(res, { error: 'Unauthorized' });
-  assert.equal((await adminDb().collection('users').doc(alice.uid).get()).exists, false);
-});
+test('POST /me/profile: profile keyed to verified uid; forged rejected', async () => {
+  const token = await alice.getIdToken();
+  const ok = await callRoute(profilePost, 'POST', {
+    token,
+    body: { email: 'alice@x.com', username: 'alice_handle', displayName: 'Alice' },
+  });
+  assert.equal(ok.status, 200);
 
-test('createUserProfileWithUsername: profile keyed to verified uid; forged rejected', async () => {
-  const ok = await callActionAs(alice, createUserProfileWithUsername, 'alice@x.com', 'alice_handle', 'Alice');
-  assert.ok(!('error' in ok), `expected success, got ${JSON.stringify(ok)}`);
   const doc = await adminDb().collection('users').doc(alice.uid).get();
-  assert.equal(doc.data()?.usernameLower, 'alice_handle', 'username set on verified uid');
+  assert.equal(doc.data()?.usernameLower, 'alice_handle');
 
-  const bad = await callActionWithRawToken('', createUserProfileWithUsername, 'b@x.com', 'bad_handle', 'B');
-  assert.deepEqual(bad, { error: 'Unauthorized' });
+  const bad = await callRoute(profilePost, 'POST', {
+    body: { email: 'b@x.com', username: 'bad_handle', displayName: 'B' },
+  });
+  assert.equal(bad.status, 401);
+});
+
+test('POST /me/profile: rejects username already taken (409)', async () => {
+  // Seed another user with the username.
+  await adminDb().collection('users').doc('other').set({
+    uid: 'other', username: 'taken_handle', usernameLower: 'taken_handle',
+  });
+  const token = await alice.getIdToken();
+  const res = await callRoute(profilePost, 'POST', {
+    token,
+    body: { email: 'alice@x.com', username: 'taken_handle', displayName: 'Alice' },
+  });
+  assert.equal(res.status, 409);
+});
+
+test('POST /me/profile: rejects malformed username (400)', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute(profilePost, 'POST', {
+    token,
+    body: { email: 'alice@x.com', username: 'AB', displayName: 'Alice' },
+  });
+  assert.equal(res.status, 400);
 });

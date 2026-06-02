@@ -7,8 +7,8 @@ import { Drawer } from 'vaul';
 import { TiktokIcon } from './icons';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
-import { getUserLists, getCollaborativeLists, getListPreview } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { ListSummary, CollaborativeListSummary } from '@/lib/lists-server';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
@@ -186,18 +186,22 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       setIsLoadingLists(true);
 
       Promise.all([
-        getUserLists(user.uid),
-        getCollaborativeLists(user.uid),
+        apiCall<{ lists: ListSummary[] }>('GET', `/api/v1/users/${user.uid}/lists`),
+        apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
       ]).then(async ([userResult, collabResult]) => {
-        const ownLists: ListWithPreview[] = (userResult.lists || []).map(l => ({
-          ...l,
+        // Lib-server types serialize dates as ISO strings — the legacy
+        // ListWithPreview type sat on top of Server-Action responses that
+        // did the same thing, but TS was lenient because actions returned
+        // `any`-shaped data. Cast through unknown to preserve runtime.
+        const ownLists: ListWithPreview[] = (userResult.lists || []).map((l) => ({
+          ...(l as unknown as MovieList),
           isShared: false,
         }));
 
-        const sharedLists: ListWithPreview[] = (collabResult.lists || []).map((l: MovieList & { ownerDisplayName?: string }) => ({
-          ...l,
+        const sharedLists: ListWithPreview[] = (collabResult.lists || []).map((l) => ({
+          ...(l as unknown as MovieList & { ownerDisplayName?: string }),
           isShared: true,
-          ownerDisplayName: l.ownerDisplayName || 'Unknown',
+          ownerDisplayName: (l as { ownerDisplayName?: string }).ownerDisplayName || 'Unknown',
         }));
 
         const combined = [...ownLists, ...sharedLists];
@@ -206,7 +210,9 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
         const listsWithPreviews = await Promise.all(
           combined.map(async (list) => {
             try {
-              const preview = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
+              const preview = await apiCall<{ previewPosters: string[]; movieCount: number }>(
+                'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
+              );
               return {
                 ...list,
                 previewPosters: preview.previewPosters || [],

@@ -16,7 +16,8 @@ import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { Fab } from '@/components/fab';
-import { getCollaborativeLists } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
 import { recallListSeed } from '@/lib/list-detail-seed';
 
@@ -155,7 +156,7 @@ export default function ListDetailPage() {
       if (!collaborativeListOwner || queryParamFailed) {
         setIsCheckingCollab(true);
         try {
-          const result = await getCollaborativeLists(user.uid);
+          const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
           const collabList = result.lists?.find(l => l.id === listId);
           if (collabList) {
             setCollaborativeListOwner(collabList.ownerId);
@@ -208,7 +209,7 @@ export default function ListDetailPage() {
     // Re-check collaborative lists in case permissions changed
     if (!ownListData && !collaborativeListOwner) {
       try {
-        const result = await getCollaborativeLists(user.uid);
+        const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
         const collabList = result.lists?.find(l => l.id === listId);
         if (collabList) {
           setCollaborativeListOwner(collabList.ownerId);

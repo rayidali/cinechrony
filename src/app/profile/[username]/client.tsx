@@ -17,13 +17,8 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { BottomNav } from '@/components/bottom-nav';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
-import {
-  getUserByUsername,
-  getUserPublicLists,
-  getCollaborativeLists,
-  getListPreview,
-} from '@/app/actions';
-import { apiCall } from '@/lib/api-client';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { ListSummary, CollaborativeListSummary } from '@/lib/lists-server';
 import type { UserProfile, MovieList } from '@/lib/types';
 
 interface CollaborativeList extends MovieList {
@@ -79,8 +74,13 @@ export default function UserProfilePage() {
       setIsLoading(true);
       setError(null);
       try {
-        const profileResult = await getUserByUsername(username);
-        if (profileResult.error || !profileResult.user) {
+        const profileResult = await apiCall<{ user: UserProfile }>(
+          'GET', `/api/v1/users/by-username/${encodeURIComponent(username)}`,
+        ).catch((err) => {
+          if (err instanceof ApiClientError && err.status === 404) return null;
+          throw err;
+        });
+        if (!profileResult || !profileResult.user) {
           setError('User not found');
           setIsLoading(false);
           return;
@@ -92,18 +92,28 @@ export default function UserProfilePage() {
           return;
         }
 
-        const listsResult = await getUserPublicLists(profileResult.user.uid);
+        const listsResult = await apiCall<{ lists: ListSummary[] }>(
+          'GET', `/api/v1/users/${profileResult.user.uid}/public-lists`,
+        );
         if (listsResult.lists) {
-          setLists(listsResult.lists as MovieList[]);
+          setLists(listsResult.lists as unknown as MovieList[]);
         }
 
         try {
-          const collabResult = await getCollaborativeLists(profileResult.user.uid);
-          if (collabResult.lists) {
-            const publicSharedLists = (collabResult.lists as CollaborativeList[]).filter(
-              (list) => list.isPublic
+          // NOTE: only the user themselves can list their collaborative lists
+          // (the /me/collaborative-lists route is Bearer-token scoped). For
+          // viewing someone else's profile we'd need a separate route — for
+          // now, we just skip this section when viewing another user.
+          if (user && profileResult.user.uid === user.uid) {
+            const collabResult = await apiCall<{ lists: CollaborativeListSummary[] }>(
+              'GET', '/api/v1/me/collaborative-lists',
             );
-            setSharedLists(publicSharedLists);
+            if (collabResult.lists) {
+              const publicSharedLists = (collabResult.lists as unknown as CollaborativeList[]).filter(
+                (list) => list.isPublic,
+              );
+              setSharedLists(publicSharedLists);
+            }
           }
         } catch (collabErr) {
           console.error('Failed to load collaborative lists:', collabErr);
@@ -128,7 +138,9 @@ export default function UserProfilePage() {
         const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
         await Promise.all(
           lists.map(async (list) => {
-            const result = await getListPreview(profile.uid, list.id);
+            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
+              'GET', `/api/v1/lists/${profile.uid}/${list.id}/preview`,
+            );
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -150,7 +162,9 @@ export default function UserProfilePage() {
         const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
         await Promise.all(
           sharedLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id);
+            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
+              'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
+            );
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,

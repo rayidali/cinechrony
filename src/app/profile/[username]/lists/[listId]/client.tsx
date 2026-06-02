@@ -23,10 +23,8 @@ import { BottomNav } from '@/components/bottom-nav';
 import { ListLikeButton } from '@/components/list-like-button';
 import { ListControls } from '@/components/list-controls';
 import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
-import {
-  getUserByUsername,
-  getPublicListMovies,
-} from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { PublicListResult } from '@/lib/lists-server';
 import type { UserProfile, Movie, MovieList } from '@/lib/types';
 
 type ViewMode = 'grid' | 'list';
@@ -100,8 +98,13 @@ export default function PublicListPage() {
 
       try {
         // Get owner profile
-        const profileResult = await getUserByUsername(username);
-        if (profileResult.error || !profileResult.user) {
+        const profileResult = await apiCall<{ user: UserProfile }>(
+          'GET', `/api/v1/users/by-username/${encodeURIComponent(username)}`,
+        ).catch((err) => {
+          if (err instanceof ApiClientError && err.status === 404) return null;
+          throw err;
+        });
+        if (!profileResult || !profileResult.user) {
           setError('User not found');
           setIsLoading(false);
           return;
@@ -116,16 +119,24 @@ export default function PublicListPage() {
         }
 
         // Get list and movies
-        const viewerId = user?.uid || '';
-        const listResult = await getPublicListMovies(profileResult.user.uid, listId, viewerId);
-
-        if (listResult.error) {
-          setError(listResult.error);
+        let listResult: PublicListResult;
+        try {
+          listResult = await apiCall<PublicListResult>(
+            'GET', `/api/v1/lists/${profileResult.user.uid}/${listId}/movies-view`,
+          );
+        } catch (err) {
+          if (err instanceof ApiClientError && err.status === 403) {
+            setError('This list is private.');
+          } else if (err instanceof ApiClientError && err.status === 404) {
+            setError('List not found.');
+          } else {
+            setError('Failed to load list.');
+          }
           setIsLoading(false);
           return;
         }
 
-        const loadedList = listResult.list as MovieList;
+        const loadedList = listResult.list as unknown as MovieList;
         // Collaborators get the editable view, same as the owner — members
         // shouldn't land on the read-only page for a list they can edit.
         if (

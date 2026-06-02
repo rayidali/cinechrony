@@ -7,8 +7,7 @@ import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock,
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport, importLetterboxdMovies } from '@/app/actions';
-import { apiCall } from '@/lib/api-client';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
 import { signOut } from 'firebase/auth';
 import { useFirestore } from '@/firebase';
@@ -171,12 +170,10 @@ export default function SettingsPage() {
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1];
-          const result = await parseLetterboxdExport(base64, file.name);
-
-          if (result.error) {
-            setImportError(result.error);
-            return;
-          }
+          const result = await apiCall<{ data: typeof letterboxdData }>(
+            'POST', '/api/v1/imports/letterboxd/parse',
+            { base64Data: base64, fileName: file.name },
+          );
 
           if (result.data) {
             const totalMovies =
@@ -198,7 +195,9 @@ export default function SettingsPage() {
             });
           }
         } catch (err: any) {
-          setImportError(err.message || "Failed to process file");
+          setImportError(
+            err instanceof ApiClientError ? err.message : (err.message || "Failed to process file"),
+          );
         } finally {
           setIsProcessing(false);
         }
@@ -221,21 +220,13 @@ export default function SettingsPage() {
 
     setIsImporting(true);
     try {
-      const result = await importLetterboxdMovies(
-        user.uid,
-        letterboxdData,
-        {
-          importWatched,
-          importRatings,
-          importWatchlist,
-          importReviews,
-          importLists,
-        }
-      );
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      const result = await apiCall<{
+        importedCount: number; reviewsImported: number;
+        favoritesImported: number; listsCreated: number;
+      }>('POST', '/api/v1/imports/letterboxd/full', {
+        data: letterboxdData,
+        options: { importWatched, importRatings, importWatchlist, importReviews, importLists },
+      });
 
       const listsMsg = result.listsCreated ? ` and ${result.listsCreated} lists` : '';
       toast({

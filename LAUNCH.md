@@ -410,9 +410,12 @@ Same conventions as the audit tracker:
 - [x] **A.5.4b** `NEXT_PUBLIC_API_BASE_URL` honored by `src/lib/api-client.ts` — when set, absolute paths starting with `/` get prefixed so the static bundle (Capacitor / Cloudflare Pages) calls the Vercel-hosted API cross-origin. Unset = same-origin (Vercel deploy behavior is unchanged). — PR #17
 - [x] **A.5.4c** `npm run build:static` script. — PR #17
 
-**PR #18 — leftover Server Actions (blocks A.5.4 + A.5.5):**
-- [ ] **A.5.4** `npm run build:static` outputs a clean `out/` directory — currently fails on "Server Actions are not supported with static export" because `src/app/actions.ts` still has `'use server'` at the top and ~15 functions remaining. PR #18 / Phase A.5 migrates each one: `searchPublicLists`, `getLovedLists`, `getListMembers`, `getListsPreviews`, `getListPreview`, `getUserLists`, `getCollaborativeLists`, `isFollowing`, `checkUsernameAvailability`, `createUserProfileWithUsername`, `ensureUserProfile`, `parseLetterboxdExport`, `parseAndMatchMovies`, `importMatchedMovies`, `importLetterboxdMovies`.
-- [ ] **A.5.5 — Test (after PR #18):** serve `out/` with a static server (`npx serve out`); every route works as a client-side app, hits the Vercel-hosted API via `NEXT_PUBLIC_API_BASE_URL`.
+**PR #18 — leftover Server Actions migrated (Phase A complete):**
+- [x] **A.5.4** `npm run build:static` outputs a clean ~3.7MB `out/` directory. — PR #18
+- [x] **A.5.4d** `src/app/actions.ts` deleted. Every former Server Action either ships as a `/api/v1/*` route or was dead code. 19 new routes added (lists/profiles/follow/letterboxd); 4 helper modules added (`profiles-server.ts`, `letterboxd-server.ts`, plus extensions to `lists-server.ts` / `follows-server.ts`). — PR #18
+- [x] **A.5.4e** AUDIT 1.13 (private-list preview privacy) closed end-to-end via the new `GET /api/v1/lists/[ownerId]/[listId]/preview` route. — PR #18
+- [x] **A.5.4f** `isFollowing` route consolidated to return both directions in one call (`{ isFollowing, isFollowedBy }`); the legacy `isFollowing(a, b)` arg surface that let any client probe any follower→following pair is gone. — PR #18
+- [ ] **A.5.5 — Manual smoke (next):** serve `out/` with a static server (`npx serve out`) and verify a real flow end-to-end; deploy to Cloudflare Pages or wrap in Capacitor for Phase B.
 
 ---
 

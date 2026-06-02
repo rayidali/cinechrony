@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { Loader2, UserPlus, UserMinus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { isFollowing } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { useUser } from '@/firebase';
@@ -53,20 +52,15 @@ export function FollowButton({
 
       setIsCheckingStatus(true);
       try {
-        const [viewerFollowsTarget, targetFollowsViewer] = await Promise.all([
-          initialIsFollowing === undefined
-            ? isFollowing(user.uid, targetUserId)
-            : Promise.resolve({ isFollowing: initialIsFollowing }),
-          initialIsFollowedByTarget === undefined
-            ? isFollowing(targetUserId, user.uid)
-            : Promise.resolve({ isFollowing: initialIsFollowedByTarget }),
-        ]);
-        if (!('error' in viewerFollowsTarget)) {
-          setFollowing(viewerFollowsTarget.isFollowing ?? false);
-        }
-        if (!('error' in targetFollowsViewer)) {
-          setFollowsViewer(targetFollowsViewer.isFollowing ?? false);
-        }
+        // One round trip returns both directions.
+        const needsServer = initialIsFollowing === undefined || initialIsFollowedByTarget === undefined;
+        const rel = needsServer
+          ? await apiCall<{ isFollowing: boolean; isFollowedBy: boolean }>(
+              'GET', `/api/v1/users/${targetUserId}/follow-status`,
+            ).catch(() => ({ isFollowing: false, isFollowedBy: false }))
+          : { isFollowing: false, isFollowedBy: false };
+        setFollowing(initialIsFollowing ?? rel.isFollowing);
+        setFollowsViewer(initialIsFollowedByTarget ?? rel.isFollowedBy);
       } catch (error) {
         console.error('Failed to check follow status:', error);
       } finally {

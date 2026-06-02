@@ -6,8 +6,8 @@ import { Home, Bookmark, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useUser } from '@/firebase';
 import { prefetchCachedAction } from '@/lib/use-cached-action';
-import { getCollaborativeLists } from '@/app/actions';
 import { apiCall } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { UserProfile } from '@/lib/types';
 import type { FeedItem } from '@/lib/posts-server';
 
@@ -75,7 +75,9 @@ export function BottomNav() {
       });
     } else if (href === '/lists') {
       prefetchCachedAction(`collab-lists:${uid}`, async () => {
-        const res = await getCollaborativeLists(uid);
+        const res = await apiCall<{ lists: CollaborativeListSummary[] }>(
+          'GET', '/api/v1/me/collaborative-lists',
+        );
         return res.lists ?? [];
       });
     }

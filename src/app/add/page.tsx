@@ -21,8 +21,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
-import { getCollaborativeLists } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import { collection, orderBy, query as firestoreQuery } from 'firebase/firestore';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
 
@@ -193,7 +193,9 @@ export default function AddPage() {
       if (!user) return;
       setIsLoadingCollab(true);
       try {
-        const result = await getCollaborativeLists(user.uid);
+        const result = await apiCall<{ lists: CollaborativeListSummary[] }>(
+          'GET', '/api/v1/me/collaborative-lists',
+        );
         if (result.lists) {
           setCollaborativeLists(result.lists.map(l => ({
             id: l.id,

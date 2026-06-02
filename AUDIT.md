@@ -125,6 +125,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.13.1** Add the same `isPublic` / owner / collaborator gate that `getPublicListMovies` uses.
 - [x] **1.13.2** **Test:** as User B, call `getListPreview(userAUid, privateListId)` → rejected. Same for public list → succeeds.
+- [x] **1.13.3 — Phase A PR #18**: action retired; route `GET /api/v1/lists/[ownerId]/[listId]/preview` enforces the same gate via the Bearer-token UID (no `viewerIdToken` arg surface for an attacker to manipulate). Test in `08-special-cases-b.test.ts`: unauthenticated → empty preview; outsider token → empty preview; owner token → full preview with movieCount.
 
 ### 1.14 — `getListPendingInvites` exposes codes to collaborators (`actions.ts:2038`)
 

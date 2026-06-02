@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, Film, Star, Clock, MessageSquare, List } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { importLetterboxdMovies } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { LetterboxdMovie, LetterboxdList } from '@/lib/types';
 
 const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
@@ -51,21 +51,13 @@ export function ImportLetterboxdPreviewScreen({
 
     setIsImporting(true);
     try {
-      const result = await importLetterboxdMovies(
-        user.uid,
-        letterboxdData,
-        {
-          importWatched,
-          importRatings,
-          importWatchlist,
-          importReviews,
-          importLists,
-        }
-      );
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      const result = await apiCall<{
+        importedCount: number; listsCreated: number;
+        reviewsImported: number; favoritesImported: number;
+      }>('POST', '/api/v1/imports/letterboxd/full', {
+        data: letterboxdData,
+        options: { importWatched, importRatings, importWatchlist, importReviews, importLists },
+      });
 
       const listsMsg = result.listsCreated ? ` and ${result.listsCreated} lists` : '';
       toast({
@@ -74,11 +66,11 @@ export function ImportLetterboxdPreviewScreen({
       });
 
       onImport(result.importedCount || 0);
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Import failed",
-        description: error.message || "Failed to import movies. Please try again.",
+        description: error instanceof ApiClientError ? error.message : "Failed to import movies. Please try again.",
       });
     } finally {
       setIsImporting(false);
