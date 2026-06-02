@@ -18,14 +18,16 @@ the tip branch.**
 | #12 — Post comments (5 endpoints) | `feat/phase-a-post-comments-endpoints` | 354/354 |
 | #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | 376/376 |
 | #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | 380/380 |
-| #15 — Bookmarks + safety + friends-watching (13 endpoints) | `feat/phase-a-safety-bookmarks-endpoints` (stacked #14) | **389/389** |
+| #15 — Bookmarks + safety + friends-watching (13 endpoints) | `feat/phase-a-safety-bookmarks-endpoints` (stacked #14) | 389/389 |
+| #16 — Admin backfills (4 endpoints, closes AUDIT 1.8) | `feat/phase-a-admin-endpoints` (stacked #15) | **397/397** |
 
-**Phase A scoreboard: 15/17 PRs done.** AUDIT items closed: 1.2, 1.3, 1.4,
-1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6, **2.8 (end-to-end via the
-route layer — PR #14)**, 2.9, 3.5 (across **all five** like surfaces —
-reviews, lists, activities, posts, post-comments), 3.8, 3.10, **4.2a
-(userId-as-arg auth gap on the notification reads — PR #13)** + the
-2.2-bypass + 3.8a findings.
+**Phase A scoreboard: 16/17 PRs done.** AUDIT items closed: **1.8 (end-to-
+end via the route layer with unified `ADMIN_SECRET` + constant-time
+compare — PR #16)**, 1.2, 1.3, 1.4, 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2,
+2.5, 2.6, **2.8 (end-to-end via the route layer — PR #14)**, 2.9, 3.5
+(across **all five** like surfaces — reviews, lists, activities, posts,
+post-comments), 3.8, 3.10, **4.2a (userId-as-arg auth gap on the
+notification reads — PR #13)** + the 2.2-bypass + 3.8a findings.
 
 > **PR #15 bonus fix** — the legacy `reportContent` Server Action
 > declared `contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment'`
@@ -47,9 +49,11 @@ reviews, lists, activities, posts, post-comments), 3.8, 3.10, **4.2a
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PRs #12 + #13 + #14 + #15 (single-PR-on-tip merge
-of `feat/phase-a-safety-bookmarks-endpoints`). Then Claude starts PR #16
-(Admin backfills, closes AUDIT 1.8) and finally PR #17 (static export).
+**Next:** owner merges PRs #12 + #13 + #14 + #15 + #16 (single-PR-on-tip
+merge of `feat/phase-a-admin-endpoints`). Then Claude finishes Phase A
+with **PR #17 — static export** (`output: 'export'` flip + SPA fallback
+for the dynamic routes). That's the last migration step before Capacitor
+wrap can target the built `out/` directory.
 
 ### Local dev setup (do once)
 

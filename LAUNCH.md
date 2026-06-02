@@ -385,9 +385,12 @@ Same conventions as the audit tracker:
 - [x] **A.3.49** `GET /api/v1/friends-watching` — `getFriendsWatching` (aggregated; ≥2 followed-user activities on the same film collapse into one card; Bearer auth). — PR #15
 - [x] **A.3.50** `POST /api/v1/reports` — `reportContent` (rate-limited via `report` bucket; accepts ALL five content types — fixes legacy validator bug). — PR #15
 
-**Admin**
-- [ ] **A.3.44** `POST /api/v1/admin/backfill-movies` — strict `ADMIN_SECRET` (closes AUDIT.md 1.8)
-- [ ] **A.3.45** Other backfill routes — same hardening
+**Admin — PR #16 (closes AUDIT 1.8 end-to-end)**
+- [x] **A.3.44** `POST /api/v1/admin/backfill-user-search` — `backfillUserSearchFields` (legacy doc normalization for AUDIT 2.8 search; idempotent). — PR #16
+- [x] **A.3.44a** `POST /api/v1/admin/backfill-movies` — `backfillMovieUserData` (denormalize `addedByUsername`/etc. on existing movies + `noteAuthors`). — PR #16
+- [x] **A.3.44b** `POST /api/v1/admin/backfill-reviews` — `backfillReviewsThreading` (adds `parentId: null` + `replyCount`). — PR #16
+- [x] **A.3.44c** `POST /api/v1/admin/backfill-email-privacy` — `backfillEmailPrivacy` (moves `email` from public `/users` to owner-only `/users_private`; AUDIT 1.9 prereq). — PR #16
+- [x] **A.3.45** Unified auth: `src/lib/admin-handler.ts` (`adminRoute<>` wrapper). ONE env var (`ADMIN_SECRET`), ONE check, `crypto.timingSafeEqual` constant-time compare, dev-mode bypass only when `NODE_ENV === 'development'` AND env unset, fail-closed otherwise. Legacy `ADMIN_SECRET_TOKEN` dual-env-var is retired. — PR #16
 
 **Per-endpoint test pattern:** for each route, add `scripts/audit-tests/<route>.test.ts` covering: unauth → 401, wrong user → 403, correct user → 200, invalid input → 400. Standardize via a helper.
 

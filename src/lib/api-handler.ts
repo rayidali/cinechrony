@@ -136,7 +136,7 @@ export function optionsHandler(req: NextRequest): NextResponse {
 
 // ─── Response builders ────────────────────────────────────────────────────
 
-function envelopeSuccess(data: unknown, req: Request, status = 200): NextResponse {
+export function envelopeSuccess(data: unknown, req: Request, status = 200): NextResponse {
   return NextResponse.json(
     { ok: true, data },
     { status, headers: corsHeaders(req) },
@@ -150,7 +150,7 @@ function envelopeError(err: ApiError, req: Request): NextResponse {
   );
 }
 
-function mapUnknownError(err: unknown, req: Request): NextResponse {
+export function mapUnknownError(err: unknown, req: Request): NextResponse {
   if (err instanceof ApiError) return envelopeError(err, req);
   // Surface the message in dev for debugging; hide it in prod to avoid leaking
   // internals through the wire format. The console always gets the full story.

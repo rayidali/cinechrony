@@ -34,7 +34,7 @@
 | #13 | Notifications + push + prefs | `notifications` (GET, cursor-paginated), `notifications/unread-count` (GET), `notifications/read` (POST), `me/push-subscription` (POST/DELETE), `me/push-status` (GET), `me/notification-preferences` (GET/PATCH) — 8 actions; closes the userId-as-arg auth gap on 4 reads. AUDIT 4.2 (web-push fan-out from creators) NOT yet wired — separate workstream. | — | ✅ shipped on `feat/phase-a-notifications-endpoints` |
 | #14 | Search + TMDB/OMDB | `users/search` (public, auth-aware), `movies/trending`, `movies/[id]/similar`, `movies/imdb-rating/[id]`, `recommendations` — 5 actions. TMDB *search* + *details* intentionally stay client-side via `src/lib/tmdb-client.ts` (token is `NEXT_PUBLIC_*`); only the OMDB-keyed + auth-gated paths needed proxies. | 2.8 | ✅ shipped on `feat/phase-a-search-tmdb-endpoints` |
 | #15 | Bookmarks + safety + friends-watching | `bookmarks` (POST/GET), `bookmarks/[type]/[id]` (DELETE), `saved-feed` (cursor-paginated), `users/[uid]/mute` (POST/DELETE), `me/mutes` (GET), `users/[uid]/block` (POST/DELETE), `me/block-context` (GET), `me/blocked-users` (GET), `friends-watching` (GET), `reports` (POST) — 13 actions. Also: fixed a pre-existing legacy `reportContent` validator bug — accepted `'review' \| 'user' \| 'list'` runtime but typed for `'post' \| 'post_comment'` too, so post-side reports silently 400-ed. | — | ✅ shipped on `feat/phase-a-safety-bookmarks-endpoints` |
-| #16 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
+| #16 | Admin + backfills | 4 backfill endpoints under `/api/v1/admin/*` — `backfill-user-search`, `backfill-movies`, `backfill-reviews`, `backfill-email-privacy`. Unified auth model: ONE env var (`ADMIN_SECRET`), ONE check at the route layer (`adminRoute` wrapper, constant-time compare via `crypto.timingSafeEqual`); legacy `ADMIN_SECRET_TOKEN` dual-env-var + `"run-backfill-now"` sentinel are gone. | 1.8 | ✅ shipped on `feat/phase-a-admin-endpoints` |
 | #17 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
 
 ---
@@ -77,8 +77,8 @@ Legend:
 | 1802 | `searchPublicLists` | READ_ADMIN | `GET /api/v1/lists/search` | — |
 | 1828 | `getPublicListMovies` | READ_ADMIN | `GET /api/v1/lists/[id]/movies` | — |
 | 1916 | `toggleListVisibility` | WRITE | (folded into `PATCH /api/v1/lists/[id]`) | — |
-| 1957 | `backfillEmailPrivacy` | INTERNAL | admin-only | 1.9 |
-| 2000 | `backfillUserSearchFields` | INTERNAL | admin-only | 2.8 |
+| 1957 | `backfillEmailPrivacy` | ADMIN | `POST /api/v1/admin/backfill-email-privacy` | 1.9 |
+| 2000 | `backfillUserSearchFields` | ADMIN | `POST /api/v1/admin/backfill-user-search` | 2.8 |
 | 2082 | `canEditList` | INTERNAL | helper — stays internal | — |
 | 2097 | `getListMembers` | READ_ADMIN | `GET /api/v1/lists/[id]/members` | — |
 | ✅ PR #5 | `inviteToList` | WRITE | `POST /api/v1/lists/[ownerId]/[listId]/invites` | — |
@@ -122,8 +122,8 @@ Legend:
 | 4533 | `importMatchedMovies` | WRITE | `POST /api/v1/import/matched` | — |
 | 4665 | `parseLetterboxdExport` | INTERNAL | helper used by importer | — |
 | 4886 | `importLetterboxdMovies` | WRITE | `POST /api/v1/import/letterboxd` | 2.2 |
-| 5371 | `backfillMovieUserData` | INTERNAL | admin-only | 1.8 |
-| 5508 | `backfillReviewsThreading` | INTERNAL | admin-only | — |
+| 5371 | `backfillMovieUserData` | ADMIN | `POST /api/v1/admin/backfill-movies` | 1.8 |
+| 5508 | `backfillReviewsThreading` | ADMIN | `POST /api/v1/admin/backfill-reviews` | — |
 | 5693 | `getNotifications` | READ_ADMIN | `GET /api/v1/notifications` | — |
 | 5751 | `markNotificationsRead` | WRITE | `POST /api/v1/notifications/read` | — |
 | 5793 | `getUnreadNotificationCount` | READ_ADMIN | `GET /api/v1/notifications/unread-count` | — |

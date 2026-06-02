@@ -39,12 +39,9 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('1.8 backfill: sentinel string and wrong secret are rejected; real secret works', async () => {
-  assert.deepEqual(await A.backfillMovieUserData('run-backfill-now'), { error: 'Unauthorized' });
-  assert.deepEqual(await A.backfillMovieUserData('nope'), { error: 'Unauthorized' });
-  const ok = await A.backfillMovieUserData('test-admin-secret');
-  assert.ok(!('error' in ok) || ok.error !== 'Unauthorized', 'real secret is accepted');
-});
+// 1.8 backfill auth-gate coverage moved to 41-admin-endpoints.test.ts in Phase A PR #16
+// (now exercised via `POST /api/v1/admin/backfill-*` with the unified ADMIN_SECRET +
+// constant-time check at the route layer).
 
 test('1.9 email split: public /users doc has NO email; /users_private does', async () => {
   const r = await callActionAs(owner, A.createUserProfileWithUsername, 'secret@x.com', 'ownerhandle', 'Owner');

@@ -93,6 +93,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 - [x] **1.8.1** Remove the `"run-backfill-now"` literal. Require strict equality with `process.env.ADMIN_SECRET`. If env is unset, fail closed.
 - [x] **1.8.2** Same check on `/api/admin/backfill*` route handlers. Verify the route's secret check matches what the action expects.
 - [x] **1.8.3** **Test:** call backfill action with `"run-backfill-now"` and with wrong secret → both rejected. Call with correct secret → succeeds.
+- [x] **1.8.4 — Phase A PR #16**: rehomed all four admin backfills under `/api/v1/admin/*` with a unified auth model (`src/lib/admin-handler.ts` — `adminRoute<>` wrapper). ONE env var (`ADMIN_SECRET`), ONE check (the route gate), `crypto.timingSafeEqual` constant-time comparison. Legacy `ADMIN_SECRET_TOKEN` dual-env-var + action-level recheck are retired. Dev bypass narrowed to `NODE_ENV === 'development'` AND no `ADMIN_SECRET` set (so tests, preview, staging, and prod all enforce the gate). Tests in `41-admin-endpoints.test.ts` exercise: missing token → 401, wrong token → 401, unset secret in non-dev → 500 (fail-closed), `"run-backfill-now"` rejected, correct token → 200 with stats + idempotent on re-run. **AUDIT 1.8 is closed end-to-end.**
 
 ### 1.9 — Email leaked on public profile reads (`firestore.rules:90`, `getUserByUsername`)
 
