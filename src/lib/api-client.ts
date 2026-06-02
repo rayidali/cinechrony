@@ -90,9 +90,20 @@ export async function apiCall<T = unknown>(
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!opts.skipAuth) await attachAuthHeader(headers, opts.forceTokenRefresh === true);
 
+  // Phase A PR #17 — when the bundle is the static export (Capacitor or
+  // a separate static host), API calls must hit the Vercel-deployed API
+  // origin instead of `self`. `NEXT_PUBLIC_API_BASE_URL` is the override;
+  // unset (the default — and the only setting the Vercel deploy uses)
+  // means same-origin, which preserves Phase A pre-#17 behavior. Only
+  // `path`s starting with `/` get prefixed; absolute URLs pass through.
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
+  const url = apiBase && path.startsWith('/')
+    ? `${apiBase.replace(/\/$/, '')}${path}`
+    : path;
+
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await fetch(url, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),

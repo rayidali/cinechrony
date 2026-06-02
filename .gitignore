@@ -17,6 +17,12 @@
 /.next/
 /out/
 
+# Phase A PR #17 — static-build.sh moves src/app/api/ aside during the
+# static export. Tracked here so a failed run never leaves a half-moved
+# tree committed by accident.
+/src/.api-static-build-aside/
+/out/
+
 # production
 /build
 

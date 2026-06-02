@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --turbopack -p 9002",
     "build": "NODE_ENV=production next build",
+    "build:static": "NODE_ENV=production bash scripts/static-build.sh",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",

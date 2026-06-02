@@ -400,13 +400,19 @@ Same conventions as the audit tracker:
 - [ ] **A.4.2** Delete `src/app/actions.ts` (or keep as a thin re-export during transition).
 - [ ] **A.4.3 — Test:** all existing UI flows work in `npm run dev` against the new routes.
 
-### A.5 — Static export config
+### A.5 — Static export (PR #17 + the leftover-actions PR #18)
 
-- [ ] **A.5.1** Set `output: 'export'` in `next.config.ts`. Configure `images.unoptimized: true` (already done).
-- [ ] **A.5.2** Identify any pages still using `getServerSideProps`-equivalent server features or RSC fetching — convert to client-side.
-- [ ] **A.5.3** Resolve dynamic route handling for static export — `/lists/[listId]`, `/profile/[username]`, etc. (use `generateStaticParams` returning `[]` + `dynamicParams: true` won't work for export; use a single client-side router pattern instead). May need to introduce a catch-all client-rendered router.
-- [ ] **A.5.4** `npm run build` outputs a clean `out/` directory.
-- [ ] **A.5.5 — Test:** serve `out/` with a static server (e.g. `npx serve out`); every route works as a client-side app.
+**PR #17 — foundation (shipped):**
+- [x] **A.5.1** Env-gated `output: 'export'` in `next.config.ts` (only when `BUILD_TARGET=static`). `images.unoptimized: true` already set. `trailingSlash: true` added for static-host compatibility. — PR #17
+- [x] **A.5.2** `<Suspense>` boundaries added to each dynamic-page wrapper so `useSearchParams()` doesn't trip the prerender. — PR #17
+- [x] **A.5.3** Each of the 7 dynamic page routes (`/lists/[listId]`, `/lists/[listId]/settings`, `/post/[postId]`, `/invite/[code]`, `/movie/[tmdbId]/comments`, `/profile/[username]`, `/profile/[username]/lists/[listId]`) refactored: `'use client'` body moved to `./client.tsx`; new `page.tsx` is a server component exporting `generateStaticParams` (single placeholder `'_'` so Next produces one HTML shell) + rendering the client inside `<Suspense>`. SPA router rehydrates with the real param at runtime. — PR #17
+- [x] **A.5.4a** `scripts/static-build.sh` — moves `src/app/api/` aside during the static export (Next.js doesn't allow Route Handlers in `output: 'export'` mode), clears `.next/` to avoid cross-target chunk reuse, restores on EXIT trap (even on failure). — PR #17
+- [x] **A.5.4b** `NEXT_PUBLIC_API_BASE_URL` honored by `src/lib/api-client.ts` — when set, absolute paths starting with `/` get prefixed so the static bundle (Capacitor / Cloudflare Pages) calls the Vercel-hosted API cross-origin. Unset = same-origin (Vercel deploy behavior is unchanged). — PR #17
+- [x] **A.5.4c** `npm run build:static` script. — PR #17
+
+**PR #18 — leftover Server Actions (blocks A.5.4 + A.5.5):**
+- [ ] **A.5.4** `npm run build:static` outputs a clean `out/` directory — currently fails on "Server Actions are not supported with static export" because `src/app/actions.ts` still has `'use server'` at the top and ~15 functions remaining. PR #18 / Phase A.5 migrates each one: `searchPublicLists`, `getLovedLists`, `getListMembers`, `getListsPreviews`, `getListPreview`, `getUserLists`, `getCollaborativeLists`, `isFollowing`, `checkUsernameAvailability`, `createUserProfileWithUsername`, `ensureUserProfile`, `parseLetterboxdExport`, `parseAndMatchMovies`, `importMatchedMovies`, `importLetterboxdMovies`.
+- [ ] **A.5.5 — Test (after PR #18):** serve `out/` with a static server (`npx serve out`); every route works as a client-side app, hits the Vercel-hosted API via `NEXT_PUBLIC_API_BASE_URL`.
 
 ---
 

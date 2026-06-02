@@ -19,15 +19,30 @@ the tip branch.**
 | #13 — Notifications + push + prefs (8 endpoints) | `feat/phase-a-notifications-endpoints` (stacked #12) | 376/376 |
 | #14 — Search + TMDB/OMDB (5 endpoints, closes AUDIT 2.8) | `feat/phase-a-search-tmdb-endpoints` (stacked #13) | 380/380 |
 | #15 — Bookmarks + safety + friends-watching (13 endpoints) | `feat/phase-a-safety-bookmarks-endpoints` (stacked #14) | 389/389 |
-| #16 — Admin backfills (4 endpoints, closes AUDIT 1.8) | `feat/phase-a-admin-endpoints` (stacked #15) | **397/397** |
+| #16 — Admin backfills (4 endpoints, closes AUDIT 1.8) | `feat/phase-a-admin-endpoints` (stacked #15) | 397/397 |
+| #17 — Static-export foundation (no new endpoints) | `feat/phase-a-static-export` (stacked #16) | **397/397** |
 
-**Phase A scoreboard: 16/17 PRs done.** AUDIT items closed: **1.8 (end-to-
-end via the route layer with unified `ADMIN_SECRET` + constant-time
-compare — PR #16)**, 1.2, 1.3, 1.4, 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2,
-2.5, 2.6, **2.8 (end-to-end via the route layer — PR #14)**, 2.9, 3.5
-(across **all five** like surfaces — reviews, lists, activities, posts,
-post-comments), 3.8, 3.10, **4.2a (userId-as-arg auth gap on the
-notification reads — PR #13)** + the 2.2-bypass + 3.8a findings.
+**Phase A scoreboard: 17/17 PRs done** *(but static build still blocked
+on a follow-up — see below).* AUDIT items closed: **1.8 (end-to-end via
+the route layer with unified `ADMIN_SECRET` + constant-time compare —
+PR #16)**, 1.2, 1.3, 1.4, 1.5, 1.6, 1.11, 1.12, 1.14, 2.1, 2.2, 2.5, 2.6,
+**2.8 (end-to-end via the route layer — PR #14)**, 2.9, 3.5 (across **all
+five** like surfaces — reviews, lists, activities, posts, post-comments),
+3.8, 3.10, **4.2a (userId-as-arg auth gap on the notification reads —
+PR #13)** + the 2.2-bypass + 3.8a findings.
+
+> **⚠ PR #17 ships the static-export *foundation* — not a working static
+> build yet.** The plumbing is in place (env-gated `output: 'export'`,
+> `npm run build:static` script that moves `src/app/api/` aside, 7
+> dynamic-page wrappers with `generateStaticParams` + `<Suspense>`,
+> `NEXT_PUBLIC_API_BASE_URL` prefix in api-client). But `actions.ts` still
+> has `'use server'` at the top with ~15 functions left (search,
+> getLovedLists, list-previews, isFollowing, onboarding, Letterboxd
+> import). Next.js's `output: 'export'` refuses to build when any Server
+> Action exists. Running `npm run build:static` today gets to the right
+> error message ("Server Actions are not supported with static export")
+> then cleanly restores `src/app/api/`. **PR #18 / Phase A.5** migrates
+> those last actions so the static build can actually succeed.
 
 > **PR #15 bonus fix** — the legacy `reportContent` Server Action
 > declared `contentType: 'review' | 'user' | 'list' | 'post' | 'post_comment'`
@@ -49,11 +64,11 @@ notification reads — PR #13)** + the 2.2-bypass + 3.8a findings.
 **A.6 UX polish backlog** (post-Phase-A): @-mention autocomplete in
 composers, /comments client cursor wire-up.
 
-**Next:** owner merges PRs #12 + #13 + #14 + #15 + #16 (single-PR-on-tip
-merge of `feat/phase-a-admin-endpoints`). Then Claude finishes Phase A
-with **PR #17 — static export** (`output: 'export'` flip + SPA fallback
-for the dynamic routes). That's the last migration step before Capacitor
-wrap can target the built `out/` directory.
+**Next:** owner merges PRs #12 + #13 + #14 + #15 + #16 + #17 (single-PR-
+on-tip merge of `feat/phase-a-static-export`). Then Claude does **PR #18
+/ Phase A.5** — migrate the ~15 remaining Server Actions in `actions.ts`
+so `npm run build:static` actually produces an `out/` directory. After
+that, Capacitor wrap can begin (Phase B).
 
 ### Local dev setup (do once)
 
