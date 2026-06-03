@@ -43,6 +43,28 @@ const nextConfig: NextConfig = {
             bodySizeLimit: '15mb', // Allow large iPhone photos
           },
         },
+        // Universal Links + App Links require specific MIME types on the
+        // verification files Apple and Google fetch from our domain.
+        // `headers()` runs only on the Vercel/Node deploy — the static
+        // export consumed by Capacitor doesn't serve these files anyway.
+        async headers() {
+          return [
+            {
+              source: '/.well-known/apple-app-site-association',
+              headers: [
+                { key: 'Content-Type', value: 'application/json' },
+                { key: 'Cache-Control', value: 'public, max-age=3600' },
+              ],
+            },
+            {
+              source: '/.well-known/assetlinks.json',
+              headers: [
+                { key: 'Content-Type', value: 'application/json' },
+                { key: 'Cache-Control', value: 'public, max-age=3600' },
+              ],
+            },
+          ];
+        },
       }),
   images: {
     // Disable Vercel image optimization to stay within free tier

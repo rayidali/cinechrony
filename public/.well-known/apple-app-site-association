@@ -1,0 +1,18 @@
+{
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["TEAMID_PLACEHOLDER.com.cinechrony.app"],
+        "components": [
+          { "/": "/invite/*", "comment": "List collaboration invites" },
+          { "/": "/post/*", "comment": "Individual posts" },
+          { "/": "/movie/*", "comment": "Movie + TV detail pages" },
+          { "/": "/profile/*", "comment": "User profiles + their public lists" }
+        ]
+      }
+    ]
+  },
+  "webcredentials": {
+    "apps": ["TEAMID_PLACEHOLDER.com.cinechrony.app"]
+  }
+}
