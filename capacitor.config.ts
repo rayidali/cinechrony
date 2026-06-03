@@ -61,6 +61,16 @@ const config: CapacitorConfig = {
       style: 'DEFAULT',
       backgroundColor: '#f7f3eb',
     },
+    // We keep using the Firebase Web SDK for Firestore + auth state on the
+    // JS side. `skipNativeAuth: true` makes the plugin return raw OAuth
+    // credentials from the native sign-in dialog, and we hand them to the
+    // Web SDK via `signInWithCredential`. This keeps a single source of
+    // truth for `auth.currentUser` (the Web SDK) and avoids the two SDKs
+    // disagreeing about who's signed in.
+    FirebaseAuthentication: {
+      skipNativeAuth: true,
+      providers: ['google.com', 'apple.com'],
+    },
   },
 };
 
