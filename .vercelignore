@@ -1,0 +1,14 @@
+# Capacitor native shells — Vercel only ships the Next.js app + /api/v1/*.
+# The iOS/Android projects are bundled into the App Store / Play Store
+# binary via `npx cap sync` on a developer machine, not via Vercel.
+/ios
+/android
+
+# Static export output — Vercel uses the default `next build`, not
+# `build:static`. The `out/` dir is only consumed by Capacitor.
+/out
+
+# Capacitor + iOS toolchain caches that should never reach Vercel.
+**/Pods
+**/.gradle
+**/DerivedData
