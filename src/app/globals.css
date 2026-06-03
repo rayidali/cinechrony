@@ -212,6 +212,11 @@
   }
   body {
     @apply bg-background text-foreground font-sans;
+    /* Inside a Capacitor WKWebView we don't want the page-level rubber
+     * band (the bounce that exposes a blank area behind the content).
+     * Scroll containers can still bounce internally — only the body
+     * is locked. Has no effect in a regular browser tab on macOS. */
+    overscroll-behavior-y: none;
   }
 
   /* Display headlines — Bricolage Grotesque, tight tracking. */
@@ -226,6 +231,23 @@
     scroll-behavior: smooth;
     background-color: oklch(var(--background));
     min-height: 100%;
+  }
+
+  /* Phase B.5 — utility classes for safe-area padding. Tailwind's
+   * `pt-safe` / `pb-safe` are popular but not built in; we add named
+   * helpers so headers and full-screen overlays can opt in without
+   * inlining the env() expression each time. */
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pl-safe {
+    padding-left: env(safe-area-inset-left);
+  }
+  .pr-safe {
+    padding-right: env(safe-area-inset-right);
   }
 
   /* Faster touch response on interactive elements */

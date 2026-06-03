@@ -13,6 +13,7 @@ import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
 import { BodyStyleWatchdog } from '@/components/body-style-watchdog';
 import { NativePushRegistration } from '@/components/native-push-registration';
 import { DeepLinkHandler } from '@/components/deep-link-handler';
+import { NativeShellInit } from '@/components/native-shell-init';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -47,6 +48,15 @@ const spaceMono = Space_Mono({
 // top of fullscreen drawers when the keyboard was up.)
 export const viewport: Viewport = {
   themeColor: '#f7f3e9',
+  // viewport-fit: cover is what lets env(safe-area-inset-*) return real
+  // values on notched iOS devices. Without this the body can no longer
+  // *visibly* extend behind the notch, and the safe-area constants all
+  // resolve to zero — which means pt-safe / pb-safe become no-ops.
+  viewportFit: 'cover',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export const metadata: Metadata = {
@@ -90,6 +100,7 @@ export default function RootLayout({
                   <UserBookmarksCacheProvider>
                     <UserMutesCacheProvider>
                       <UserBlocksCacheProvider>
+                        <NativeShellInit />
                         <NativePushRegistration />
                         <DeepLinkHandler />
                         {children}

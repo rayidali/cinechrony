@@ -453,44 +453,85 @@ Same conventions as the audit tracker:
 
 ### B.1 — Install & init
 
-- [ ] **B.1.1** `npm install @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android`
-- [ ] **B.1.2** `npx cap init Cinechrony com.cinechrony.app --web-dir=out`
-- [ ] **B.1.3** Configure `capacitor.config.ts`: app ID, name, `webDir: 'out'`, deep link scheme, allowed navigation domains.
-- [ ] **B.1.4** Add iOS and Android platforms: `npx cap add ios && npx cap add android`.
-- [ ] **B.1.5** `npm run build && npx cap sync` — produces working Xcode and Android Studio projects.
+- [x] **B.1.1** Capacitor 8 (core, cli, ios, android) installed.
+- [x] **B.1.2** `cap init Cinechrony com.cinechrony.app --web-dir=out` run.
+- [x] **B.1.3** `capacitor.config.ts` configured: appId, appName, webDir,
+  backgroundColor, server.allowNavigation allowlist (Firebase + Apple
+  + Vercel API), iOS contentInset 'automatic', splash + status-bar
+  plugin config.
+- [x] **B.1.4** `cap add ios && cap add android` done — both Xcode and
+  Android Studio projects scaffolded under `ios/` and `android/`.
+- [x] **B.1.5** `npm run build:static && cap sync` works — `out/` is
+  Capacitor-ready. Added `.vercelignore` so deploys don't ship native
+  shells. Added npm scripts: `cap:sync`, `cap:open:ios`, `cap:open:android`,
+  `cap:run:ios`, `cap:run:android`, `cap:assets`.
 
 ### B.2 — Auth in Capacitor
 
 > Firebase Auth Web SDK has known issues in WKWebView (popup auth, OAuth redirects). Plan around it.
 
-- [ ] **B.2.1** Decide: use Firebase Auth Web SDK with redirect flow (works but fragile), or use `@capacitor-firebase/authentication` plugin (more reliable, native auth dialogs).
-  - **Recommended:** Capacitor Firebase Auth plugin for Google sign-in, Apple sign-in. Email/password can stay on Web SDK.
-- [ ] **B.2.2** Add Sign in with Apple — **required by App Store for any app that offers third-party social sign-in** (Google). Use `@capacitor-community/apple-sign-in` or the Firebase plugin's Apple support.
-- [ ] **B.2.3** ID token retrieval working from Capacitor context for `apiCall`.
-- [ ] **B.2.4 — Test:** login as Google, Apple, email — all three succeed in iOS Simulator + on device.
+- [x] **B.2.1** Decision: `@capacitor-firebase/authentication` plugin
+  with `skipNativeAuth: true` — plugin handles ONLY the native dialog,
+  Firebase Web SDK stays the source of truth for auth state. Email/
+  password unchanged on Web SDK.
+- [x] **B.2.2** Sign in with Apple wired (native runtime only for v1).
+  Web SDK Apple flow deferred — requires Apple Service ID config we
+  don't have yet. iOS button hidden until `Capacitor.isNativePlatform()`.
+- [x] **B.2.3** `auth.currentUser.getIdToken()` works identically in
+  native + web — `signInWithCredential` brings the Web SDK in sync
+  after native sign-in completes. `apiCall` continues to read from
+  `auth.currentUser`.
+- [ ] **B.2.4 — Test:** login as Google, Apple, email — all three succeed in iOS Simulator + on device. (Manual; requires GoogleService-Info.plist + Apple Developer enablement — see PHASE-B-HANDOFF.md §1–§7.)
 
 ### B.3 — Push notifications via APNs
 
-- [ ] **B.3.1** Install `@capacitor/push-notifications`.
-- [ ] **B.3.2** Configure APNs in Apple Developer + Firebase Console (FCM as the delivery layer).
-- [ ] **B.3.3** Replace the half-built web push subscription flow with the Capacitor plugin's `register()` → returns FCM token → save via `/api/v1/me/push-subscription`.
-- [ ] **B.3.4** Server-side: `web-push` library still works for web users; add FCM Admin SDK send for native tokens. Update notification creators to fan out to both.
-- [ ] **B.3.5** Per-event push (closes AUDIT.md 4.2). Wire `mention`, `reply`, `list_invite` first; `like`, `follow` second.
-- [ ] **B.3.6 — Test:** trigger each event type from a second account → push arrives on physical iOS device within seconds.
+- [x] **B.3.1** Installed `@capacitor-firebase/messaging` (FCM) instead
+  of `@capacitor/push-notifications` (APNs raw). Reason: FCM is one
+  API for iOS + Android server-side, we already use Firebase Admin.
+- [ ] **B.3.2** Configure APNs in Apple Developer + Firebase Console (FCM as the delivery layer). (Manual; PHASE-B-HANDOFF.md §4.)
+- [x] **B.3.3** `src/lib/native-push.ts` + `<NativePushRegistration />`:
+  on first authenticated boot, requests permission, fetches FCM token,
+  POSTs `{kind:'fcm', token, platform}` to `/api/v1/me/push-subscription`.
+  Listens for `tokenReceived` to re-save on rotation.
+- [x] **B.3.4** Server-side: `src/lib/push-server.ts` unified entry —
+  web subs via web-push (unchanged), FCM subs via firebase-admin
+  `getMessaging().send()`. Auto-prunes dead tokens (410/404 on web,
+  registration-not-registered on FCM).
+- [x] **B.3.5** Per-event push wired into every creator: mention,
+  reply, review like, post tag, post like, post comment, list_invite,
+  follow. **Closes AUDIT.md 4.2.**
+- [ ] **B.3.6 — Test:** trigger each event type from a second account → push arrives on physical iOS device within seconds. (Manual; requires §2 + §4 from handoff.)
 
 ### B.4 — Deep linking (invites + share extension callbacks)
 
-- [ ] **B.4.1** Set up Universal Links (iOS) and App Links (Android). Required for `/invite/[code]` URLs to open inside the app.
-- [ ] **B.4.2** Add `apple-app-site-association` and `assetlinks.json` to the `public/` directory.
-- [ ] **B.4.3** Capacitor `App` plugin listens for `appUrlOpen` → routes to the right in-app screen.
-- [ ] **B.4.4 — Test:** tap an invite link in Messages → opens directly in the app, not Safari.
+- [x] **B.4.1** Universal Links + App Links scaffolded. Owner replaces
+  `TEAMID_PLACEHOLDER` (AASA) and `SHA256_PLACEHOLDER` (assetlinks.json)
+  once Apple Developer + release keystore exist — PHASE-B-HANDOFF.md §3, §5.
+- [x] **B.4.2** Files at `public/.well-known/apple-app-site-association`
+  + `public/.well-known/assetlinks.json`. `next.config.ts` headers()
+  pins `Content-Type: application/json` on both (Apple silently
+  rejects AASA served as text/plain).
+- [x] **B.4.3** `<DeepLinkHandler />` listens for `App.appUrlOpen` and
+  `App.getLaunchUrl()` (covers cold-start + warm taps). Whitelist of
+  `/invite/`, `/post/`, `/movie/`, `/profile/`, `/lists/` paths.
+- [ ] **B.4.4 — Test:** tap an invite link in Messages → opens directly in the app, not Safari. (Manual; needs §3 from handoff.)
 
 ### B.5 — Native polish
 
-- [ ] **B.5.1** Status bar style, splash screen, app icons (all sizes — use `@capacitor/assets` to generate from a single source).
-- [ ] **B.5.2** Configure safe-area insets for notch/dynamic island.
+- [x] **B.5.1** `<NativeShellInit />` configures StatusBar (Style.Dark
+  → dark icons on cream), hides splash on React mount, hides keyboard
+  accessory bar. `@capacitor/assets` wired via `npm run cap:assets`
+  with cream/ink color tokens — owner drops a 1024×1024 `icon.png` +
+  2732×2732 `splash.png` into `assets/` and regenerates.
+- [x] **B.5.2** Safe-area utility classes (`pt-safe`, `pb-safe`,
+  `pl-safe`, `pr-safe`) added to globals.css. Viewport meta now
+  declares `viewport-fit: cover` so `env(safe-area-inset-*)` returns
+  non-zero on notched devices.
 - [ ] **B.5.3** Verify pull-to-refresh feels native (AUDIT.md 3.4 fix should land first).
-- [ ] **B.5.4** Disable WKWebView scroll bounce on body if desired (`@capacitor/keyboard` and viewport config).
+- [x] **B.5.4** `overscroll-behavior-y: none` on the body — kills the
+  WKWebView page-level rubber band. Scroll containers (lists, feeds)
+  still bounce internally. `@capacitor/keyboard` installed for future
+  scroll-into-view + dismiss behaviours.
 - [ ] **B.5.5 — Test:** run on a real iPhone 12+ and a real Android device. Feel-check the basics.
 
 ---
@@ -633,7 +674,11 @@ Same conventions as the audit tracker:
 > requirements, not soundness fixes. Status as of 2026-05-20:
 
 - [x] **Account deletion in-app** — already existed (`/settings`); Apple requires it for any app with sign-up.
-- [x] **Sign in with Apple** — N/A. App offers only email/password, no third-party social login, so SIWA is not mandated. (If Google/Apple login is ever added, SIWA becomes required — see B.2.2.)
+- [x] **Sign in with Apple** — Phase B.2 added Google + Apple sign-in.
+  Native Apple sign-in is wired via `@capacitor-firebase/authentication`
+  (button hidden on web for v1; iOS-only). App Store §4.8 requirement
+  satisfied — code-side. Owner must enable "Sign in with Apple" in the
+  Apple Developer portal + Firebase Console (handoff §6).
 - [x] **AppTrackingTransparency** — N/A. No analytics/tracking SDK in the app.
 - [x] **Content reporting (§1.2)** — DONE in the audit: `reportContent` action + Report button on reviews + server-only `/reports` collection.
 - [x] **`/privacy` route exists** — built in the audit with an accurate draft. Final legal copy still pending → D.4.1.

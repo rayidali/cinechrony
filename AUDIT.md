@@ -295,11 +295,33 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [ ] Check on mount: if user has a profile doc with `username` set, redirect to `/home`. Allow `?force=1` for testing.
 - [ ] **Test (manual):** existing user clicks landing CTA → goes to `/home`, not onboarding.
 
-### 4.2 — Push notifications fire only for weekly digest
+### 4.2 — Push notifications fire only for weekly digest ✅ CLOSED (Phase B.3, 2026-06-03)
 
-- [ ] Decide scope. Minimum-useful set: per-event push for `mention`, `reply`, `list_invite`. Lower priority for `like`, `follow` (noisier).
-- [ ] In each in-app notification creator (`createMentionNotifications`, `createReplyNotification`, `inviteToList`), look up the recipient's push subscriptions and call `webpush.sendNotification` alongside the Firestore write. Respect `notificationPreferences`.
-- [ ] **Test (manual):** with a real iOS PWA installed and push permission granted, trigger each event from another account → push lands on device.
+- [x] **Phase B.3**: every in-app notification creator now fans out a
+  push via `sendPushToUser()` in `src/lib/push-server.ts`:
+    • `createMentionNotifications` (mention)
+    • `createReplyNotification` (reply)
+    • `createLikeNotification` (review like)
+    • `createPostTagNotification` (post tag)
+    • `createPostLikeNotification` (post like)
+    • `createPostCommentNotification` (post comment)
+    • `inviteToList` (list_invite)
+    • `followUser` (follow)
+  Each respects the recipient's `notificationPreferences` via the
+  existing notification doc gating. Delivery is best-effort and never
+  rolls back the primary write.
+- [x] Push payloads include a `data.type` and the relevant entity ID
+  (`reviewId`, `postId`, `inviteId`) so the iOS deep-link handler can
+  route a tap directly to the right screen.
+- [x] Push subscription endpoint extended for FCM (`kind:'fcm'`) so
+  the same fan-out covers iOS + Android once the Capacitor app ships
+  in Phase B.5.
+- [x] Server-side cleanup: dead tokens (410/404 web push, FCM
+  `registration-token-not-registered`) auto-prune; `pushEnabled` flips
+  to false if a user's last sub is removed.
+- [ ] **Test (manual):** with a real iOS device + handoff §1/§4 done,
+  trigger each event from a second account → push lands on device.
+  (Code-complete; gated on Apple Developer account + APNs key upload.)
 - [x] **Phase A PR #13 (partial)**: the notification *management* surface migrated to `/api/v1` — `listNotifications` (cursor-paginated), `markNotificationsRead`, `getUnreadNotificationCount`, `savePushSubscription`, `removePushSubscription`, `getPushStatus`, `getNotificationPreferences`, `updateNotificationPreferences`. Helpers live in `src/lib/notifications-server.ts` — the right place for the future web-push fan-out call. PR #13 did NOT wire `webpush.sendNotification` into the creators; that remains the AUDIT 4.2 fix proper.
 
 ### 4.2a — Caller identity not enforced on notification reads (pre-migration gap, closed by PR #13)
