@@ -47,18 +47,25 @@ export const POST = apiRoute(async (req, { auth }) => {
 });
 
 export const DELETE = apiRoute(async (req, { auth }) => {
-  let body: { endpoint?: unknown };
+  let body: { endpoint?: unknown; token?: unknown };
   try {
-    body = (await req.json()) as { endpoint?: unknown };
+    body = (await req.json()) as typeof body;
   } catch {
     throw new BadRequestError('Invalid JSON body.');
   }
-  if (typeof body.endpoint !== 'string') {
-    throw new BadRequestError('endpoint must be a string.');
+
+  const identifier =
+    typeof body.endpoint === 'string'
+      ? { endpoint: body.endpoint }
+      : typeof body.token === 'string'
+        ? { token: body.token }
+        : null;
+  if (!identifier) {
+    throw new BadRequestError('Either endpoint or token must be a string.');
   }
 
   try {
-    await removePushSubscription(auth.uid, body.endpoint);
+    await removePushSubscription(auth.uid, identifier);
     return { success: true };
   } catch (err) {
     if (err instanceof PushSubscriptionValidationError) {

@@ -14,11 +14,26 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet } from '@/lib/blocks-server';
+import { sendPushToUser, type PushPayload } from '@/lib/push-server';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type Notification,
   type NotificationPreferences,
 } from '@/lib/types';
+
+// Fire-and-forget push fan-out. The notification doc has already been
+// written; push delivery is observability / nice-to-have. `sendPushToUser`
+// never throws — this wrapper exists to make intent explicit at the
+// call sites.
+function firePush(uid: string, payload: PushPayload): void {
+  void sendPushToUser(uid, payload).catch((err) => {
+    console.error('[notifications-server] push fan-out failed:', err);
+  });
+}
+
+function fromName(ctx: { fromUsername: string | null; fromDisplayName: string | null }): string {
+  return ctx.fromUsername ? `@${ctx.fromUsername}` : ctx.fromDisplayName || 'Someone';
+}
 
 // ─── @-mention extraction ─────────────────────────────────────────────────
 
@@ -76,7 +91,7 @@ export async function createMentionNotifications(
   const batch = db.batch();
   const previewText = ctx.reviewText.slice(0, 100) +
     (ctx.reviewText.length > 100 ? '...' : '');
-  let anyQueued = false;
+  const pushTargets: string[] = [];
 
   for (const snapshot of userSnapshots) {
     if (snapshot.empty) continue;
@@ -106,10 +121,26 @@ export async function createMentionNotifications(
       read: false,
       createdAt: FieldValue.serverTimestamp(),
     });
-    anyQueued = true;
+    pushTargets.push(mentionedUserId);
   }
 
-  if (anyQueued) await batch.commit();
+  if (pushTargets.length > 0) {
+    await batch.commit();
+    const title = `${fromName(ctx)} mentioned you`;
+    const body = `${ctx.movieTitle}: ${previewText}`;
+    for (const uid of pushTargets) {
+      firePush(uid, {
+        title,
+        body,
+        data: {
+          type: 'mention',
+          reviewId: ctx.reviewId,
+          tmdbId: String(ctx.tmdbId),
+          mediaType: ctx.mediaType,
+        },
+      });
+    }
+  }
 }
 
 // ─── Reply notification ───────────────────────────────────────────────────
@@ -146,6 +177,17 @@ export async function createReplyNotification(
     previewText,
     read: false,
     createdAt: FieldValue.serverTimestamp(),
+  });
+
+  firePush(ctx.parentAuthorId, {
+    title: `${fromName(ctx)} replied to your review`,
+    body: `${ctx.movieTitle}: ${previewText}`,
+    data: {
+      type: 'reply',
+      reviewId: ctx.reviewId,
+      tmdbId: String(ctx.tmdbId),
+      mediaType: ctx.mediaType,
+    },
   });
 }
 
@@ -196,6 +238,17 @@ export async function createLikeNotification(
     read: false,
     createdAt: FieldValue.serverTimestamp(),
   });
+
+  firePush(ctx.reviewAuthorId, {
+    title: `${fromName(ctx)} liked your review`,
+    body: ctx.movieTitle,
+    data: {
+      type: 'like',
+      reviewId: ctx.reviewId,
+      tmdbId: String(ctx.tmdbId),
+      mediaType: ctx.mediaType,
+    },
+  });
 }
 
 // ─── Post tag + post like notifications (Phase A PR #11) ──────────────────
@@ -242,6 +295,12 @@ export async function createPostTagNotification(
     read: false,
     createdAt: FieldValue.serverTimestamp(),
   });
+
+  firePush(ctx.recipientId, {
+    title: `${fromName(ctx)} tagged you in a post`,
+    body: ctx.previewText,
+    data: { type: 'post_tag', postId: ctx.postId },
+  });
 }
 
 export type PostLikeNotificationCtx = {
@@ -280,6 +339,12 @@ export async function createPostLikeNotification(
     read: false,
     createdAt: FieldValue.serverTimestamp(),
   });
+
+  firePush(ctx.postAuthorId, {
+    title: `${fromName(ctx)} liked your post`,
+    body: ctx.previewText,
+    data: { type: 'post_like', postId: ctx.postId },
+  });
 }
 
 // ─── Post comment notification (Phase A PR #12) ───────────────────────────
@@ -317,6 +382,12 @@ export async function createPostCommentNotification(
     previewText: ctx.previewText,
     read: false,
     createdAt: FieldValue.serverTimestamp(),
+  });
+
+  firePush(ctx.recipientId, {
+    title: `${fromName(ctx)} commented on your post`,
+    body: ctx.previewText,
+    data: { type: 'post_comment', postId: ctx.postId },
   });
 }
 
@@ -467,16 +538,39 @@ export async function markNotificationsRead(
 
 // ─── Push-subscription CRUD ──────────────────────────────────────────────
 
-type PushSubscription = {
+type WebPushSubscription = {
+  kind: 'web';
   endpoint: string;
   keys: { p256dh: string; auth: string };
 };
 
-function assertValidPushSubscription(sub: unknown): asserts sub is PushSubscription {
+type FcmPushSubscription = {
+  kind: 'fcm';
+  token: string;
+  platform: 'ios' | 'android' | 'web';
+};
+
+type PushSubscriptionInput = WebPushSubscription | FcmPushSubscription;
+
+function assertValidPushSubscription(sub: unknown): asserts sub is PushSubscriptionInput {
   if (!sub || typeof sub !== 'object') {
     throw new PushSubscriptionValidationError('Subscription must be an object.');
   }
   const s = sub as Record<string, unknown>;
+
+  // FCM (native iOS/Android) — added Phase B.3.
+  if (s.kind === 'fcm') {
+    if (typeof s.token !== 'string' || s.token.length === 0) {
+      throw new PushSubscriptionValidationError('fcm: token is required.');
+    }
+    if (s.platform !== 'ios' && s.platform !== 'android' && s.platform !== 'web') {
+      throw new PushSubscriptionValidationError('fcm: platform must be ios|android|web.');
+    }
+    return;
+  }
+
+  // Web push — the legacy default. `kind` is omitted on existing clients
+  // for backward compatibility; treat missing kind as 'web'.
   if (typeof s.endpoint !== 'string' || !s.endpoint.startsWith('https://')) {
     throw new PushSubscriptionValidationError('endpoint must be an https URL.');
   }
@@ -490,8 +584,8 @@ function assertValidPushSubscription(sub: unknown): asserts sub is PushSubscript
 }
 
 /**
- * Upsert a push subscription for the caller. Idempotent by `endpoint`.
- * Flips the user's `pushEnabled` flag to true.
+ * Upsert a push subscription for the caller. Idempotent: web subs key
+ * off `endpoint`, FCM subs key off `token`. Flips `pushEnabled` true.
  */
 export async function savePushSubscription(
   callerUid: string,
@@ -501,20 +595,40 @@ export async function savePushSubscription(
   const db = getDb();
   const subs = db.collection('users').doc(callerUid).collection('pushSubscriptions');
 
-  const existing = await subs.where('endpoint', '==', sub.endpoint).limit(1).get();
-  if (!existing.empty) {
-    await existing.docs[0].ref.update({
-      keys: sub.keys,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+  if (sub.kind === 'fcm') {
+    const existing = await subs.where('token', '==', sub.token).limit(1).get();
+    if (!existing.empty) {
+      await existing.docs[0].ref.update({
+        platform: sub.platform,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      await subs.add({
+        kind: 'fcm',
+        token: sub.token,
+        platform: sub.platform,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
   } else {
-    await subs.add({
-      endpoint: sub.endpoint,
-      keys: sub.keys,
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    // Web push — match legacy doc shape (no `kind` field).
+    const existing = await subs.where('endpoint', '==', sub.endpoint).limit(1).get();
+    if (!existing.empty) {
+      await existing.docs[0].ref.update({
+        keys: sub.keys,
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    } else {
+      await subs.add({
+        endpoint: sub.endpoint,
+        keys: sub.keys,
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+    }
   }
+
   await db.collection('users').doc(callerUid).set(
     { pushEnabled: true },
     { merge: true },
@@ -522,20 +636,30 @@ export async function savePushSubscription(
 }
 
 /**
- * Remove a single push subscription by endpoint. If the caller has no
- * remaining subscriptions afterward, flips `pushEnabled` back to false.
+ * Remove a push subscription by either `endpoint` (web push) or `token`
+ * (FCM). If the caller has no remaining subscriptions afterward, flips
+ * `pushEnabled` back to false.
  */
 export async function removePushSubscription(
   callerUid: string,
-  endpoint: string,
+  identifier: { endpoint: string } | { token: string },
 ): Promise<void> {
-  if (typeof endpoint !== 'string' || !endpoint) {
-    throw new PushSubscriptionValidationError('endpoint is required.');
-  }
   const db = getDb();
   const subs = db.collection('users').doc(callerUid).collection('pushSubscriptions');
 
-  const matching = await subs.where('endpoint', '==', endpoint).get();
+  let matching: FirebaseFirestore.QuerySnapshot;
+  if ('endpoint' in identifier) {
+    if (typeof identifier.endpoint !== 'string' || !identifier.endpoint) {
+      throw new PushSubscriptionValidationError('endpoint is required.');
+    }
+    matching = await subs.where('endpoint', '==', identifier.endpoint).get();
+  } else {
+    if (typeof identifier.token !== 'string' || !identifier.token) {
+      throw new PushSubscriptionValidationError('token is required.');
+    }
+    matching = await subs.where('token', '==', identifier.token).get();
+  }
+
   if (!matching.empty) {
     const batch = db.batch();
     matching.docs.forEach((d) => batch.delete(d.ref));

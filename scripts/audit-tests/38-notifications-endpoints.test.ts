@@ -282,6 +282,75 @@ test('DELETE /me/push-subscription: keeps pushEnabled true if other subs remain'
   assert.equal(userDoc?.pushEnabled, true, 'second sub still active');
 });
 
+// ─── FCM (native iOS/Android) subscriptions — Phase B.3 ─────────────────
+
+const goodFcm = {
+  kind: 'fcm' as const,
+  token: 'fake-fcm-token-abc123',
+  platform: 'ios' as const,
+};
+
+test('POST /me/push-subscription: FCM kind happy path → stored with kind:fcm', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute(pushPost, 'POST', { token, body: goodFcm });
+  assert.equal(res.status, 200);
+
+  const subs = await adminDb()
+    .collection('users').doc(alice.uid).collection('pushSubscriptions').get();
+  assert.equal(subs.size, 1);
+  const data = subs.docs[0].data();
+  assert.equal(data.kind, 'fcm');
+  assert.equal(data.token, goodFcm.token);
+  assert.equal(data.platform, 'ios');
+});
+
+test('POST /me/push-subscription: FCM missing token → 400', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute(pushPost, 'POST', {
+    token, body: { kind: 'fcm', platform: 'ios' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /me/push-subscription: FCM bad platform → 400', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute(pushPost, 'POST', {
+    token, body: { kind: 'fcm', token: 'x', platform: 'symbian' },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('POST /me/push-subscription: FCM idempotent on same token', async () => {
+  const token = await alice.getIdToken();
+  await callRoute(pushPost, 'POST', { token, body: goodFcm });
+  await callRoute(pushPost, 'POST', { token, body: goodFcm });
+  const subs = await adminDb()
+    .collection('users').doc(alice.uid).collection('pushSubscriptions').get();
+  assert.equal(subs.size, 1, 'second FCM save with same token did not duplicate');
+});
+
+test('DELETE /me/push-subscription: removes FCM sub by token', async () => {
+  const token = await alice.getIdToken();
+  await callRoute(pushPost, 'POST', { token, body: goodFcm });
+
+  const del = await callRoute(pushDelete, 'DELETE', {
+    token, body: { token: goodFcm.token },
+  });
+  assert.equal(del.status, 200);
+
+  const subs = await adminDb()
+    .collection('users').doc(alice.uid).collection('pushSubscriptions').get();
+  assert.equal(subs.size, 0);
+});
+
+test('DELETE /me/push-subscription: neither endpoint nor token → 400', async () => {
+  const token = await alice.getIdToken();
+  const res = await callRoute(pushDelete, 'DELETE', {
+    token, body: {},
+  });
+  assert.equal(res.status, 400);
+});
+
 // ─── GET /me/push-status ─────────────────────────────────────────────────
 
 test('GET /me/push-status: reads caller\'s pushEnabled, ignores anyone else\'s', async () => {

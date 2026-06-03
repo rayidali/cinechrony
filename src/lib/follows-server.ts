@@ -20,6 +20,7 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import { sendPushToUser } from '@/lib/push-server';
 import { isBlockedBetween } from '@/lib/blocks-server';
 import type { UserProfile } from '@/lib/types';
 
@@ -133,6 +134,15 @@ export async function followUser(
         read: false,
         createdAt: FieldValue.serverTimestamp(),
       });
+
+      const callerName = callerData?.username
+        ? `@${callerData.username}`
+        : callerData?.displayName || 'Someone';
+      void sendPushToUser(targetUid, {
+        title: `${callerName} followed you`,
+        body: 'Tap to view their profile.',
+        data: { type: 'follow', fromUserId: callerUid },
+      }).catch((err) => console.error('[followUser] push failed:', err));
     }
   } catch (err) {
     console.error('[followUser] notification create failed:', err);

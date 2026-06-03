@@ -11,6 +11,7 @@ import { UserBookmarksCacheProvider } from '@/contexts/user-bookmarks-cache';
 import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
 import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
 import { BodyStyleWatchdog } from '@/components/body-style-watchdog';
+import { NativePushRegistration } from '@/components/native-push-registration';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -88,6 +89,7 @@ export default function RootLayout({
                   <UserBookmarksCacheProvider>
                     <UserMutesCacheProvider>
                       <UserBlocksCacheProvider>
+                        <NativePushRegistration />
                         {children}
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>
