@@ -5,12 +5,12 @@
 ```
 src/app/
 ├── page.tsx              # Landing page (redirects to /home or /login)
-├── layout.tsx            # Root layout (ThemeProvider, FirebaseProvider, etc.)
+├── layout.tsx            # Root layout (providers + native-shell init)
 ├── globals.css           # Global styles + Tailwind
-├── actions.ts            # ⭐ ALL Server Actions (~4800 lines)
+│  (actions.ts — DELETED in Phase A; see src/lib/*-server.ts)
 │
 ├── (auth)/               # Auth route group (no layout nesting)
-│   ├── login/page.tsx
+│   ├── login/page.tsx        # Email + social (Google/Apple) sign-in
 │   ├── signup/page.tsx
 │   ├── forgot-password/page.tsx
 │   └── reset-password/page.tsx
@@ -34,22 +34,35 @@ src/app/
 │       ├── page.tsx      # Public profile view
 │       └── lists/[listId]/page.tsx  # Public list view
 │
-├── notifications/page.tsx  # Notifications page (deferred to Phase 3)
+├── notifications/page.tsx  # Notifications inbox
 │
 ├── onboarding/
 │   ├── page.tsx          # Onboarding flow controller
 │   └── components/
-│       ├── import-letterboxd-guide-screen.tsx  # 5-step screenshot tutorial
-│       ├── import-letterboxd-upload-screen.tsx
-│       ├── import-letterboxd-preview-screen.tsx
-│       └── ...           # Other onboarding screens
+│       ├── signup-screen.tsx          # Includes social sign-in buttons
+│       ├── import-letterboxd-*.tsx    # 5-step Letterboxd import
+│       └── …
 │
 ├── invite/[code]/page.tsx  # Invite acceptance (protected)
 │
-└── api/admin/
-    ├── backfill/route.ts         # User search fields backfill
-    ├── backfill-movies/route.ts  # Movie denormalization backfill
-    └── backfill-reviews/route.ts # Review threading fields backfill
+└── api/                   # Phase A: every mutation lives here
+    ├── v1/                # Bearer-authed JSON envelope routes
+    │   ├── _whoami/                       # Foundation smoke
+    │   ├── me/                            # /me, avatar, ensure, push-subscription, ...
+    │   ├── lists/[ownerId]/[listId]/…    # CRUD + movies + invites + members
+    │   ├── posts/[id]/…                   # Posts + comments + likes
+    │   ├── reviews/…  ratings/…           # Reviews + ratings + replies
+    │   ├── activities/…                   # Feed + likes
+    │   ├── notifications/…                # List, unread-count, mark-read
+    │   ├── users/search                   # Search by username
+    │   ├── movies/{trending,similar,…}    # TMDB/OMDB proxies
+    │   ├── recommendations                # Personal recs
+    │   ├── bookmarks/…  mutes/…  blocks/… reports/…
+    │   ├── friends-watching               # Friends activity hero card
+    │   ├── imports/letterboxd/…           # Letterboxd parse/import
+    │   ├── follow/{status,by-username,…}  # Follow graph
+    │   └── admin/…                        # adminRoute-wrapped backfills
+    └── cron/weekly-digest                 # Vercel cron (web-push)
 ```
 
 ---
@@ -90,124 +103,97 @@ const { data: lists, isLoading } = useCollection<MovieList>(listsQuery);
 
 ---
 
-## Server Actions (actions.ts) — **being migrated to /api/v1/* in Phase A**
+## API surface — `/api/v1/*` (the new source of truth)
 
-> **Migration status (2026-06-01)** — Phase A is actively replacing Server
-> Actions with `/api/v1/*` route handlers (for the iOS Share Extension via
-> Capacitor — Server Actions are a Next.js-only RSC affordance and can't
-> be called from a separate Swift process). Tracker:
-> [`scripts/api-refactor-inventory.md`](../../scripts/api-refactor-inventory.md).
-> PRs #1–#13 done. Domains migrated so far: foundation, /me profile,
-> lists CRUD, movies-in-lists, invites, collaborators, follows, reviews,
-> ratings + list-likes, activities, posts, post-comments, notifications +
-> push + preferences. Tables below describe the legacy Server Action
-> surface; many of these functions no longer exist as Server Actions and
-> have moved to `src/lib/<domain>-server.ts` helpers behind routes. When
-> in doubt, search `src/app/api/v1/` for the route and follow imports.
+> **`src/app/actions.ts` has been DELETED (Phase A complete, 2026-06-02).**
+> Every former Server Action is now either a `/api/v1/*` route handler OR
+> a helper inside a `src/lib/<domain>-server.ts` module that a route
+> imports. The "Server Actions tables" that used to live here are gone.
+>
+> To find an endpoint: walk `src/app/api/v1/**` directly. The directory
+> structure mirrors the URL — `/api/v1/lists/[ownerId]/[listId]/movies/route.ts`
+> handles `POST/GET /api/v1/lists/<owner>/<list>/movies`.
 
-This used to be the **single source of truth** for all mutations
-(originally ~4800 lines, organized by domain):
+### How a route is built
 
-### User Management
-| Function | Purpose |
-|----------|---------|
-| `createUserProfile()` | Create profile + default list on signup |
-| `ensureUserProfile()` | Ensure profile exists (migration) |
-| `getUserProfile()` | Get user by ID |
-| `getUserByUsername()` | Get user by username |
-| `updateUsername()` | Change username (validates uniqueness) |
-| `updateProfilePhoto()` | Update avatar URL |
-| `updateBio()` | Update user bio |
-| `updateFavoriteMovies()` | Set top 5 movies |
-| `searchUsers()` | Search by username/email/name |
+```
+┌─────────────────────────────────────────────────────────────┐
+│ Client (Capacitor WebView OR browser)                       │
+│   apiCall<T>('POST', '/api/v1/lists', { name })             │
+│     - attaches Bearer ID token from auth.currentUser        │
+│     - throws ApiClientError on non-2xx                      │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Route file: src/app/api/v1/lists/route.ts                   │
+│   export const POST = apiRoute(async (req, { auth }) => {   │
+│     const body = await req.json();                          │
+│     return await createList(auth.uid, body.name);           │
+│   });                                                        │
+│                                                              │
+│   apiRoute wrapper handles:                                 │
+│     - verifyCaller (Bearer token → UID)                     │
+│     - envelope serialization                                │
+│     - typed-error → HTTP-status mapping                     │
+│     - CORS headers                                          │
+└────────────────────┬────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────────────────────┐
+│ Helper: src/lib/lists-server.ts                             │
+│   export async function createList(callerUid, name) { … }   │
+│     - pure function, not 'use server'                       │
+│     - throws typed errors that the route wrapper maps       │
+│     - uses Firebase Admin SDK via getDb()                   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-### Follow System
-| Function | Purpose |
-|----------|---------|
-| `followUser()` | Create follow relationship |
-| `unfollowUser()` | Remove follow relationship |
-| `isFollowing()` | Check if following |
-| `getFollowers()` | Get user's followers |
-| `getFollowing()` | Get who user follows |
+### Domain map — where to find helpers
 
-### List Management
-| Function | Purpose |
-|----------|---------|
-| `createList()` | Create new list |
-| `renameList()` | Rename list |
-| `updateListVisibility()` | Toggle public/private |
-| `deleteList()` | Delete list + all movies |
-| `getUserLists()` | Get user's owned lists |
-| `getCollaborativeLists()` | Get lists user collaborates on |
-| `getUserPublicLists()` | Get user's public lists |
-| `getListPreview()` | Get list with cover previews |
-| `canEditList()` | Check edit permission |
+| Domain | Helper module |
+|---|---|
+| User profile / account | `src/lib/profiles-server.ts` + `src/lib/account-server.ts` |
+| Lists | `src/lib/lists-server.ts` |
+| Movies in lists | `src/lib/movies-server.ts` |
+| Invites | `src/lib/invites-server.ts` |
+| Follows | `src/lib/follows-server.ts` |
+| Reviews + ratings | `src/lib/reviews-server.ts` + `src/lib/ratings-server.ts` |
+| Activities | `src/lib/activities-server.ts` |
+| Posts + post-comments | `src/lib/posts-server.ts` + `src/lib/post-comments-server.ts` |
+| Notifications + push subs + prefs | `src/lib/notifications-server.ts` |
+| Push delivery (FCM + web push) | `src/lib/push-server.ts` |
+| Search (users) | `src/lib/search-server.ts` |
+| TMDB + OMDB proxies | `src/lib/tmdb-server.ts` |
+| Bookmarks / mutes / blocks / reports | `src/lib/{bookmarks,mutes,blocks,reports}-server.ts` |
+| Friends-watching | `src/lib/friends-watching-server.ts` |
+| Letterboxd import | `src/lib/letterboxd-server.ts` |
+| Admin backfills | `src/lib/admin-backfills-server.ts` |
 
-### Collaboration (Max 10 members per list)
-| Function | Purpose |
-|----------|---------|
-| `getListMembers()` | Get owner + collaborators |
-| `inviteToList()` | Send direct invite |
-| `createInviteLink()` | Create shareable link |
-| `getInviteByCode()` | Get invite by code |
-| `getListPendingInvites()` | Get pending invites for a list |
-| `getMyPendingInvites()` | User's pending invites |
-| `acceptInvite()` | Accept collaboration invite |
-| `declineInvite()` | Decline invite |
-| `revokeInvite()` | Cancel pending invite (owner/collaborator) |
-| `removeCollaborator()` | Owner removes collaborator |
-| `leaveList()` | Collaborator leaves |
-| `transferOwnership()` | Transfer list ownership |
+### Foundation
 
-**Note**: `MAX_LIST_MEMBERS = 10` (owner + 9 collaborators)
+| File | Purpose |
+|---|---|
+| `src/lib/api-handler.ts` | `apiRoute` + `publicApiRoute` + `optionsHandler` wrappers, typed `ApiError` hierarchy, envelope contract, CORS allowlist |
+| `src/lib/admin-handler.ts` | `adminRoute` wrapper — constant-time `ADMIN_SECRET` compare, used by `/api/v1/admin/*` |
+| `src/lib/api-client.ts` | Client-side `apiCall<T>(method, path, body?)`. Auto-attaches Bearer token, parses envelope, throws `ApiClientError`. Resolves base URL from `NEXT_PUBLIC_API_BASE_URL` when set (Capacitor target). |
+| `src/lib/auth-server.ts` | `verifyCaller(req)` — admin SDK token verification |
+| `src/lib/rate-limit.ts` | `checkRateLimit(uid, bucket)` — review/like/follow/invite/post/pushSubscribe/report buckets |
 
-### Movie Operations
-| Function | Purpose |
-|----------|---------|
-| `addMovieToList()` | Add movie to list (FormData) |
-| `addMovie()` | Legacy: add to default list |
-| `removeMovieFromList()` | Remove movie |
-| `updateMovieStatus()` | Toggle watched/to-watch |
-| `updateMovieNote()` | Update user's note on movie |
-| `getPublicListMovies()` | Get movies for public list |
-| `migrateMoviesToList()` | Migrate legacy movies |
+### Capacitor-specific helpers
 
-### Reviews & Ratings
-| Function | Purpose |
-|----------|---------|
-| `createReview()` | Create movie review (supports parentId for replies) |
-| `updateReview()` | Edit review text |
-| `deleteReview()` | Delete review |
-| `getMovieReviews()` | Get top-level reviews for movie (parentId: null) |
-| `getReviewReplies()` | Get replies to a review |
-| `getUserReviewForMovie()` | Get user's review |
-| `likeReview()` | Like a review |
-| `unlikeReview()` | Unlike a review |
-| `createOrUpdateRating()` | Set 1-10 rating |
-| `deleteRating()` | Remove rating |
-| `getUserRating()` | Get user's rating |
-| `getUserRatings()` | Get all user's ratings |
+| File | Purpose |
+|---|---|
+| `src/lib/native-auth.ts` | Detects Capacitor; routes Google/Apple sign-in via `@capacitor-firebase/authentication` plugin or web popup |
+| `src/lib/native-push.ts` | Detects Capacitor; requests permission, fetches FCM token, POSTs to `/api/v1/me/push-subscription` |
+| `src/components/native-shell-init.tsx` | Status bar style, splash dismiss, keyboard accessory bar |
+| `src/components/deep-link-handler.tsx` | Listens for `App.appUrlOpen` from `@capacitor/app`, routes via Next.js router |
+| `src/components/native-push-registration.tsx` | Mount-once registration trigger on first authenticated boot |
 
-### Notifications (Deferred to Phase 3)
-| Function | Purpose |
-|----------|---------|
-| `getNotifications()` | Get user's notifications |
-| `markNotificationsRead()` | Mark notifications as read |
-| `getUnreadNotificationCount()` | Get count for badge |
-| `createMentionNotifications()` | Internal: create @mention notifications |
-| `createReplyNotification()` | Internal: create reply notification |
+All four are no-ops on web.
 
-### Admin / Backfill
-| Function | Purpose |
-|----------|---------|
-| `backfillMovieUserData()` | Populate denormalized user data on existing movies |
-
-### File Uploads
-| Function | Purpose |
-|----------|---------|
-| `uploadAvatar()` | Upload avatar to R2 |
-| `uploadListCover()` | Upload list cover to R2 |
-| `updateListCover()` | Update cover URL |
+**Note**: `MAX_LIST_MEMBERS = 10` (owner + 9 collaborators) — defined in
+`src/lib/lists-server.ts`.
 
 ---
 
@@ -217,7 +203,7 @@ This used to be the **single source of truth** for all mutations
 - Search TMDB for movies/TV shows
 - Select destination list
 - Add social link (TikTok/IG/YouTube)
-- Submits to `addMovieToList()` server action
+- Submits via `apiCall('POST', '/api/v1/lists/.../movies', …)` (`src/lib/movies-server.ts`)
 
 ### `/lists` Page
 - Shows all user's lists + collaborative lists
@@ -299,8 +285,13 @@ RootLayout (layout.tsx)
 
 1. **Auth State**: Always check `isUserLoading` before `!user` redirect
 2. **Real-time Queries**: Must use `useMemoFirebase` for stable references
-3. **Server Actions**: Return `{ error }` or `{ success, data }` pattern
-4. **Revalidation**: Call `revalidatePath()` after mutations if using RSC
+3. **Mutations**: Use `apiCall<T>('POST'|'PATCH'|'DELETE', '/api/v1/…', body?)` from
+   `src/lib/api-client.ts`. Bearer token is auto-attached. Throws
+   `ApiClientError` with stable `error.code` on non-2xx. Never call
+   Firestore writes directly from the client.
+4. **Static export gotcha**: dynamic `[param]` page routes need
+   `generateStaticParams` + a `<Suspense>` wrapper. See `src/app/lists/[listId]/page.tsx`
+   for the SPA-shell pattern.
 
 ---
 
@@ -312,6 +303,25 @@ RootLayout (layout.tsx)
   trending strip, the merged feed (activities + user posts), the post FAB.
 - **`/post/[postId]`** (new) — a user post + its 1-level comment thread + a
   sticky composer.
-- New server actions live in `actions.ts` under the USER POSTS, POST COMMENTS,
-  BOOKMARKS, MUTE, BLOCK, and FRIENDS ARE WATCHING sections. See the root
-  `CLAUDE.md` "Home / Discover Rebuild" section for the full list.
+- The Phase 0.5 logic lives in domain helper modules now —
+  `posts-server.ts`, `post-comments-server.ts`, `bookmarks-server.ts`,
+  `mutes-server.ts`, `blocks-server.ts`, `friends-watching-server.ts` —
+  consumed by their corresponding `/api/v1/*` routes.
+
+---
+
+## Phase B — Capacitor wrap (2026-06-08)
+
+- `src/app/api/` is **moved aside at build time** when `BUILD_TARGET=static`
+  is set (see `scripts/static-build.sh`). The route handlers stay on the
+  Vercel deploy; the static `out/` bundle ships inside the Capacitor iOS
+  binary and calls the Vercel routes cross-origin via
+  `NEXT_PUBLIC_API_BASE_URL`.
+- Native-only components mounted in `layout.tsx`:
+  `<NativeShellInit />`, `<NativePushRegistration />`, `<DeepLinkHandler />`.
+  All three are no-ops on web.
+- Universal Links manifest at `public/.well-known/apple-app-site-association`
+  + Android App Links at `public/.well-known/assetlinks.json`. `next.config.ts`
+  pins `Content-Type: application/json` on both via `headers()`.
+- Owner manual setup (Apple Developer, Firebase Console iOS/Android,
+  APNs key, signing): `PHASE-B-HANDOFF.md` at repo root.

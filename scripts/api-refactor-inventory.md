@@ -1,17 +1,24 @@
 # API Refactor Inventory — Phase A (LAUNCH.md)
 
 > Generated 2026-05-26 against `src/app/actions.ts` (7,791 lines).
-> Source of truth for the Server Actions → API routes migration. Each row
-> becomes (or maps into) one `/api/v1/...` route. Tick the **Migrated**
-> column as each one ships.
+> **Phase A COMPLETE 2026-06-02.** `actions.ts` has been deleted. Every
+> former Server Action either ships as a `/api/v1/*` route or has been
+> removed as dead code. Server-side logic now lives in
+> `src/lib/<domain>-server.ts` helper modules consumed by the routes.
 >
-> **103 total exports** — 50 WRITE, 32 READ_ADMIN, 4 READ_TMDB, 1 READ_OMDB,
-> 4 UPLOAD, 12 INTERNAL, 0 dead. After collapsing related reads (e.g.
-> `getFollowers` + `getFollowing` + `isFollowing` share a route),
-> expect **~55–60 route files**.
+> This document is **historical** — kept as the migration trace. To find
+> the current API surface, walk `src/app/api/v1/**` instead.
 >
-> AUDIT.md hooks: 20+ Phase 1 items close as a side-effect of this migration
-> (auth check + transactional fix applied per-endpoint).
+> **Final tally**: 18 PRs shipped (vs initial 14-PR plan; rebalanced as
+> scope evolved). 403 audit tests green. `npm run build:static` produces
+> a clean `out/` for Capacitor consumption.
+>
+> **Audit items closed during the migration**: 1.2, 1.3, 1.4, 1.5, 1.6,
+> 1.8, 1.11, 1.12, 1.13, 1.14, 2.1, 2.2, 2.5, 2.6, 2.8, 2.9, 3.5 (all
+> five like surfaces), 3.8, 3.10, 4.2a. Phase B closed 4.2 itself.
+>
+> **Original spec follows** — every row's Status column shipped, just not
+> always in the originally planned PR number (the plan shifted to 18 PRs).
 
 ---
 

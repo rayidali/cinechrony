@@ -468,3 +468,32 @@ New components from the Phase 0.5 rebuild:
 (activities + posts) from `getHomeFeed`/`getSavedFeed` and interleaves
 recommendation + friends-watching cards. `trending-movies.tsx` was removed
 (superseded by `trending-strip.tsx`). `<Fab>` gained `onLongPress`.
+
+---
+
+## Phase B — Capacitor native components (2026-06-08)
+
+Four mount-once components live in the root layout. All four detect
+`Capacitor.isNativePlatform()` and return null on web — they're free
+on a desktop browser.
+
+- **`auth/social-sign-in-buttons.tsx`** — Google + Apple buttons. Apple
+  button only shows after hydration in a native runtime (avoids flash
+  on web). Wired into `(auth)/login/page.tsx` and
+  `onboarding/components/signup-screen.tsx`. Uses
+  `src/lib/native-auth.ts` to route between Capacitor plugin (native)
+  and `signInWithPopup` (web).
+- **`native-shell-init.tsx`** — sets `StatusBar.Style.Dark` (dark icons
+  on cream paper), hides the splash on React mount, hides the iOS
+  keyboard accessory bar.
+- **`native-push-registration.tsx`** — on first authenticated boot,
+  requests notification permission, fetches the FCM token, and POSTs it
+  to `/api/v1/me/push-subscription` as `{ kind: 'fcm', token, platform }`.
+  Listens for `tokenReceived` so APNs/FCM rotations replace stale tokens.
+- **`deep-link-handler.tsx`** — listens for `App.appUrlOpen` events from
+  `@capacitor/app` plus `App.getLaunchUrl()` for cold-start taps. Strips
+  the host and routes via Next.js's client router so Universal Links
+  navigations feel native (no WebView reload).
+
+Web push opt-in (`push-notification-prompt.tsx`) is unchanged — it
+remains the path for desktop browser users via Service Worker + VAPID.

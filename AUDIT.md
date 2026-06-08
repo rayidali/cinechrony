@@ -1,6 +1,10 @@
 # Cinechrony Pre-Launch Audit & Fix Tracker
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-20
+> **Started:** 2026-05-15 · **Updated:** 2026-06-08
+>
+> Status: Phase A + Phase B both complete in code; many audit items
+> closed in the process. See § "Items closed during Phase A / B" near
+> the bottom of this doc and the per-item ✅ markers throughout.
 > **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests) · Phase 5.1 ✅ (deploy unblocked, build passes) · **Phase 2 ✅ COMPLETE** (all of 2.1–2.10 + 2.3a/b; 61 attack/race/pagination/prefix tests across 13 files). App is secure, deployable, transactionally consistent, scales for delete/search/ratings, crash-resistant on mobile flakiness, and stale-handle-proof.
 > **Goal:** Ship-ready security posture and data integrity before opening the waitlist
 > **Source of truth:** the Progress log (bottom) + `scripts/audit-tests/*.test.ts`. Section checkboxes are ticked at phase/suite level, not 1:1 per sub-bullet.

@@ -1,6 +1,17 @@
 # Cinechrony Launch Plan — App Stores + Hero Feature + Marketing
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-25
+> **Started:** 2026-05-15 · **Updated:** 2026-06-08
+>
+> **Phase A complete** (PRs #1–#18, branch `feat/phase-a-leftover-actions`).
+> `src/app/actions.ts` is deleted; every former mutation is a `/api/v1/*`
+> route. Static export produces `out/` for Capacitor consumption.
+>
+> **Phase B complete** (B.1–B.5, branch `feat/phase-b-capacitor-wrap`).
+> Capacitor 8 wraps `out/` in iOS + Android shells. Native auth, push
+> via FCM, Universal Links, and native polish all wired in code. Owner
+> manual setup checklist in `PHASE-B-HANDOFF.md`.
+>
+> **Next: Phase C** — the iOS Share Extension hero feature.
 > **Goal:** Ship to iOS App Store + Google Play with a refreshed UI + the **share-TikTok/Reel-to-watchlist** Share Extension as the hero feature (AI dissects the linked video and extracts the mentioned films), plus automated TikTok-first / Instagram-second daily content.
 > **Sequencing:** The pre-launch audit (`AUDIT.md` Phases 0–2) is done. Phase 0 (UI redesign) and Phase 0.5 (Discover) are both shipped and on `main`. **Phase 0.6 (Speed & Native Feel) is next** — a small, focused pass to eliminate the loading flashes that will read as "webby" once we ship to the App Store. Then A (API routes) → B (Capacitor) → C (Share Extension) → D (stores) → E (marketing).
 > **Approach:** Capacitor (right path — static export + API routes refactor). Not a Swift rewrite. Solo dev using Claude Code for Swift work.

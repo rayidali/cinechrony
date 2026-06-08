@@ -207,10 +207,17 @@ Component that listens and shows toasts:
 
 ```
 1. User signs up/logs in
-   │
+   │   ┌── Email + password → signInWithEmailAndPassword (Web SDK)
+   ├───┤
+   │   ├── Google (web) → signInWithPopup(GoogleAuthProvider) (Web SDK)
+   │   │
+   │   ├── Google (native) → @capacitor-firebase/authentication plugin
+   │   │     → native dialog → signInWithCredential (Web SDK)
+   │   │
+   │   └── Apple (native iOS only) → plugin → signInWithCredential (Web SDK)
    ▼
-2. Firebase Auth creates session
-   │
+2. Firebase Auth creates session  (Web SDK is the single source of truth
+   │                               in BOTH paths — `skipNativeAuth: true`)
    ▼
 3. onAuthStateChanged fires in FirebaseProvider
    │
@@ -218,8 +225,14 @@ Component that listens and shows toasts:
 4. useUser() returns { user, isUserLoading: false }
    │
    ▼
-5. Components can access user.uid for Firestore paths
+5. Components can access user.uid + getIdToken() for /api/v1 calls
 ```
+
+The native Google + Apple paths live in `src/lib/native-auth.ts` and
+are surfaced via `<SocialSignInButtons />` on the login + signup pages.
+The buttons feature-detect `Capacitor.isNativePlatform()` after
+hydration so the web build doesn't show an Apple button (no Apple
+Service ID yet for v1).
 
 ### Auth Hooks
 ```typescript
