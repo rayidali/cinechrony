@@ -2,8 +2,9 @@
 
 import { usePathname } from 'next/navigation';
 import Link from 'next/link';
-import { Home, Bookmark, User } from 'lucide-react';
+import { Home, Bookmark, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Frost } from '@/components/v3/frost';
 import { useUser } from '@/firebase';
 import { prefetchCachedAction } from '@/lib/use-cached-action';
 import { apiCall } from '@/lib/api-client';
@@ -26,17 +27,18 @@ interface NavItem {
  * See UX_PATTERNS.md — "HOME — the unified feed (3-tab architecture)".
  */
 const navItems: NavItem[] = [
-  { href: '/home', icon: Home, label: 'Home', matchPaths: ['/home'] },
-  { href: '/lists', icon: Bookmark, label: 'Lists', matchPaths: ['/lists'] },
-  { href: '/profile', icon: User, label: 'Profile', matchPaths: ['/profile'] },
+  { href: '/home', icon: Home, label: 'home', matchPaths: ['/home'] },
+  { href: '/lists', icon: Bookmark, label: 'lists', matchPaths: ['/lists'] },
+  { href: '/profile', icon: UserRound, label: 'you', matchPaths: ['/profile'] },
 ];
 
 /**
- * Bottom navigation — design system v2.
+ * Bottom navigation — design system v3 (Phase 0.7, iOS-native).
  *
- * A dark floating pill (cinema ink), icon-only, centered. The active item
- * is a cream-filled circle. The pill is a self-contained dark island, so its
- * cream/white internals read the same in light and dark mode.
+ * A floating frosted-glass capsule, centered above the home indicator. Each
+ * item stacks an icon over a lowercase label; the active item is film-red with
+ * a bolder stroke, inactive items are muted. Theme-aware via the `--cc-tab-tint`
+ * frost token (was a solid dark island in v2). Touch-start prefetch preserved.
  */
 export function BottomNav() {
   const pathname = usePathname();
@@ -88,67 +90,83 @@ export function BottomNav() {
       {/* Spacer so content clears the floating nav */}
       <div className="h-28 md:hidden" />
 
-      {/* Mobile — dark floating pill, icon-only */}
-      <nav className="fixed left-1/2 -translate-x-1/2 bottom-[calc(1rem+env(safe-area-inset-bottom))] z-50 md:hidden">
-        <div
-          className="flex items-center gap-1 p-1.5 rounded-full border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.28)]"
-          style={{ background: 'oklch(0.17 0.012 60)' }}
+      {/* Mobile — frosted glass capsule, icon + label, film-red active */}
+      <nav className="fixed left-1/2 -translate-x-1/2 bottom-[calc(1.625rem+env(safe-area-inset-bottom))] z-50 md:hidden pointer-events-none">
+        <Frost
+          tint="var(--cc-tab-tint)"
+          blur={26}
+          className={cn(
+            'pointer-events-auto rounded-full border border-white/70 dark:border-white/10',
+            'shadow-[0_8px_26px_rgba(0,0,0,0.14)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)]'
+          )}
         >
-          {navItems.map((item) => {
-            const active = isActive(item);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-label={item.label}
-                aria-current={active ? 'page' : undefined}
-                onTouchStart={() => handlePrefetch(item.href)}
-                onMouseEnter={() => handlePrefetch(item.href)}
-                className={cn(
-                  'flex items-center justify-center w-[52px] h-11 rounded-full transition-all duration-200',
-                  active
-                    ? 'bg-[oklch(0.95_0.012_78)] text-[oklch(0.165_0.012_60)]'
-                    : 'text-white/55 hover:text-white/85'
-                )}
-              >
-                <Icon className="h-5 w-5" strokeWidth={active ? 2 : 1.6} />
-              </Link>
-            );
-          })}
-        </div>
+          <div className="flex gap-1 px-2.5 py-[7px]">
+            {navItems.map((item) => {
+              const active = isActive(item);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-label={item.label}
+                  aria-current={active ? 'page' : undefined}
+                  onTouchStart={() => handlePrefetch(item.href)}
+                  onMouseEnter={() => handlePrefetch(item.href)}
+                  className={cn(
+                    'flex flex-col items-center justify-center w-[62px] h-11 rounded-full gap-[3px] transition-colors',
+                    active ? 'text-primary' : 'text-muted-foreground'
+                  )}
+                >
+                  <Icon className="h-[21px] w-[21px]" strokeWidth={active ? 2.4 : 1.9} />
+                  <span
+                    className={cn(
+                      'text-[9.5px] tracking-wide lowercase',
+                      active ? 'font-bold' : 'font-medium'
+                    )}
+                  >
+                    {item.label}
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
+        </Frost>
       </nav>
 
-      {/* Desktop — dark pill at top, icon + label */}
-      <nav className="hidden md:flex fixed top-4 left-1/2 -translate-x-1/2 z-50">
-        <div
-          className="flex items-center gap-1 p-1.5 rounded-full border border-white/[0.07] shadow-[0_8px_28px_rgba(0,0,0,0.22)]"
-          style={{ background: 'oklch(0.17 0.012 60)' }}
+      {/* Desktop — frosted pill at top, icon + label */}
+      <nav className="hidden md:flex fixed top-4 left-1/2 -translate-x-1/2 z-50 pointer-events-none">
+        <Frost
+          tint="var(--cc-tab-tint)"
+          blur={26}
+          className={cn(
+            'pointer-events-auto rounded-full border border-white/70 dark:border-white/10',
+            'shadow-[0_8px_26px_rgba(0,0,0,0.14)] dark:shadow-[0_8px_30px_rgba(0,0,0,0.5)]'
+          )}
         >
-          {navItems.map((item) => {
-            const active = isActive(item);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                aria-current={active ? 'page' : undefined}
-                onTouchStart={() => handlePrefetch(item.href)}
-                onMouseEnter={() => handlePrefetch(item.href)}
-                className={cn(
-                  'flex items-center gap-2 px-4 h-10 rounded-full transition-all duration-200',
-                  'font-headline font-semibold text-sm lowercase tracking-tight',
-                  active
-                    ? 'bg-[oklch(0.95_0.012_78)] text-[oklch(0.165_0.012_60)]'
-                    : 'text-white/55 hover:text-white/85'
-                )}
-              >
-                <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2 : 1.6} />
-                <span>{item.label}</span>
-              </Link>
-            );
-          })}
-        </div>
+          <div className="flex items-center gap-1 p-1.5">
+            {navItems.map((item) => {
+              const active = isActive(item);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  aria-current={active ? 'page' : undefined}
+                  onTouchStart={() => handlePrefetch(item.href)}
+                  onMouseEnter={() => handlePrefetch(item.href)}
+                  className={cn(
+                    'flex items-center gap-2 px-4 h-10 rounded-full transition-colors',
+                    'font-headline font-semibold text-sm lowercase tracking-tight',
+                    active ? 'text-primary' : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <Icon className="h-[18px] w-[18px]" strokeWidth={active ? 2.2 : 1.7} />
+                  <span>{item.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        </Frost>
       </nav>
     </>
   );
