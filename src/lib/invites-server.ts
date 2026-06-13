@@ -24,6 +24,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomInt } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { MAX_LIST_MEMBERS } from '@/lib/lists-server';
+import { sendPushToUser } from '@/lib/push-server';
 import type { ListInvite } from '@/lib/types';
 
 // ─── Typed errors → route maps to HTTP status ─────────────────────────────
@@ -251,6 +252,7 @@ export async function inviteToList(
   try {
     const prefs = inviteeData?.notificationPreferences;
     if (!prefs || prefs.listInvites !== false) {
+      const listName = listData?.name || 'Untitled List';
       await db.collection('notifications').add({
         userId: inviteeId,
         type: 'list_invite',
@@ -260,11 +262,25 @@ export async function inviteToList(
         fromPhotoUrl: inviterData?.photoURL || null,
         listId,
         listOwnerId,
-        listName: listData?.name || 'Untitled List',
+        listName,
         inviteId: inviteRef.id,
         read: false,
         createdAt: FieldValue.serverTimestamp(),
       });
+
+      const inviterName = inviterData?.username
+        ? `@${inviterData.username}`
+        : inviterData?.displayName || 'Someone';
+      void sendPushToUser(inviteeId, {
+        title: `${inviterName} invited you`,
+        body: `to "${listName}"`,
+        data: {
+          type: 'list_invite',
+          inviteId: inviteRef.id,
+          listId,
+          listOwnerId,
+        },
+      }).catch((err) => console.error('[inviteToList] push failed:', err));
     }
   } catch (err) {
     console.error('[inviteToList] notification create failed:', err);

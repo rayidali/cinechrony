@@ -4,8 +4,8 @@ import { useState, useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import { Drawer } from 'vaul';
 import { MoreHorizontal, Ban, ShieldOff, Flag } from 'lucide-react';
-import { useAuth, useUser } from '@/firebase';
-import { blockUser, unblockUser, reportContent } from '@/app/actions';
+import { useUser } from '@/firebase';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -22,7 +22,6 @@ type ProfileOverflowMenuProps = {
  */
 export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOverflowMenuProps) {
   const { user } = useUser();
-  const auth = useAuth();
   const router = useRouter();
   const { toast } = useToast();
   const { didIBlock, setBlocked } = useUserBlocksCache();
@@ -39,24 +38,24 @@ export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOve
     setBlocked(targetUserId, next); // optimistic
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = next
-          ? await blockUser(idToken, targetUserId)
-          : await unblockUser(idToken, targetUserId);
-        if (res && 'error' in res && res.error) {
-          setBlocked(targetUserId, !next);
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-        } else if (next) {
+        if (next) {
+          await apiCall('POST', `/api/v1/users/${targetUserId}/block`);
           toast({
             title: `you blocked @${targetUsername}.`,
             description: 'you won’t see each other. unblock anytime in settings.',
           });
           router.push('/home');
         } else {
+          await apiCall('DELETE', `/api/v1/users/${targetUserId}/block`);
           toast({ title: `you unblocked @${targetUsername}.` });
         }
-      } catch {
+      } catch (err) {
         setBlocked(targetUserId, !next);
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: err instanceof ApiClientError ? err.message : 'Failed to update.',
+        });
       }
     });
   };
@@ -65,20 +64,18 @@ export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOve
     setOpen(false);
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await reportContent(
-          idToken,
-          'user',
-          targetUserId,
-          `Reported user @${targetUsername}`,
-        );
-        if (res && 'error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-        } else {
-          toast({ title: 'reported.', description: 'thanks for flagging — we’ll take a look.' });
-        }
-      } catch {
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to report.' });
+        await apiCall('POST', '/api/v1/reports', {
+          contentType: 'user',
+          targetId: targetUserId,
+          reason: `Reported user @${targetUsername}`,
+        });
+        toast({ title: 'reported.', description: 'thanks for flagging — we’ll take a look.' });
+      } catch (err) {
+        toast({
+          variant: 'destructive',
+          title: 'Error',
+          description: err instanceof ApiClientError ? err.message : 'Failed to report.',
+        });
       }
     });
   };

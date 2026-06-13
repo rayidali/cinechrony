@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Loader2, Check, X, ArrowLeft } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { checkUsernameAvailability, createUserProfileWithUsername } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useDebouncedCallback } from 'use-debounce';
 
 const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
@@ -67,7 +67,9 @@ export function UsernameScreen({
 
     setStatus('checking');
     try {
-      const result = await checkUsernameAvailability(normalized);
+      const result = await apiCall<{ available: boolean; suggestions: string[] }>(
+        'GET', `/api/v1/usernames/${encodeURIComponent(normalized)}/available`,
+      );
       const isAvailable = result.available;
 
       // Update cache
@@ -124,34 +126,27 @@ export function UsernameScreen({
 
     setIsSubmitting(true);
     try {
-      const result = await createUserProfileWithUsername(
-        await user.getIdToken(),
-        user.email || '',
-        username.toLowerCase(),
-        displayName || null
-      );
-
-      if ('error' in result) {
-        if (result.error.includes('taken')) {
-          setStatus('taken');
-          toast({
-            variant: "destructive",
-            title: "Username Taken",
-            description: "Someone just took that username. Try another one.",
-          });
-        } else {
-          throw new Error(result.error);
-        }
-        return;
-      }
-
-      onContinue();
-    } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: error.message || "Failed to save username. Please try again.",
+      await apiCall('POST', '/api/v1/me/profile', {
+        email: user.email || '',
+        username: username.toLowerCase(),
+        displayName: displayName || null,
       });
+      onContinue();
+    } catch (error) {
+      if (error instanceof ApiClientError && error.status === 409) {
+        setStatus('taken');
+        toast({
+          variant: "destructive",
+          title: "Username Taken",
+          description: "Someone just took that username. Try another one.",
+        });
+      } else {
+        toast({
+          variant: "destructive",
+          title: "Error",
+          description: error instanceof Error ? error.message : "Failed to save username. Please try again.",
+        });
+      }
     } finally {
       setIsSubmitting(false);
     }

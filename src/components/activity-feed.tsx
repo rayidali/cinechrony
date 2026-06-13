@@ -3,15 +3,10 @@
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { Loader2, Film, Users, Bookmark } from 'lucide-react';
 import Link from 'next/link';
-import {
-  getHomeFeed,
-  getSavedFeed,
-  getRecommendationsForUser,
-  getFriendsWatching,
-  type RecommendationSet,
-  type FriendsWatchingCard as FWCard,
-  type FeedItem,
-} from '@/app/actions';
+import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
+import type { RecommendationSet } from '@/lib/tmdb-server';
+import type { FeedItem } from '@/lib/posts-server';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import {
   readCachedAction,
@@ -168,10 +163,46 @@ export function ActivityFeed({
   // merged home feed (activities + posts).
   const fetchPage = useCallback(
     async (pageCursor?: string) => {
-      const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-      return feedFilter === 'saved'
-        ? getSavedFeed(idToken, pageCursor)
-        : getHomeFeed(idToken, pageCursor);
+      if (feedFilter === 'saved') {
+        const qs = new URLSearchParams();
+        if (pageCursor) qs.set('cursor', pageCursor);
+        try {
+          const r = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(
+            'GET',
+            `/api/v1/saved-feed${qs.toString() ? `?${qs.toString()}` : ''}`,
+          );
+          return { items: r.items, hasMore: r.hasMore, nextCursor: r.nextCursor } as {
+            items: FeedItem[]; hasMore: boolean; nextCursor?: string; error?: string;
+          };
+        } catch (err) {
+          return {
+            items: [], hasMore: false,
+            error: err instanceof ApiClientError ? err.message : 'failed to load saved feed.',
+          };
+        }
+      }
+      // Home feed via /api/v1/home-feed — apiCall throws on error; we map
+      // back to the {error} shape callers below expect.
+      try {
+        const qs = new URLSearchParams();
+        if (pageCursor) qs.set('cursor', pageCursor);
+        const r = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          `/api/v1/home-feed${qs.toString() ? `?${qs.toString()}` : ''}`,
+        );
+        return { items: r.items, hasMore: r.hasMore, nextCursor: r.nextCursor } as {
+          items: FeedItem[];
+          hasMore: boolean;
+          nextCursor?: string;
+          error?: string;
+        };
+      } catch (err) {
+        return {
+          items: [] as FeedItem[],
+          hasMore: false,
+          error: err instanceof ApiClientError ? err.message : 'Failed to load the feed.',
+        };
+      }
     },
     [feedFilter, auth],
   );
@@ -224,20 +255,18 @@ export function ActivityFeed({
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (!idToken) return;
         const [recs, fw] = await Promise.all([
-          getRecommendationsForUser(idToken),
-          getFriendsWatching(idToken),
+          apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations')
+            .catch(() => ({ sets: [] as RecommendationSet[] })),
+          apiCall<{ cards: FWCard[] }>('GET', '/api/v1/friends-watching')
+            .catch(() => ({ cards: [] as FWCard[] })),
         ]);
         if (cancelled) return;
-        if ('sets' in recs) {
-          const sets = recs.sets ?? [];
-          setRecSets(sets);
-          if (recKey) setCachedAction(recKey, sets);
-        }
-        if ('cards' in fw) {
-          const cards = fw.cards ?? [];
-          setFwCards(cards);
-          if (fwKey) setCachedAction(fwKey, cards);
-        }
+        const sets = recs.sets ?? [];
+        setRecSets(sets);
+        if (recKey) setCachedAction(recKey, sets);
+        const cards = fw.cards ?? [];
+        setFwCards(cards);
+        if (fwKey) setCachedAction(fwKey, cards);
       } catch {
         /* non-critical */
       }

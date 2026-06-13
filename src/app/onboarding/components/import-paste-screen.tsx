@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { parseAndMatchMovies } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { MatchedMovie } from '@/lib/types';
 
 const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
@@ -31,12 +31,9 @@ export function ImportPasteScreen({
 
     setIsProcessing(true);
     try {
-      const result = await parseAndMatchMovies(pastedText);
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
-
+      const result = await apiCall<{ matches: MatchedMovie[] }>(
+        'POST', '/api/v1/imports/letterboxd/match', { text: pastedText },
+      );
       if (result.matches && result.matches.length > 0) {
         onFindMovies(result.matches);
       } else {
@@ -46,11 +43,11 @@ export function ImportPasteScreen({
           description: "We couldn't identify any movies in that text. Try a different format.",
         });
       }
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Error",
-        description: error.message || "Failed to process movies. Please try again.",
+        description: error instanceof ApiClientError ? error.message : "Failed to process movies. Please try again.",
       });
     } finally {
       setIsProcessing(false);

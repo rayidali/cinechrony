@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { Plus } from 'lucide-react';
-import type { FriendsWatchingCard as FWCard } from '@/app/actions';
+import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 import type { Movie, SearchResult } from '@/lib/types';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { AddToListSheet } from './add-to-list-sheet';

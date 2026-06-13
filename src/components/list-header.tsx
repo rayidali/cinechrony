@@ -6,7 +6,7 @@ import { Loader2, Pencil } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useUser } from '@/firebase';
-import { getListMembers } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import type { ListMember, MovieList } from '@/lib/types';
 
@@ -66,7 +66,9 @@ export function ListHeader({
 
       setIsLoadingMembers(true);
       try {
-        const result = await getListMembers(listOwnerId, listId);
+        const result = await apiCall<{ members: ListMember[] }>(
+          'GET', `/api/v1/lists/${listOwnerId}/${listId}/members`,
+        );
         const loadedMembers = result.members || [];
         setMembers(loadedMembers);
         // Cache for later use (e.g., settings page)

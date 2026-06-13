@@ -4,8 +4,8 @@ import { useState, useEffect, useTransition } from 'react';
 import { Drawer } from 'vaul';
 import { Loader2, ListPlus } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { getUserLists } from '@/app/actions';
 import { apiCall } from '@/lib/api-client';
+import type { ListSummary } from '@/lib/lists-server';
 import { useToast } from '@/hooks/use-toast';
 import type { SearchResult } from '@/lib/types';
 
@@ -34,7 +34,7 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
     if (!isOpen || !user) return;
     let cancelled = false;
     setIsLoading(true);
-    getUserLists(user.uid)
+    apiCall<{ lists: ListSummary[] }>('GET', `/api/v1/users/${user.uid}/lists`)
       .then((res) => {
         if (cancelled) return;
         setLists(

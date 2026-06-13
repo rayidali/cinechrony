@@ -1,6 +1,17 @@
 # Cinechrony Launch Plan — App Stores + Hero Feature + Marketing
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-25
+> **Started:** 2026-05-15 · **Updated:** 2026-06-08
+>
+> **Phase A complete** (PRs #1–#18, branch `feat/phase-a-leftover-actions`).
+> `src/app/actions.ts` is deleted; every former mutation is a `/api/v1/*`
+> route. Static export produces `out/` for Capacitor consumption.
+>
+> **Phase B complete** (B.1–B.5, branch `feat/phase-b-capacitor-wrap`).
+> Capacitor 8 wraps `out/` in iOS + Android shells. Native auth, push
+> via FCM, Universal Links, and native polish all wired in code. Owner
+> manual setup checklist in `PHASE-B-HANDOFF.md`.
+>
+> **Next: Phase C** — the iOS Share Extension hero feature.
 > **Goal:** Ship to iOS App Store + Google Play with a refreshed UI + the **share-TikTok/Reel-to-watchlist** Share Extension as the hero feature (AI dissects the linked video and extracts the mentioned films), plus automated TikTok-first / Instagram-second daily content.
 > **Sequencing:** The pre-launch audit (`AUDIT.md` Phases 0–2) is done. Phase 0 (UI redesign) and Phase 0.5 (Discover) are both shipped and on `main`. **Phase 0.6 (Speed & Native Feel) is next** — a small, focused pass to eliminate the loading flashes that will read as "webby" once we ship to the App Store. Then A (API routes) → B (Capacitor) → C (Share Extension) → D (stores) → E (marketing).
 > **Approach:** Capacitor (right path — static export + API routes refactor). Not a Swift rewrite. Solo dev using Claude Code for Swift work.
@@ -329,22 +340,68 @@ Same conventions as the audit tracker:
 - [x] **A.3.35d** `DELETE /api/v1/lists/[ownerId]/[listId]/like` — `unlikeList` (transactional; lastLikedAt preserved on unlike) — PR #9
 
 **Activities**
-- [ ] **A.3.36** `GET /api/v1/activities?cursor=...` — `getActivityFeed`
-- [ ] **A.3.37** `POST /api/v1/activities/[id]/like` — `likeActivity` (transactional)
+- [x] **A.3.36** `GET /api/v1/activities?cursor=` — `getActivityFeed` (public, cursor-paginated) — PR #10
+- [x] **A.3.37** `POST /api/v1/activities/[id]/like` — `likeActivity` (rate-limited, transactional, closes AUDIT.md 3.5 activity-like leg) — PR #10
+- [x] **A.3.37a** `DELETE /api/v1/activities/[id]/like` — `unlikeActivity` (transactional) — PR #10
 
-**Notifications**
-- [ ] **A.3.38** `GET /api/v1/notifications` — list
-- [ ] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`
+**Posts** (split out of original "Activities + Posts" PR)
+- [x] **A.3.37b** `POST /api/v1/posts` — `createPost` (rate-limited, validation, mention+tag notifications, rating upsert) — PR #11
+- [x] **A.3.37c** `GET /api/v1/posts/[id]` — `getPost` (block-aware; returns null across a block) — PR #11
+- [x] **A.3.37d** `PATCH /api/v1/posts/[id]` — `updatePost` (owner-only, writes editedAt) — PR #11
+- [x] **A.3.37e** `DELETE /api/v1/posts/[id]` — `deletePost` (owner-only) — PR #11
+- [x] **A.3.37f** `POST /api/v1/posts/media-upload-url` — presigned R2 PUT (uid-scoped key, image/video, ≤200MB) — PR #11
+- [x] **A.3.37g** `POST /api/v1/posts/[id]/like` — `likePost` (transactional, closes AUDIT.md 3.5 post-like leg — FOURTH and FINAL like surface; rate-limited) — PR #11
+- [x] **A.3.37h** `DELETE /api/v1/posts/[id]/like` — `unlikePost` (transactional) — PR #11
+- [x] **A.3.37i** `GET /api/v1/home-feed?cursor=` — `getHomeFeed` (merged activities+posts, block-filtered server-side, timestamp cursor) — PR #11
 
-**Search & external**
-- [ ] **A.3.40** `GET /api/v1/users/search?q=...` — `searchUsers` w/ prefix query (closes AUDIT.md 2.8)
-- [ ] **A.3.41** `GET /api/v1/movies/search?q=...` — TMDB proxy
-- [ ] **A.3.42** `GET /api/v1/movies/[tmdbId]` — TMDB details
-- [ ] **A.3.43** `GET /api/v1/movies/[tmdbId]/imdb-rating` — OMDB proxy
+**Post comments — PR #12 (ships AUDIT.md 3.5 comment-like leg)**
+- [x] **A.3.37j** `POST /api/v1/posts/[id]/comments` — `createPostComment` (rate-limited via `review` bucket, block-aware vs post author, 1-level replies, recipient = post author for top-level / parent comment author for replies) — PR #12
+- [x] **A.3.37k** `GET /api/v1/posts/[id]/comments` — `getPostComments` (public; block-filtered server-side from viewer's perspective; capped at 300) — PR #12
+- [x] **A.3.37l** `DELETE /api/v1/posts/[id]/comments/[cid]` — `deletePostComment` (comment author OR post author; decrements parent `replyCount` for replies, post `commentCount` for top-level) — PR #12
+- [x] **A.3.37m** `POST /api/v1/posts/[id]/comments/[cid]/like` — `likePostComment` (transactional read-check-write, AUDIT.md 3.5; rate-limited via `like` bucket) — PR #12
+- [x] **A.3.37n** `DELETE /api/v1/posts/[id]/comments/[cid]/like` — `unlikePostComment` (transactional) — PR #12
 
-**Admin**
-- [ ] **A.3.44** `POST /api/v1/admin/backfill-movies` — strict `ADMIN_SECRET` (closes AUDIT.md 1.8)
-- [ ] **A.3.45** Other backfill routes — same hardening
+**Notifications — PR #13 (also closes a pre-existing auth gap)**
+- [x] **A.3.38** `GET /api/v1/notifications?cursor=&limit=` — `listNotifications` (cursor-paginated, block-filtered). Caller-scoped via Bearer token only — replaces the legacy `getNotifications(userId)` that trusted any UID arg. — PR #13
+- [x] **A.3.38a** `GET /api/v1/notifications/unread-count` — `getUnreadNotificationCount` (Firestore `count()` aggregate). Same auth-gap closure. — PR #13
+- [x] **A.3.39** `POST /api/v1/notifications/read` — `markNotificationsRead`. With ids → only docs owned by caller are flipped; no ids → all caller's unread. — PR #13
+- [x] **A.3.39a** `POST /api/v1/me/push-subscription` — `savePushSubscription` (rate-limited via `pushSubscribe`, idempotent by endpoint). Validates https endpoint + `keys.p256dh/auth` shape. — PR #13
+- [x] **A.3.39b** `DELETE /api/v1/me/push-subscription` — `removePushSubscription`. Flips `pushEnabled=false` when last sub removed. — PR #13
+- [x] **A.3.39c** `GET /api/v1/me/push-status` — `getPushStatus`. — PR #13
+- [x] **A.3.39d** `GET /api/v1/me/notification-preferences` — `getNotificationPreferences` (returns defaults for unset keys). — PR #13
+- [x] **A.3.39e** `PATCH /api/v1/me/notification-preferences` — `updateNotificationPreferences` (merge-update; unknown keys / non-booleans dropped). — PR #13
+
+> **Note on AUDIT.md 4.2** — web-push fan-out from notification creators is still TODO. PR #13 migrated the *management* surface and added cursor pagination + closed a userId-as-arg auth gap, but the in-app `createMentionNotifications` / `createReplyNotification` / etc. helpers in `src/lib/notifications-server.ts` do **not** yet call `webpush.sendNotification` for each subscription. That's a separate workstream (sized at ~1 PR; requires a `web-push` lib import + the `webpush.sendNotification` integration + per-event "respect notificationPreferences" gating).
+
+**Search & external — PR #14**
+- [x] **A.3.40** `GET /api/v1/users/search?q=...` — `searchUsersForViewer` (publicApiRoute; auth-aware: excludes self + block-filters when Bearer token present). Closes AUDIT.md 2.8 end-to-end. — PR #14
+- [x] **A.3.41** `GET /api/v1/movies/trending` — TMDB trending/day enriched with IMDB ratings (server-only OMDB key). Public. — PR #14
+- [x] **A.3.42** `GET /api/v1/movies/[tmdbId]/similar?mediaType=movie|tv&limit=N` — TMDB recommendations → fallback to similar. Public. — PR #14
+- [x] **A.3.43** `GET /api/v1/movies/imdb-rating/[imdbId]` — OMDB proxy (server-only key). Public. — PR #14
+- [x] **A.3.43a** `GET /api/v1/recommendations` — `getRecommendationsForUser` (Bearer auth required; gated on viewer's ratings). — PR #14
+- Note: TMDB **search** (`searchTmdbMulti`) and **details** (`fetchTmdbDetailsWithCache`) intentionally stay client-side via `src/lib/tmdb-client.ts` / `tmdb-details-cache.ts` — the TMDB read token is `NEXT_PUBLIC_*` and safe to use from the browser. Adding server proxies for those would add a latency hop with no security benefit.
+
+**Bookmarks + safety + friends-watching + reports — PR #15**
+- [x] **A.3.46** `POST /api/v1/bookmarks` — `saveItem` (body `{ itemType, itemId }`; deterministic doc id, idempotent). — PR #15
+- [x] **A.3.46a** `GET /api/v1/bookmarks` — `getMyBookmarks` (cache hydrator; up to 1000 keys). — PR #15
+- [x] **A.3.46b** `DELETE /api/v1/bookmarks/[itemType]/[itemId]` — `unsaveItem` (idempotent). — PR #15
+- [x] **A.3.46c** `GET /api/v1/saved-feed?cursor=&limit=` — `getSavedFeed` (cursor-paginated, hydrated; dangling-bookmark-safe). — PR #15
+- [x] **A.3.47** `POST /api/v1/users/[uid]/mute` — `muteUser` (rejects self-mute). — PR #15
+- [x] **A.3.47a** `DELETE /api/v1/users/[uid]/mute` — `unmuteUser`. — PR #15
+- [x] **A.3.47b** `GET /api/v1/me/mutes` — `getMyMutes` (cache hydrator). — PR #15
+- [x] **A.3.48** `POST /api/v1/users/[uid]/block` — `blockUser` (severs follows BOTH ways with count decrements; revokes pending invites both ways; rejects self-block). — PR #15
+- [x] **A.3.48a** `DELETE /api/v1/users/[uid]/block` — `unblockUser` (does NOT restore the severed follow). — PR #15
+- [x] **A.3.48b** `GET /api/v1/me/block-context` — `getMyBlockContext` (returns `{ blockedIds, iBlocked }`). — PR #15
+- [x] **A.3.48c** `GET /api/v1/me/blocked-users` — `getBlockedUsers` (full UserProfile[] for the settings unblock list; email never returned per AUDIT 1.9). — PR #15
+- [x] **A.3.49** `GET /api/v1/friends-watching` — `getFriendsWatching` (aggregated; ≥2 followed-user activities on the same film collapse into one card; Bearer auth). — PR #15
+- [x] **A.3.50** `POST /api/v1/reports` — `reportContent` (rate-limited via `report` bucket; accepts ALL five content types — fixes legacy validator bug). — PR #15
+
+**Admin — PR #16 (closes AUDIT 1.8 end-to-end)**
+- [x] **A.3.44** `POST /api/v1/admin/backfill-user-search` — `backfillUserSearchFields` (legacy doc normalization for AUDIT 2.8 search; idempotent). — PR #16
+- [x] **A.3.44a** `POST /api/v1/admin/backfill-movies` — `backfillMovieUserData` (denormalize `addedByUsername`/etc. on existing movies + `noteAuthors`). — PR #16
+- [x] **A.3.44b** `POST /api/v1/admin/backfill-reviews` — `backfillReviewsThreading` (adds `parentId: null` + `replyCount`). — PR #16
+- [x] **A.3.44c** `POST /api/v1/admin/backfill-email-privacy` — `backfillEmailPrivacy` (moves `email` from public `/users` to owner-only `/users_private`; AUDIT 1.9 prereq). — PR #16
+- [x] **A.3.45** Unified auth: `src/lib/admin-handler.ts` (`adminRoute<>` wrapper). ONE env var (`ADMIN_SECRET`), ONE check, `crypto.timingSafeEqual` constant-time compare, dev-mode bypass only when `NODE_ENV === 'development'` AND env unset, fail-closed otherwise. Legacy `ADMIN_SECRET_TOKEN` dual-env-var is retired. — PR #16
 
 **Per-endpoint test pattern:** for each route, add `scripts/audit-tests/<route>.test.ts` covering: unauth → 401, wrong user → 403, correct user → 200, invalid input → 400. Standardize via a helper.
 
@@ -354,13 +411,22 @@ Same conventions as the audit tracker:
 - [ ] **A.4.2** Delete `src/app/actions.ts` (or keep as a thin re-export during transition).
 - [ ] **A.4.3 — Test:** all existing UI flows work in `npm run dev` against the new routes.
 
-### A.5 — Static export config
+### A.5 — Static export (PR #17 + the leftover-actions PR #18)
 
-- [ ] **A.5.1** Set `output: 'export'` in `next.config.ts`. Configure `images.unoptimized: true` (already done).
-- [ ] **A.5.2** Identify any pages still using `getServerSideProps`-equivalent server features or RSC fetching — convert to client-side.
-- [ ] **A.5.3** Resolve dynamic route handling for static export — `/lists/[listId]`, `/profile/[username]`, etc. (use `generateStaticParams` returning `[]` + `dynamicParams: true` won't work for export; use a single client-side router pattern instead). May need to introduce a catch-all client-rendered router.
-- [ ] **A.5.4** `npm run build` outputs a clean `out/` directory.
-- [ ] **A.5.5 — Test:** serve `out/` with a static server (e.g. `npx serve out`); every route works as a client-side app.
+**PR #17 — foundation (shipped):**
+- [x] **A.5.1** Env-gated `output: 'export'` in `next.config.ts` (only when `BUILD_TARGET=static`). `images.unoptimized: true` already set. `trailingSlash: true` added for static-host compatibility. — PR #17
+- [x] **A.5.2** `<Suspense>` boundaries added to each dynamic-page wrapper so `useSearchParams()` doesn't trip the prerender. — PR #17
+- [x] **A.5.3** Each of the 7 dynamic page routes (`/lists/[listId]`, `/lists/[listId]/settings`, `/post/[postId]`, `/invite/[code]`, `/movie/[tmdbId]/comments`, `/profile/[username]`, `/profile/[username]/lists/[listId]`) refactored: `'use client'` body moved to `./client.tsx`; new `page.tsx` is a server component exporting `generateStaticParams` (single placeholder `'_'` so Next produces one HTML shell) + rendering the client inside `<Suspense>`. SPA router rehydrates with the real param at runtime. — PR #17
+- [x] **A.5.4a** `scripts/static-build.sh` — moves `src/app/api/` aside during the static export (Next.js doesn't allow Route Handlers in `output: 'export'` mode), clears `.next/` to avoid cross-target chunk reuse, restores on EXIT trap (even on failure). — PR #17
+- [x] **A.5.4b** `NEXT_PUBLIC_API_BASE_URL` honored by `src/lib/api-client.ts` — when set, absolute paths starting with `/` get prefixed so the static bundle (Capacitor / Cloudflare Pages) calls the Vercel-hosted API cross-origin. Unset = same-origin (Vercel deploy behavior is unchanged). — PR #17
+- [x] **A.5.4c** `npm run build:static` script. — PR #17
+
+**PR #18 — leftover Server Actions migrated (Phase A complete):**
+- [x] **A.5.4** `npm run build:static` outputs a clean ~3.7MB `out/` directory. — PR #18
+- [x] **A.5.4d** `src/app/actions.ts` deleted. Every former Server Action either ships as a `/api/v1/*` route or was dead code. 19 new routes added (lists/profiles/follow/letterboxd); 4 helper modules added (`profiles-server.ts`, `letterboxd-server.ts`, plus extensions to `lists-server.ts` / `follows-server.ts`). — PR #18
+- [x] **A.5.4e** AUDIT 1.13 (private-list preview privacy) closed end-to-end via the new `GET /api/v1/lists/[ownerId]/[listId]/preview` route. — PR #18
+- [x] **A.5.4f** `isFollowing` route consolidated to return both directions in one call (`{ isFollowing, isFollowedBy }`); the legacy `isFollowing(a, b)` arg surface that let any client probe any follower→following pair is gone. — PR #18
+- [ ] **A.5.5 — Manual smoke (next):** serve `out/` with a static server (`npx serve out`) and verify a real flow end-to-end; deploy to Cloudflare Pages or wrap in Capacitor for Phase B.
 
 ---
 
@@ -398,44 +464,85 @@ Same conventions as the audit tracker:
 
 ### B.1 — Install & init
 
-- [ ] **B.1.1** `npm install @capacitor/core @capacitor/cli @capacitor/ios @capacitor/android`
-- [ ] **B.1.2** `npx cap init Cinechrony com.cinechrony.app --web-dir=out`
-- [ ] **B.1.3** Configure `capacitor.config.ts`: app ID, name, `webDir: 'out'`, deep link scheme, allowed navigation domains.
-- [ ] **B.1.4** Add iOS and Android platforms: `npx cap add ios && npx cap add android`.
-- [ ] **B.1.5** `npm run build && npx cap sync` — produces working Xcode and Android Studio projects.
+- [x] **B.1.1** Capacitor 8 (core, cli, ios, android) installed.
+- [x] **B.1.2** `cap init Cinechrony com.cinechrony.app --web-dir=out` run.
+- [x] **B.1.3** `capacitor.config.ts` configured: appId, appName, webDir,
+  backgroundColor, server.allowNavigation allowlist (Firebase + Apple
+  + Vercel API), iOS contentInset 'automatic', splash + status-bar
+  plugin config.
+- [x] **B.1.4** `cap add ios && cap add android` done — both Xcode and
+  Android Studio projects scaffolded under `ios/` and `android/`.
+- [x] **B.1.5** `npm run build:static && cap sync` works — `out/` is
+  Capacitor-ready. Added `.vercelignore` so deploys don't ship native
+  shells. Added npm scripts: `cap:sync`, `cap:open:ios`, `cap:open:android`,
+  `cap:run:ios`, `cap:run:android`, `cap:assets`.
 
 ### B.2 — Auth in Capacitor
 
 > Firebase Auth Web SDK has known issues in WKWebView (popup auth, OAuth redirects). Plan around it.
 
-- [ ] **B.2.1** Decide: use Firebase Auth Web SDK with redirect flow (works but fragile), or use `@capacitor-firebase/authentication` plugin (more reliable, native auth dialogs).
-  - **Recommended:** Capacitor Firebase Auth plugin for Google sign-in, Apple sign-in. Email/password can stay on Web SDK.
-- [ ] **B.2.2** Add Sign in with Apple — **required by App Store for any app that offers third-party social sign-in** (Google). Use `@capacitor-community/apple-sign-in` or the Firebase plugin's Apple support.
-- [ ] **B.2.3** ID token retrieval working from Capacitor context for `apiCall`.
-- [ ] **B.2.4 — Test:** login as Google, Apple, email — all three succeed in iOS Simulator + on device.
+- [x] **B.2.1** Decision: `@capacitor-firebase/authentication` plugin
+  with `skipNativeAuth: true` — plugin handles ONLY the native dialog,
+  Firebase Web SDK stays the source of truth for auth state. Email/
+  password unchanged on Web SDK.
+- [x] **B.2.2** Sign in with Apple wired (native runtime only for v1).
+  Web SDK Apple flow deferred — requires Apple Service ID config we
+  don't have yet. iOS button hidden until `Capacitor.isNativePlatform()`.
+- [x] **B.2.3** `auth.currentUser.getIdToken()` works identically in
+  native + web — `signInWithCredential` brings the Web SDK in sync
+  after native sign-in completes. `apiCall` continues to read from
+  `auth.currentUser`.
+- [ ] **B.2.4 — Test:** login as Google, Apple, email — all three succeed in iOS Simulator + on device. (Manual; requires GoogleService-Info.plist + Apple Developer enablement — see PHASE-B-HANDOFF.md §1–§7.)
 
 ### B.3 — Push notifications via APNs
 
-- [ ] **B.3.1** Install `@capacitor/push-notifications`.
-- [ ] **B.3.2** Configure APNs in Apple Developer + Firebase Console (FCM as the delivery layer).
-- [ ] **B.3.3** Replace the half-built web push subscription flow with the Capacitor plugin's `register()` → returns FCM token → save via `/api/v1/me/push-subscription`.
-- [ ] **B.3.4** Server-side: `web-push` library still works for web users; add FCM Admin SDK send for native tokens. Update notification creators to fan out to both.
-- [ ] **B.3.5** Per-event push (closes AUDIT.md 4.2). Wire `mention`, `reply`, `list_invite` first; `like`, `follow` second.
-- [ ] **B.3.6 — Test:** trigger each event type from a second account → push arrives on physical iOS device within seconds.
+- [x] **B.3.1** Installed `@capacitor-firebase/messaging` (FCM) instead
+  of `@capacitor/push-notifications` (APNs raw). Reason: FCM is one
+  API for iOS + Android server-side, we already use Firebase Admin.
+- [ ] **B.3.2** Configure APNs in Apple Developer + Firebase Console (FCM as the delivery layer). (Manual; PHASE-B-HANDOFF.md §4.)
+- [x] **B.3.3** `src/lib/native-push.ts` + `<NativePushRegistration />`:
+  on first authenticated boot, requests permission, fetches FCM token,
+  POSTs `{kind:'fcm', token, platform}` to `/api/v1/me/push-subscription`.
+  Listens for `tokenReceived` to re-save on rotation.
+- [x] **B.3.4** Server-side: `src/lib/push-server.ts` unified entry —
+  web subs via web-push (unchanged), FCM subs via firebase-admin
+  `getMessaging().send()`. Auto-prunes dead tokens (410/404 on web,
+  registration-not-registered on FCM).
+- [x] **B.3.5** Per-event push wired into every creator: mention,
+  reply, review like, post tag, post like, post comment, list_invite,
+  follow. **Closes AUDIT.md 4.2.**
+- [ ] **B.3.6 — Test:** trigger each event type from a second account → push arrives on physical iOS device within seconds. (Manual; requires §2 + §4 from handoff.)
 
 ### B.4 — Deep linking (invites + share extension callbacks)
 
-- [ ] **B.4.1** Set up Universal Links (iOS) and App Links (Android). Required for `/invite/[code]` URLs to open inside the app.
-- [ ] **B.4.2** Add `apple-app-site-association` and `assetlinks.json` to the `public/` directory.
-- [ ] **B.4.3** Capacitor `App` plugin listens for `appUrlOpen` → routes to the right in-app screen.
-- [ ] **B.4.4 — Test:** tap an invite link in Messages → opens directly in the app, not Safari.
+- [x] **B.4.1** Universal Links + App Links scaffolded. Owner replaces
+  `TEAMID_PLACEHOLDER` (AASA) and `SHA256_PLACEHOLDER` (assetlinks.json)
+  once Apple Developer + release keystore exist — PHASE-B-HANDOFF.md §3, §5.
+- [x] **B.4.2** Files at `public/.well-known/apple-app-site-association`
+  + `public/.well-known/assetlinks.json`. `next.config.ts` headers()
+  pins `Content-Type: application/json` on both (Apple silently
+  rejects AASA served as text/plain).
+- [x] **B.4.3** `<DeepLinkHandler />` listens for `App.appUrlOpen` and
+  `App.getLaunchUrl()` (covers cold-start + warm taps). Whitelist of
+  `/invite/`, `/post/`, `/movie/`, `/profile/`, `/lists/` paths.
+- [ ] **B.4.4 — Test:** tap an invite link in Messages → opens directly in the app, not Safari. (Manual; needs §3 from handoff.)
 
 ### B.5 — Native polish
 
-- [ ] **B.5.1** Status bar style, splash screen, app icons (all sizes — use `@capacitor/assets` to generate from a single source).
-- [ ] **B.5.2** Configure safe-area insets for notch/dynamic island.
+- [x] **B.5.1** `<NativeShellInit />` configures StatusBar (Style.Dark
+  → dark icons on cream), hides splash on React mount, hides keyboard
+  accessory bar. `@capacitor/assets` wired via `npm run cap:assets`
+  with cream/ink color tokens — owner drops a 1024×1024 `icon.png` +
+  2732×2732 `splash.png` into `assets/` and regenerates.
+- [x] **B.5.2** Safe-area utility classes (`pt-safe`, `pb-safe`,
+  `pl-safe`, `pr-safe`) added to globals.css. Viewport meta now
+  declares `viewport-fit: cover` so `env(safe-area-inset-*)` returns
+  non-zero on notched devices.
 - [ ] **B.5.3** Verify pull-to-refresh feels native (AUDIT.md 3.4 fix should land first).
-- [ ] **B.5.4** Disable WKWebView scroll bounce on body if desired (`@capacitor/keyboard` and viewport config).
+- [x] **B.5.4** `overscroll-behavior-y: none` on the body — kills the
+  WKWebView page-level rubber band. Scroll containers (lists, feeds)
+  still bounce internally. `@capacitor/keyboard` installed for future
+  scroll-into-view + dismiss behaviours.
 - [ ] **B.5.5 — Test:** run on a real iPhone 12+ and a real Android device. Feel-check the basics.
 
 ---
@@ -578,7 +685,11 @@ Same conventions as the audit tracker:
 > requirements, not soundness fixes. Status as of 2026-05-20:
 
 - [x] **Account deletion in-app** — already existed (`/settings`); Apple requires it for any app with sign-up.
-- [x] **Sign in with Apple** — N/A. App offers only email/password, no third-party social login, so SIWA is not mandated. (If Google/Apple login is ever added, SIWA becomes required — see B.2.2.)
+- [x] **Sign in with Apple** — Phase B.2 added Google + Apple sign-in.
+  Native Apple sign-in is wired via `@capacitor-firebase/authentication`
+  (button hidden on web for v1; iOS-only). App Store §4.8 requirement
+  satisfied — code-side. Owner must enable "Sign in with Apple" in the
+  Apple Developer portal + Firebase Console (handoff §6).
 - [x] **AppTrackingTransparency** — N/A. No analytics/tracking SDK in the app.
 - [x] **Content reporting (§1.2)** — DONE in the audit: `reportContent` action + Report button on reviews + server-only `/reports` collection.
 - [x] **`/privacy` route exists** — built in the audit with an accurate draft. Final legal copy still pending → D.4.1.

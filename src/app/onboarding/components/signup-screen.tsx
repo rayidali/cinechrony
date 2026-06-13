@@ -8,7 +8,9 @@ import { Label } from '@/components/ui/label';
 import { Loader2, Eye, EyeOff } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { createUserWithEmailAndPassword } from 'firebase/auth';
+import { useRouter } from 'next/navigation';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { SocialSignInButtons } from '@/components/auth/social-sign-in-buttons';
 
 const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
 const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
@@ -24,6 +26,7 @@ export function SignUpScreen({ onComplete, onLogin }: SignUpScreenProps) {
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const auth = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
 
   const isEmailValid = email.includes('@') && email.includes('.');
@@ -76,6 +79,19 @@ export function SignUpScreen({ onComplete, onLogin }: SignUpScreenProps) {
       </div>
 
       <div className="w-full max-w-sm">
+        <div className="space-y-3 mb-4">
+          <SocialSignInButtons onSuccess={() => router.push('/lists')} />
+        </div>
+
+        <div className="relative my-4">
+          <div className="absolute inset-0 flex items-center" aria-hidden="true">
+            <div className="w-full border-t border-border" />
+          </div>
+          <div className="relative flex justify-center text-xs uppercase">
+            <span className="bg-background px-2 text-muted-foreground tracking-wider">or sign up with email</span>
+          </div>
+        </div>
+
         <form onSubmit={handleSignUp} className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>

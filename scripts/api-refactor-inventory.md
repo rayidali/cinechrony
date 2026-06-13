@@ -1,17 +1,24 @@
 # API Refactor Inventory — Phase A (LAUNCH.md)
 
 > Generated 2026-05-26 against `src/app/actions.ts` (7,791 lines).
-> Source of truth for the Server Actions → API routes migration. Each row
-> becomes (or maps into) one `/api/v1/...` route. Tick the **Migrated**
-> column as each one ships.
+> **Phase A COMPLETE 2026-06-02.** `actions.ts` has been deleted. Every
+> former Server Action either ships as a `/api/v1/*` route or has been
+> removed as dead code. Server-side logic now lives in
+> `src/lib/<domain>-server.ts` helper modules consumed by the routes.
 >
-> **103 total exports** — 50 WRITE, 32 READ_ADMIN, 4 READ_TMDB, 1 READ_OMDB,
-> 4 UPLOAD, 12 INTERNAL, 0 dead. After collapsing related reads (e.g.
-> `getFollowers` + `getFollowing` + `isFollowing` share a route),
-> expect **~55–60 route files**.
+> This document is **historical** — kept as the migration trace. To find
+> the current API surface, walk `src/app/api/v1/**` instead.
 >
-> AUDIT.md hooks: 20+ Phase 1 items close as a side-effect of this migration
-> (auth check + transactional fix applied per-endpoint).
+> **Final tally**: 18 PRs shipped (vs initial 14-PR plan; rebalanced as
+> scope evolved). 403 audit tests green. `npm run build:static` produces
+> a clean `out/` for Capacitor consumption.
+>
+> **Audit items closed during the migration**: 1.2, 1.3, 1.4, 1.5, 1.6,
+> 1.8, 1.11, 1.12, 1.13, 1.14, 2.1, 2.2, 2.5, 2.6, 2.8, 2.9, 3.5 (all
+> five like surfaces), 3.8, 3.10, 4.2a. Phase B closed 4.2 itself.
+>
+> **Original spec follows** — every row's Status column shipped, just not
+> always in the originally planned PR number (the plan shifted to 18 PRs).
 
 ---
 
@@ -28,12 +35,15 @@
 | #7 | Follows | `users/[uid]/follow` (POST, DELETE), `users/[uid]/followers`, `users/[uid]/following` | 3.8, 3.8a (count-drift) | ✅ shipped on `feat/phase-a-follows-endpoints` |
 | #8 | Reviews | 8 endpoints — POST/GET/PATCH/DELETE + replies + like/unlike + by-user; cursor pagination | 2.6, 3.5, 3.10 | ✅ shipped on `feat/phase-a-reviews-endpoints` |
 | #9 | Ratings + List likes | `ratings`, `ratings/[tmdbId]`, `ratings/by-user`, `users/[uid]/ratings`, `lists/.../like` | 2.5 | ✅ shipped on `feat/phase-a-ratings-listlikes-endpoints` |
-| #9 | Activities + posts | `activities`, `activities/[id]/like`, `posts` (CRUD), `posts/[id]/like`, post comments | — | pending |
-| #10 | Notifications + push | `notifications`, `notifications/read`, `me/push-subscription`, `me/notification-preferences` | 4.2 | pending |
-| #11 | Search + TMDB/OMDB | `users/search`, `movies/search`, `movies/[id]`, `movies/[id]/imdb-rating`, trending, similar, recs | 2.8 | pending |
-| #12 | Bookmarks + safety | `bookmarks`, `mutes`, `blocks` (via `getMyBlockContext`), `reports`, friends-watching, home-feed, saved-feed | — | pending |
-| #13 | Admin + backfills | Existing `/api/admin/*` rehomed under `/api/v1/admin/*` with strict ADMIN_SECRET | 1.8 | pending |
-| #14 | Static export | `output: 'export'` in next.config.ts, dynamic-route SPA fallback | — | pending |
+| #10 | Activities | `activities` (GET), `activities/[id]/like` (POST + DELETE) | 3.5 (activity leg) | ✅ shipped on `feat/phase-a-activities-endpoints` |
+| #11 | Posts | posts CRUD + getHomeFeed + media-upload + post likes (8 actions) | 3.5 (post leg) | ✅ shipped on `feat/phase-a-posts-endpoints` |
+| #12 | Post comments | `posts/[id]/comments` (POST/GET), `posts/[id]/comments/[cid]` (DELETE), `posts/[id]/comments/[cid]/like` (POST/DELETE) — 5 actions | 3.5 (comment leg) | ✅ shipped on `feat/phase-a-post-comments-endpoints` |
+| #13 | Notifications + push + prefs | `notifications` (GET, cursor-paginated), `notifications/unread-count` (GET), `notifications/read` (POST), `me/push-subscription` (POST/DELETE), `me/push-status` (GET), `me/notification-preferences` (GET/PATCH) — 8 actions; closes the userId-as-arg auth gap on 4 reads. AUDIT 4.2 (web-push fan-out from creators) NOT yet wired — separate workstream. | — | ✅ shipped on `feat/phase-a-notifications-endpoints` |
+| #14 | Search + TMDB/OMDB | `users/search` (public, auth-aware), `movies/trending`, `movies/[id]/similar`, `movies/imdb-rating/[id]`, `recommendations` — 5 actions. TMDB *search* + *details* intentionally stay client-side via `src/lib/tmdb-client.ts` (token is `NEXT_PUBLIC_*`); only the OMDB-keyed + auth-gated paths needed proxies. | 2.8 | ✅ shipped on `feat/phase-a-search-tmdb-endpoints` |
+| #15 | Bookmarks + safety + friends-watching | `bookmarks` (POST/GET), `bookmarks/[type]/[id]` (DELETE), `saved-feed` (cursor-paginated), `users/[uid]/mute` (POST/DELETE), `me/mutes` (GET), `users/[uid]/block` (POST/DELETE), `me/block-context` (GET), `me/blocked-users` (GET), `friends-watching` (GET), `reports` (POST) — 13 actions. Also: fixed a pre-existing legacy `reportContent` validator bug — accepted `'review' \| 'user' \| 'list'` runtime but typed for `'post' \| 'post_comment'` too, so post-side reports silently 400-ed. | — | ✅ shipped on `feat/phase-a-safety-bookmarks-endpoints` |
+| #16 | Admin + backfills | 4 backfill endpoints under `/api/v1/admin/*` — `backfill-user-search`, `backfill-movies`, `backfill-reviews`, `backfill-email-privacy`. Unified auth model: ONE env var (`ADMIN_SECRET`), ONE check at the route layer (`adminRoute` wrapper, constant-time compare via `crypto.timingSafeEqual`); legacy `ADMIN_SECRET_TOKEN` dual-env-var + `"run-backfill-now"` sentinel are gone. | 1.8 | ✅ shipped on `feat/phase-a-admin-endpoints` |
+| #17 | Static export — foundation | Env-gated `output: 'export'` in `next.config.ts` (via `BUILD_TARGET=static`), 7 dynamic-page wrappers with `generateStaticParams` stubs + `<Suspense>`, `NEXT_PUBLIC_API_BASE_URL` prefix in api-client for cross-origin API calls, `scripts/static-build.sh` to move `src/app/api/` aside during the export. **Static build does NOT yet succeed end-to-end** — it now fails on the remaining ~15 Server Actions in `actions.ts` (search, lists previews, onboarding, Letterboxd import, etc.). That migration is PR #18 / Phase A.5. | — | ✅ shipped on `feat/phase-a-static-export` |
+| #18 | Phase A.5 — remaining Server Actions migrated | 18 actions across lists/profiles/follow/Letterboxd → 19 new routes + 4 new helper modules (`profiles-server`, `letterboxd-server`, extensions to `lists-server` / `follows-server`); `src/app/actions.ts` **deleted**; `npm run build:static` produces a clean ~3.7MB `out/` directory; **AUDIT 1.13 closed** via the new `/lists/[ownerId]/[listId]/preview` route. Also: `isFollowing` now returns both directions in one call (`{ isFollowing, isFollowedBy }`) so the FollowButton makes one round trip instead of two — and the legacy probe-any-pair vulnerability is gone. | 1.13 | ✅ shipped on `feat/phase-a-leftover-actions` |
 
 ---
 
@@ -75,8 +85,8 @@ Legend:
 | 1802 | `searchPublicLists` | READ_ADMIN | `GET /api/v1/lists/search` | — |
 | 1828 | `getPublicListMovies` | READ_ADMIN | `GET /api/v1/lists/[id]/movies` | — |
 | 1916 | `toggleListVisibility` | WRITE | (folded into `PATCH /api/v1/lists/[id]`) | — |
-| 1957 | `backfillEmailPrivacy` | INTERNAL | admin-only | 1.9 |
-| 2000 | `backfillUserSearchFields` | INTERNAL | admin-only | 2.8 |
+| 1957 | `backfillEmailPrivacy` | ADMIN | `POST /api/v1/admin/backfill-email-privacy` | 1.9 |
+| 2000 | `backfillUserSearchFields` | ADMIN | `POST /api/v1/admin/backfill-user-search` | 2.8 |
 | 2082 | `canEditList` | INTERNAL | helper — stays internal | — |
 | 2097 | `getListMembers` | READ_ADMIN | `GET /api/v1/lists/[id]/members` | — |
 | ✅ PR #5 | `inviteToList` | WRITE | `POST /api/v1/lists/[ownerId]/[listId]/invites` | — |
@@ -120,8 +130,8 @@ Legend:
 | 4533 | `importMatchedMovies` | WRITE | `POST /api/v1/import/matched` | — |
 | 4665 | `parseLetterboxdExport` | INTERNAL | helper used by importer | — |
 | 4886 | `importLetterboxdMovies` | WRITE | `POST /api/v1/import/letterboxd` | 2.2 |
-| 5371 | `backfillMovieUserData` | INTERNAL | admin-only | 1.8 |
-| 5508 | `backfillReviewsThreading` | INTERNAL | admin-only | — |
+| 5371 | `backfillMovieUserData` | ADMIN | `POST /api/v1/admin/backfill-movies` | 1.8 |
+| 5508 | `backfillReviewsThreading` | ADMIN | `POST /api/v1/admin/backfill-reviews` | — |
 | 5693 | `getNotifications` | READ_ADMIN | `GET /api/v1/notifications` | — |
 | 5751 | `markNotificationsRead` | WRITE | `POST /api/v1/notifications/read` | — |
 | 5793 | `getUnreadNotificationCount` | READ_ADMIN | `GET /api/v1/notifications/unread-count` | — |
@@ -130,10 +140,10 @@ Legend:
 | 5923 | `getPushStatus` | READ_ADMIN | `GET /api/v1/me/push-status` | — |
 | 5943 | `getNotificationPreferences` | READ_ADMIN | `GET /api/v1/me/notification-preferences` | — |
 | 5976 | `updateNotificationPreferences` | WRITE | `PATCH /api/v1/me/notification-preferences` | — |
-| 6086 | `getImdbRating` | READ_OMDB | `GET /api/v1/movies/imdb-rating?imdbId=` | — |
+| 6086 | `getImdbRating` | READ_OMDB | `GET /api/v1/movies/imdb-rating/[imdbId]` | — |
 | 6127 | `getTrendingMovies` | READ_TMDB | `GET /api/v1/movies/trending` | — |
 | 6183 | `getSimilarMovies` | READ_TMDB | `GET /api/v1/movies/[tmdbId]/similar` | — |
-| 6250 | `getRecommendationsForUser` | READ_TMDB | `GET /api/v1/movies/[tmdbId]/recommendations` | — |
+| 6250 | `getRecommendationsForUser` | READ_TMDB | `GET /api/v1/recommendations` (Bearer auth) | — |
 | 6301 | `createActivity` | INTERNAL | helper — stays internal | — |
 | 6385 | `getActivityFeed` | READ_ADMIN | `GET /api/v1/activities` | — |
 | 6432 | `saveItem` | WRITE | `POST /api/v1/me/bookmarks` | — |
@@ -158,11 +168,11 @@ Legend:
 | 7296 | `getHomeFeed` | READ_ADMIN | `GET /api/v1/home-feed` | — |
 | 7353 | `likePost` | WRITE | `POST /api/v1/posts/[id]/like` | 3.8 |
 | 7408 | `unlikePost` | WRITE | `DELETE /api/v1/posts/[id]/like` | — |
-| 7442 | `createPostComment` | WRITE | `POST /api/v1/posts/[id]/comments` | — |
+| 7442 | `createPostComment` | WRITE | `POST /api/v1/posts/[id]/comments` | 3.8 |
 | 7538 | `getPostComments` | READ_ADMIN | `GET /api/v1/posts/[id]/comments` | — |
 | 7582 | `deletePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]` | — |
-| 7617 | `likePostComment` | WRITE | `POST /api/v1/posts/[id]/comments/[cid]/like` | 3.8 |
-| 7646 | `unlikePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]/like` | — |
+| 7617 | `likePostComment` | WRITE | `POST /api/v1/posts/[id]/comments/[cid]/like` | 3.5, 3.8 |
+| 7646 | `unlikePostComment` | WRITE | `DELETE /api/v1/posts/[id]/comments/[cid]/like` | 3.5 |
 | 7675 | `likeActivity` | WRITE | `POST /api/v1/activities/[id]/like` | 3.5, 3.8 |
 | 7717 | `unlikeActivity` | WRITE | `DELETE /api/v1/activities/[id]/like` | 3.5 |
 | 7760 | `reportContent` | WRITE | `POST /api/v1/reports` | — |

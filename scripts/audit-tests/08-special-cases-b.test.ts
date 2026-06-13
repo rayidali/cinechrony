@@ -1,34 +1,34 @@
 /**
  * Phase 1 — special-case batch B regression (1.8–1.14).
  *
- *  1.8  backfillMovieUserData — sentinel "run-backfill-now" no longer accepted
- *  1.9  email split           — email NOT on public /users, lives in /users_private
- *  1.10 updateUsername        — writes usernameLower + reservation; dup rejected
- *  1.12 revokeInvite          — owner OR inviter; others blocked; forged blocked
- *  1.11 acceptInvite          — forged blocked; revoked invite cannot be accepted
- *  1.13 getListPreview        — private list not previewable by outsiders
+ *  1.8  backfill auth gate — migrated to 41-admin-endpoints.test.ts (PR #16)
+ *  1.9  email split — email NOT on public /users, lives in /users_private
+ *  1.10 updateUsername admin path — retired in PR #18: the action had no
+ *       remaining caller (no UI, no route) and was dead code. Username
+ *       immutability for users is enforced by the lack of any update path;
+ *       admin-side changes (trademark/abuse) happen via Firestore directly.
+ *  1.11 acceptInvite — forged blocked; revoked invite cannot be accepted
+ *  1.12 revokeInvite — owner OR inviter; others blocked; forged blocked
+ *  1.13 getListPreview — private list not previewable by outsiders
  *  1.14 getListPendingInvites — collaborator gets NO inviteCode; outsider blocked
  */
 
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, callActionAs, callActionWithRawToken,
+  setupTestEnv, createTestUser,
   adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
+import { POST as profilePost } from '@/app/api/v1/me/profile/route';
 import { POST as acceptPost } from '@/app/api/v1/invites/accept/route';
 import { DELETE as revokeDelete } from '@/app/api/v1/invites/[inviteId]/route';
 import { GET as listInvitesGet } from '@/app/api/v1/lists/[ownerId]/[listId]/invites/route';
+import { GET as listPreviewGet } from '@/app/api/v1/lists/[ownerId]/[listId]/preview/route';
 
-let A: typeof import('@/app/actions');
 let owner: TestUser, attacker: TestUser, collab: TestUser;
 
-before(async () => {
-  setupTestEnv();
-  process.env.ADMIN_SECRET = 'test-admin-secret';
-  A = await import('@/app/actions');
-});
+before(() => { setupTestEnv(); });
 
 beforeEach(async () => {
   await clearFirestore();
@@ -39,16 +39,13 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('1.8 backfill: sentinel string and wrong secret are rejected; real secret works', async () => {
-  assert.deepEqual(await A.backfillMovieUserData('run-backfill-now'), { error: 'Unauthorized' });
-  assert.deepEqual(await A.backfillMovieUserData('nope'), { error: 'Unauthorized' });
-  const ok = await A.backfillMovieUserData('test-admin-secret');
-  assert.ok(!('error' in ok) || ok.error !== 'Unauthorized', 'real secret is accepted');
-});
-
 test('1.9 email split: public /users doc has NO email; /users_private does', async () => {
-  const r = await callActionAs(owner, A.createUserProfileWithUsername, 'secret@x.com', 'ownerhandle', 'Owner');
-  assert.ok(!('error' in r), JSON.stringify(r));
+  const ownerToken = await owner.getIdToken();
+  const r = await callRoute(profilePost, 'POST', {
+    token: ownerToken,
+    body: { email: 'secret@x.com', username: 'ownerhandle', displayName: 'Owner' },
+  });
+  assert.equal(r.status, 200);
 
   const pub = await adminDb().collection('users').doc(owner.uid).get();
   assert.equal(pub.data()?.email, undefined, 'no email on public doc');
@@ -58,34 +55,6 @@ test('1.9 email split: public /users doc has NO email; /users_private does', asy
   assert.equal(priv.data()?.email, 'secret@x.com', 'email lives in users_private');
 });
 
-test('1.10/2.3a updateUsername: admin-only (users CANNOT change); admin path still transactional', async () => {
-  await adminDb().collection('users').doc(owner.uid).set({ uid: owner.uid, username: 'old', usernameLower: 'old' });
-  await adminDb().collection('users').doc(attacker.uid).set({ uid: attacker.uid, username: 'att', usernameLower: 'att' });
-
-  // 2.3a: a normal user (token) can NOT change a username — it is immutable.
-  // (Signature is now (adminSecret, userId, newUsername); a user token in the
-  // adminSecret slot must be rejected.)
-  const asUser = await callActionAs(owner, A.updateUsername, owner.uid, 'NewName');
-  assert.deepEqual(asUser, { error: 'Unauthorized' }, 'users cannot change usernames');
-  assert.equal((await adminDb().collection('users').doc(owner.uid).get()).data()?.username, 'old', 'unchanged by user');
-
-  // Admin escape hatch (correct secret) still works — and still transactional:
-  // writes username, usernameLower AND the reservation doc (the 1.10 fix).
-  const ok = await A.updateUsername('test-admin-secret', owner.uid, 'NewName');
-  assert.ok(!('error' in ok), JSON.stringify(ok));
-  const doc = await adminDb().collection('users').doc(owner.uid).get();
-  assert.equal(doc.data()?.username, 'newname');
-  assert.equal(doc.data()?.usernameLower, 'newname', 'usernameLower written (the 1.10 fix, preserved)');
-  assert.equal((await adminDb().collection('usernames').doc('newname').get()).data()?.uid, owner.uid, 'reservation doc created');
-
-  // Uniqueness still enforced even via the admin path.
-  const dup = await A.updateUsername('test-admin-secret', attacker.uid, 'newname');
-  assert.deepEqual(dup, { error: 'Username is already taken.' });
-
-  // Wrong secret rejected.
-  assert.deepEqual(await A.updateUsername('wrong-secret', owner.uid, 'whatever'), { error: 'Unauthorized' });
-});
-
 test('1.12 DELETE /invites/[inviteId]: owner OR inviter can revoke; unrelated user + forged cannot', async () => {
   const mk = async (inviterId: string) => {
     const ref = adminDb().collection('invites').doc();
@@ -93,7 +62,6 @@ test('1.12 DELETE /invites/[inviteId]: owner OR inviter can revoke; unrelated us
     return ref.id;
   };
 
-  // Unrelated attacker blocked.
   const i1 = await mk(collab.uid);
   const attackerToken = await attacker.getIdToken();
   const bad = await callRoute(revokeDelete, 'DELETE', {
@@ -104,14 +72,12 @@ test('1.12 DELETE /invites/[inviteId]: owner OR inviter can revoke; unrelated us
     assert.ok(bad.body.error.message.includes('owner or the inviter'));
   }
 
-  // Owner can revoke a collaborator-created invite.
   const ownerToken = await owner.getIdToken();
   const ok1 = await callRoute(revokeDelete, 'DELETE', {
     token: ownerToken, params: { inviteId: i1 },
   });
   assert.equal(ok1.status, 200);
 
-  // Inviter can revoke their own.
   const i2 = await mk(collab.uid);
   const collabToken = await collab.getIdToken();
   const ok2 = await callRoute(revokeDelete, 'DELETE', {
@@ -119,7 +85,6 @@ test('1.12 DELETE /invites/[inviteId]: owner OR inviter can revoke; unrelated us
   });
   assert.equal(ok2.status, 200);
 
-  // Forged → 401.
   const forged = await callRoute(revokeDelete, 'DELETE', {
     token: 'forged', params: { inviteId: i1 },
   });
@@ -141,7 +106,6 @@ test('1.11 POST /invites/accept: forged blocked; a revoked invite cannot be acce
     body: { inviteId: ref.id },
   });
   assert.notEqual(res.status, 200, 'revoked invite rejected');
-  // Specifically, our InviteNotPendingError → ConflictError → 409
   assert.equal(res.status, 409);
 });
 
@@ -151,15 +115,30 @@ test('1.13 getListPreview: private list hidden from outsiders, visible to owner'
   await adminDb().collection('users').doc(owner.uid).collection('lists').doc('P')
     .collection('movies').doc('m').set({ posterUrl: 'p.jpg', createdAt: new Date() });
 
-  // No token / outsider token → empty (no leak).
-  const noTok = await A.getListPreview(owner.uid, 'P');
-  assert.deepEqual(noTok.previewPosters, [], 'no preview without auth');
-  const outsider = await A.getListPreview(owner.uid, 'P', await attacker.getIdToken());
-  assert.deepEqual(outsider.previewPosters, [], 'no preview for non-member');
+  const params = { ownerId: owner.uid, listId: 'P' };
+
+  // No token → empty (no leak).
+  const noTok = await callRoute<{ previewPosters: string[]; movieCount: number }>(
+    listPreviewGet, 'GET', { params },
+  );
+  if (noTok.body.ok !== true) return assert.fail('expected ok');
+  assert.deepEqual(noTok.body.data.previewPosters, [], 'no preview without auth');
+
+  // Outsider token → empty.
+  const attackerToken = await attacker.getIdToken();
+  const outsider = await callRoute<{ previewPosters: string[]; movieCount: number }>(
+    listPreviewGet, 'GET', { token: attackerToken, params },
+  );
+  if (outsider.body.ok !== true) return assert.fail('expected ok');
+  assert.deepEqual(outsider.body.data.previewPosters, [], 'no preview for non-member');
 
   // Owner sees it.
-  const ownerView = await A.getListPreview(owner.uid, 'P', await owner.getIdToken());
-  assert.equal(ownerView.movieCount, 1, 'owner sees the private preview');
+  const ownerToken = await owner.getIdToken();
+  const ownerView = await callRoute<{ previewPosters: string[]; movieCount: number }>(
+    listPreviewGet, 'GET', { token: ownerToken, params },
+  );
+  if (ownerView.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(ownerView.body.data.movieCount, 1, 'owner sees the private preview');
 });
 
 test('1.14 GET /lists/[ownerId]/[listId]/invites: collaborator gets NO inviteCode; outsider blocked', async () => {

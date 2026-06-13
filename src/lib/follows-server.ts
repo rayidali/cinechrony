@@ -20,6 +20,7 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import { sendPushToUser } from '@/lib/push-server';
 import { isBlockedBetween } from '@/lib/blocks-server';
 import type { UserProfile } from '@/lib/types';
 
@@ -133,6 +134,15 @@ export async function followUser(
         read: false,
         createdAt: FieldValue.serverTimestamp(),
       });
+
+      const callerName = callerData?.username
+        ? `@${callerData.username}`
+        : callerData?.displayName || 'Someone';
+      void sendPushToUser(targetUid, {
+        title: `${callerName} followed you`,
+        body: 'Tap to view their profile.',
+        data: { type: 'follow', fromUserId: callerUid },
+      }).catch((err) => console.error('[followUser] push failed:', err));
     }
   } catch (err) {
     console.error('[followUser] notification create failed:', err);
@@ -250,4 +260,40 @@ export async function getFollowing(
   return profileDocs
     .filter((d) => d.exists)
     .map((d) => profileFromDoc(d, d.id));
+}
+
+// ─── isFollowing — single boolean check (Phase A PR #18) ────────────────
+
+/**
+ * Does `followerId` currently follow `followingId`? Used by the
+ * <FollowButton> component to render the initial state and by
+ * notification rendering for "follow back" hints.
+ */
+export async function isFollowing(
+  followerId: string,
+  followingId: string,
+): Promise<{ isFollowing: boolean }> {
+  const db = getDb();
+  const followDoc = await db
+    .collection('users').doc(followerId)
+    .collection('following').doc(followingId).get();
+  return { isFollowing: followDoc.exists };
+}
+
+/**
+ * Two-way follow check between the caller (`viewerUid`) and a target
+ * user, returned in one round trip. `isFollowing` = does viewer follow
+ * target; `isFollowedBy` = does target follow viewer (drives the
+ * "Follow back" affordance on the button).
+ */
+export async function getFollowRelationship(
+  viewerUid: string,
+  targetUid: string,
+): Promise<{ isFollowing: boolean; isFollowedBy: boolean }> {
+  const db = getDb();
+  const [forward, reverse] = await Promise.all([
+    db.collection('users').doc(viewerUid).collection('following').doc(targetUid).get(),
+    db.collection('users').doc(targetUid).collection('following').doc(viewerUid).get(),
+  ]);
+  return { isFollowing: forward.exists, isFollowedBy: reverse.exists };
 }

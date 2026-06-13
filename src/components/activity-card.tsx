@@ -6,8 +6,7 @@ import Link from 'next/link';
 import { Heart, Star, Eye, Plus, MessageCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
-import { likeActivity, unlikeActivity } from '@/app/actions';
-import { useAuth } from '@/firebase';
+import { apiCall } from '@/lib/api-client';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { cn, getRatingStyle } from '@/lib/utils';
 import { BookmarkButton } from './bookmark-button';
@@ -58,7 +57,6 @@ export const ActivityCard = memo(function ActivityCard({
   currentUserId,
   onMovieClick,
 }: ActivityCardProps) {
-  const auth = useAuth();
   const [isLiked, setIsLiked] = useState(
     currentUserId ? activity.likedBy?.includes(currentUserId) : false
   );
@@ -83,11 +81,10 @@ export const ActivityCard = memo(function ActivityCard({
 
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (newIsLiked) {
-          await likeActivity(idToken, activity.id);
+          await apiCall('POST', `/api/v1/activities/${activity.id}/like`);
         } else {
-          await unlikeActivity(idToken, activity.id);
+          await apiCall('DELETE', `/api/v1/activities/${activity.id}/like`);
         }
       } catch {
         setIsLiked(!newIsLiked);

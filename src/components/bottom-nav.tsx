@@ -4,14 +4,12 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Home, Bookmark, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useUser, useAuth } from '@/firebase';
+import { useUser } from '@/firebase';
 import { prefetchCachedAction } from '@/lib/use-cached-action';
-import {
-  getCollaborativeLists,
-  getHomeFeed,
-} from '@/app/actions';
 import { apiCall } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { UserProfile } from '@/lib/types';
+import type { FeedItem } from '@/lib/posts-server';
 
 interface NavItem {
   href: string;
@@ -43,7 +41,6 @@ const navItems: NavItem[] = [
 export function BottomNav() {
   const pathname = usePathname();
   const { user } = useUser();
-  const auth = useAuth();
 
   const isActive = (item: NavItem) =>
     item.matchPaths
@@ -66,8 +63,10 @@ export function BottomNav() {
         return (res.users ?? []).map((u) => u.uid);
       });
       prefetchCachedAction(`home-feed:${uid}:all`, async () => {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await getHomeFeed(idToken);
+        const res = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(
+          'GET',
+          '/api/v1/home-feed',
+        );
         return {
           items: res.items ?? [],
           hasMore: !!res.hasMore,
@@ -76,7 +75,9 @@ export function BottomNav() {
       });
     } else if (href === '/lists') {
       prefetchCachedAction(`collab-lists:${uid}`, async () => {
-        const res = await getCollaborativeLists(uid);
+        const res = await apiCall<{ lists: CollaborativeListSummary[] }>(
+          'GET', '/api/v1/me/collaborative-lists',
+        );
         return res.lists ?? [];
       });
     }

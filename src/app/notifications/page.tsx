@@ -7,7 +7,6 @@ import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users }
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
-import { getNotifications, markNotificationsRead } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { formatDistanceToNow } from 'date-fns';
@@ -34,16 +33,17 @@ export default function NotificationsPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const result = await getNotifications(user.uid);
-        if (result.error) {
-          console.error('Notifications error:', result.error);
-          setError(result.error);
-        } else if (result.notifications) {
-          setNotifications(result.notifications as Notification[]);
-        }
+        const result = await apiCall<{ notifications: Notification[] }>(
+          'GET', '/api/v1/notifications',
+        );
+        setNotifications(result.notifications ?? []);
       } catch (err) {
         console.error('Failed to fetch notifications:', err);
-        setError('Failed to load notifications. Please try again.');
+        setError(
+          err instanceof ApiClientError
+            ? err.message
+            : 'Failed to load notifications. Please try again.',
+        );
       } finally {
         setIsLoading(false);
       }
@@ -55,10 +55,10 @@ export default function NotificationsPage() {
   const handleRefresh = useCallback(async () => {
     if (!user?.uid) return;
     try {
-      const result = await getNotifications(user.uid);
-      if (result.notifications) {
-        setNotifications(result.notifications as Notification[]);
-      }
+      const result = await apiCall<{ notifications: Notification[] }>(
+        'GET', '/api/v1/notifications',
+      );
+      setNotifications(result.notifications ?? []);
     } catch (err) {
       console.error('Failed to refresh notifications:', err);
     }
@@ -75,7 +75,7 @@ export default function NotificationsPage() {
   const handleMarkAllRead = async () => {
     if (!user?.uid) return;
     try {
-      await markNotificationsRead(await user.getIdToken());
+      await apiCall('POST', '/api/v1/notifications/read');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
     } catch (err) {
       console.error('Failed to mark as read:', err);
@@ -152,7 +152,8 @@ export default function NotificationsPage() {
   const handleNotificationClick = (notification: Notification) => {
     // Mark as read
     if (!notification.read && user?.uid) {
-      user.getIdToken().then(t => markNotificationsRead(t, [notification.id])).catch(console.error);
+      apiCall('POST', '/api/v1/notifications/read', { ids: [notification.id] })
+        .catch(console.error);
       setNotifications(prev =>
         prev.map(n => (n.id === notification.id ? { ...n, read: true } : n))
       );

@@ -3,7 +3,8 @@
 import { useState, useRef } from 'react';
 import { ArrowLeft, Upload, FileArchive, Loader2, AlertCircle } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { parseLetterboxdExport } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { LetterboxdData } from '@/lib/letterboxd-server';
 import type { LetterboxdMovie } from '@/lib/types';
 
 type ImportLetterboxdUploadScreenProps = {
@@ -43,12 +44,10 @@ export function ImportLetterboxdUploadScreen({
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1];
-          const result = await parseLetterboxdExport(base64, file.name);
-
-          if (result.error) {
-            setError(result.error);
-            return;
-          }
+          const result = await apiCall<{ data: LetterboxdData }>(
+            'POST', '/api/v1/imports/letterboxd/parse',
+            { base64Data: base64, fileName: file.name },
+          );
 
           if (result.data) {
             const totalMovies =
@@ -69,8 +68,8 @@ export function ImportLetterboxdUploadScreen({
               lists: result.data.lists || [],
             });
           }
-        } catch (err: any) {
-          setError(err.message || "Failed to process file");
+        } catch (err) {
+          setError(err instanceof ApiClientError ? err.message : (err instanceof Error ? err.message : "Failed to process file"));
         } finally {
           setIsProcessing(false);
         }

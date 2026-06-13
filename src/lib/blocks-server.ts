@@ -1,19 +1,33 @@
 /**
- * Block-relationship helpers — Phase A PR #7 extraction.
- *
- * These were private helpers inside `src/app/actions.ts`. That file is
- * `'use server'`, which means every export is a Server Action. We need
- * these reachable from other server modules (follows, future safety/feed
- * helpers) without dragging actions.ts into their import graph, so they
- * live here.
+ * Block-relationship helpers — Phase A PR #7 extraction (read primitives)
+ * + PR #15 (write surface).
  *
  * LAUNCH.md 0.5.5 ("Block a user"): a block is mutual invisibility — both
  * directions filter out the other party. These helpers are the
  * server-side enforcement primitives; the client mirror is
  * `UserBlocksCacheProvider`.
+ *
+ * Blocking has cross-cutting side effects that are NOT optional and must
+ * be atomic from the caller's perspective:
+ *   - sever any follow relationship in both directions (with count
+ *     decrements on both user docs)
+ *   - revoke any pending invites between the two users
+ *
+ * `blockUser` does both before returning success.
  */
 
+import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import type { UserProfile } from '@/lib/types';
+
+// ─── Typed errors ─────────────────────────────────────────────────────────
+
+export class BlockSelfError extends Error {
+  constructor(message = 'You cannot block yourself.') {
+    super(message);
+    this.name = 'BlockSelfError';
+  }
+}
 
 /**
  * True if a block doc exists in EITHER direction between two users.
@@ -55,4 +69,128 @@ export async function getBlockSet(
 /** Convenience: defaults to the canonical `getDb()`. */
 export function getMyBlockSet(uid: string): Promise<Set<string>> {
   return getBlockSet(getDb(), uid);
+}
+
+// ═════════════════════════════════════════════════════════════════════════
+// WRITE SURFACE (Phase A PR #15)
+// ═════════════════════════════════════════════════════════════════════════
+
+/**
+ * Block a user — writes the block doc, severs any follow in both
+ * directions (with count decrements), revokes pending invites both ways.
+ * No-op if `blockerUid === blockedUid` would otherwise be allowed; we
+ * reject as `BlockSelfError`.
+ */
+export async function blockUser(
+  blockerUid: string,
+  blockedUid: string,
+): Promise<void> {
+  if (!blockedUid || blockedUid === blockerUid) throw new BlockSelfError();
+  const db = getDb();
+
+  await db.collection('blocks').doc(`${blockerUid}_${blockedUid}`).set({
+    blockerId: blockerUid,
+    blockedId: blockedUid,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  // Sever the follow relationship in BOTH directions, with count decrements.
+  const batch = db.batch();
+  for (const [a, b] of [[blockerUid, blockedUid], [blockedUid, blockerUid]] as const) {
+    const followingRef = db.collection('users').doc(a).collection('following').doc(b);
+    if ((await followingRef.get()).exists) {
+      batch.delete(followingRef);
+      batch.delete(db.collection('users').doc(b).collection('followers').doc(a));
+      batch.update(db.collection('users').doc(a), {
+        followingCount: FieldValue.increment(-1),
+      });
+      batch.update(db.collection('users').doc(b), {
+        followersCount: FieldValue.increment(-1),
+      });
+    }
+  }
+  await batch.commit();
+
+  // Revoke pending invites between the two (best-effort — failures here
+  // shouldn't roll back the block).
+  try {
+    const pending = await db.collection('invites').where('status', '==', 'pending').get();
+    const invBatch = db.batch();
+    let touched = false;
+    pending.docs.forEach((d) => {
+      const inv = d.data();
+      if (
+        (inv.inviterId === blockerUid && inv.inviteeId === blockedUid) ||
+        (inv.inviterId === blockedUid && inv.inviteeId === blockerUid)
+      ) {
+        invBatch.update(d.ref, { status: 'revoked' });
+        touched = true;
+      }
+    });
+    if (touched) await invBatch.commit();
+  } catch (err) {
+    console.error('[blockUser] invite revoke failed:', err);
+  }
+}
+
+/**
+ * Unblock — only removes the caller's outgoing block. The relationship is
+ * not restored (no re-follow); LAUNCH.md 0.5.5.
+ */
+export async function unblockUser(
+  callerUid: string,
+  blockedUid: string,
+): Promise<void> {
+  const db = getDb();
+  await db.collection('blocks').doc(`${callerUid}_${blockedUid}`).delete();
+}
+
+/**
+ * `blockedIds` is the invisibility union (everyone the viewer can't see and
+ * everyone who can't see the viewer — filter feeds, search, and member
+ * lists with it). `iBlocked` is just the viewer's OUTGOING blocks (drives
+ * the settings unblock list).
+ */
+export async function getMyBlockContext(
+  callerUid: string,
+): Promise<{ blockedIds: string[]; iBlocked: string[] }> {
+  const db = getDb();
+  const [iBlockedSnap, blockedMeSnap] = await Promise.all([
+    db.collection('blocks').where('blockerId', '==', callerUid).get(),
+    db.collection('blocks').where('blockedId', '==', callerUid).get(),
+  ]);
+  const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
+  const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);
+  return { blockedIds: [...new Set([...iBlocked, ...blockedMe])], iBlocked };
+}
+
+/**
+ * Profiles for the viewer's blocked users — drives the settings unblock
+ * list UI. Hides email per AUDIT 1.9.
+ */
+export async function getBlockedUsers(
+  callerUid: string,
+): Promise<{ users: UserProfile[] }> {
+  const db = getDb();
+  const snap = await db.collection('blocks').where('blockerId', '==', callerUid).get();
+  const ids = snap.docs.map((d) => d.data().blockedId as string);
+  if (ids.length === 0) return { users: [] };
+  const docs = await db.getAll(...ids.map((id) => db.collection('users').doc(id)));
+  const users = docs
+    .filter((d) => d.exists)
+    .map((d) => {
+      const u = d.data() || {};
+      return {
+        uid: d.id,
+        email: '', // 1.9 — never returned
+        displayName: u.displayName ?? null,
+        photoURL: u.photoURL ?? null,
+        username: u.username ?? null,
+        bio: u.bio ?? null,
+        createdAt: u.createdAt?.toDate?.() ?? new Date(),
+        followersCount: u.followersCount ?? 0,
+        followingCount: u.followingCount ?? 0,
+      } as UserProfile;
+    });
+  return { users };
 }

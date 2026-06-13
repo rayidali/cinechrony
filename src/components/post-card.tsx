@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag, Play, Film } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
-import { likePost, unlikePost, deletePost, reportContent } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { BookmarkButton } from '@/components/bookmark-button';
@@ -58,11 +58,10 @@ export const PostCard = memo(function PostCard({
     setLikeCount((n) => Math.max(0, next ? n + 1 : n - 1));
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = next ? await likePost(idToken, post.id) : await unlikePost(idToken, post.id);
-        if (res && 'error' in res && res.error) {
-          setIsLiked(!next);
-          setLikeCount((n) => Math.max(0, next ? n - 1 : n + 1));
+        if (next) {
+          await apiCall('POST', `/api/v1/posts/${post.id}/like`);
+        } else {
+          await apiCall('DELETE', `/api/v1/posts/${post.id}/like`);
         }
       } catch {
         setIsLiked(!next);
@@ -74,14 +73,9 @@ export const PostCard = memo(function PostCard({
   const handleDelete = () => {
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        const res = await deletePost(idToken, post.id);
-        if (res && 'error' in res && res.error) {
-          toast({ variant: 'destructive', title: 'Error', description: res.error });
-        } else {
-          toast({ title: 'post deleted.' });
-          onDeleted?.(post.id);
-        }
+        await apiCall('DELETE', `/api/v1/posts/${post.id}`);
+        toast({ title: 'post deleted.' });
+        onDeleted?.(post.id);
       } catch {
         toast({ variant: 'destructive', title: 'Error', description: 'Failed to delete.' });
       }
@@ -91,8 +85,11 @@ export const PostCard = memo(function PostCard({
   const handleReport = () => {
     startTransition(async () => {
       try {
-        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
-        await reportContent(idToken, 'post', post.id, `Reported post ${post.id}`);
+        await apiCall('POST', '/api/v1/reports', {
+          contentType: 'post',
+          targetId: post.id,
+          reason: `Reported post ${post.id}`,
+        });
         toast({ title: 'reported.', description: 'thanks for flagging — we’ll take a look.' });
       } catch {
         toast({ variant: 'destructive', title: 'Error', description: 'Failed to report.' });

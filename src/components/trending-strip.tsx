@@ -4,12 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { Film } from 'lucide-react';
-import {
-  getTrendingMovies,
-  getLovedLists,
-  type TrendingMovie,
-  type LovedListCard,
-} from '@/app/actions';
+import type { LovedListCard } from '@/lib/lists-server';
+import { apiCall } from '@/lib/api-client';
+import type { TrendingMovie } from '@/lib/tmdb-server';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { getRatingStyle } from '@/lib/utils';
 import { readCachedAction, setCachedAction } from '@/lib/use-cached-action';
@@ -45,14 +42,18 @@ export function TrendingStrip() {
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([getTrendingMovies(), getLovedLists()])
+    Promise.all([
+      apiCall<{ movies: TrendingMovie[] }>('GET', '/api/v1/movies/trending').catch(
+        () => ({ movies: [] as TrendingMovie[] }),
+      ),
+      apiCall<{ lists: LovedListCard[]; gated: boolean }>('GET', '/api/v1/lists/loved')
+        .catch(() => ({ lists: [] as LovedListCard[], gated: false })),
+    ])
       .then(([trending, loved]) => {
         if (cancelled) return;
-        if (!trending.error) {
-          const next = trending.movies ?? [];
-          setFilms(next);
-          setCachedAction(TRENDING_FILMS_KEY, next);
-        }
+        const next = trending.movies ?? [];
+        setFilms(next);
+        setCachedAction(TRENDING_FILMS_KEY, next);
         const nextLists = loved.lists ?? [];
         setLists(nextLists);
         setCachedAction(LOVED_LISTS_KEY, nextLists);

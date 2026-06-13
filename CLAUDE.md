@@ -2,15 +2,34 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
+## Current state (2026-06-08)
+
+- **Phase A complete** — `src/app/actions.ts` is deleted. Every former
+  Server Action is now either a `/api/v1/*` route handler (Bearer-token
+  auth, envelope contract) or a helper in `src/lib/<domain>-server.ts`.
+  See `src/app/CLAUDE.md` for the API surface map.
+- **Phase B complete** — Capacitor 8 wraps the static `out/` bundle in
+  native iOS + Android shells (`ios/` and `android/` at repo root).
+  Native Google + Apple sign-in, FCM push delivery, Universal Links,
+  status-bar / splash / safe-area polish all in code. Owner manual
+  setup (Apple Developer, Firebase Console iOS/Android, APNs key) in
+  `PHASE-B-HANDOFF.md` at repo root.
+- **Verification:** typecheck ✓ · `npm run build` (Vercel) ✓ ·
+  `npm run build:static` (Capacitor) ✓ · audit suite **403/403**.
+- **Next:** Phase C — iOS Share Extension (hero feature, ~2 weeks). Spec
+  in `LAUNCH.md` §C.
+
 ## Quick Reference
 
 ```
-Tech Stack: Next.js 15 + React 19 + Firebase + Tailwind + Vaul
-DB: Firestore (real-time subscriptions)
-Auth: Firebase Auth (email/password, Google)
-Storage: Cloudflare R2 (avatars, covers)
-APIs: TMDB (movie data), OMDB (IMDB ratings)
-Target: iOS PWA + Desktop
+Tech Stack:  Next.js 15 + React 19 + Firebase + Tailwind + Vaul + Capacitor 8
+DB:          Firestore (real-time subscriptions)
+Auth:        Firebase Auth (email/password + Google + Apple, native + web)
+Storage:     Cloudflare R2 (avatars, covers, post media)
+APIs:        TMDB (movie data), OMDB (IMDB ratings)
+Push:        FCM (native iOS/Android) + web-push (desktop browser)
+Targets:     Web (Vercel SSR) + iOS app (App Store) + Android app (Play Store)
+Build:       `npm run build` (Vercel) · `npm run build:static` (Capacitor `out/`)
 ```
 
 ---
@@ -562,17 +581,18 @@ works as a route but is out of nav).
 - List docs gained `likes` / `likedBy` / `lastLikedAt` (server-managed —
   `firestore.rules` blocks the owner from editing them).
 
-### Key server actions (`src/app/actions.ts`)
-- Likes: `likeList`/`unlikeList`, `likePost`/`unlikePost`, `likePostComment`.
-- Discover: `getLovedLists` (recency-weighted, cold-start gated),
-  `searchPublicLists`, `getSimilarMovies` + `getRecommendationsForUser` (TMDB),
-  `getFriendsWatching`.
-- Feed: `getHomeFeed` (merges /activities + /posts, timestamp cursor, block
-  filtered), `getSavedFeed`.
-- Posts: `getPostMediaUploadUrl` (presigned R2 PUT — images + video ≤200MB),
-  `createPost`/`updatePost`/`deletePost`, `createPostComment` + friends.
-- Safety: `blockUser`/`unblockUser`/`getMyBlockContext`, `muteUser`/`unmuteUser`,
-  `saveItem`/`unsaveItem`.
+### Key endpoints (formerly server actions — now `/api/v1/*` routes)
+- Likes: `POST /api/v1/lists/.../like`, `/posts/.../like`, `/posts/.../comments/[cid]/like`.
+- Discover: `GET /api/v1/lists/loved`, `/lists/search`, `/movies/[tmdbId]/similar`,
+  `/recommendations`, `/friends-watching`.
+- Feed: `GET /api/v1/feed/home`, `/feed/saved`.
+- Posts: `POST /api/v1/posts/media-upload-url`, `/api/v1/posts` (create/update/delete),
+  `/api/v1/posts/[id]/comments`.
+- Safety: `/api/v1/blocks`, `/api/v1/mutes`, `/api/v1/bookmarks`,
+  `/api/v1/blocks/context`, `/api/v1/reports`.
+
+Helpers behind each route live in `src/lib/<domain>-server.ts`. See
+`src/lib/CLAUDE.md` for the full module map.
 
 ### New cache providers (`src/contexts/`)
 `UserBookmarksCacheProvider`, `UserMutesCacheProvider`, `UserBlocksCacheProvider`
@@ -584,4 +604,65 @@ works as a route but is out of nav).
 - All audit tests green (126/126) — the redesign did not regress the
   security suite. New tests: `scripts/audit-tests/17`–`25`.
 
-*Last updated: May 2026*
+*Last updated: 2026-06-08*
+
+---
+
+## Phase A — Server Actions → `/api/v1/*` (2026-05-26 → 2026-06-02)
+
+18 PRs, single stacked branch `feat/phase-a-leftover-actions`.
+**`src/app/actions.ts` deleted.** Server-side logic now lives in
+`src/lib/<domain>-server.ts` modules consumed by route handlers under
+`src/app/api/v1/**`. Bearer ID-token auth, envelope contract (`{ ok, data
+| error }`), per-endpoint rate limiting, CORS allowlist for Capacitor
+WKWebView origin. Static-export build (`npm run build:static`) produces a
+~3.7 MB `out/` directory consumed by Capacitor.
+
+AUDIT items closed: 1.2, 1.3, 1.4, 1.5, 1.6, 1.8, 1.11, 1.12, 1.13, 1.14,
+2.1, 2.2, 2.5, 2.6, 2.8, 2.9, 3.5 (across all five like surfaces), 3.8,
+3.10, 4.2a.
+
+Inventory: `scripts/api-refactor-inventory.md` (historical trace).
+
+---
+
+## Phase B — Capacitor wrap (2026-06-03 → 2026-06-08)
+
+5 substeps, branch `feat/phase-b-capacitor-wrap` stacked on Phase A tip.
+Capacitor 8 wraps the static `out/` bundle in native iOS + Android shells.
+
+What landed:
+- **B.1** — Capacitor install + `ios/` (SPM-based, no CocoaPods needed)
+  + `android/` scaffolding + `capacitor.config.ts` with allowlist for
+  Firebase / Apple / Vercel API.
+- **B.2** — Native Google + Apple sign-in via
+  `@capacitor-firebase/authentication`. `skipNativeAuth: true` — plugin
+  handles native dialog, Firebase Web SDK stays the source of truth for
+  `auth.currentUser`. Apple button hidden on web for v1 (no Apple Service
+  ID yet). Email/password unchanged.
+- **B.3** — Push delivery. Unified `src/lib/push-server.ts` fans out to
+  both web-push and FCM. Every notification creator (mention, reply,
+  review like, post tag, post like, post comment, list_invite, follow)
+  now triggers a push. **Closes AUDIT 4.2.**
+- **B.4** — Universal Links + Android App Links. AASA + assetlinks.json
+  in `public/.well-known/`. `<DeepLinkHandler />` routes
+  `App.appUrlOpen` events via Next.js router.
+- **B.5** — Status bar (dark icons on cream), splash dismiss on React
+  mount, safe-area CSS utilities (`pt-safe` / `pb-safe` / `pl-safe` /
+  `pr-safe`), `overscroll-behavior-y: none` to kill WKWebView body
+  rubber band, `viewport-fit: cover`, `@capacitor/assets` wired for
+  one-command icon regeneration. **`PHASE-B-HANDOFF.md`** documents
+  every owner-side manual step (Apple Developer account, Firebase
+  Console iOS/Android, APNs key, Team ID + SHA256 patches, etc.).
+
+Native components in root layout (all no-op on web):
+`<NativeShellInit />`, `<NativePushRegistration />`, `<DeepLinkHandler />`.
+
+Plugins added:
+`@capacitor-firebase/authentication`, `@capacitor-firebase/messaging`,
+`@capacitor/app`, `@capacitor/status-bar`, `@capacitor/splash-screen`,
+`@capacitor/keyboard`, `@capacitor/assets`.
+
+New npm scripts:
+`cap:sync`, `cap:open:ios`, `cap:open:android`, `cap:run:ios`,
+`cap:run:android`, `cap:assets`.

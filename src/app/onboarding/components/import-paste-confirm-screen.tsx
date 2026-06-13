@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, Check, AlertTriangle, Search } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { importMatchedMovies } from '@/app/actions';
+import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { MatchedMovie } from '@/lib/types';
 
 const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
@@ -43,11 +43,10 @@ export function ImportPasteConfirmScreen({
     setIsImporting(true);
     try {
       const moviesToImport = matchedMovies.filter(m => m.selected && m.match);
-      const result = await importMatchedMovies(user.uid, moviesToImport);
-
-      if (result.error) {
-        throw new Error(result.error);
-      }
+      const result = await apiCall<{ importedCount: number }>(
+        'POST', '/api/v1/imports/letterboxd/import',
+        { matchedMovies: moviesToImport },
+      );
 
       toast({
         title: "Movies imported!",
@@ -55,11 +54,11 @@ export function ImportPasteConfirmScreen({
       });
 
       onImport(result.importedCount || 0);
-    } catch (error: any) {
+    } catch (error) {
       toast({
         variant: "destructive",
         title: "Import failed",
-        description: error.message || "Failed to import movies. Please try again.",
+        description: error instanceof ApiClientError ? error.message : "Failed to import movies. Please try again.",
       });
     } finally {
       setIsImporting(false);

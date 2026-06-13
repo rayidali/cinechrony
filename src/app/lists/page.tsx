@@ -14,7 +14,8 @@ import { Fab } from '@/components/fab';
 import { NewListDrawer } from '@/components/new-list-drawer';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { Card, CardContent } from '@/components/ui/card';
-import { ensureUserProfile, getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { MovieList } from '@/lib/types';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { rememberListSeed } from '@/lib/list-detail-seed';
@@ -52,8 +53,10 @@ export default function ListsPage() {
   const collabKey = user ? `collab-lists:${user.uid}` : null;
   const collabResult = useCachedAction<CollaborativeList[]>(collabKey, async () => {
     if (!user) return [];
-    const result = await getCollaborativeLists(user.uid);
-    return (result.lists ?? []) as CollaborativeList[];
+    const result = await apiCall<{ lists: CollaborativeListSummary[] }>(
+      'GET', '/api/v1/me/collaborative-lists',
+    );
+    return (result.lists ?? []) as unknown as CollaborativeList[];
   });
   const collaborativeLists = collabResult.data ?? [];
   const isLoadingCollaborative = collabResult.isLoading;
@@ -87,11 +90,10 @@ export default function ListsPage() {
         // deleted. By 2026 the legacy collection is empty for every active
         // user; ensureUserProfile still runs (it's the default-list creator
         // for fresh signups).
-        await ensureUserProfile(
-          await user.getIdToken(),
-          user.email || '',
-          user.displayName,
-        );
+        await apiCall('POST', '/api/v1/me/ensure', {
+          email: user.email || '',
+          displayName: user.displayName,
+        });
       } catch (error) {
         console.error('Failed to initialize user:', error);
         initializedUsers.delete(user.uid);
@@ -113,7 +115,10 @@ export default function ListsPage() {
 
       try {
         const listIds = lists.map((list) => list.id);
-        const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
+        const result = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
+          'POST', `/api/v1/users/${user.uid}/lists/previews`,
+          { listIds },
+        );
         if (result.previews) {
           setListPreviews(result.previews);
         }
@@ -132,10 +137,11 @@ export default function ListsPage() {
 
       try {
         const previews: Record<string, ListPreview> = {};
-        // Fetch previews in parallel - each list has its own owner
         await Promise.all(
           collaborativeLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
+            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
+              'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
+            );
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -197,7 +203,10 @@ export default function ListsPage() {
       // Refresh own list previews
       if (lists && lists.length > 0) {
         const listIds = lists.map((list) => list.id);
-        const previewResult = await getListsPreviews(user.uid, listIds, await user.getIdToken());
+        const previewResult = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
+          'POST', `/api/v1/users/${user.uid}/lists/previews`,
+          { listIds },
+        );
         if (previewResult.previews) {
           setListPreviews(previewResult.previews);
         }

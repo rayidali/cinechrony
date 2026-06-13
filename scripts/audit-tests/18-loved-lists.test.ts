@@ -11,13 +11,21 @@
 import { test, before, beforeEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { setupTestEnv, adminDb, clearFirestore, clearAuth } from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { GET as lovedListsGet } from '@/app/api/v1/lists/loved/route';
 
-let getLovedLists: (limit?: number) => Promise<any>;
+async function getLovedLists(limit?: number) {
+  const url = limit !== undefined
+    ? `http://test/api/v1/lists/loved?limit=${limit}`
+    : 'http://test/api/v1/lists/loved';
+  const res = await callRoute<{ lists: unknown[]; gated: boolean }>(
+    lovedListsGet, 'GET', { url },
+  );
+  if (res.body.ok !== true) throw new Error('getLovedLists failed');
+  return res.body.data;
+}
 
-before(async () => {
-  setupTestEnv();
-  ({ getLovedLists } = await import('@/app/actions'));
-});
+before(() => { setupTestEnv(); });
 
 /** Seed a list under users/{ownerId}/lists/{listId}. */
 async function seedList(

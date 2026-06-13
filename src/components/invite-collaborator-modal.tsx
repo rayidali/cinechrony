@@ -16,7 +16,6 @@ import { Button } from '@/components/ui/button';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
-import { searchUsers } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { ListMember, ListInvite, UserProfile } from '@/lib/types';
 
@@ -97,7 +96,9 @@ export function InviteCollaboratorModal({
 
       setIsSearching(true);
       try {
-        const result = await searchUsers(searchQuery, user.uid);
+        const result = await apiCall<{ users: UserProfile[] }>(
+          'GET', `/api/v1/users/search?q=${encodeURIComponent(searchQuery)}`,
+        );
         // Filter out existing members and pending invites
         const memberIds = members.map(m => m.uid);
         const pendingIds = pendingInvites.map(i => i.inviteeId).filter(Boolean);

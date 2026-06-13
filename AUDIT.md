@@ -1,6 +1,10 @@
 # Cinechrony Pre-Launch Audit & Fix Tracker
 
-> **Started:** 2026-05-15 · **Updated:** 2026-05-20
+> **Started:** 2026-05-15 · **Updated:** 2026-06-08
+>
+> Status: Phase A + Phase B both complete in code; many audit items
+> closed in the process. See § "Items closed during Phase A / B" near
+> the bottom of this doc and the per-item ✅ markers throughout.
 > **Status:** Phase 0 ✅ · Phase 1 ✅ (all auth, 37 attack-tests) · Phase 5.1 ✅ (deploy unblocked, build passes) · **Phase 2 ✅ COMPLETE** (all of 2.1–2.10 + 2.3a/b; 61 attack/race/pagination/prefix tests across 13 files). App is secure, deployable, transactionally consistent, scales for delete/search/ratings, crash-resistant on mobile flakiness, and stale-handle-proof.
 > **Goal:** Ship-ready security posture and data integrity before opening the waitlist
 > **Source of truth:** the Progress log (bottom) + `scripts/audit-tests/*.test.ts`. Section checkboxes are ticked at phase/suite level, not 1:1 per sub-bullet.
@@ -93,6 +97,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 - [x] **1.8.1** Remove the `"run-backfill-now"` literal. Require strict equality with `process.env.ADMIN_SECRET`. If env is unset, fail closed.
 - [x] **1.8.2** Same check on `/api/admin/backfill*` route handlers. Verify the route's secret check matches what the action expects.
 - [x] **1.8.3** **Test:** call backfill action with `"run-backfill-now"` and with wrong secret → both rejected. Call with correct secret → succeeds.
+- [x] **1.8.4 — Phase A PR #16**: rehomed all four admin backfills under `/api/v1/admin/*` with a unified auth model (`src/lib/admin-handler.ts` — `adminRoute<>` wrapper). ONE env var (`ADMIN_SECRET`), ONE check (the route gate), `crypto.timingSafeEqual` constant-time comparison. Legacy `ADMIN_SECRET_TOKEN` dual-env-var + action-level recheck are retired. Dev bypass narrowed to `NODE_ENV === 'development'` AND no `ADMIN_SECRET` set (so tests, preview, staging, and prod all enforce the gate). Tests in `41-admin-endpoints.test.ts` exercise: missing token → 401, wrong token → 401, unset secret in non-dev → 500 (fail-closed), `"run-backfill-now"` rejected, correct token → 200 with stats + idempotent on re-run. **AUDIT 1.8 is closed end-to-end.**
 
 ### 1.9 — Email leaked on public profile reads (`firestore.rules:90`, `getUserByUsername`)
 
@@ -124,6 +129,7 @@ Every fix in this document includes a **Test** field describing how we verify it
 
 - [x] **1.13.1** Add the same `isPublic` / owner / collaborator gate that `getPublicListMovies` uses.
 - [x] **1.13.2** **Test:** as User B, call `getListPreview(userAUid, privateListId)` → rejected. Same for public list → succeeds.
+- [x] **1.13.3 — Phase A PR #18**: action retired; route `GET /api/v1/lists/[ownerId]/[listId]/preview` enforces the same gate via the Bearer-token UID (no `viewerIdToken` arg surface for an attacker to manipulate). Test in `08-special-cases-b.test.ts`: unauthenticated → empty preview; outsider token → empty preview; owner token → full preview with movieCount.
 
 ### 1.14 — `getListPendingInvites` exposes codes to collaborators (`actions.ts:2038`)
 
@@ -197,6 +203,7 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x] **2.8.1** Done — two parallel single-field prefix-range queries on `usernameLower` / `displayNameLower`, each limited 20 (max ~40 reads/search). Firestore auto-indexes single fields. Aligns with 1.9: no email search, email never returned. Inline scan-based migration removed (the dedicated `backfillUserSearchFields` action is the right place).
 - [ ] **2.8.2** Client-side debounce on user-search inputs — not done; lower priority now that each keystroke costs ~40 reads instead of thousands. Trivial follow-up if needed.
 - [x] **2.8.3** Done — `11-search-users.test.ts` (8 tests, green): prefix on each field, currentUserId excluded, dedupe when both fields match, 2-char minimum, no false positives, legacy-user excluded (needs backfill), no email in results.
+- [x] **2.8.4 — Phase A PR #14**: legacy `searchUsers(query, currentUserId)` Server Action retired. Logic now lives in `src/lib/search-server.ts` (`searchUsersForViewer`). Route: `GET /api/v1/users/search?q=...` — public + auth-aware (Bearer token only; the `currentUserId` arg surface is gone). `11-search-users.test.ts` migrated to exercise the route directly + a new "unauth viewer still gets matches" case added. AUDIT 2.8 is now closed end-to-end through the API layer.
 
 ### 2.9 — `Math.random()` invite codes (`actions.ts:1684`)
 
@@ -238,6 +245,9 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [x] Wrap check-then-act in transaction OR rely on `arrayUnion` + post-write count read instead of `increment`.
 - [x] **Test (emulator):** fire two `likeReview` calls in parallel — `likes` ends at 1, `likedBy` has one entry. Migrated to route in `14-like-atomicity.test.ts`; "concurrent double-like by the SAME user → likes 1, not 2".
 - [x] **Phase A PR #8**: `likeReview` / `unlikeReview` retired; transactional logic in `src/lib/reviews-server.ts`. Routes `POST` / `DELETE /api/v1/reviews/[id]/like` exercised by `14-like-atomicity.test.ts` (5 tests, all green) + `33-reviews-endpoints.test.ts`.
+- [x] **Phase A PR #10**: `likeActivity` / `unlikeActivity` retired — the third like-target (after reviews + lists). Transactional logic in `src/lib/activities-server.ts`. Routes `POST` / `DELETE /api/v1/activities/[id]/like` exercised by `35-activities-endpoints.test.ts` including a concurrent-double-like race test. AUDIT 3.5 closed across reviews + lists + activities.
+- [x] **Phase A PR #11**: `likePost` / `unlikePost` retired — the FOURTH and FINAL like-target. Transactional logic in `src/lib/posts-server.ts`. Routes `POST` / `DELETE /api/v1/posts/[id]/like` exercised by `36-posts-endpoints.test.ts` + the migrated `24-home-feed.test.ts`. **AUDIT 3.5 is now closed end-to-end across all four like surfaces (reviews, lists, activities, posts).**
+- [x] **Phase A PR #12**: `likePostComment` / `unlikePostComment` retired — a FIFTH like-target (sub-resource under posts; not a top-level surface but still racey). Transactional logic in `src/lib/post-comments-server.ts`. Routes `POST` / `DELETE /api/v1/posts/[id]/comments/[cid]/like` exercised by `37-post-comments-endpoints.test.ts` including a concurrent-double-like race test. **The full like-fan-out is now transactional: reviews, lists, activities, posts, post-comments.**
 
 ### 3.6 — `useToast` 16-minute leak (`use-toast.ts:11`)
 
@@ -289,11 +299,41 @@ in `29-movies-endpoints.test.ts` (`bypass-via-Firestore now blocked`).
 - [ ] Check on mount: if user has a profile doc with `username` set, redirect to `/home`. Allow `?force=1` for testing.
 - [ ] **Test (manual):** existing user clicks landing CTA → goes to `/home`, not onboarding.
 
-### 4.2 — Push notifications fire only for weekly digest
+### 4.2 — Push notifications fire only for weekly digest ✅ CLOSED (Phase B.3, 2026-06-03)
 
-- [ ] Decide scope. Minimum-useful set: per-event push for `mention`, `reply`, `list_invite`. Lower priority for `like`, `follow` (noisier).
-- [ ] In each in-app notification creator (`createMentionNotifications`, `createReplyNotification`, `inviteToList`), look up the recipient's push subscriptions and call `webpush.sendNotification` alongside the Firestore write. Respect `notificationPreferences`.
-- [ ] **Test (manual):** with a real iOS PWA installed and push permission granted, trigger each event from another account → push lands on device.
+- [x] **Phase B.3**: every in-app notification creator now fans out a
+  push via `sendPushToUser()` in `src/lib/push-server.ts`:
+    • `createMentionNotifications` (mention)
+    • `createReplyNotification` (reply)
+    • `createLikeNotification` (review like)
+    • `createPostTagNotification` (post tag)
+    • `createPostLikeNotification` (post like)
+    • `createPostCommentNotification` (post comment)
+    • `inviteToList` (list_invite)
+    • `followUser` (follow)
+  Each respects the recipient's `notificationPreferences` via the
+  existing notification doc gating. Delivery is best-effort and never
+  rolls back the primary write.
+- [x] Push payloads include a `data.type` and the relevant entity ID
+  (`reviewId`, `postId`, `inviteId`) so the iOS deep-link handler can
+  route a tap directly to the right screen.
+- [x] Push subscription endpoint extended for FCM (`kind:'fcm'`) so
+  the same fan-out covers iOS + Android once the Capacitor app ships
+  in Phase B.5.
+- [x] Server-side cleanup: dead tokens (410/404 web push, FCM
+  `registration-token-not-registered`) auto-prune; `pushEnabled` flips
+  to false if a user's last sub is removed.
+- [ ] **Test (manual):** with a real iOS device + handoff §1/§4 done,
+  trigger each event from a second account → push lands on device.
+  (Code-complete; gated on Apple Developer account + APNs key upload.)
+- [x] **Phase A PR #13 (partial)**: the notification *management* surface migrated to `/api/v1` — `listNotifications` (cursor-paginated), `markNotificationsRead`, `getUnreadNotificationCount`, `savePushSubscription`, `removePushSubscription`, `getPushStatus`, `getNotificationPreferences`, `updateNotificationPreferences`. Helpers live in `src/lib/notifications-server.ts` — the right place for the future web-push fan-out call. PR #13 did NOT wire `webpush.sendNotification` into the creators; that remains the AUDIT 4.2 fix proper.
+
+### 4.2a — Caller identity not enforced on notification reads (pre-migration gap, closed by PR #13)
+
+> The legacy Server Actions `getNotifications(userId)`, `getUnreadNotificationCount(userId)`, `getPushStatus(userId)`, and `getNotificationPreferences(userId)` all took a plain `userId` arg with **no server-side identity check**. Because Server Actions in Next.js are invocable by any client, this meant any authenticated user could read **any other user's** notifications, unread badge, push enablement, or notification preferences just by passing their UID.
+
+- [x] **Phase A PR #13**: the four read actions are gone. The replacement routes (`GET /api/v1/notifications`, `/unread-count`, `/me/push-status`, `/me/notification-preferences`) all derive caller identity from the verified Bearer token via `apiRoute()`. No userId-in-arg surface remains.
+- [x] **Phase A PR #13**: `markNotificationsRead(uid, ids)` similarly gained a per-doc ownership check — if a client passes an `ids[]` that includes another user's notification, the server filters it out instead of flipping it.
 
 ### 4.3 — `addMovie` legacy action skips activity creation (`actions.ts:666`)
 

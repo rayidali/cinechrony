@@ -5,7 +5,7 @@ import { Search, Loader2, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { searchUsers } from '@/app/actions';
+import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';
 import type { UserProfile } from '@/lib/types';
 import Link from 'next/link';
@@ -27,7 +27,9 @@ export function UserSearch() {
 
     setIsSearching(true);
     try {
-      const response = await searchUsers(searchQuery, user.uid);
+      const response = await apiCall<{ users: UserProfile[] }>(
+        'GET', `/api/v1/users/search?q=${encodeURIComponent(searchQuery)}`,
+      );
       if (response.users) {
         setResults(response.users);
       }

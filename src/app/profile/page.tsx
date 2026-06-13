@@ -24,8 +24,8 @@ import { ProfileListCard } from '@/components/profile-list-card';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
-import { getCollaborativeLists, getListsPreviews, getListPreview } from '@/app/actions';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
@@ -136,7 +136,7 @@ export default function MyProfilePage() {
       try {
         const [invitesResult, collabResult] = await Promise.all([
           apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
-          getCollaborativeLists(user.uid),
+          apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
         ]);
         setPendingInvites(invitesResult.invites || []);
         setCollaborativeLists(collabResult.lists || []);
@@ -153,7 +153,10 @@ export default function MyProfilePage() {
       if (!user || !lists || lists.length === 0) return;
       try {
         const listIds = lists.map((list) => list.id);
-        const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
+        const result = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
+          'POST', `/api/v1/users/${user.uid}/lists/previews`,
+          { listIds },
+        );
         if (result.previews) {
           setListPreviews(result.previews);
         }
@@ -172,7 +175,9 @@ export default function MyProfilePage() {
         const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
         await Promise.all(
           collaborativeLists.map(async (list) => {
-            const result = await getListPreview(list.ownerId, list.id, user ? await user.getIdToken() : undefined);
+            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
+              'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
+            );
             previews[list.id] = {
               previewPosters: result.previewPosters || [],
               movieCount: result.movieCount || 0,
@@ -256,7 +261,9 @@ export default function MyProfilePage() {
       await apiCall('POST', '/api/v1/invites/accept', { inviteId: invite.id });
       toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
       setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
-      const collabResult = await getCollaborativeLists(user.uid);
+      const collabResult = await apiCall<{ lists: CollaborativeListSummary[] }>(
+        'GET', '/api/v1/me/collaborative-lists',
+      );
       setCollaborativeLists(collabResult.lists || []);
     } catch (err) {
       toast({
@@ -309,14 +316,17 @@ export default function MyProfilePage() {
     if (!user) return;
     const [invitesResult, collabResult] = await Promise.all([
       apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
-      getCollaborativeLists(user.uid),
+      apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
     ]);
     setPendingInvites(invitesResult.invites || []);
     setCollaborativeLists(collabResult.lists || []);
 
     if (lists && lists.length > 0) {
       const listIds = lists.map((list) => list.id);
-      const previewsResult = await getListsPreviews(user.uid, listIds, await user.getIdToken());
+      const previewsResult = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
+        'POST', `/api/v1/users/${user.uid}/lists/previews`,
+        { listIds },
+      );
       if (previewsResult.previews) {
         setListPreviews(previewsResult.previews);
       }
@@ -815,7 +825,10 @@ export default function MyProfilePage() {
           onCoverChange={async () => {
             if (user && lists) {
               const listIds = lists.map((list) => list.id);
-              const result = await getListsPreviews(user.uid, listIds, await user.getIdToken());
+              const result = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
+                'POST', `/api/v1/users/${user.uid}/lists/previews`,
+                { listIds },
+              );
               if (result.previews) {
                 setListPreviews(result.previews);
               }

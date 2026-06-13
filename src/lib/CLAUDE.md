@@ -4,10 +4,63 @@
 
 ```
 src/lib/
-├── types.ts        # ALL TypeScript types for the app
-├── utils.ts        # Utility functions (cn, rating colors)
-└── video-utils.ts  # Video URL parsing (TikTok, IG, YouTube)
+│
+├── types.ts                  # ALL TypeScript types for the app
+├── utils.ts                  # Utility functions (cn, rating colors)
+├── video-utils.ts            # Video URL parsing (TikTok, IG, YouTube)
+│
+├─── API foundation (Phase A) ───────────────────────────────────────
+├── api-handler.ts            # apiRoute + publicApiRoute wrappers, ApiError
+│                              # hierarchy, envelope contract, CORS allowlist
+├── admin-handler.ts          # adminRoute wrapper (ADMIN_SECRET const-time compare)
+├── api-client.ts             # apiCall<T>(method, path, body?) for the client
+├── auth-server.ts            # verifyCaller(req) — Bearer token → UID
+├── rate-limit.ts             # checkRateLimit(uid, bucket) — review/like/follow/…
+│
+├─── Server-side domain helpers (consumed by /api/v1/* routes) ──────
+├── profiles-server.ts        # getUserByUsername, ensureUserProfile, …
+├── account-server.ts         # deleteUserAccount cascade, avatar upload
+├── lists-server.ts           # createList, updateListFields, deleteList,
+│                              # transferOwnership, setListCover, list reads
+├── movies-server.ts          # addMovieToList, updateMovieStatus, …
+├── invites-server.ts         # inviteToList, acceptInvite, revokeInvite, …
+├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
+├── reviews-server.ts         # createReview, like/unlike, threading
+├── ratings-server.ts         # createOrUpdateRating, deleteRating
+├── activities-server.ts      # getActivityFeed, likeActivity, …
+├── posts-server.ts           # createPost, updatePost, deletePost, likePost
+├── post-comments-server.ts   # createPostComment + likes
+├── notifications-server.ts   # All notification creators + push-sub CRUD
+├── push-server.ts            # ★ Unified FCM + web-push fan-out (Phase B.3)
+├── search-server.ts          # User search by username
+├── tmdb-server.ts            # TMDB/OMDB proxies (server-side OMDB key)
+├── bookmarks-server.ts       # saveItem, unsaveItem, getSavedFeed
+├── mutes-server.ts           # muteUser, unmuteUser
+├── blocks-server.ts          # blockUser, unblockUser, getBlockSet
+├── reports-server.ts         # reportContent (5 content types)
+├── friends-watching-server.ts# Aggregated "your circle is watching"
+├── letterboxd-server.ts      # ZIP parse + TMDB match + import
+├── admin-backfills-server.ts # 4 idempotent migration functions
+│
+├─── Caches + Phase B native helpers ────────────────────────────────
+├── tmdb-details-cache.ts     # Module-level cache (modal back-nav contract)
+├── tmdb-client.ts            # Browser-side TMDB fetch (NEXT_PUBLIC_ token)
+├── use-cached-action.ts      # SWR-style cache hook with persistence
+├── cache-config.ts           # Registers localStorage-mirrored keys
+├── list-detail-seed.ts       # sessionStorage seed for list page chrome
+├── native-auth.ts            # ★ Capacitor Google/Apple sign-in router
+└── native-push.ts            # ★ Capacitor FCM token registration
 ```
+
+> **★** = new in Phase B (2026-06-08). The native-* helpers detect
+> `Capacitor.isNativePlatform()` and bail on web. `push-server` runs
+> on the Vercel deploy and fans every notification creator's writes
+> out to FCM (native) + web-push (browser).
+
+> **All `*-server.ts` modules are pure functions, NOT `'use server'`
+> files.** Server Actions (the legacy `'use server'` pattern) were
+> retired in Phase A. These helpers are consumed by route handlers
+> under `src/app/api/v1/**`.
 
 ---
 
