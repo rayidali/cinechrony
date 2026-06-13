@@ -63,6 +63,16 @@ export default {
           DEFAULT: ok('--success'),
           foreground: ok('--success-foreground'),
         },
+        // v3 iOS-native (Phase 0.7). Frosted tints (--cc-chrome / --cc-tab-tint)
+        // carry baked alpha, so they're applied via CSS, not these classes.
+        sunken: ok('--cc-sunken'),
+        faint: ok('--cc-faint'),
+        violet: ok('--cc-violet'),
+        blue: ok('--cc-blue'),
+        pink: ok('--cc-pink'),
+        // Translucent ink hairlines (fixed alpha — used as border-rule / border-hair).
+        rule: 'oklch(var(--cc-hairline) / 0.12)',
+        hair: 'oklch(var(--cc-hairline) / 0.08)',
         border: ok('--border'),
         input: ok('--input'),
         ring: ok('--ring'),
