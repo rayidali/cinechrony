@@ -666,27 +666,8 @@ function ResultsView({
 
   return (
     <div className="px-4">
-      {films.length > 0 && (
-        <section className="pt-5">
-          <div className="cc-eyebrow">films &amp; tv</div>
-          <div className="h-px bg-rule mt-2.5 mb-3.5" />
-          <div className="grid grid-cols-3 gap-3">
-            {films.map((film) => (
-              <GridFilmTile
-                key={`${film.mediaType}_${film.id}`}
-                posterUrl={film.posterUrl}
-                title={film.title}
-                year={film.year}
-                isTv={film.mediaType === 'tv'}
-                onOpen={() => onOpenFilm(film)}
-              />
-            ))}
-          </div>
-        </section>
-      )}
-
       {people.length > 0 && (
-        <section className="pt-7">
+        <section className="pt-5">
           <div className="cc-eyebrow">people</div>
           <div className="h-px bg-rule mt-2.5 mb-1.5" />
           <ul>
@@ -717,6 +698,25 @@ function ResultsView({
               </li>
             ))}
           </ul>
+        </section>
+      )}
+
+      {films.length > 0 && (
+        <section className="pt-7">
+          <div className="cc-eyebrow">films &amp; tv</div>
+          <div className="h-px bg-rule mt-2.5 mb-3.5" />
+          <div className="grid grid-cols-3 gap-3">
+            {films.map((film) => (
+              <GridFilmTile
+                key={`${film.mediaType}_${film.id}`}
+                posterUrl={film.posterUrl}
+                title={film.title}
+                year={film.year}
+                isTv={film.mediaType === 'tv'}
+                onOpen={() => onOpenFilm(film)}
+              />
+            ))}
+          </div>
         </section>
       )}
 

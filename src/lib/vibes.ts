@@ -19,15 +19,21 @@ export type Vibe = {
   keyword: string;
 };
 
+// Each `keyword` is verified against TMDB to resolve to a well-populated
+// keyword id (so the chip returns recognizable films, not obscure ones). The
+// design's `one location` / `single take` / `ensemble chaos` chips were dropped
+// — they map to near-empty TMDB keywords — and replaced with `neo-noir` /
+// `nonlinear` / `whodunit`, which each return 20 recognizable films. To change
+// a chip, just edit the label/keyword here (and re-verify the keyword resolves).
 export const VIBES: Vibe[] = [
   { id: 'time-loop', label: 'time loop', keyword: 'time loop' },
   { id: 'slow-burn', label: 'slow burn', keyword: 'slow burn' },
   { id: 'found-family', label: 'found family', keyword: 'found family' },
-  { id: 'one-location', label: 'one location', keyword: 'single location' },
+  { id: 'neo-noir', label: 'neo-noir', keyword: 'neo-noir' },
   { id: 'needle-drops', label: 'needle drops', keyword: 'music' },
   { id: 'quietly-devastating', label: 'quietly devastating', keyword: 'melancholy' },
-  { id: 'single-take', label: 'single take', keyword: 'one shot' },
-  { id: 'ensemble-chaos', label: 'ensemble chaos', keyword: 'ensemble cast' },
+  { id: 'nonlinear', label: 'nonlinear', keyword: 'nonlinear timeline' },
+  { id: 'whodunit', label: 'whodunit', keyword: 'whodunit' },
   { id: 'unreliable-narrator', label: 'unreliable narrator', keyword: 'unreliable narrator' },
 ];
 

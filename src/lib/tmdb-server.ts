@@ -315,22 +315,29 @@ export async function discoverByVibe(
     /* fall through to search fallback */
   }
 
-  // 2. discover by keyword — well-voted first to keep results recognizable
+  // 2. discover by keyword — well-voted first to keep results recognizable,
+  //    then retry without the vote floor so a thinly-tagged keyword still
+  //    surfaces its best films before we fall back to a title search.
   if (keywordId) {
-    try {
-      const discRes = await fetch(
-        `${TMDB_BASE}/discover/movie?with_keywords=${keywordId}` +
-          '&sort_by=vote_count.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1',
-        { headers, next: { revalidate: 86400 } }, // 24h
-      );
-      if (discRes.ok) {
-        const discData = await discRes.json();
-        const movies = mapMovieResults(discData.results, limit);
-        if (movies.length > 0) return { movies, label: vibe.label };
+    const discover = async (minVotes: number): Promise<TrendingMovie[]> => {
+      const floor = minVotes > 0 ? `&vote_count.gte=${minVotes}` : '';
+      try {
+        const res = await fetch(
+          `${TMDB_BASE}/discover/movie?with_keywords=${keywordId}` +
+            `&sort_by=vote_count.desc${floor}&include_adult=false&language=en-US&page=1`,
+          { headers, next: { revalidate: 86400 } }, // 24h
+        );
+        if (!res.ok) return [];
+        const data = await res.json();
+        return mapMovieResults(data.results, limit);
+      } catch {
+        return [];
       }
-    } catch {
-      /* fall through to search fallback */
-    }
+    };
+
+    let movies = await discover(150);
+    if (movies.length === 0) movies = await discover(0);
+    if (movies.length > 0) return { movies, label: vibe.label };
   }
 
   // 3. fallback — plain movie search on the term
