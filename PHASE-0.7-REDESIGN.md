@@ -236,8 +236,32 @@ browser).
   > Plus the app-wide density pass + haptics motion slice. Two deliberate
   > deferrals carried forward: editable handle (backend feature) and rich share
   > cards (0.7.4).
-- [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
-  grouped inset results with IMDb chip + add button.
+- [x] **0.7.3.6** **Search** (`SearchIOS`): rebuilt the home search overlay
+  (`search-overlay.tsx`, in place — the home trigger wiring is untouched) into
+  a three-view discovery surface. **Discover** (empty query): **recommended for
+  you / "from what you've watched"** — a horizontal poster row flattened from
+  the existing **`GET /api/v1/recommendations`** (already reads the viewer's
+  ratings: loved ≥8 → liked ≥6.5 → most-recent), round-robined across bases so
+  the first cards show variety, each carrying its own tier-voiced reason ("you
+  loved …" / "because you liked …" / "because you watched …" — reason text
+  moved server-side into `getRecommendationsForUser`). Section hides for
+  no-history users (no fake "from what you've watched"). **browse by vibe** —
+  serif-italic keyword chips from a new shared `src/lib/vibes.ts` (9 curated
+  vibes); tapping → a vibe-results grid via new **`GET /api/v1/movies/vibe/[vibeId]`**
+  → `discoverByVibe()` which resolves the term to a TMDB keyword id at runtime
+  (`/search/keyword` → `/discover/movie?with_keywords=…&sort_by=vote_count.desc`)
+  and falls back to a plain movie search so a vibe never renders empty. **now &
+  next** — a v3 **Segmented** (in theatres / coming soon) over two new public
+  proxies **`GET /api/v1/movies/now-playing`** + **`/upcoming`** (`getNowPlayingMovies`
+  / `getUpcomingMovies`; upcoming filtered to future releases). **Results** view
+  (typed query) restyled to v3 (films/tv grid + people + lists) — same TMDB +
+  user + list search as before. Discover data loads once per session and is
+  kept across open/close; vibe results are cached per-vibe; haptics on chip tap
+  / close / segmented. New endpoint types imported `import type` only (no server
+  code in the client bundle — static build verified). typecheck ✓ · build ✓ ·
+  static ✓ · audit **403/403**. **`/api/v1/movies/genres` was NOT needed** —
+  the design's "genre chips" are the vibe/keyword chips, which read better than
+  raw TMDB genres.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the
   system (lower traffic; coordinate onboarding with Phase C.7 later).
 - [ ] **0.7.3.8 — Test:** per screen — light/dark walk in `npm run dev`,

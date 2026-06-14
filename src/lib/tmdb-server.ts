@@ -14,6 +14,9 @@
  */
 
 import { getUserRatings as getUserRatingsLib } from '@/lib/ratings-server';
+import { getVibe } from '@/lib/vibes';
+
+const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 // ─── Shared types ─────────────────────────────────────────────────────────
 
@@ -50,6 +53,29 @@ function getOmdbApiKey(): string {
 function getTmdbToken(): string | null {
   const token = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
   return token || null;
+}
+
+/** Shape a raw TMDB results array into our `TrendingMovie[]` (poster-only). */
+function mapMovieResults(results: unknown, limit: number): TrendingMovie[] {
+  if (!Array.isArray(results)) return [];
+  return results
+    .filter(
+      (m): m is Record<string, unknown> =>
+        !!m && !!(m as Record<string, unknown>).poster_path,
+    )
+    .slice(0, limit)
+    .map((m) => ({
+      id: m.id as number,
+      title: (m.title as string) || (m.name as string) || 'untitled',
+      posterPath: (m.poster_path as string) ?? null,
+      releaseDate: (m.release_date as string) || (m.first_air_date as string) || '',
+      voteAverage: (m.vote_average as number) ?? 0,
+      mediaType: 'movie' as const,
+    }));
+}
+
+function tmdbHeaders(token: string) {
+  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
 async function fetchImdbRating(
@@ -215,6 +241,116 @@ export async function getSimilarMovies(
   return { movies };
 }
 
+// ─── getNowPlayingMovies — TMDB "in theatres" ────────────────────────────
+
+export async function getNowPlayingMovies(limit = 18): Promise<{ movies: TrendingMovie[] }> {
+  const tmdb = getTmdbToken();
+  if (!tmdb) return { movies: [] };
+
+  const res = await fetch(
+    `${TMDB_BASE}/movie/now_playing?language=en-US&page=1&region=US`,
+    { headers: tmdbHeaders(tmdb), next: { revalidate: 21600 } }, // 6h
+  );
+  if (!res.ok) return { movies: [] };
+  const data = await res.json();
+  return { movies: mapMovieResults(data.results, limit) };
+}
+
+// ─── getUpcomingMovies — TMDB "coming soon" (future releases only) ────────
+
+export async function getUpcomingMovies(limit = 18): Promise<{ movies: TrendingMovie[] }> {
+  const tmdb = getTmdbToken();
+  if (!tmdb) return { movies: [] };
+
+  const res = await fetch(
+    `${TMDB_BASE}/movie/upcoming?language=en-US&page=1&region=US`,
+    { headers: tmdbHeaders(tmdb), next: { revalidate: 21600 } }, // 6h
+  );
+  if (!res.ok) return { movies: [] };
+  const data = await res.json();
+
+  // TMDB's "upcoming" list bleeds in films already in theatres; keep only
+  // those whose release is still in the future so "coming soon" stays honest.
+  const nowMs = Date.now();
+  const future = (Array.isArray(data.results) ? data.results : []).filter(
+    (m: Record<string, unknown>) => {
+      const t = Date.parse((m.release_date as string) || '');
+      return Number.isFinite(t) && t > nowMs;
+    },
+  );
+  return { movies: mapMovieResults(future, limit) };
+}
+
+// ─── discoverByVibe — keyword-driven "browse by vibe" discovery ───────────
+
+/**
+ * Resolve a curated vibe → a TMDB keyword id, then `/discover` the best-voted
+ * films tagged with it. Falls back to a plain movie search on the term if the
+ * keyword doesn't resolve or discover comes back empty, so a vibe never
+ * renders empty-by-design.
+ */
+export async function discoverByVibe(
+  vibeId: string,
+  limit = 24,
+): Promise<{ movies: TrendingMovie[]; label: string }> {
+  const vibe = getVibe(vibeId);
+  if (!vibe) return { movies: [], label: '' };
+  const tmdb = getTmdbToken();
+  if (!tmdb) return { movies: [], label: vibe.label };
+  const headers = tmdbHeaders(tmdb);
+
+  // 1. term → TMDB keyword id
+  let keywordId: number | null = null;
+  try {
+    const kwRes = await fetch(
+      `${TMDB_BASE}/search/keyword?query=${encodeURIComponent(vibe.keyword)}&page=1`,
+      { headers, next: { revalidate: 604800 } }, // 7d — keyword ids are stable
+    );
+    if (kwRes.ok) {
+      const kwData = await kwRes.json();
+      const first = Array.isArray(kwData.results) ? kwData.results[0] : null;
+      if (first && typeof first.id === 'number') keywordId = first.id;
+    }
+  } catch {
+    /* fall through to search fallback */
+  }
+
+  // 2. discover by keyword — well-voted first to keep results recognizable
+  if (keywordId) {
+    try {
+      const discRes = await fetch(
+        `${TMDB_BASE}/discover/movie?with_keywords=${keywordId}` +
+          '&sort_by=vote_count.desc&vote_count.gte=150&include_adult=false&language=en-US&page=1',
+        { headers, next: { revalidate: 86400 } }, // 24h
+      );
+      if (discRes.ok) {
+        const discData = await discRes.json();
+        const movies = mapMovieResults(discData.results, limit);
+        if (movies.length > 0) return { movies, label: vibe.label };
+      }
+    } catch {
+      /* fall through to search fallback */
+    }
+  }
+
+  // 3. fallback — plain movie search on the term
+  try {
+    const searchRes = await fetch(
+      `${TMDB_BASE}/search/movie?query=${encodeURIComponent(vibe.keyword)}` +
+        '&include_adult=false&language=en-US&page=1',
+      { headers, next: { revalidate: 86400 } },
+    );
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      return { movies: mapMovieResults(searchData.results, limit), label: vibe.label };
+    }
+  } catch {
+    /* ignore — return empty below */
+  }
+
+  return { movies: [], label: vibe.label };
+}
+
 // ─── getRecommendationsForUser — caller-scoped via Bearer token ──────────
 
 /**
@@ -234,11 +370,28 @@ export async function getRecommendationsForUser(
     return true;
   });
 
+  // Tiered so cautious raters still get something: loved (>=8, up to 3 bases)
+  // → liked (>=6.5, up to 2) → the single most-recent rating. The tier sets
+  // the per-card reason voice ("you loved …" / "because you liked …").
+  let tier: 'loved' | 'liked' | 'recent' = 'loved';
   let bases = rated.filter((r) => r.rating >= 8).slice(0, 3);
-  if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
-  if (bases.length === 0) bases = rated.slice(0, 1);
+  if (bases.length === 0) {
+    bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
+    tier = 'liked';
+  }
+  if (bases.length === 0) {
+    bases = rated.slice(0, 1);
+    tier = 'recent';
+  }
 
   if (bases.length === 0) return { sets: [] };
+
+  const reasonFor = (title: string) => {
+    const t = (title || 'it').toLowerCase();
+    if (tier === 'loved') return `you loved ${t}`;
+    if (tier === 'liked') return `because you liked ${t}`;
+    return `because you watched ${t}`;
+  };
 
   const sets = await Promise.all(
     bases.map(async (b): Promise<RecommendationSet> => {
@@ -247,7 +400,7 @@ export async function getRecommendationsForUser(
         basisTmdbId: b.tmdbId,
         basisTitle: b.movieTitle || 'a film you loved',
         basisMediaType: (b.mediaType || 'movie') as 'movie' | 'tv',
-        reason: `more films in the orbit of ${(b.movieTitle || 'it').toLowerCase()}.`,
+        reason: reasonFor(b.movieTitle || ''),
         recommendations: movies,
       };
     }),
