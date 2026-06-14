@@ -156,6 +156,19 @@ browser).
   populated for other users (only the owner can list collaborative lists), so
   no feature lost. `ProfileListCard` is now orphaned (both profiles use
   ListTile) — safe to delete later. typecheck + build green.
+- [x] **0.7.3.5c** **Profile-photo hero revamp** (both profiles, new mock): the
+  **profile photo IS the hero** (full-bleed `coverImageUrl={photoURL}`), no more
+  circular avatar. Eyebrow `critic · @handle · since` + lowercase name + serif
+  tagline overlay the photo. `Hero` gained a `placeholder` slot (shown over the
+  gradient when no cover) + sheen/scrim are now `pointer-events-none` so the
+  empty-state affordance is tappable. Own profile: empty state = tappable "add a
+  profile photo" → AvatarPicker; pills changed find-friends → **edit profile**
+  (→ AvatarPicker) + share (find-friends still lives in Home search). Public:
+  empty state falls back to the seeded gradient + name ghost. **Taste chips:
+  real "N films" count only** (vibe tags like comedy/rom-com deferred — no
+  genre/taste data model yet; would need an editable taste-tags feature). First
+  tab kept as **films** (accurate to its top-5 + recent content). typecheck +
+  build green.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

@@ -280,6 +280,9 @@ export default function UserProfilePage() {
     { label: 'lists', value: lists.length, onClick: () => setTab('lists') },
   ];
 
+  // Real "N films" chip — total films across the user's public lists.
+  const filmsCount = lists.reduce((sum, l) => sum + (listPreviews[l.id]?.movieCount ?? 0), 0);
+
   const tabs: { id: ProfileTab; label: string }[] = [
     { id: 'films', label: 'films' },
     { id: 'lists', label: 'lists' },
@@ -289,10 +292,12 @@ export default function UserProfilePage() {
   return (
     <MovieModalProvider returnPath={`/profile/${username}`}>
       <main className="min-h-screen text-foreground pb-24 md:pb-8">
-        {/* Cinematic hero — seeded gradient + glass back / overflow */}
+        {/* Cinematic hero — the profile photo IS the hero; falls back to a
+            seeded gradient (with name ghost) when they have no photo. */}
         <Hero
+          coverImageUrl={profile.photoURL || undefined}
           seed={profile.displayName || profile.username || 'profile'}
-          height={340}
+          height={360}
           topLeft={<GlassBtn icon={ChevronLeft} ariaLabel="Back" onClick={() => router.back()} />}
           topRight={
             <ProfileOverflowMenu
@@ -302,26 +307,15 @@ export default function UserProfilePage() {
             />
           }
         >
-          <div className="flex items-end gap-4">
-            <ProfileAvatar
-              photoURL={profile.photoURL}
-              displayName={profile.displayName}
-              username={profile.username}
-              size="xl"
-              className="flex-shrink-0 shadow-photo ring-[3px] ring-white/90"
-            />
-            <div className="min-w-0 pb-1">
-              <h1 className="truncate font-headline text-[30px] font-bold lowercase leading-none tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)]">
-                {profile.displayName || profile.username}
-              </h1>
-              <p className="mt-1.5 font-mono text-[11px] text-white/80">
-                @{profile.username}
-                {memberSince ? ` · since ${memberSince}` : ''}
-              </p>
-            </div>
+          <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/75 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
+            critic · @{profile.username}
+            {memberSince ? ` · since ${memberSince}` : ''}
           </div>
+          <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
+            {profile.displayName || profile.username}
+          </h1>
           {profile.bio && (
-            <p className="mt-3 line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.45)]">
+            <p className="mt-1.5 line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
               {profile.bio}
             </p>
           )}
@@ -349,6 +343,15 @@ export default function UserProfilePage() {
                 share
               </button>
             </div>
+
+            {/* Taste chip — real "N films" count across their public lists */}
+            {filmsCount > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-card px-3 font-mono text-[11px] tabular-nums text-foreground">
+                  {filmsCount.toLocaleString()} films
+                </span>
+              </div>
+            )}
 
             {/* Stats sandwich — between two hairlines */}
             <div className="h-px bg-border mt-6" />

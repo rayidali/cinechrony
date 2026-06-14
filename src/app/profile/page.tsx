@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Pencil, Check, X, Loader2, MoreVertical, Camera, LogOut,
-  Eye, EyeOff, ImageIcon, Settings, Search, Share2,
+  Pencil, Check, X, Loader2, MoreVertical, LogOut,
+  Eye, EyeOff, ImageIcon, Settings, Share2,
 } from 'lucide-react';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import Image from 'next/image';
@@ -19,7 +19,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { UserSearch } from '@/components/user-search';
 import { ListTile } from '@/components/v3/list-tile';
 import { RecentRow } from '@/components/v3/recent-row';
 import { rememberListSeed } from '@/lib/list-detail-seed';
@@ -78,7 +77,6 @@ export default function MyProfilePage() {
   const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
   const [selectedList, setSelectedList] = useState<MovieList | null>(null);
   const [tab, setTab] = useState<ProfileTab>('films');
-  const [showSearch, setShowSearch] = useState(false);
 
   // Get user profile from Firestore
   const userDocRef = useMemoFirebase(() => {
@@ -289,6 +287,11 @@ export default function MyProfilePage() {
   const followersCount = userProfile?.followersCount || 0;
   const followingCount = userProfile?.followingCount || 0;
   const listsCount = lists?.length || 0;
+  // Real "N films" chip — total films across the user's lists.
+  const filmsCount = (lists ?? []).reduce(
+    (sum, l) => sum + (listPreviews[l.id]?.movieCount ?? l.movieCount ?? 0),
+    0,
+  );
 
   const stats: { label: string; value: number; onClick: () => void }[] = [
     { label: 'followers', value: followersCount, onClick: handleLoadFollowers },
@@ -309,51 +312,44 @@ export default function MyProfilePage() {
         disabled={showFollowers || showFollowing || isAvatarPickerOpen || isFavoritePickerOpen || isCoverPickerOpen}
       >
         <main className="min-h-screen text-foreground pb-24 md:pb-8">
-          {/* Cinematic hero — seeded gradient + glass settings / sign-out */}
+          {/* Cinematic hero — the profile photo IS the hero (design v2). When
+              none is set, a tappable "add a profile photo" placeholder shows
+              over a seeded gradient. */}
           <Hero
+            coverImageUrl={userProfile?.photoURL || undefined}
             seed={userProfile?.displayName || userProfile?.username || 'profile'}
-            height={340}
+            height={360}
             topRight={
               <>
                 <GlassBtn icon={Settings} ariaLabel="Settings" onClick={() => router.push('/settings')} />
                 <GlassBtn icon={LogOut} ariaLabel="Sign out" onClick={() => auth.signOut()} />
               </>
             }
-          >
-            <div className="flex items-end gap-4">
-              <div className="group relative flex-shrink-0">
-                <ProfileAvatar
-                  photoURL={userProfile?.photoURL}
-                  displayName={userProfile?.displayName}
-                  username={userProfile?.username}
-                  email={user.email}
-                  size="xl"
+            placeholder={
+              userProfile && !userProfile.photoURL ? (
+                <button
                   onClick={() => setIsAvatarPickerOpen(true)}
-                  className="cursor-pointer shadow-photo ring-[3px] ring-white/90"
-                />
-                <div
-                  className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
-                  onClick={() => setIsAvatarPickerOpen(true)}
+                  className="flex flex-col items-center gap-2 text-white/70 transition-transform active:scale-95"
                 >
-                  <Camera className="h-5 w-5 text-white" />
-                </div>
-              </div>
-              <div className="min-w-0 pb-1">
-                <h1 className="truncate font-headline text-[30px] font-bold lowercase leading-none tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)]">
-                  {userProfile?.displayName || user.displayName || 'user'}
-                </h1>
-                <p className="mt-1.5 font-mono text-[11px] text-white/80">
-                  @{userProfile?.username || '…'}
-                  {memberSince ? ` · since ${memberSince}` : ''}
-                </p>
-              </div>
+                  <ImageIcon className="h-9 w-9" strokeWidth={1.3} />
+                  <span className="font-mono text-[11px] lowercase tracking-wide">add a profile photo</span>
+                </button>
+              ) : undefined
+            }
+          >
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/75 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
+              critic · @{userProfile?.username || '…'}
+              {memberSince ? ` · since ${memberSince}` : ''}
             </div>
+            <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
+              {userProfile?.displayName || user.displayName || 'user'}
+            </h1>
             {!isEditingBio && (
               <button
                 onClick={() => setIsEditingBio(true)}
-                className="mt-3 block max-w-full text-left"
+                className="mt-1.5 block max-w-full text-left"
               >
-                <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.45)]">
+                <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
                   {userProfile?.bio || 'add a one-liner…'}
                   <Pencil className="ml-1.5 inline h-3 w-3 align-baseline text-white/70" />
                 </p>
@@ -398,21 +394,24 @@ export default function MyProfilePage() {
               </div>
             )}
 
-            {/* Ghost pill actions */}
+            {/* Primary actions — edit profile + share (design v2) */}
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setShowSearch((v) => !v)} className={GHOST_PILL}>
-                <Search className="h-3.5 w-3.5" strokeWidth={1.8} />
-                find friends
+              <button onClick={() => setIsAvatarPickerOpen(true)} className={`${GHOST_PILL} flex-1 justify-center`}>
+                <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />
+                edit profile
               </button>
-              <button onClick={handleShare} className={GHOST_PILL}>
+              <button onClick={handleShare} className={`${GHOST_PILL} flex-1 justify-center`}>
                 <Share2 className="h-3.5 w-3.5" strokeWidth={1.8} />
                 share
               </button>
             </div>
 
-            {showSearch && (
-              <div className="mt-4">
-                <UserSearch />
+            {/* Taste chips — real "N films" count (vibe tags TBD: needs a taste-tags feature) */}
+            {filmsCount > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="inline-flex h-7 items-center rounded-full border border-border bg-card px-3 font-mono text-[11px] tabular-nums text-foreground">
+                  {filmsCount.toLocaleString()} films
+                </span>
               </div>
             )}
 
