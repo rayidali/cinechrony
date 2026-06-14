@@ -22,6 +22,8 @@ import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { profileShareUrl } from '@/lib/share';
+import { haptic } from '@/lib/haptics';
 import type { ListSummary } from '@/lib/lists-server';
 import type { UserProfile, MovieList, Activity } from '@/lib/types';
 
@@ -175,10 +177,15 @@ export default function UserProfilePage() {
   };
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/profile/${username}`;
+    haptic('light');
+    const url = profileShareUrl(username);
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: `@${username} on cinechrony`, url });
+        await navigator.share({
+          title: `@${username} on cinechrony`,
+          text: `check out @${username} on cinechrony`,
+          url,
+        });
       } else {
         await navigator.clipboard.writeText(url);
         toast({ title: 'link copied' });

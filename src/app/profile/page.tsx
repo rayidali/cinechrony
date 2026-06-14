@@ -22,6 +22,8 @@ import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { profileShareUrl } from '@/lib/share';
+import { haptic } from '@/lib/haptics';
 import { TopFivePicker } from '@/components/v3/top-five-picker';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
@@ -180,10 +182,15 @@ export default function MyProfilePage() {
   const handleShare = async () => {
     const username = userProfile?.username;
     if (!username) return;
-    const url = `${window.location.origin}/profile/${username}`;
+    haptic('light');
+    const url = profileShareUrl(username);
     try {
       if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: `@${username} on cinechrony`, url });
+        await navigator.share({
+          title: `@${username} on cinechrony`,
+          text: `check out @${username} on cinechrony`,
+          url,
+        });
       } else {
         await navigator.clipboard.writeText(url);
         toast({ title: 'link copied' });
