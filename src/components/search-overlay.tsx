@@ -11,7 +11,6 @@ import {
   Film,
   Tv,
   ListVideo,
-  Sparkles,
 } from 'lucide-react';
 import type { LovedListCard } from '@/lib/lists-server';
 import type { TrendingMovie, RecommendationSet } from '@/lib/tmdb-server';
@@ -43,15 +42,12 @@ const posterFrom = (path: string | null) =>
 const yearFrom = (releaseDate: string) =>
   releaseDate ? releaseDate.split('-')[0] : '';
 
-type Rec = { movie: TrendingMovie; reason: string };
-
 /**
  * Flatten the per-basis recommendation sets into one row, round-robin across
- * bases so the first cards show variety (not all "you loved X" in a clump).
- * Each card keeps the reason from its basis.
+ * bases so the first cards show variety (not all from one basis in a clump).
  */
-function flattenRecs(sets: RecommendationSet[], cap = 14): Rec[] {
-  const out: Rec[] = [];
+function flattenRecs(sets: RecommendationSet[], cap = 14): TrendingMovie[] {
+  const out: TrendingMovie[] = [];
   const seen = new Set<number>();
   const maxLen = sets.reduce((m, s) => Math.max(m, s.recommendations.length), 0);
   for (let i = 0; i < maxLen && out.length < cap; i++) {
@@ -59,7 +55,7 @@ function flattenRecs(sets: RecommendationSet[], cap = 14): Rec[] {
       const movie = set.recommendations[i];
       if (!movie || seen.has(movie.id)) continue;
       seen.add(movie.id);
-      out.push({ movie, reason: set.reason });
+      out.push(movie);
       if (out.length >= cap) break;
     }
   }
@@ -90,7 +86,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
   const [isSearching, setIsSearching] = useState(false);
 
   // Discover view (loaded once per session, kept across open/close)
-  const [recs, setRecs] = useState<Rec[]>([]);
+  const [recs, setRecs] = useState<TrendingMovie[]>([]);
   const [nowPlaying, setNowPlaying] = useState<SearchResult[]>([]);
   const [upcoming, setUpcoming] = useState<SearchResult[]>([]);
   const [nowNextTab, setNowNextTab] = useState<'now' | 'soon'>('now');
@@ -395,14 +391,12 @@ function PosterTile({
   posterUrl,
   title,
   width,
-  reason,
   meta,
   onOpen,
 }: {
   posterUrl: string;
   title: string;
   width: number;
-  reason?: string;
   meta?: string;
   onOpen: () => void;
 }) {
@@ -418,12 +412,7 @@ function PosterTile({
       <p className="mt-2 font-headline font-semibold text-[13.5px] lowercase tracking-tight line-clamp-1">
         {title}
       </p>
-      {reason ? (
-        <p className="mt-0.5 flex items-center gap-1 font-serif italic text-[12px] text-muted-foreground">
-          <Sparkles className="h-3 w-3 flex-shrink-0 text-primary" strokeWidth={1.8} />
-          <span className="truncate">{reason}</span>
-        </p>
-      ) : meta ? (
+      {meta ? (
         <p className="mt-0.5 cc-meta text-[10px] text-muted-foreground">{meta}</p>
       ) : null}
     </button>
@@ -480,7 +469,7 @@ function DiscoverView({
   onVibe,
 }: {
   loading: boolean;
-  recs: Rec[];
+  recs: TrendingMovie[];
   nowNextTab: 'now' | 'soon';
   onNowNextTab: (t: string) => void;
   nowNextMovies: SearchResult[];
@@ -508,14 +497,13 @@ function DiscoverView({
             </h2>
           </div>
           <div className="mt-3.5 flex gap-3.5 overflow-x-auto scrollbar-hide px-4 pb-1">
-            {recs.map((r) => (
+            {recs.map((m) => (
               <PosterTile
-                key={`rec_${r.movie.id}`}
-                posterUrl={posterFrom(r.movie.posterPath)}
-                title={r.movie.title}
+                key={`rec_${m.id}`}
+                posterUrl={posterFrom(m.posterPath)}
+                title={m.title}
                 width={148}
-                reason={r.reason}
-                onOpen={() => onOpenRec(r.movie)}
+                onOpen={() => onOpenRec(m)}
               />
             ))}
           </div>
