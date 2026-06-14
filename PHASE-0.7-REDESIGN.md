@@ -144,6 +144,18 @@ browser).
     `(activities: userId ASC, createdAt DESC)` composite index in
     `firestore.indexes.json`; deploy with `firebase deploy --only
     firestore:indexes`** or recent/activity stay empty.
+- [x] **0.7.3.5b** **Public profile** (`/profile/[username]`): same cinematic
+  Hero (seeded gradient + avatar + name/@handle/since + serif bio tagline) +
+  glass **back** (top-left) + glass **block/report ⋯** (top-right, new
+  `ProfileOverflowMenu variant="glass"`) → content sheet (Follow + share pills,
+  stats sandwich, **Segmented films · lists · activity**). lists tab uses the
+  universal **ListTile** with the `ListLikeButton` (cover variant) in its
+  likeButton slot; films = top-5 + recent; activity = `RecentRow` feed of the
+  viewed user (world-readable `/activities` getDocs, same graceful try/catch).
+  Wrapped in `MovieModalProvider`. **Dropped the old "shared" tab** — it never
+  populated for other users (only the owner can list collaborative lists), so
+  no feature lost. `ProfileListCard` is now orphaned (both profiles use
+  ListTile) — safe to delete later. typecheck + build green.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

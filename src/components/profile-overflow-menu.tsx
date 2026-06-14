@@ -13,6 +13,8 @@ import { cn } from '@/lib/utils';
 type ProfileOverflowMenuProps = {
   targetUserId: string;
   targetUsername: string;
+  /** 'glass' renders a white-on-dark-glass trigger for use over a hero image. */
+  variant?: 'default' | 'glass';
 };
 
 /**
@@ -20,7 +22,7 @@ type ProfileOverflowMenuProps = {
  * Blocking severs the relationship and routes home (the profile then reads as
  * unavailable). See UX_PATTERNS.md — "Other-user profile vs your own".
  */
-export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOverflowMenuProps) {
+export function ProfileOverflowMenu({ targetUserId, targetUsername, variant = 'default' }: ProfileOverflowMenuProps) {
   const { user } = useUser();
   const router = useRouter();
   const { toast } = useToast();
@@ -82,13 +84,28 @@ export function ProfileOverflowMenu({ targetUserId, targetUsername }: ProfileOve
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        aria-label="More"
-        className="h-11 w-11 -mr-1 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted active:bg-muted active:scale-95 transition-all"
-      >
-        <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={1.8} />
-      </button>
+      {variant === 'glass' ? (
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="More"
+          className="inline-flex h-[38px] w-[38px] items-center justify-center rounded-full border border-white/20 text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] transition-transform active:scale-95"
+          style={{
+            background: 'rgba(22,20,18,0.30)',
+            backdropFilter: 'blur(16px) saturate(160%)',
+            WebkitBackdropFilter: 'blur(16px) saturate(160%)',
+          }}
+        >
+          <MoreHorizontal className="h-[18px] w-[18px]" strokeWidth={2.1} />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          aria-label="More"
+          className="h-11 w-11 -mr-1 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-muted active:bg-muted active:scale-95 transition-all"
+        >
+          <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={1.8} />
+        </button>
+      )}
 
       <Drawer.Root open={open} onOpenChange={setOpen}>
         <Drawer.Portal>
