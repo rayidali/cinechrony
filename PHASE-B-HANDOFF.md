@@ -1,5 +1,16 @@
 # Phase B — Capacitor wrap: owner handoff
 
+> ⚠️ **Confirm the live domain before you bake anything in.** This doc uses
+> `cinechrony.vercel.app` as the API/Universal-Links origin, but the app is
+> currently live at **`movienight-kappa.vercel.app`**, and
+> `capacitor.config.ts` references `cinechrony.vercel.app` too — they don't
+> match. **Decide the real production origin first** (the live Vercel domain
+> or a finalized custom domain like `cinechrony.com`), then use that ONE value
+> everywhere below: the `NEXT_PUBLIC_API_BASE_URL` build var (§9), the
+> `applinks:` Associated Domain (§2), the AASA / assetlinks files (§3, §5),
+> and `capacitor.config.ts`. Baking in the wrong origin = the app boots but can't
+> reach the API, and deep links silently fail.
+
 Phase B is **code-complete** but a few things only the human (with the Apple Developer account, the Firebase Console, and the production domain) can finish. This doc is your checklist.
 
 If you do these in order, you go from "the iOS app boots in Simulator with a blank screen" → "the iOS app signs in with Google + Apple, deep links open from Messages, and push notifications arrive on your real phone."
