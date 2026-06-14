@@ -58,6 +58,27 @@ export function Hero({ coverImageUrl, seed, height = 300, topLeft, topRight, chi
             'radial-gradient(130% 80% at 75% 12%, rgba(255,255,255,0.16), transparent 52%)',
         }}
       />
+      {/* faint title ghost — a giant lowercase echo of the name fills the
+          space behind the content (design: ios-screens.jsx Hero). Only over a
+          gradient; a real cover image speaks for itself. */}
+      {!coverImageUrl && seed && (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
+        >
+          <span
+            className="break-words text-center font-headline font-bold lowercase text-white/[0.10]"
+            style={{
+              fontSize: 'clamp(68px, 22vw, 104px)',
+              lineHeight: 0.84,
+              letterSpacing: '-0.05em',
+              fontVariationSettings: '"wdth" 86',
+            }}
+          >
+            {seed}
+          </span>
+        </div>
+      )}
       {/* bottom scrim for legible white content */}
       <div
         aria-hidden
