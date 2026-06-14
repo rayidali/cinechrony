@@ -109,8 +109,11 @@ browser).
   picks / leaderboard / featured / lists-for-you render with **placeholder/
   existing-data sources** now; richer data lands in 0.7.5.
 - [ ] **0.7.3.2** **Movie detail modal + movie-card variants** (grid / list).
-- [ ] **0.7.3.3** **Lists** (`ListsIOS`): album tiles + `MiniFan` poster fans +
-  collapsing NavBar + mine/shared segmented.
+- [x] **0.7.3.3** **Lists** (`ListsIOS`): album tiles + `MiniFan` poster fans +
+  collapsing frosted NavBar + mine/shared segmented + AddBtn in the nav (FAB
+  retired on this screen). Built `Segmented`, `NavBar`, `AddBtn`, `ListTile`
+  primitives in context. All data/seed/refresh/create logic preserved.
+  typecheck + build green. — first full-screen v3 restyle, awaiting green-light.
 - [ ] **0.7.3.4** **List detail** (`ListDetailIOS`): cinematic hero, pull-up
   sheet, collaborators row + manage button, to-watch/watched segmented, 3-up
   grid with rating chips + watched check.
@@ -160,7 +163,16 @@ browser).
   `https://cinechrony.vercel.app/terms` (both are real public routes), app
   icon, category. **Ignore the "Manage messaging & content on Instagram" use
   case — that's the Graph API path (App Review + business verification), NOT
-  needed for story sharing.**
+  needed for story sharing.** App PUBLISHED/Live in Meta 2026-06-13. URLs use
+  the live PWA domain `https://movienight-kappa.vercel.app/{privacy,terms}`.
+
+> ⚠️ **Domain discrepancy to resolve before native/Phase C** (not blocking the
+> redesign): the live PWA is **`movienight-kappa.vercel.app`**, but
+> `capacitor.config.ts` allowNavigation + PHASE-B-HANDOFF + the planned
+> `NEXT_PUBLIC_API_BASE_URL` reference **`cinechrony.vercel.app`**. The iOS
+> bundle + deep links + AASA must point at the REAL live API origin (or a
+> finalized custom domain like cinechrony.com) before TestFlight. Flag for the
+> Phase B owner-setup pass.
 - [ ] **0.7.6.2** Small custom Capacitor plugin: write PNG to pasteboard under
   Instagram's keys + open `instagram-stories://share?source_application=<AppID>`
   (iOS) / `com.instagram.share.ADD_TO_STORY` intent (Android). `Info.plist`
