@@ -20,7 +20,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
-import { ProfileListCard } from '@/components/profile-list-card';
+import { ListTile } from '@/components/v3/list-tile';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
@@ -369,6 +369,7 @@ export default function MyProfilePage() {
           {/* Cinematic hero — seeded gradient + glass settings / sign-out */}
           <Hero
             seed={userProfile?.displayName || userProfile?.username || 'profile'}
+            height={340}
             topRight={
               <>
                 <GlassBtn icon={Settings} ariaLabel="Settings" onClick={() => router.push('/settings')} />
@@ -404,56 +405,55 @@ export default function MyProfilePage() {
                 </p>
               </div>
             </div>
+            {!isEditingBio && (
+              <button
+                onClick={() => setIsEditingBio(true)}
+                className="mt-3 block max-w-full text-left"
+              >
+                <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.45)]">
+                  {userProfile?.bio || 'add a one-liner…'}
+                  <Pencil className="ml-1.5 inline h-3 w-3 align-baseline text-white/70" />
+                </p>
+              </button>
+            )}
           </Hero>
 
           {/* Pull-up content sheet */}
           <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
             <div className="mx-auto max-w-2xl px-4 pt-5">
 
-            {/* Bio — serif italic, tap to edit */}
-            <div className="mt-4">
-              {isEditingBio ? (
-                <div className="space-y-2">
-                  <textarea
-                    value={newBio}
-                    onChange={(e) => setNewBio(e.target.value)}
-                    placeholder="add a one-liner. something they'll remember you by…"
-                    maxLength={160}
-                    rows={2}
-                    autoFocus
-                    className="w-full resize-none rounded-[14px] border border-input bg-background p-3 font-serif italic text-[15px] leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  />
-                  <div className="flex items-center justify-between">
-                    <span className="cc-meta text-[10px] text-muted-foreground">{newBio.length}/160</span>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => {
-                          setIsEditingBio(false);
-                          setNewBio(userProfile?.bio || '');
-                        }}
-                      >
-                        <X className="h-4 w-4" />
-                      </Button>
-                      <Button size="sm" variant="accent" onClick={handleSaveBio} disabled={isSavingBio}>
-                        {isSavingBio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                      </Button>
-                    </div>
+            {/* Bio editor — opened by tapping the hero tagline */}
+            {isEditingBio && (
+              <div className="mt-1 mb-5 space-y-2">
+                <textarea
+                  value={newBio}
+                  onChange={(e) => setNewBio(e.target.value)}
+                  placeholder="add a one-liner. something they'll remember you by…"
+                  maxLength={160}
+                  rows={2}
+                  autoFocus
+                  className="w-full resize-none rounded-[14px] border border-input bg-background p-3 font-serif italic text-[15px] leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                />
+                <div className="flex items-center justify-between">
+                  <span className="cc-meta text-[10px] text-muted-foreground">{newBio.length}/160</span>
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setIsEditingBio(false);
+                        setNewBio(userProfile?.bio || '');
+                      }}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
+                    <Button size="sm" variant="accent" onClick={handleSaveBio} disabled={isSavingBio}>
+                      {isSavingBio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                    </Button>
                   </div>
                 </div>
-              ) : (
-                <button
-                  onClick={() => setIsEditingBio(true)}
-                  className="text-left group w-full"
-                >
-                  <p className="cc-lead text-[15px] text-foreground">
-                    {userProfile?.bio || 'add a one-liner. something they’ll remember you by.'}
-                    <Pencil className="inline h-3 w-3 ml-1.5 align-baseline text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-                  </p>
-                </button>
-              )}
-            </div>
+              </div>
+            )}
 
             {/* Ghost pill actions */}
             <div className="flex gap-2 mt-4">
@@ -506,7 +506,7 @@ export default function MyProfilePage() {
                       const preview = listPreviews[list.id];
                       const augmented = { ...list, movieCount: preview?.movieCount ?? list.movieCount ?? 0 };
                       return (
-                        <ProfileListCard
+                        <ListTile
                           key={list.id}
                           name={list.name}
                           isPublic={list.isPublic !== false}
@@ -514,49 +514,48 @@ export default function MyProfilePage() {
                           coverImageUrl={list.coverImageUrl}
                           coverMode={list.coverMode}
                           previewPosters={preview?.previewPosters ?? []}
-                          updatedLabel={shortDate(list.updatedAt) ? `updated ${shortDate(list.updatedAt)}` : undefined}
                           onClick={() => {
                             // Seed the detail page for instant render.
                             rememberListSeed({ list: augmented, previewPosters: preview?.previewPosters });
                             router.push(`/lists/${list.id}`);
                           }}
-                        >
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                className="w-7 h-7 rounded-full bg-black/45 backdrop-blur-sm text-white flex items-center justify-center"
-                                onClick={(e) => e.stopPropagation()}
-                                aria-label="List options"
-                              >
-                                <MoreVertical className="h-4 w-4" />
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end" className="border border-border rounded-xl">
-                              <DropdownMenuItem
-                                onSelect={() => {
-                                  setSelectedList(list);
-                                  setIsCoverPickerOpen(true);
-                                }}
-                              >
-                                <ImageIcon className="h-4 w-4 mr-2" />
-                                Set Cover
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onSelect={() => handleToggleVisibility(list.id, !!list.isPublic)}>
-                                {list.isPublic ? (
-                                  <>
-                                    <EyeOff className="h-4 w-4 mr-2" />
-                                    Make Private
-                                  </>
-                                ) : (
-                                  <>
-                                    <Eye className="h-4 w-4 mr-2" />
-                                    Make Public
-                                  </>
-                                )}
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
-                        </ProfileListCard>
+                          overlay={
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="flex h-7 w-7 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm"
+                                  aria-label="List options"
+                                >
+                                  <MoreVertical className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="rounded-xl border border-border">
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    setSelectedList(list);
+                                    setIsCoverPickerOpen(true);
+                                  }}
+                                >
+                                  <ImageIcon className="mr-2 h-4 w-4" />
+                                  Set Cover
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => handleToggleVisibility(list.id, !!list.isPublic)}>
+                                  {list.isPublic ? (
+                                    <>
+                                      <EyeOff className="mr-2 h-4 w-4" />
+                                      Make Private
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Eye className="mr-2 h-4 w-4" />
+                                      Make Public
+                                    </>
+                                  )}
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          }
+                        />
                       );
                     })}
                   </div>
@@ -611,10 +610,9 @@ export default function MyProfilePage() {
                         const preview = collabListPreviews[collab.id];
                         const augmented = { ...collab, movieCount: preview?.movieCount ?? 0 };
                         return (
-                          <ProfileListCard
+                          <ListTile
                             key={collab.id}
                             name={collab.name}
-                            isCollaborative
                             ownerName={collab.ownerUsername || undefined}
                             movieCount={preview?.movieCount ?? 0}
                             previewPosters={preview?.previewPosters ?? []}

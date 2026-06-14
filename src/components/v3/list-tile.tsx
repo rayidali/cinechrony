@@ -1,6 +1,6 @@
 'use client';
 
-import type { MouseEvent } from 'react';
+import type { MouseEvent, ReactNode } from 'react';
 import { Film, Globe, Lock } from 'lucide-react';
 
 /**
@@ -19,6 +19,10 @@ interface ListTileProps {
   /** Custom cover the owner uploaded; shown full-bleed unless coverMode is 'auto'. */
   coverImageUrl?: string;
   coverMode?: 'auto' | 'custom';
+  /** Action control over the tile, top-right (e.g. a ⋯ menu). Clicks don't open the tile. */
+  overlay?: ReactNode;
+  /** Control over the tile, bottom-left (e.g. a like button). Clicks don't open the tile. */
+  likeButton?: ReactNode;
   onClick?: (e: MouseEvent) => void;
 }
 
@@ -58,6 +62,8 @@ export function ListTile({
   previewPosters = [],
   coverImageUrl,
   coverMode,
+  overlay,
+  likeButton,
   onClick,
 }: ListTileProps) {
   const posters = previewPosters.filter(Boolean);
@@ -66,7 +72,8 @@ export function ListTile({
   const Visibility = isPublic ? Globe : Lock;
 
   return (
-    <button type="button" onClick={onClick} className="group block w-full text-left">
+    // A <div> (not <button>) so action controls (the ⋯ menu) can nest legally.
+    <div onClick={onClick} className="group block w-full cursor-pointer text-left">
       <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] border border-hair bg-card shadow-lift transition-transform group-active:scale-[0.98]">
         {hasCustomCover ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -83,6 +90,16 @@ export function ListTile({
             <Film className="h-6 w-6" strokeWidth={1.4} />
           </div>
         )}
+        {overlay && (
+          <div className="absolute right-2.5 top-2.5 z-10" onClick={(e) => e.stopPropagation()}>
+            {overlay}
+          </div>
+        )}
+        {likeButton && (
+          <div className="absolute bottom-2 left-2 z-10" onClick={(e) => e.stopPropagation()}>
+            {likeButton}
+          </div>
+        )}
       </div>
       <div className="mt-2.5 flex items-center justify-between gap-2">
         <div className="min-w-0">
@@ -96,6 +113,6 @@ export function ListTile({
         </div>
         <Visibility className="h-3.5 w-3.5 shrink-0 text-faint" strokeWidth={1.7} />
       </div>
-    </button>
+    </div>
   );
 }
