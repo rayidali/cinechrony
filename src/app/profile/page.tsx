@@ -10,7 +10,7 @@ import {
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
-import { collection, orderBy, query, doc, where, limit } from 'firebase/firestore';
+import { collection, orderBy, query, doc, where, limit, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -100,20 +100,40 @@ export default function MyProfilePage() {
   const { data: lists, isLoading: isLoadingLists } = useCollection<MovieList>(listsQuery);
 
   // The owner's own activity stream — powers the films-tab "recent" section
-  // and the "activity" tab. Real-time so a new rating/watch appears instantly.
-  // NOTE: needs the (userId ASC, createdAt DESC) composite index in
-  // firestore.indexes.json — deploy with `firebase deploy --only firestore:indexes`.
-  const activitiesQuery = useMemoFirebase(() => {
-    if (!user) return null;
-    return query(
-      collection(firestore, 'activities'),
-      where('userId', '==', user.uid),
-      orderBy('createdAt', 'desc'),
-      limit(30),
-    );
+  // and the "activity" tab. Deliberately a one-shot getDocs (NOT a real-time
+  // useCollection): useCollection relabels every read error as a global
+  // "permission-error" toast, so a not-yet-deployed composite index would pop
+  // the scary "Action blocked" banner. Here we own the try/catch and degrade
+  // to an empty section instead. Needs the (userId ASC, createdAt DESC) index
+  // in firestore.indexes.json — `firebase deploy --only firestore:indexes`.
+  const [activities, setActivities] = useState<Activity[] | null>(null);
+  const [isLoadingActivities, setIsLoadingActivities] = useState(true);
+
+  const loadActivities = useCallback(async () => {
+    if (!user) return;
+    try {
+      const snap = await getDocs(
+        query(
+          collection(firestore, 'activities'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          limit(30),
+        ),
+      );
+      setActivities(snap.docs.map((d) => ({ ...(d.data() as Activity), id: d.id })));
+    } catch (error) {
+      // Most likely the composite index isn't live yet — show empty, no toast.
+      setActivities([]);
+      console.warn('Activity feed unavailable (Firestore index building?):', error);
+    } finally {
+      setIsLoadingActivities(false);
+    }
   }, [firestore, user]);
 
-  const { data: activities, isLoading: isLoadingActivities } = useCollection<Activity>(activitiesQuery);
+  useEffect(() => {
+    loadActivities();
+  }, [loadActivities]);
+
   const recentActivities = useMemo(() => (activities ?? []).slice(0, 4), [activities]);
 
   const memberSince = useMemo(() => shortMonthYear(userProfile?.createdAt), [userProfile?.createdAt]);
@@ -245,6 +265,7 @@ export default function MyProfilePage() {
   // so this only needs to refresh the API-fetched list previews.
   const handleRefresh = useCallback(async () => {
     if (!user) return;
+    loadActivities();
     if (lists && lists.length > 0) {
       const listIds = lists.map((list) => list.id);
       const previewsResult = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
@@ -255,7 +276,7 @@ export default function MyProfilePage() {
         setListPreviews(previewsResult.previews);
       }
     }
-  }, [user, lists]);
+  }, [user, lists, loadActivities]);
 
   if (isUserLoading || !user) {
     return (
