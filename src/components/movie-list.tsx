@@ -10,11 +10,19 @@ import { MovieCardAnnotated } from './movie-card-annotated';
 import { MovieDetailsModal } from './movie-details-modal';
 import { GridViewHint } from './grid-view-hint';
 import { Segmented } from '@/components/v3/segmented';
-import { Button } from '@/components/ui/button';
-import { Grid3X3, List, LayoutGrid, AlignLeft } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
-import { ListControls } from './list-controls';
-import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
+import { cn } from '@/lib/utils';
+import { arrangeListMovies, LIST_SORTS, type ListSort } from '@/lib/list-sort';
 
 type ViewMode = 'grid' | 'list' | 'cards' | 'annotated';
 
@@ -37,6 +45,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
 
   // Load view mode from localStorage on mount
   useEffect(() => {
@@ -194,10 +203,10 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
 
   return (
     <div className="w-full">
-      {/* Header with filter tabs and view toggle */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-        {/* Filter — v3 sliding segmented */}
-        <div className="w-full sm:w-[240px]">
+      {/* Toolbar — segmented + search toggle + view/sort menu (all features,
+          collapsed into two tidy affordances). */}
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex-1">
           <Segmented
             value={filter}
             onChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
@@ -208,54 +217,79 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
           />
         </div>
 
-        {/* View mode toggle */}
-        <div className="flex items-center gap-1 border border-border rounded-full p-1 bg-background">
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('grid')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Grid view"
-          >
-            <Grid3X3 className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('list')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="List view"
-          >
-            <List className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'cards' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('cards')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Full cards view"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'annotated' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('annotated')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Annotated view"
-          >
-            <AlignLeft className="h-4 w-4" />
-          </Button>
-        </div>
+        <button
+          type="button"
+          onClick={() => setShowSearch((s) => !s)}
+          aria-label="Search this list"
+          aria-pressed={showSearch}
+          className={cn(
+            'flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-rule transition-colors',
+            showSearch ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Search className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </button>
+
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="View and sort options"
+              className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-rule text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <SlidersHorizontal className="h-[18px] w-[18px]" strokeWidth={1.9} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel className="cc-eyebrow">view</DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={viewMode}
+              onValueChange={(v) => handleViewModeChange(v as ViewMode)}
+            >
+              <DropdownMenuRadioItem value="grid">grid</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="list">list</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="cards">cards</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="annotated">notes</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="cc-eyebrow">sort</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as ListSort)}>
+              {LIST_SORTS.map((o) => (
+                <DropdownMenuRadioItem key={o.id} value={o.id}>
+                  {o.label}
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Search + sort */}
-      <ListControls
-        query={search}
-        onQueryChange={setSearch}
-        sort={sort}
-        onSortChange={setSort}
-      />
+      {/* Inline search — revealed by the search toggle */}
+      {showSearch && (
+        <div className="mb-4 flex h-10 items-center gap-2 rounded-full border border-rule bg-card px-3.5 shadow-press">
+          <Search className="h-4 w-4 shrink-0 text-muted-foreground" strokeWidth={1.8} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="search this list…"
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            className="flex-1 border-0 bg-transparent font-serif text-sm italic text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              setShowSearch(false);
+            }}
+            aria-label="Close search"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-4 w-4" strokeWidth={1.8} />
+          </button>
+        </div>
+      )}
 
       {/* Movie count */}
       <p className="cc-meta text-xs text-muted-foreground mb-4">

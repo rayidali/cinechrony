@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle, Plus, Settings2 } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
@@ -298,9 +298,6 @@ export default function ListDetailPage() {
   const isPublic = !!effectiveListData?.isPublic;
   const hasCover =
     !!effectiveListData?.coverImageUrl && effectiveListData?.coverMode !== 'auto';
-  const settingsUrl = isOwner
-    ? `/lists/${listId}/settings`
-    : `/lists/${listId}/settings?owner=${effectiveOwnerId}`;
 
   return (
     <>
@@ -315,10 +312,7 @@ export default function ListDetailPage() {
             }
             topRight={
               canEdit && effectiveOwnerId ? (
-                <>
-                  <GlassBtn icon={Settings2} ariaLabel="List settings" onClick={() => router.push(settingsUrl)} />
-                  <GlassBtn icon={Plus} ariaLabel="Add movie" onClick={() => setIsAddMovieOpen(true)} />
-                </>
+                <GlassBtn icon={Plus} ariaLabel="Add movie" onClick={() => setIsAddMovieOpen(true)} />
               ) : null
             }
           >
