@@ -314,15 +314,11 @@ export default function MyProfilePage() {
             <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
               {userProfile?.displayName || user.displayName || 'user'}
             </h1>
-            <button
-              onClick={() => setIsEditProfileOpen(true)}
-              className="mt-1.5 block max-w-full text-left"
-            >
-              <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
-                {userProfile?.bio || 'add a one-liner…'}
-                <Pencil className="ml-1.5 inline h-3 w-3 align-baseline text-white/70" />
+            {userProfile?.bio && (
+              <p className="mt-1.5 line-clamp-2 max-w-full font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
+                {userProfile.bio}
               </p>
-            </button>
+            )}
           </Hero>
 
           {/* Pull-up content sheet */}
