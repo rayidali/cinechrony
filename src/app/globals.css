@@ -305,9 +305,9 @@
   .cc-eyebrow {
     font-family: var(--font-mono), "Space Mono", ui-monospace, monospace;
     font-weight: 700;
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.15em;
     color: oklch(var(--muted-foreground));
   }
 

@@ -44,8 +44,10 @@ function shortMonthYear(value: unknown): string | null {
   }
 }
 
+// Filled tonal action pill — iOS-native (secondarySystemFill), matches the
+// design mock's filled pills.
 const GHOST_PILL =
-  'inline-flex items-center gap-1.5 h-9 px-4 rounded-full border border-foreground font-headline font-semibold text-[13px] lowercase tracking-tight transition-transform active:scale-[0.98]';
+  'inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full bg-secondary text-foreground font-headline font-semibold text-[14px] lowercase tracking-tight transition-transform active:scale-[0.97]';
 
 export default function UserProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -346,7 +348,7 @@ export default function UserProfilePage() {
 
             {/* Taste chip — real "N films" count across their public lists */}
             {filmsCount > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
+              <div className="mt-2.5 flex flex-wrap gap-2">
                 <span className="inline-flex h-7 items-center rounded-full border border-border bg-card px-3 font-mono text-[11px] tabular-nums text-foreground">
                   {filmsCount.toLocaleString()} films
                 </span>
@@ -354,24 +356,24 @@ export default function UserProfilePage() {
             )}
 
             {/* Stats sandwich — between two hairlines */}
-            <div className="h-px bg-border mt-6" />
+            <div className="h-px bg-border mt-4" />
             <div className="flex">
               {stats.map((s) => (
-                <button key={s.label} onClick={s.onClick} className="flex-1 py-4 text-left">
-                  <div className="font-headline font-bold text-2xl tabular-nums leading-none">{s.value}</div>
-                  <div className="cc-eyebrow mt-1.5">{s.label}</div>
+                <button key={s.label} onClick={s.onClick} className="flex-1 py-3 text-left">
+                  <div className="font-headline font-bold text-[22px] tabular-nums leading-none">{s.value}</div>
+                  <div className="cc-eyebrow mt-1">{s.label}</div>
                 </button>
               ))}
             </div>
             <div className="h-px bg-border" />
 
             {/* Segmented tabs */}
-            <div className="mt-5">
+            <div className="mt-4">
               <Segmented value={tab} onChange={(v) => setTab(v as ProfileTab)} options={tabs} />
             </div>
 
             {/* Tab content */}
-            <div className="mt-6">
+            <div className="mt-5">
               {/* FILMS — the canon (top 5) + recent activity */}
               {tab === 'films' && (
                 <div className="space-y-8">
