@@ -61,6 +61,13 @@ type PublicMovieDetailsModalProps = {
   listOwnerId?: string;
   /** Full path to return to (e.g., /profile/username/lists/listId) - used by comments page back navigation */
   returnPath?: string;
+  /**
+   * Tailwind z-index class for the drawer overlay + content. Defaults to
+   * `z-50`. Override when opening over another fullscreen layer — e.g. the
+   * search overlay is `z-[70]`, so it passes `z-[80]` so the drawer stacks
+   * above it instead of behind it (invisible).
+   */
+  stackClassName?: string;
 };
 
 /**
@@ -76,6 +83,7 @@ export function PublicMovieDetailsModal({
   listId,
   listOwnerId,
   returnPath,
+  stackClassName = 'z-50',
 }: PublicMovieDetailsModalProps) {
   const router = useRouter();
   // "more like this" can swap the modal to a different film in place — no
@@ -247,9 +255,9 @@ export function PublicMovieDetailsModal({
   return (
     <Drawer.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
+        <Drawer.Overlay className={`fixed inset-0 bg-black/60 ${stackClassName}`} />
         <Drawer.Content
-          className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-card outline-none overflow-hidden"
+          className={`fixed bottom-0 left-0 right-0 ${stackClassName} flex flex-col rounded-t-2xl bg-card outline-none overflow-hidden`}
           style={{ height: heightStyle, maxHeight: heightStyle }}
         >
           <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>

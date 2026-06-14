@@ -377,6 +377,9 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
       <PublicMovieDetailsModal
         movie={selectedMovie}
         isOpen={isModalOpen}
+        // The search overlay itself is z-[70]; the drawer must stack ABOVE it
+        // (default z-50 would open behind the overlay → invisible).
+        stackClassName="z-[80]"
         onClose={() => {
           setIsModalOpen(false);
           setSelectedMovie(null);
