@@ -5,6 +5,7 @@ import { Camera, ImageIcon, Loader2 } from 'lucide-react';
 import { DEFAULT_AVATARS } from '@/lib/avatars';
 import { compressAvatar } from '@/lib/avatar-image';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
 
 /**
@@ -103,6 +104,7 @@ export function EditProfileSheet({
     setIsSaving(true);
     try {
       await apiCall('PATCH', '/api/v1/me', updates);
+      haptic('success');
       toast({ title: 'profile updated' });
       onClose();
     } catch (error) {

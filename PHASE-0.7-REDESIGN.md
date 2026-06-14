@@ -195,6 +195,16 @@ browser).
   existing `FavoriteMovie[]` via PATCH /me (no schema change; dedup by tmdbId).
   Search meta is **year · film/tv** (genre/director need per-item detail
   fetches — omitted for cost). typecheck + build green.
+- [~] **0.7.2** **Native-feel motion layer — slice 1 (haptics)**: installed
+  `@capacitor/haptics@8`; `src/lib/haptics.ts` `haptic(kind)` helper (dynamic
+  import, native-only, web no-op). Wired into the shared primitives so the whole
+  app inherits it: **Segmented** (selection on switch; thumb already springs;
+  bumped h-30→h-34), **Fab** (medium tap / heavy long-press), **GlassBtn**
+  (light), **bottom-nav** (selection + `active:scale-90` press). Plus success
+  on edit-profile + top-5 saves, selection on top-5 add and on each drag-rank
+  crossing, light on remove. **Owner: run `npx cap sync` so the native build
+  picks up the plugin.** Still TODO in 0.7.2: page push/pop transitions +
+  app-wide swipe-back (the heavier motion piece). typecheck + build + static ✓.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

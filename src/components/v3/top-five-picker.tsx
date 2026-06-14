@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import { Search, X, Plus, Loader2, Film } from 'lucide-react';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
 import type { FavoriteMovie, SearchResult } from '@/lib/types';
 
@@ -139,13 +140,17 @@ export function TopFivePicker({ isOpen, onClose, currentFavorites, onUpdate }: T
       toast({ title: 'your canon is full', description: 'remove one to swap it out.' });
       return;
     }
+    haptic('selection');
     setSelected((prev) => [
       ...prev,
       { id: `${c.mediaType}_${c.tmdbId}`, title: c.title, posterUrl: c.posterUrl, tmdbId: c.tmdbId },
     ]);
   };
 
-  const removeAt = (i: number) => setSelected((prev) => prev.filter((_, idx) => idx !== i));
+  const removeAt = (i: number) => {
+    haptic('light');
+    setSelected((prev) => prev.filter((_, idx) => idx !== i));
+  };
 
   // ── drag-to-rank (pointer events; reorders within the filled prefix) ──
   const onSlotPointerDown = (e: ReactPointerEvent, i: number) => {
@@ -159,6 +164,7 @@ export function TopFivePicker({ isOpen, onClose, currentFavorites, onUpdate }: T
     const raw = Math.floor((e.clientX - rect.left) / slotW);
     const target = Math.max(0, Math.min(selected.length - 1, raw));
     if (target !== dragIndex) {
+      haptic('selection');
       setSelected((prev) => moveItem(prev, dragIndex, target));
       setDragIndex(target);
     }
@@ -176,6 +182,7 @@ export function TopFivePicker({ isOpen, onClose, currentFavorites, onUpdate }: T
     setIsSaving(true);
     try {
       await apiCall('PATCH', '/api/v1/me', { favoriteMovies: selected });
+      haptic('success');
       onUpdate(selected);
       toast({ title: 'top 5 saved' });
       onClose();

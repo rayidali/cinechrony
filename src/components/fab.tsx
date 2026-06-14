@@ -3,6 +3,7 @@
 import { useRef } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 interface FabProps {
   onClick?: () => void;
@@ -33,6 +34,7 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
     firedRef.current = false;
     timerRef.current = setTimeout(() => {
       firedRef.current = true;
+      haptic('heavy');
       onLongPress();
     }, 480);
   };
@@ -47,6 +49,7 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
       firedRef.current = false;
       return; // a long-press already handled this interaction
     }
+    haptic('medium');
     onClick?.();
   };
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { cn } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 /**
  * Segmented — iOS sliding-pill segmented control (Phase 0.7 / v3).
@@ -50,9 +51,12 @@ export function Segmented({ options, value, onChange, className }: SegmentedProp
             type="button"
             role="tab"
             aria-selected={active}
-            onClick={() => onChange(o.id)}
+            onClick={() => {
+              if (!active) haptic('selection');
+              onChange(o.id);
+            }}
             className={cn(
-              'relative z-[1] flex-1 h-[30px] text-[13px] tracking-tight lowercase transition-colors',
+              'relative z-[1] flex-1 h-[34px] text-[13px] tracking-tight lowercase transition-colors',
               active ? 'font-semibold text-foreground' : 'font-medium text-muted-foreground'
             )}
           >

@@ -4,6 +4,7 @@ import { usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { Home, Bookmark, UserRound } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 import { Frost } from '@/components/v3/frost';
 import { useUser } from '@/firebase';
 import { prefetchCachedAction } from '@/lib/use-cached-action';
@@ -112,8 +113,9 @@ export function BottomNav() {
                   aria-current={active ? 'page' : undefined}
                   onTouchStart={() => handlePrefetch(item.href)}
                   onMouseEnter={() => handlePrefetch(item.href)}
+                  onClick={() => { if (!active) haptic('selection'); }}
                   className={cn(
-                    'flex flex-col items-center justify-center w-[62px] h-11 rounded-full gap-[3px] transition-colors',
+                    'flex flex-col items-center justify-center w-[62px] h-11 rounded-full gap-[3px] transition-transform active:scale-90',
                     active ? 'text-primary' : 'text-muted-foreground'
                   )}
                 >

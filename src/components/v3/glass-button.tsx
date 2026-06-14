@@ -2,6 +2,7 @@
 
 import type { LucideIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 /**
  * GlassBtn — a translucent dark-glass control for use OVER imagery (Phase 0.7).
@@ -24,7 +25,7 @@ export function GlassBtn({ icon: Icon, onClick, label, ariaLabel, size = 38, cla
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={onClick ? () => { haptic('light'); onClick(); } : undefined}
       aria-label={ariaLabel ?? label}
       className={cn(
         'inline-flex items-center justify-center gap-1.5 rounded-full border border-white/20 text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] transition-transform active:scale-95',
