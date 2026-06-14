@@ -26,7 +26,7 @@ import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
+import { TopFivePicker } from '@/components/v3/top-five-picker';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
@@ -634,11 +634,10 @@ export default function MyProfilePage() {
         bio={userProfile?.bio || ''}
       />
 
-      {/* Favorite Movies Picker Modal */}
-      <FavoriteMoviesPicker
+      {/* Top 5 picker — ranked slots (drag to rank), search + suggested */}
+      <TopFivePicker
         isOpen={isFavoritePickerOpen}
         onClose={() => setIsFavoritePickerOpen(false)}
-        userId={user.uid}
         currentFavorites={favoriteMovies}
         onUpdate={setFavoriteMovies}
       />

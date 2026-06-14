@@ -184,6 +184,17 @@ browser).
   widely; a once-a-year change is a deliberate backend feature (uniqueness +
   rate-limit + accepted historical staleness), offered as a follow-up rather
   than shipped silently. typecheck + build green.
+- [x] **0.7.3.5e** **Top-5 picker revamp** (mocks 14+15): new full-screen
+  `TopFivePicker` (replaces `FavoriteMoviesPicker`, now orphaned). **Sheet mode**:
+  cancel·save header, serif subtitle, 5 ranked slots with **drag-to-rank**
+  (custom pointer-events reorder — no new dep), rank badge + × remove, empty
+  slots → search; "N of 5 picked · M spots open"; search trigger; **suggested
+  for you** (trending). **Search mode** (tap the field): live `searchTmdbMulti`
+  (films+tv) with **all · films · tv** pills, a YOUR CANON mini-row, each
+  result's **+** drops into the next open slot, **done** returns. Saves the
+  existing `FavoriteMovie[]` via PATCH /me (no schema change; dedup by tmdbId).
+  Search meta is **year · film/tv** (genre/director need per-item detail
+  fetches — omitted for cost). typecheck + build green.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the
