@@ -4,13 +4,13 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Pencil, Check, X, Loader2, MoreVertical, Users, Camera, LogOut,
+  Pencil, Check, X, Loader2, MoreVertical, Camera, LogOut,
   Eye, EyeOff, ImageIcon, Settings, Search, Share2,
 } from 'lucide-react';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
-import { collection, orderBy, query, doc } from 'firebase/firestore';
+import { collection, orderBy, query, doc, where, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -21,11 +21,11 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { UserSearch } from '@/components/user-search';
 import { ListTile } from '@/components/v3/list-tile';
+import { RecentRow } from '@/components/v3/recent-row';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
-import type { CollaborativeListSummary } from '@/lib/lists-server';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
@@ -33,9 +33,12 @@ import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
 import { BottomNav } from '@/components/bottom-nav';
-import type { UserProfile, MovieList, ListInvite, FavoriteMovie } from '@/lib/types';
+import { MovieModalProvider } from '@/contexts/movie-modal-context';
+import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/types';
 
-type ProfileTab = 'lists' | 'shared' | 'top5';
+// Design: ios-screens.jsx ProfileIOS — segmented is films · lists · activity.
+// Shared lists + invites live on the Lists tab, not here.
+type ProfileTab = 'films' | 'lists' | 'activity';
 
 /** Format a Firestore date-ish value as a tabular MM.YY. */
 function shortMonthYear(value: unknown): string | null {
@@ -45,18 +48,6 @@ function shortMonthYear(value: unknown): string | null {
     const d = typeof v?.toDate === 'function' ? v.toDate() : value instanceof Date ? value : new Date(value as string);
     if (isNaN(d.getTime())) return null;
     return `${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getFullYear()).slice(2)}`;
-  } catch {
-    return null;
-  }
-}
-
-function shortDate(value: unknown): string | null {
-  if (!value) return null;
-  try {
-    const v = value as { toDate?: () => Date };
-    const d = typeof v?.toDate === 'function' ? v.toDate() : value instanceof Date ? value : new Date(value as string);
-    if (isNaN(d.getTime())) return null;
-    return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth() + 1).padStart(2, '0')}`;
   } catch {
     return null;
   }
@@ -77,8 +68,6 @@ export default function MyProfilePage() {
   const [following, setFollowing] = useState<UserProfile[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
-  const [pendingInvites, setPendingInvites] = useState<ListInvite[]>([]);
-  const [collaborativeLists, setCollaborativeLists] = useState<Array<{ id: string; name: string; ownerId: string; ownerUsername: string | null }>>([]);
   const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
   const [isEditingBio, setIsEditingBio] = useState(false);
   const [newBio, setNewBio] = useState('');
@@ -86,10 +75,9 @@ export default function MyProfilePage() {
   const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
   const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
   const [listPreviews, setListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
-  const [collabListPreviews, setCollabListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
   const [isCoverPickerOpen, setIsCoverPickerOpen] = useState(false);
   const [selectedList, setSelectedList] = useState<MovieList | null>(null);
-  const [tab, setTab] = useState<ProfileTab>('lists');
+  const [tab, setTab] = useState<ProfileTab>('films');
   const [showSearch, setShowSearch] = useState(false);
 
   // Get user profile from Firestore
@@ -111,6 +99,23 @@ export default function MyProfilePage() {
 
   const { data: lists, isLoading: isLoadingLists } = useCollection<MovieList>(listsQuery);
 
+  // The owner's own activity stream — powers the films-tab "recent" section
+  // and the "activity" tab. Real-time so a new rating/watch appears instantly.
+  // NOTE: needs the (userId ASC, createdAt DESC) composite index in
+  // firestore.indexes.json — deploy with `firebase deploy --only firestore:indexes`.
+  const activitiesQuery = useMemoFirebase(() => {
+    if (!user) return null;
+    return query(
+      collection(firestore, 'activities'),
+      where('userId', '==', user.uid),
+      orderBy('createdAt', 'desc'),
+      limit(30),
+    );
+  }, [firestore, user]);
+
+  const { data: activities, isLoading: isLoadingActivities } = useCollection<Activity>(activitiesQuery);
+  const recentActivities = useMemo(() => (activities ?? []).slice(0, 4), [activities]);
+
   const memberSince = useMemo(() => shortMonthYear(userProfile?.createdAt), [userProfile?.createdAt]);
 
   useEffect(() => {
@@ -131,24 +136,6 @@ export default function MyProfilePage() {
     }
   }, [userProfile?.favoriteMovies]);
 
-  // Load pending invites and collaborative lists
-  useEffect(() => {
-    async function loadInvitesAndCollabs() {
-      if (!user) return;
-      try {
-        const [invitesResult, collabResult] = await Promise.all([
-          apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
-          apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
-        ]);
-        setPendingInvites(invitesResult.invites || []);
-        setCollaborativeLists(collabResult.lists || []);
-      } catch (error) {
-        console.error('Failed to load invites/collabs:', error);
-      }
-    }
-    loadInvitesAndCollabs();
-  }, [user]);
-
   // Fetch list previews when lists change
   useEffect(() => {
     async function fetchPreviews() {
@@ -168,31 +155,6 @@ export default function MyProfilePage() {
     }
     fetchPreviews();
   }, [user, lists]);
-
-  // Fetch collaborative list previews
-  useEffect(() => {
-    async function fetchCollabPreviews() {
-      if (collaborativeLists.length === 0) return;
-      try {
-        const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
-        await Promise.all(
-          collaborativeLists.map(async (list) => {
-            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
-              'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
-            );
-            previews[list.id] = {
-              previewPosters: result.previewPosters || [],
-              movieCount: result.movieCount || 0,
-            };
-          })
-        );
-        setCollabListPreviews(previews);
-      } catch (error) {
-        console.error('Failed to fetch collaborative list previews:', error);
-      }
-    }
-    fetchCollabPreviews();
-  }, [collaborativeLists, user]);
 
   const handleSaveBio = async () => {
     if (!user) return;
@@ -257,40 +219,6 @@ export default function MyProfilePage() {
     }
   };
 
-  const handleAcceptInvite = async (invite: ListInvite) => {
-    if (!user) return;
-    try {
-      await apiCall('POST', '/api/v1/invites/accept', { inviteId: invite.id });
-      toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
-      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
-      const collabResult = await apiCall<{ lists: CollaborativeListSummary[] }>(
-        'GET', '/api/v1/me/collaborative-lists',
-      );
-      setCollaborativeLists(collabResult.lists || []);
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
-      });
-    }
-  };
-
-  const handleDeclineInvite = async (invite: ListInvite) => {
-    if (!user) return;
-    try {
-      await apiCall('POST', `/api/v1/invites/${invite.id}/decline`);
-      toast({ title: 'invite declined' });
-      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
-    } catch (err) {
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
-      });
-    }
-  };
-
   const handleAvatarChange = async (newPhotoURL: string) => {
     if (!user) return;
     // Throws ApiClientError on failure — the caller (AvatarPicker) handles it.
@@ -313,16 +241,10 @@ export default function MyProfilePage() {
     }
   };
 
-  // Pull-to-refresh handler
+  // Pull-to-refresh handler — lists + activities are real-time subscriptions,
+  // so this only needs to refresh the API-fetched list previews.
   const handleRefresh = useCallback(async () => {
     if (!user) return;
-    const [invitesResult, collabResult] = await Promise.all([
-      apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
-      apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
-    ]);
-    setPendingInvites(invitesResult.invites || []);
-    setCollaborativeLists(collabResult.lists || []);
-
     if (lists && lists.length > 0) {
       const listIds = lists.map((list) => list.id);
       const previewsResult = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
@@ -354,13 +276,13 @@ export default function MyProfilePage() {
   ];
 
   const tabs: { id: ProfileTab; label: string }[] = [
+    { id: 'films', label: 'films' },
     { id: 'lists', label: 'lists' },
-    { id: 'shared', label: 'shared' },
-    { id: 'top5', label: 'top 5' },
+    { id: 'activity', label: 'activity' },
   ];
 
   return (
-    <>
+    <MovieModalProvider returnPath="/profile">
       <PullToRefresh
         onRefresh={handleRefresh}
         disabled={showFollowers || showFollowing || isAvatarPickerOpen || isFavoritePickerOpen || isCoverPickerOpen}
@@ -492,6 +414,78 @@ export default function MyProfilePage() {
 
             {/* Tab content */}
             <div className="mt-6">
+              {/* FILMS — the canon (top 5) + recent activity */}
+              {tab === 'films' && (
+                <div className="space-y-8">
+                  {/* Top 5 — the canon */}
+                  <section>
+                    <div className="cc-eyebrow">the canon</div>
+                    <h2 className="mt-1 font-headline text-xl font-bold lowercase tracking-tight text-foreground">
+                      top 5 films
+                    </h2>
+                    <div className="mt-3 grid grid-cols-5 gap-2.5">
+                      {[0, 1, 2, 3, 4].map((index) => {
+                        const movie = favoriteMovies[index];
+                        if (movie) {
+                          return (
+                            <button
+                              key={movie.tmdbId}
+                              className="relative group"
+                              onClick={() => setIsFavoritePickerOpen(true)}
+                            >
+                              <Image
+                                src={movie.posterUrl}
+                                alt={movie.title}
+                                width={120}
+                                height={180}
+                                className="w-full h-auto rounded-[10px] border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5"
+                                title={movie.title}
+                              />
+                              <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity rounded-[10px] flex items-center justify-center">
+                                <Pencil className="h-4 w-4 text-white" />
+                              </div>
+                            </button>
+                          );
+                        }
+                        return (
+                          <button
+                            key={index}
+                            onClick={() => setIsFavoritePickerOpen(true)}
+                            className="aspect-[2/3] rounded-[10px] border border-dashed border-border bg-background flex items-center justify-center hover:border-foreground/40 transition-colors text-muted-foreground"
+                          >
+                            <span className="text-xl">+</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <p className="cc-meta text-[11px] text-muted-foreground mt-3">
+                      {favoriteMovies.length === 0
+                        ? 'pick your 5 desert-island films.'
+                        : 'tap a poster to edit your canon.'}
+                    </p>
+                  </section>
+
+                  {/* Recent — owner's latest watched / rated / added */}
+                  <section>
+                    <div className="cc-eyebrow">lately</div>
+                    <h2 className="mt-1 font-headline text-xl font-bold lowercase tracking-tight text-foreground">
+                      recent
+                    </h2>
+                    {recentActivities.length > 0 ? (
+                      <div className="mt-3 overflow-hidden rounded-[22px] border border-hair bg-card">
+                        {recentActivities.map((a, i) => (
+                          <RecentRow key={a.id} activity={a} last={i === recentActivities.length - 1} />
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-3 cc-lead text-[15px] text-muted-foreground">
+                        nothing yet — rate or add a film and it shows up here.
+                      </p>
+                    )}
+                  </section>
+                </div>
+              )}
+
               {/* LISTS */}
               {tab === 'lists' && (
                 isLoadingLists ? (
@@ -566,120 +560,27 @@ export default function MyProfilePage() {
                 )
               )}
 
-              {/* SHARED — pending invites + collaborative lists */}
-              {tab === 'shared' && (
-                <div className="space-y-6">
-                  {pendingInvites.length > 0 && (
-                    <div>
-                      <div className="cc-eyebrow">pending invites · {pendingInvites.length}</div>
-                      <div className="h-px bg-border mt-2.5 mb-1" />
-                      {pendingInvites.map((invite) => (
-                        <div
-                          key={invite.id}
-                          className="flex items-center justify-between gap-3 py-3.5 border-b border-border"
-                        >
-                          <div className="flex items-center gap-3 min-w-0">
-                            <div className="h-9 w-9 rounded-full bg-foreground text-background flex items-center justify-center flex-shrink-0">
-                              <Users className="h-4 w-4" strokeWidth={1.8} />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                                {invite.listName}
-                              </p>
-                              <p className="cc-meta text-[11px] text-muted-foreground">
-                                invited by @{invite.inviterUsername}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex gap-2 flex-shrink-0">
-                            <Button size="sm" variant="outline" onClick={() => handleDeclineInvite(invite)}>
-                              <X className="h-4 w-4" />
-                            </Button>
-                            <Button size="sm" variant="accent" onClick={() => handleAcceptInvite(invite)}>
-                              accept
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {collaborativeLists.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-4">
-                      {collaborativeLists.map((collab) => {
-                        const preview = collabListPreviews[collab.id];
-                        const augmented = { ...collab, movieCount: preview?.movieCount ?? 0 };
-                        return (
-                          <ListTile
-                            key={collab.id}
-                            name={collab.name}
-                            ownerName={collab.ownerUsername || undefined}
-                            movieCount={preview?.movieCount ?? 0}
-                            previewPosters={preview?.previewPosters ?? []}
-                            onClick={() => {
-                              rememberListSeed({ list: augmented, previewPosters: preview?.previewPosters });
-                              router.push(`/lists/${collab.id}?owner=${collab.ownerId}`);
-                            }}
-                          />
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    pendingInvites.length === 0 && (
-                      <div className="py-12 text-center">
-                        <p className="cc-lead text-[15px] text-muted-foreground">
-                          no shared lists yet. invite the group chat.
-                        </p>
-                      </div>
-                    )
-                  )}
-                </div>
-              )}
-
-              {/* TOP 5 */}
-              {tab === 'top5' && (
-                <div>
-                  <div className="grid grid-cols-5 gap-2.5">
-                    {[0, 1, 2, 3, 4].map((index) => {
-                      const movie = favoriteMovies[index];
-                      if (movie) {
-                        return (
-                          <button
-                            key={movie.tmdbId}
-                            className="relative group"
-                            onClick={() => setIsFavoritePickerOpen(true)}
-                          >
-                            <Image
-                              src={movie.posterUrl}
-                              alt={movie.title}
-                              width={120}
-                              height={180}
-                              className="w-full h-auto rounded-[10px] border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5"
-                              title={movie.title}
-                            />
-                            <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity rounded-[10px] flex items-center justify-center">
-                              <Pencil className="h-4 w-4 text-white" />
-                            </div>
-                          </button>
-                        );
-                      }
-                      return (
-                        <button
-                          key={index}
-                          onClick={() => setIsFavoritePickerOpen(true)}
-                          className="aspect-[2/3] rounded-[10px] border border-dashed border-border bg-background flex items-center justify-center hover:border-foreground/40 transition-colors text-muted-foreground"
-                        >
-                          <span className="text-xl">+</span>
-                        </button>
-                      );
-                    })}
+              {/* ACTIVITY — the owner's full action feed */}
+              {tab === 'activity' && (
+                isLoadingActivities ? (
+                  <div className="overflow-hidden rounded-[22px] border border-hair bg-card">
+                    {[1, 2, 3, 4].map((i) => (
+                      <div key={i} className="h-[76px] animate-pulse border-b border-rule last:border-0 bg-secondary/40" />
+                    ))}
                   </div>
-                  <p className="cc-meta text-[11px] text-muted-foreground mt-3 text-center">
-                    {favoriteMovies.length === 0
-                      ? 'pick your 5 desert-island films.'
-                      : 'tap a poster to edit your canon.'}
-                  </p>
-                </div>
+                ) : activities && activities.length > 0 ? (
+                  <div className="overflow-hidden rounded-[22px] border border-hair bg-card">
+                    {activities.map((a, i) => (
+                      <RecentRow key={a.id} activity={a} last={i === activities.length - 1} />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="py-12 text-center">
+                    <p className="cc-lead text-[15px] text-muted-foreground">
+                      no activity yet. rate something, mark it watched.
+                    </p>
+                  </div>
+                )
               )}
             </div>
           </div>
@@ -815,6 +716,6 @@ export default function MyProfilePage() {
       )}
 
       <BottomNav />
-    </>
+    </MovieModalProvider>
   );
 }

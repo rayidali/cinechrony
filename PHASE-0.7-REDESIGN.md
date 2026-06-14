@@ -125,13 +125,25 @@ browser).
   NavBar, AddBtn, ListTile, GlassBtn, Hero** + the existing MovieCardGrid is
   the canonical poster tile (kept, not duplicated → consistent card sizes).
 - [x] **0.7.3.5** **Own profile**: cinematic Hero (seeded gradient + avatar
-  overlaid + name/@handle/since + glass settings/sign-out) → pull-up content
-  sheet (editable bio, find-friends/share pills, stats sandwich, **Segmented**
-  lists/shared/top-5 tabs, content). Reused Hero + GlassBtn + Segmented. All
-  edit logic preserved (avatar picker, inline bio, top-5 picker, follower/
-  following modals, invites, cover picker). Public profile (`/profile/[username]`)
-  still pending. Also: persistent add **FAB** now on the lists tab (matches
-  list detail). typecheck + build green.
+  overlaid + name/@handle/since + serif tagline + glass settings/sign-out) →
+  pull-up content sheet (editable bio, find-friends/share pills, stats
+  sandwich, **Segmented** tabs). Reused Hero + GlassBtn + Segmented. All edit
+  logic preserved (avatar picker, inline bio, top-5 picker, follower/following
+  modals, cover picker). Public profile (`/profile/[username]`) still pending.
+  Also: persistent add **FAB** now on the lists tab. typecheck + build green.
+  - **CORRECTION (re-read design):** the design's profile tabs are
+    **`films · lists · activity`** (`ios-screens.jsx` ProfileIOS), NOT
+    lists/shared/top-5. **films** = top-5 "canon" grid **+** a "recent"
+    section (`RecentRow`); **activity** = the owner's full action feed.
+    There is **no "shared" tab on the profile** — shared lists live on the
+    Lists tab's `mine · shared` segment, and the **pending-invites banner
+    moved to the Lists `shared` segment** (also still in /notifications). New
+    universal `RecentRow` primitive (poster · badge · rating · title · meta ·
+    chevron → opens movie modal). Recent/activity read the owner's
+    `/activities` via a real-time `useCollection` query → **needs the new
+    `(activities: userId ASC, createdAt DESC)` composite index in
+    `firestore.indexes.json`; deploy with `firebase deploy --only
+    firestore:indexes`** or recent/activity stay empty.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

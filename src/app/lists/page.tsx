@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Film } from 'lucide-react';
+import { Plus, Film, Users, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -14,10 +14,12 @@ import { NavBar } from '@/components/v3/nav-bar';
 import { Segmented } from '@/components/v3/segmented';
 import { ListTile } from '@/components/v3/list-tile';
 import { Fab } from '@/components/fab';
+import { Button } from '@/components/ui/button';
 import { collection, orderBy, query } from 'firebase/firestore';
-import { apiCall } from '@/lib/api-client';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
-import type { MovieList } from '@/lib/types';
+import type { MovieList, ListInvite } from '@/lib/types';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 
@@ -43,10 +45,12 @@ export default function ListsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const firestore = useFirestore();
+  const { toast } = useToast();
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
+  const [pendingInvites, setPendingInvites] = useState<ListInvite[]>([]);
   const [seg, setSeg] = useState<'mine' | 'shared'>('mine');
   const [scrolled, setScrolled] = useState(false);
   const [dateLabel, setDateLabel] = useState('');
@@ -177,6 +181,50 @@ export default function ListsPage() {
     fetchCollabPreviews();
   }, [collaborativeLists]);
 
+  // Pending list invites — shown atop the "shared" segment (this surface moved
+  // here from the profile in the v3 redesign; invites also live in /notifications).
+  useEffect(() => {
+    async function loadInvites() {
+      if (!user) return;
+      try {
+        const result = await apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites');
+        setPendingInvites(result.invites || []);
+      } catch (error) {
+        console.error('Failed to load invites:', error);
+      }
+    }
+    loadInvites();
+  }, [user]);
+
+  const handleAcceptInvite = useCallback(async (invite: ListInvite) => {
+    try {
+      await apiCall('POST', '/api/v1/invites/accept', { inviteId: invite.id });
+      toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
+      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+      collabResult.refetch();
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
+      });
+    }
+  }, [toast, collabResult]);
+
+  const handleDeclineInvite = useCallback(async (invite: ListInvite) => {
+    try {
+      await apiCall('POST', `/api/v1/invites/${invite.id}/decline`);
+      toast({ title: 'invite declined' });
+      setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
+      });
+    }
+  }, [toast]);
+
   const handleListCreated = useCallback(
     (listId: string) => {
       setIsCreateOpen(false);
@@ -219,6 +267,12 @@ export default function ListsPage() {
 
     try {
       collabResult.refetch();
+
+      // Refresh pending invites
+      try {
+        const inv = await apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites');
+        setPendingInvites(inv.invites || []);
+      } catch { /* non-fatal */ }
 
       // Refresh own list previews
       if (lists && lists.length > 0) {
@@ -313,31 +367,74 @@ export default function ListsPage() {
                   onCreate={() => setIsCreateOpen(true)}
                 />
               )
-            ) : collaborativeLists.length > 0 ? (
-              <div className="grid grid-cols-2 gap-x-5 gap-y-7">
-                {collaborativeLists.map((list) => {
-                  const preview = collabListPreviews[list.id];
-                  const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
-                  return (
-                    <ListTile
-                      key={`collab-${list.id}`}
-                      name={list.name}
-                      isPublic={list.isPublic}
-                      movieCount={preview?.movieCount ?? 0}
-                      ownerName={list.ownerDisplayName || list.ownerUsername || 'unknown'}
-                      previewPosters={preview?.previewPosters ?? []}
-                      coverImageUrl={list.coverImageUrl}
-                      coverMode={list.coverMode}
-                      onClick={(e) => handleCardClick(list.id, e, list.ownerId, augmented, preview?.previewPosters)}
-                    />
-                  );
-                })}
-              </div>
             ) : (
-              <EmptyState
-                title="no shared lists"
-                body="lists friends share with you land here."
-              />
+              <div className="space-y-7">
+                {/* Pending invites — moved here from the profile in the v3 redesign. */}
+                {pendingInvites.length > 0 && (
+                  <div>
+                    <div className="cc-eyebrow">pending invites · {pendingInvites.length}</div>
+                    <div className="mt-2.5 overflow-hidden rounded-[20px] border border-hair bg-card">
+                      {pendingInvites.map((invite, i) => (
+                        <div
+                          key={invite.id}
+                          className={`flex items-center justify-between gap-3 px-4 py-3.5 ${i < pendingInvites.length - 1 ? 'border-b border-rule' : ''}`}
+                        >
+                          <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+                              <Users className="h-4 w-4" strokeWidth={1.8} />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="truncate font-headline text-sm font-semibold lowercase tracking-tight">
+                                {invite.listName}
+                              </p>
+                              <p className="cc-meta text-[11px] text-muted-foreground">
+                                invited by @{invite.inviterUsername}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-shrink-0 gap-2">
+                            <Button size="sm" variant="outline" onClick={() => handleDeclineInvite(invite)}>
+                              <X className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" variant="accent" onClick={() => handleAcceptInvite(invite)}>
+                              accept
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {collaborativeLists.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-x-5 gap-y-7">
+                    {collaborativeLists.map((list) => {
+                      const preview = collabListPreviews[list.id];
+                      const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
+                      return (
+                        <ListTile
+                          key={`collab-${list.id}`}
+                          name={list.name}
+                          isPublic={list.isPublic}
+                          movieCount={preview?.movieCount ?? 0}
+                          ownerName={list.ownerDisplayName || list.ownerUsername || 'unknown'}
+                          previewPosters={preview?.previewPosters ?? []}
+                          coverImageUrl={list.coverImageUrl}
+                          coverMode={list.coverMode}
+                          onClick={(e) => handleCardClick(list.id, e, list.ownerId, augmented, preview?.previewPosters)}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  pendingInvites.length === 0 && (
+                    <EmptyState
+                      title="no shared lists"
+                      body="lists friends share with you land here."
+                    />
+                  )
+                )}
+              </div>
             )}
           </div>
         </main>
