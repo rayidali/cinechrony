@@ -218,6 +218,24 @@ browser).
   is the person's **bio** (real); films-count / mutual-count deferred (no cheap
   aggregation). Removed Card/ProfileAvatar/Link/X usage from the profiles.
   typecheck + build ✓.
+- [x] **0.7.3.5g** **Share profile — canonical URL fix.** The share was using
+  `window.location.origin`, which in the native app is the Capacitor WebView
+  origin (`capacitor://localhost`) → a **dead link**, and is also exposed to the
+  `cinechrony.vercel.app` vs live `movienight-kappa.vercel.app` domain mismatch.
+  New `src/lib/share.ts` (`shareOrigin()` + `profileShareUrl(username)`) resolves
+  a real public https origin (NEXT_PUBLIC_APP_URL → NEXT_PUBLIC_API_BASE_URL →
+  Vercel preview→prod → `window.location.origin`), so a shared link opens on the
+  web AND triggers the Universal Link into the app. Both profiles' `handleShare`
+  now use it + `haptic('light')` + friendlier share text. **Rich per-user
+  iMessage/OG card deliberately deferred to 0.7.4** — a personalized link preview
+  needs server-rendered per-user OG metadata (conflicts with the static SPA
+  shell) + a generated OG image = the exact same infra as the story cards. Build
+  it once there, not as a throwaway half-version now. typecheck + build ✓.
+  > **✅ Profile tab family complete** — photo hero · films/lists/activity tabs ·
+  > edit-profile sheet · top-5 picker · your-people sheet · canonical share.
+  > Plus the app-wide density pass + haptics motion slice. Two deliberate
+  > deferrals carried forward: editable handle (backend feature) and rich share
+  > cards (0.7.4).
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

@@ -34,16 +34,18 @@ to make that feature possible and safe to ship.
 | May 22 | **Phase 0.5** — Discover: posts, likes, blocks, home rebuild | ✅ merged |
 | May 24–25 | Bug-hunt interlude — the drawer/route round-trip saga | ✅ merged |
 | May 25 | **Phase 0.6** — Speed & native feel (caches, prefetch) | ✅ merged |
-| May 26 – Jun 2 | **Phase A** — Server Actions → real API routes (18 PRs) | ✅ on branch |
-| Jun 3–8 | **Phase B** — Capacitor wrap: native iOS/Android shells | ✅ on branch |
-| Next | **Phase C** — iOS Share Extension (the hero feature) | ⏳ up next |
+| May 26 – Jun 2 | **Phase A** — Server Actions → real API routes (18 PRs) | ✅ merged |
+| Jun 3–8 | **Phase B** — Capacitor wrap: native iOS/Android shells | ✅ merged |
+| Jun 13 → | **Phase 0.7** — v3 iOS-native redesign + motion + story share | 🔧 active |
+| After | **Phase C** — iOS Share Extension (the hero feature) | ⏳ |
 | After | **Phase D** — App Store + Play Store submission | ⏳ |
 | Parallel | **Phase E** — TikTok/IG marketing automation | ⏳ |
 
-Right now `main` is a few days behind: Phase A and Phase B live on a stacked
-branch (`feat/phase-a-leftover-actions` → `feat/phase-b-capacitor-wrap`)
-waiting for the owner to merge. Verification at the tip: typecheck clean,
-both build targets clean, **403/403 audit tests green**.
+Phases A + B + 0.5 are **merged to `main`** (A+B via PR #88, tip `9c81360`).
+Active work is **Phase 0.7** on `feat/v3-redesign` — the profile tab family
+is complete; Search, Home, and the heavier motion layer come next.
+Verification per PR: typecheck clean, both build targets clean, audit suite
+green (403+/403+).
 
 ---
 
@@ -367,15 +369,61 @@ runs in the Simulator but Apple sign-in / push / Universal Links stay dark.
 
 ---
 
-## Chapter 8 — Where we are, and what's next
+## Chapter 8 — Phase 0.7: making it *feel* like an app (the redesign)
 
-### Now (2026-06-10)
+Phases A + B + 0.5 merged to `main` (A+B via PR #88). The app was now
+genuinely native-wrapped — and that's exactly when the real problem showed
+up. Wrapped in a Capacitor shell next to actual iOS apps, it still **felt
+like a website**. The repeated owner feedback — "it doesn't feel like an iOS
+app, I fear the review will be 'it feels like a webapp'" — became the brief.
 
-- Phases 0 → B all code-complete. **403/403 tests**, both builds green.
-- Phase A + B sit on the stacked branch `feat/phase-b-capacitor-wrap`,
-  **not yet merged to `main`** — owner merges (one squash picks up all 23
-  commits, or two waves for cleaner history).
-- The owner's manual setup (`PHASE-B-HANDOFF.md`) is the other open thread.
+The diagnosis: it wasn't the colors or the fonts (the v2 editorial system
+was already good). It was **proportions and motion**. Outlined web buttons,
+components too small for the canvas, and — the big one — *nothing moved like
+iOS moves*. So Phase 0.7 became a screen-by-screen restyle to a downloaded
+Claude Design package, plus a deliberate **native-feel motion layer**.
+
+Two things we got right by doing it carefully:
+
+- **The profile tab family, done properly.** The profile photo became the
+  full-bleed hero; tabs settled on the design's `films · lists · activity`
+  (after one wrong turn where earlier work had quietly dropped "recent" and
+  "activity" — caught by comparing against the design files in detail). New
+  full-screen sheets — `EditProfileSheet`, `TopFivePicker` (with custom
+  drag-to-rank, no DnD dependency), `PeopleSheet` (your-people followers/
+  following with **zero per-row fetches**) — all built as **full-screen
+  overlays, not Vaul**, because text inputs inside Vaul hit the iOS
+  focus-trap bug we'd already been burned by.
+- **Haptics as the first motion slice.** `@capacitor/haptics`, wired once
+  into the shared primitives (`Segmented`, `Fab`, `GlassBtn`, bottom-nav) so
+  the whole app inherited it. The lesson from staring at screenshots: you
+  can't judge "feels native" in a browser — motion is invisible there, so
+  the real verdict waits for the Simulator/device.
+
+Quieter robustness wins along the way: profile recent/activity reads
+**degrade silently** when the new Firestore composite index isn't deployed
+(one-shot `getDocs` + local try/catch, not a global error toast); and the
+share link now resolves a **canonical https origin** instead of
+`window.location.origin` (which is the dead `capacitor://localhost` origin
+natively). Rich per-user share cards were deliberately deferred to the story
+renderer (0.7.4) — same infra, build it once.
+
+Tracker: `PHASE-0.7-REDESIGN.md`. Remaining: Search, Home feed (the
+centerpiece), motion slice 2 (page transitions + app-wide swipe-back), story
+share, then the deferred data rails.
+
+## Chapter 9 — Where we are, and what's next
+
+### Now (2026-06-14)
+
+- Phases 0 → B + 0.5 **merged to `main`** (A+B via PR #88, tip `9c81360`).
+  **403/403 tests**, both builds green.
+- **Phase 0.7 redesign active** on `feat/v3-redesign` — profile tab family
+  complete; Search + Home + motion slice 2 next. Builds green per PR.
+- Owner threads still open: `PHASE-B-HANDOFF.md` manual setup; the
+  `firestore:indexes` deploy (activities) + `npx cap sync` (haptics) from
+  the profile work; and the `movienight-kappa` vs `cinechrony.vercel.app`
+  domain discrepancy to resolve before TestFlight.
 
 ### Phase C — the Share Extension (the whole point, ~2 weeks)
 

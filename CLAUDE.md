@@ -2,22 +2,30 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-08)
+## Current state (2026-06-14)
 
-- **Phase A complete** — `src/app/actions.ts` is deleted. Every former
-  Server Action is now either a `/api/v1/*` route handler (Bearer-token
-  auth, envelope contract) or a helper in `src/lib/<domain>-server.ts`.
-  See `src/app/CLAUDE.md` for the API surface map.
-- **Phase B complete** — Capacitor 8 wraps the static `out/` bundle in
-  native iOS + Android shells (`ios/` and `android/` at repo root).
-  Native Google + Apple sign-in, FCM push delivery, Universal Links,
-  status-bar / splash / safe-area polish all in code. Owner manual
-  setup (Apple Developer, Firebase Console iOS/Android, APNs key) in
-  `PHASE-B-HANDOFF.md` at repo root.
-- **Verification:** typecheck ✓ · `npm run build` (Vercel) ✓ ·
-  `npm run build:static` (Capacitor) ✓ · audit suite **403/403**.
-- **Next:** Phase C — iOS Share Extension (hero feature, ~2 weeks). Spec
-  in `LAUNCH.md` §C.
+- **Phases A + B + 0.5 merged to `main`** (A+B via PR #88, tip `9c81360`).
+  `src/app/actions.ts` is deleted — every former Server Action is now a
+  `/api/v1/*` route handler (Bearer-token auth, envelope contract) or a
+  helper in `src/lib/<domain>-server.ts` (see `src/app/CLAUDE.md`).
+  Capacitor 8 wraps the static `out/` bundle in native iOS + Android shells
+  (`ios/` + `android/`); native auth, FCM push, Universal Links, native
+  polish all in code. Owner manual setup in `PHASE-B-HANDOFF.md`.
+- **Active: Phase 0.7 — v3 iOS-native redesign** on `feat/v3-redesign`. A
+  screen-by-screen restyle to the downloaded Claude Design package, plus a
+  native-feel motion layer (haptics done; transitions/swipe-back next).
+  Tracker: **`PHASE-0.7-REDESIGN.md`**. **Profile tab family complete**
+  (photo hero · films/lists/activity · edit-profile · top-5 · your-people ·
+  share). v3 primitives live in `src/components/v3/*`. Next screens: Search,
+  then Home feed.
+- **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
+  `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
+  Presentational — must not regress logic.
+- **Owner actions pending:** `firebase deploy --only firestore:indexes
+  --project studio-2541484065-75c27` (activities index for profile
+  recent/activity); `npx cap sync` (picks up `@capacitor/haptics`).
+- **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
+  Spec in `LAUNCH.md` §C.
 
 ## Quick Reference
 
