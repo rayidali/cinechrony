@@ -14,9 +14,6 @@
  */
 
 import { getUserRatings as getUserRatingsLib } from '@/lib/ratings-server';
-import { getVibe } from '@/lib/vibes';
-
-const TMDB_BASE = 'https://api.themoviedb.org/3';
 
 // ─── Shared types ─────────────────────────────────────────────────────────
 
@@ -53,29 +50,6 @@ function getOmdbApiKey(): string {
 function getTmdbToken(): string | null {
   const token = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
   return token || null;
-}
-
-/** Shape a raw TMDB results array into our `TrendingMovie[]` (poster-only). */
-function mapMovieResults(results: unknown, limit: number): TrendingMovie[] {
-  if (!Array.isArray(results)) return [];
-  return results
-    .filter(
-      (m): m is Record<string, unknown> =>
-        !!m && !!(m as Record<string, unknown>).poster_path,
-    )
-    .slice(0, limit)
-    .map((m) => ({
-      id: m.id as number,
-      title: (m.title as string) || (m.name as string) || 'untitled',
-      posterPath: (m.poster_path as string) ?? null,
-      releaseDate: (m.release_date as string) || (m.first_air_date as string) || '',
-      voteAverage: (m.vote_average as number) ?? 0,
-      mediaType: 'movie' as const,
-    }));
-}
-
-function tmdbHeaders(token: string) {
-  return { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 }
 
 async function fetchImdbRating(
@@ -239,123 +213,6 @@ export async function getSimilarMovies(
       mediaType: (m.media_type === 'tv' || type === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv',
     }));
   return { movies };
-}
-
-// ─── getNowPlayingMovies — TMDB "in theatres" ────────────────────────────
-
-export async function getNowPlayingMovies(limit = 18): Promise<{ movies: TrendingMovie[] }> {
-  const tmdb = getTmdbToken();
-  if (!tmdb) return { movies: [] };
-
-  const res = await fetch(
-    `${TMDB_BASE}/movie/now_playing?language=en-US&page=1&region=US`,
-    { headers: tmdbHeaders(tmdb), next: { revalidate: 21600 } }, // 6h
-  );
-  if (!res.ok) return { movies: [] };
-  const data = await res.json();
-  return { movies: mapMovieResults(data.results, limit) };
-}
-
-// ─── getUpcomingMovies — TMDB "coming soon" (future releases only) ────────
-
-export async function getUpcomingMovies(limit = 18): Promise<{ movies: TrendingMovie[] }> {
-  const tmdb = getTmdbToken();
-  if (!tmdb) return { movies: [] };
-
-  const res = await fetch(
-    `${TMDB_BASE}/movie/upcoming?language=en-US&page=1&region=US`,
-    { headers: tmdbHeaders(tmdb), next: { revalidate: 21600 } }, // 6h
-  );
-  if (!res.ok) return { movies: [] };
-  const data = await res.json();
-
-  // TMDB's "upcoming" list bleeds in films already in theatres; keep only
-  // those whose release is still in the future so "coming soon" stays honest.
-  const nowMs = Date.now();
-  const future = (Array.isArray(data.results) ? data.results : []).filter(
-    (m: Record<string, unknown>) => {
-      const t = Date.parse((m.release_date as string) || '');
-      return Number.isFinite(t) && t > nowMs;
-    },
-  );
-  return { movies: mapMovieResults(future, limit) };
-}
-
-// ─── discoverByVibe — keyword-driven "browse by vibe" discovery ───────────
-
-/**
- * Resolve a curated vibe → a TMDB keyword id, then `/discover` the best-voted
- * films tagged with it. Falls back to a plain movie search on the term if the
- * keyword doesn't resolve or discover comes back empty, so a vibe never
- * renders empty-by-design.
- */
-export async function discoverByVibe(
-  vibeId: string,
-  limit = 24,
-): Promise<{ movies: TrendingMovie[]; label: string }> {
-  const vibe = getVibe(vibeId);
-  if (!vibe) return { movies: [], label: '' };
-  const tmdb = getTmdbToken();
-  if (!tmdb) return { movies: [], label: vibe.label };
-  const headers = tmdbHeaders(tmdb);
-
-  // 1. term → TMDB keyword id
-  let keywordId: number | null = null;
-  try {
-    const kwRes = await fetch(
-      `${TMDB_BASE}/search/keyword?query=${encodeURIComponent(vibe.keyword)}&page=1`,
-      { headers, next: { revalidate: 604800 } }, // 7d — keyword ids are stable
-    );
-    if (kwRes.ok) {
-      const kwData = await kwRes.json();
-      const first = Array.isArray(kwData.results) ? kwData.results[0] : null;
-      if (first && typeof first.id === 'number') keywordId = first.id;
-    }
-  } catch {
-    /* fall through to search fallback */
-  }
-
-  // 2. discover by keyword — well-voted first to keep results recognizable,
-  //    then retry without the vote floor so a thinly-tagged keyword still
-  //    surfaces its best films before we fall back to a title search.
-  if (keywordId) {
-    const discover = async (minVotes: number): Promise<TrendingMovie[]> => {
-      const floor = minVotes > 0 ? `&vote_count.gte=${minVotes}` : '';
-      try {
-        const res = await fetch(
-          `${TMDB_BASE}/discover/movie?with_keywords=${keywordId}` +
-            `&sort_by=vote_count.desc${floor}&include_adult=false&language=en-US&page=1`,
-          { headers, next: { revalidate: 86400 } }, // 24h
-        );
-        if (!res.ok) return [];
-        const data = await res.json();
-        return mapMovieResults(data.results, limit);
-      } catch {
-        return [];
-      }
-    };
-
-    let movies = await discover(150);
-    if (movies.length === 0) movies = await discover(0);
-    if (movies.length > 0) return { movies, label: vibe.label };
-  }
-
-  // 3. fallback — plain movie search on the term
-  try {
-    const searchRes = await fetch(
-      `${TMDB_BASE}/search/movie?query=${encodeURIComponent(vibe.keyword)}` +
-        '&include_adult=false&language=en-US&page=1',
-      { headers, next: { revalidate: 86400 } },
-    );
-    if (searchRes.ok) {
-      const searchData = await searchRes.json();
-      return { movies: mapMovieResults(searchData.results, limit), label: vibe.label };
-    }
-  } catch {
-    /* ignore — return empty below */
-  }
-
-  return { movies: [], label: vibe.label };
 }
 
 // ─── getRecommendationsForUser — caller-scoped via Bearer token ──────────

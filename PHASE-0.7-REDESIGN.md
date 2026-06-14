@@ -262,6 +262,18 @@ browser).
   static ✓ · audit **403/403**. **`/api/v1/movies/genres` was NOT needed** —
   the design's "genre chips" are the vibe/keyword chips, which read better than
   raw TMDB genres.
+  - **Revision (2026-06-14):** moved now-playing / upcoming / vibe from
+    `/api/v1/*` proxies to **client-direct TMDB calls** (`tmdb-client.ts`, same
+    precedent as `searchTmdbMulti`); removed the 3 server routes + helpers.
+    They're public, non-secret, non-user-scoped reads — proxying them only added
+    a deploy dependency (the new routes 404'd on a Vercel **preview** because the
+    preview client calls the *production* API origin — see
+    [[project_preview_calls_prod_api]] — and prod didn't have the unmerged
+    routes). Client-direct → works on web + preview + native + localhost with no
+    round-trip. **Recommendations stays server-side** (reads ratings via admin
+    SDK; already on prod). Also swapped 3 dead-keyword vibes for neo-noir /
+    nonlinear / whodunit (verified populated), and put **people first** in
+    results. typecheck ✓ · build ✓ · static ✓.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the
   system (lower traffic; coordinate onboarding with Phase C.7 later).
 - [ ] **0.7.3.8 — Test:** per screen — light/dark walk in `npm run dev`,

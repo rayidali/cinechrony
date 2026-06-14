@@ -15,7 +15,12 @@ import {
 } from 'lucide-react';
 import type { LovedListCard } from '@/lib/lists-server';
 import type { TrendingMovie, RecommendationSet } from '@/lib/tmdb-server';
-import { searchTmdbMulti } from '@/lib/tmdb-client';
+import {
+  searchTmdbMulti,
+  getNowPlayingMovies,
+  getUpcomingMovies,
+  discoverByVibe,
+} from '@/lib/tmdb-client';
 import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';
 import { haptic } from '@/lib/haptics';
@@ -86,17 +91,17 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
 
   // Discover view (loaded once per session, kept across open/close)
   const [recs, setRecs] = useState<Rec[]>([]);
-  const [nowPlaying, setNowPlaying] = useState<TrendingMovie[]>([]);
-  const [upcoming, setUpcoming] = useState<TrendingMovie[]>([]);
+  const [nowPlaying, setNowPlaying] = useState<SearchResult[]>([]);
+  const [upcoming, setUpcoming] = useState<SearchResult[]>([]);
   const [nowNextTab, setNowNextTab] = useState<'now' | 'soon'>('now');
   const [discoverLoaded, setDiscoverLoaded] = useState(false);
   const [discoverLoading, setDiscoverLoading] = useState(false);
 
   // Vibe view
   const [activeVibe, setActiveVibe] = useState<Vibe | null>(null);
-  const [vibeMovies, setVibeMovies] = useState<TrendingMovie[]>([]);
+  const [vibeMovies, setVibeMovies] = useState<SearchResult[]>([]);
   const [vibeLoading, setVibeLoading] = useState(false);
-  const vibeCache = useRef<Map<string, TrendingMovie[]>>(new Map());
+  const vibeCache = useRef<Map<string, SearchResult[]>>(new Map());
 
   // Film detail modal
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
@@ -130,23 +135,23 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
     let cancelled = false;
     (async () => {
       setDiscoverLoading(true);
+      // Recommendations stay server-side (they read the viewer's ratings via
+      // the admin SDK). now-playing / upcoming are public TMDB data → fetched
+      // client-direct so they work on web, preview, and native without an API
+      // round-trip.
       const [recsRes, nowRes, soonRes] = await Promise.all([
         user
           ? apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations').catch(
               () => ({ sets: [] as RecommendationSet[] }),
             )
           : Promise.resolve({ sets: [] as RecommendationSet[] }),
-        apiCall<{ movies: TrendingMovie[] }>('GET', '/api/v1/movies/now-playing').catch(
-          () => ({ movies: [] as TrendingMovie[] }),
-        ),
-        apiCall<{ movies: TrendingMovie[] }>('GET', '/api/v1/movies/upcoming').catch(
-          () => ({ movies: [] as TrendingMovie[] }),
-        ),
+        getNowPlayingMovies().catch(() => [] as SearchResult[]),
+        getUpcomingMovies().catch(() => [] as SearchResult[]),
       ]);
       if (cancelled) return;
       setRecs(flattenRecs(recsRes.sets ?? []));
-      setNowPlaying(nowRes.movies ?? []);
-      setUpcoming(soonRes.movies ?? []);
+      setNowPlaying(nowRes);
+      setUpcoming(soonRes);
       setDiscoverLoaded(true);
       setDiscoverLoading(false);
     })();
@@ -249,11 +254,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
     setVibeMovies([]);
     setVibeLoading(true);
     try {
-      const res = await apiCall<{ movies: TrendingMovie[]; label: string }>(
-        'GET',
-        `/api/v1/movies/vibe/${vibe.id}`,
-      );
-      const movies = res.movies ?? [];
+      const movies = await discoverByVibe(vibe.id);
       vibeCache.current.set(vibe.id, movies);
       setVibeMovies(movies);
     } catch {
@@ -356,7 +357,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
               movies={vibeMovies}
               loading={vibeLoading}
               onBack={closeVibe}
-              onOpen={openTrending}
+              onOpen={openFilm}
             />
           ) : (
             <DiscoverView
@@ -365,7 +366,8 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
               nowNextTab={nowNextTab}
               onNowNextTab={(t) => setNowNextTab(t as 'now' | 'soon')}
               nowNextMovies={nowNextMovies}
-              onOpen={openTrending}
+              onOpenRec={openTrending}
+              onOpenFilm={openFilm}
               onVibe={openVibe}
             />
           )}
@@ -387,13 +389,15 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
 // ─── Poster tile (horizontal rows: recommended + now & next) ──────────────
 
 function PosterTile({
-  movie,
+  posterUrl,
+  title,
   width,
   reason,
   meta,
   onOpen,
 }: {
-  movie: TrendingMovie;
+  posterUrl: string;
+  title: string;
   width: number;
   reason?: string;
   meta?: string;
@@ -406,16 +410,10 @@ function PosterTile({
       className="flex-shrink-0 text-left group"
     >
       <div className="relative aspect-[2/3] rounded-[14px] overflow-hidden border border-border shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image
-          src={posterFrom(movie.posterPath)}
-          alt={movie.title}
-          fill
-          className="object-cover"
-          sizes="160px"
-        />
+        <Image src={posterUrl} alt={title} fill className="object-cover" sizes="160px" />
       </div>
       <p className="mt-2 font-headline font-semibold text-[13.5px] lowercase tracking-tight line-clamp-1">
-        {movie.title}
+        {title}
       </p>
       {reason ? (
         <p className="mt-0.5 flex items-center gap-1 font-serif italic text-[12px] text-muted-foreground">
@@ -474,15 +472,17 @@ function DiscoverView({
   nowNextTab,
   onNowNextTab,
   nowNextMovies,
-  onOpen,
+  onOpenRec,
+  onOpenFilm,
   onVibe,
 }: {
   loading: boolean;
   recs: Rec[];
   nowNextTab: 'now' | 'soon';
   onNowNextTab: (t: string) => void;
-  nowNextMovies: TrendingMovie[];
-  onOpen: (m: TrendingMovie) => void;
+  nowNextMovies: SearchResult[];
+  onOpenRec: (m: TrendingMovie) => void;
+  onOpenFilm: (f: SearchResult) => void;
   onVibe: (v: Vibe) => void;
 }) {
   if (loading) {
@@ -508,10 +508,11 @@ function DiscoverView({
             {recs.map((r) => (
               <PosterTile
                 key={`rec_${r.movie.id}`}
-                movie={r.movie}
+                posterUrl={posterFrom(r.movie.posterPath)}
+                title={r.movie.title}
                 width={148}
                 reason={r.reason}
-                onOpen={() => onOpen(r.movie)}
+                onOpen={() => onOpenRec(r.movie)}
               />
             ))}
           </div>
@@ -552,10 +553,11 @@ function DiscoverView({
             {nowNextMovies.map((m) => (
               <PosterTile
                 key={`nn_${m.id}`}
-                movie={m}
+                posterUrl={m.posterUrl}
+                title={m.title}
                 width={124}
                 meta={nowNextTab === 'now' ? 'now playing' : 'coming soon'}
-                onOpen={() => onOpen(m)}
+                onOpen={() => onOpenFilm(m)}
               />
             ))}
           </div>
@@ -581,10 +583,10 @@ function VibeView({
   onOpen,
 }: {
   vibe: Vibe;
-  movies: TrendingMovie[];
+  movies: SearchResult[];
   loading: boolean;
   onBack: () => void;
-  onOpen: (m: TrendingMovie) => void;
+  onOpen: (f: SearchResult) => void;
 }) {
   return (
     <div className="px-4 pt-4">
@@ -608,9 +610,10 @@ function VibeView({
           {movies.map((m) => (
             <GridFilmTile
               key={`vibe_${m.id}`}
-              posterUrl={posterFrom(m.posterPath)}
+              posterUrl={m.posterUrl}
               title={m.title}
-              year={yearFrom(m.releaseDate)}
+              year={m.year}
+              isTv={m.mediaType === 'tv'}
               onOpen={() => onOpen(m)}
             />
           ))}
