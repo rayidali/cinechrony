@@ -282,7 +282,7 @@ export default function ListsPage() {
               <div className="grid grid-cols-2 gap-x-5 gap-y-7">
                 {Array.from({ length: skeletonCount }).map((_, i) => (
                   <div key={i}>
-                    <div className="aspect-square rounded-[18px] bg-secondary border border-hair animate-pulse" />
+                    <div className="aspect-[4/5] rounded-[20px] bg-secondary border border-hair animate-pulse" />
                     <div className="mt-2.5 h-3.5 w-2/3 rounded bg-secondary animate-pulse" />
                   </div>
                 ))}
@@ -300,6 +300,8 @@ export default function ListsPage() {
                         isPublic={list.isPublic}
                         movieCount={preview?.movieCount ?? 0}
                         previewPosters={preview?.previewPosters ?? []}
+                        coverImageUrl={list.coverImageUrl}
+                        coverMode={list.coverMode}
                         onClick={(e) => handleCardClick(list.id, e, undefined, augmented, preview?.previewPosters)}
                       />
                     );
@@ -325,6 +327,8 @@ export default function ListsPage() {
                       movieCount={preview?.movieCount ?? 0}
                       ownerName={list.ownerDisplayName || list.ownerUsername || 'unknown'}
                       previewPosters={preview?.previewPosters ?? []}
+                      coverImageUrl={list.coverImageUrl}
+                      coverMode={list.coverMode}
                       onClick={(e) => handleCardClick(list.id, e, list.ownerId, augmented, preview?.previewPosters)}
                     />
                   );

@@ -14,8 +14,11 @@ interface ListTileProps {
   movieCount?: number;
   /** Set for shared/collaborative lists; renders "@owner · N films". */
   ownerName?: string;
-  /** Real poster URLs (TMDB / R2). Up to 3 are fanned. */
+  /** Real poster URLs (TMDB / R2). Up to 3 are fanned when no custom cover. */
   previewPosters?: string[];
+  /** Custom cover the owner uploaded; shown full-bleed unless coverMode is 'auto'. */
+  coverImageUrl?: string;
+  coverMode?: 'auto' | 'custom';
   onClick?: (e: MouseEvent) => void;
 }
 
@@ -36,7 +39,7 @@ function MiniFan({ posters }: { posters: string[] }) {
       {list.map((src, i) => (
         <div
           key={i}
-          className="absolute h-[78%] aspect-[2/3] overflow-hidden rounded-[7px] shadow-[0_3px_10px_rgba(0,0,0,0.28)]"
+          className="absolute h-[82%] aspect-[2/3] overflow-hidden rounded-[7px] shadow-[0_3px_10px_rgba(0,0,0,0.28)]"
           style={{ transform: transforms[i], zIndex: i }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -53,15 +56,27 @@ export function ListTile({
   movieCount = 0,
   ownerName,
   previewPosters = [],
+  coverImageUrl,
+  coverMode,
   onClick,
 }: ListTileProps) {
   const posters = previewPosters.filter(Boolean);
+  // 'auto' coverMode means "use the poster mosaic even if a stale cover exists."
+  const hasCustomCover = !!coverImageUrl && coverMode !== 'auto';
   const Visibility = isPublic ? Globe : Lock;
 
   return (
     <button type="button" onClick={onClick} className="group block w-full text-left">
-      <div className="relative aspect-square overflow-hidden rounded-[18px] border border-hair bg-card shadow-lift transition-transform group-active:scale-[0.98]">
-        {posters.length > 0 ? (
+      <div className="relative aspect-[4/5] overflow-hidden rounded-[20px] border border-hair bg-card shadow-lift transition-transform group-active:scale-[0.98]">
+        {hasCustomCover ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={coverImageUrl}
+            alt=""
+            className="absolute inset-0 h-full w-full object-cover"
+            loading="lazy"
+          />
+        ) : posters.length > 0 ? (
           <MiniFan posters={posters} />
         ) : (
           <div className="absolute inset-3.5 flex items-center justify-center rounded-xl border border-dashed border-rule text-muted-foreground">
