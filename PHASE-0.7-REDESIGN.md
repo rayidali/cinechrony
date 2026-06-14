@@ -169,6 +169,21 @@ browser).
   genre/taste data model yet; would need an editable taste-tags feature). First
   tab kept as **films** (accurate to its top-5 + recent content). typecheck +
   build green.
+- [x] **0.7.3.5d** **Edit-profile sheet** (mock 13): new full-screen
+  `EditProfileSheet` (NOT Vaul — text inputs hit the iOS focus-trap bug) with
+  cancel · save header. Photo hero preview + **change** glass pill + **camera
+  roll** / **take photo** (file inputs, `capture="user"`) + **house avatars**
+  (existing `DEFAULT_AVATARS`); name + bio inputs; one PATCH /me save. Reuses the
+  avatar upload (`POST /me/avatar`) — extracted `compressAvatar` to
+  `src/lib/avatar-image.ts` (shared with AvatarPicker). Extended **PATCH /me to
+  accept `displayName`** (+ `displayNameLower`; denormalized copies resolve via
+  the live profile cache, historical stay as-was). Profile now opens the sheet
+  from the edit-profile pill, hero tagline, and the empty-photo placeholder;
+  retired the inline bio editor + AvatarPicker usage on the profile.
+  **Handle is read-only** — usernames are permanent (AUDIT 2.3) + denormalized
+  widely; a once-a-year change is a deliberate backend feature (uniqueness +
+  rate-limit + accepted historical staleness), offered as a follow-up rather
+  than shipped silently. typecheck + build green.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

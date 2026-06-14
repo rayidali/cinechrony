@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
-  Pencil, Check, X, Loader2, MoreVertical, LogOut,
+  Pencil, X, MoreVertical, LogOut,
   Eye, EyeOff, ImageIcon, Settings, Share2,
 } from 'lucide-react';
 import { PullToRefresh } from '@/components/pull-to-refresh';
@@ -26,11 +26,11 @@ import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
+import { EditProfileSheet } from '@/components/v3/edit-profile-sheet';
 import { BottomNav } from '@/components/bottom-nav';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/types';
@@ -67,10 +67,7 @@ export default function MyProfilePage() {
   const [following, setFollowing] = useState<UserProfile[]>([]);
   const [showFollowers, setShowFollowers] = useState(false);
   const [showFollowing, setShowFollowing] = useState(false);
-  const [isAvatarPickerOpen, setIsAvatarPickerOpen] = useState(false);
-  const [isEditingBio, setIsEditingBio] = useState(false);
-  const [newBio, setNewBio] = useState('');
-  const [isSavingBio, setIsSavingBio] = useState(false);
+  const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
   const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
   const [listPreviews, setListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
@@ -143,12 +140,6 @@ export default function MyProfilePage() {
   }, [user, isUserLoading, router]);
 
   useEffect(() => {
-    if (userProfile?.bio !== undefined) {
-      setNewBio(userProfile.bio || '');
-    }
-  }, [userProfile?.bio]);
-
-  useEffect(() => {
     if (userProfile?.favoriteMovies) {
       setFavoriteMovies(userProfile.favoriteMovies);
     }
@@ -173,21 +164,6 @@ export default function MyProfilePage() {
     }
     fetchPreviews();
   }, [user, lists]);
-
-  const handleSaveBio = async () => {
-    if (!user) return;
-    setIsSavingBio(true);
-    try {
-      await apiCall('PATCH', '/api/v1/me', { bio: newBio });
-      toast({ title: 'bio updated' });
-      setIsEditingBio(false);
-    } catch (err) {
-      const message = err instanceof ApiClientError ? err.message : 'Failed to update bio.';
-      toast({ variant: 'destructive', title: 'Error', description: message });
-    } finally {
-      setIsSavingBio(false);
-    }
-  };
 
   const handleLoadFollowers = async () => {
     if (!user) return;
@@ -235,12 +211,6 @@ export default function MyProfilePage() {
       const message = err instanceof ApiClientError ? err.message : 'Failed to update visibility.';
       toast({ variant: 'destructive', title: 'Error', description: message });
     }
-  };
-
-  const handleAvatarChange = async (newPhotoURL: string) => {
-    if (!user) return;
-    // Throws ApiClientError on failure — the caller (AvatarPicker) handles it.
-    await apiCall('PATCH', '/api/v1/me', { photoURL: newPhotoURL });
   };
 
   const handleShare = async () => {
@@ -309,7 +279,7 @@ export default function MyProfilePage() {
     <MovieModalProvider returnPath="/profile">
       <PullToRefresh
         onRefresh={handleRefresh}
-        disabled={showFollowers || showFollowing || isAvatarPickerOpen || isFavoritePickerOpen || isCoverPickerOpen}
+        disabled={showFollowers || showFollowing || isEditProfileOpen || isFavoritePickerOpen || isCoverPickerOpen}
       >
         <main className="min-h-screen text-foreground pb-24 md:pb-8">
           {/* Cinematic hero — the profile photo IS the hero (design v2). When
@@ -328,7 +298,7 @@ export default function MyProfilePage() {
             placeholder={
               userProfile && !userProfile.photoURL ? (
                 <button
-                  onClick={() => setIsAvatarPickerOpen(true)}
+                  onClick={() => setIsEditProfileOpen(true)}
                   className="flex flex-col items-center gap-2 text-white/70 transition-transform active:scale-95"
                 >
                   <ImageIcon className="h-9 w-9" strokeWidth={1.3} />
@@ -344,59 +314,24 @@ export default function MyProfilePage() {
             <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
               {userProfile?.displayName || user.displayName || 'user'}
             </h1>
-            {!isEditingBio && (
-              <button
-                onClick={() => setIsEditingBio(true)}
-                className="mt-1.5 block max-w-full text-left"
-              >
-                <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
-                  {userProfile?.bio || 'add a one-liner…'}
-                  <Pencil className="ml-1.5 inline h-3 w-3 align-baseline text-white/70" />
-                </p>
-              </button>
-            )}
+            <button
+              onClick={() => setIsEditProfileOpen(true)}
+              className="mt-1.5 block max-w-full text-left"
+            >
+              <p className="line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
+                {userProfile?.bio || 'add a one-liner…'}
+                <Pencil className="ml-1.5 inline h-3 w-3 align-baseline text-white/70" />
+              </p>
+            </button>
           </Hero>
 
           {/* Pull-up content sheet */}
           <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
             <div className="mx-auto max-w-2xl px-4 pt-5">
 
-            {/* Bio editor — opened by tapping the hero tagline */}
-            {isEditingBio && (
-              <div className="mt-1 mb-5 space-y-2">
-                <textarea
-                  value={newBio}
-                  onChange={(e) => setNewBio(e.target.value)}
-                  placeholder="add a one-liner. something they'll remember you by…"
-                  maxLength={160}
-                  rows={2}
-                  autoFocus
-                  className="w-full resize-none rounded-[14px] border border-input bg-background p-3 font-serif italic text-[15px] leading-snug focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                />
-                <div className="flex items-center justify-between">
-                  <span className="cc-meta text-[10px] text-muted-foreground">{newBio.length}/160</span>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => {
-                        setIsEditingBio(false);
-                        setNewBio(userProfile?.bio || '');
-                      }}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
-                    <Button size="sm" variant="accent" onClick={handleSaveBio} disabled={isSavingBio}>
-                      {isSavingBio ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Primary actions — edit profile + share (design v2) */}
             <div className="flex gap-2 mt-4">
-              <button onClick={() => setIsAvatarPickerOpen(true)} className={`${GHOST_PILL} flex-1 justify-center`}>
+              <button onClick={() => setIsEditProfileOpen(true)} className={`${GHOST_PILL} flex-1 justify-center`}>
                 <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />
                 edit profile
               </button>
@@ -692,12 +627,15 @@ export default function MyProfilePage() {
         </div>
       )}
 
-      {/* Avatar Picker Modal */}
-      <AvatarPicker
-        isOpen={isAvatarPickerOpen}
-        onClose={() => setIsAvatarPickerOpen(false)}
-        currentAvatarUrl={userProfile?.photoURL || null}
-        onAvatarChange={handleAvatarChange}
+      {/* Edit Profile Sheet — photo (camera roll / take photo / house avatar)
+          + name + bio in one save. Handle is read-only. */}
+      <EditProfileSheet
+        isOpen={isEditProfileOpen}
+        onClose={() => setIsEditProfileOpen(false)}
+        displayName={userProfile?.displayName || user.displayName || ''}
+        username={userProfile?.username || ''}
+        photoURL={userProfile?.photoURL || null}
+        bio={userProfile?.bio || ''}
       />
 
       {/* Favorite Movies Picker Modal */}
