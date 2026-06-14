@@ -1,27 +1,32 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, UserPlus, UserMinus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Loader2, Check } from 'lucide-react';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
-
-const retroButtonClass = "border border-border rounded-lg shadow-lift transition-all duration-200";
+import { haptic } from '@/lib/haptics';
+import { cn } from '@/lib/utils';
 
 type FollowButtonProps = {
   targetUserId: string;
   targetUsername: string;
   /** Pre-populated "does viewer follow target". If omitted, fetched lazily. */
   initialIsFollowing?: boolean;
-  /** Pre-populated "does target follow viewer" — drives the "Follow back"
+  /** Pre-populated "does target follow viewer" — drives the "follow back"
    *  label. If omitted, fetched lazily alongside `initialIsFollowing`. */
   initialIsFollowedByTarget?: boolean;
   onFollowChange?: (isFollowing: boolean) => void;
-  size?: 'default' | 'sm' | 'lg';
+  size?: 'default' | 'sm';
 };
 
+/**
+ * FollowButton — v3 pill. Film-red filled for follow / follow-back, tonal with
+ * a check for following (tap to unfollow). Lowercase, haptic on toggle.
+ * Pass both `initial*` props to skip the status round-trip (lists pre-resolve
+ * the relationship for every row → zero per-row fetches).
+ */
 export function FollowButton({
   targetUserId,
   targetUsername,
@@ -39,26 +44,19 @@ export function FollowButton({
     initialIsFollowing === undefined || initialIsFollowedByTarget === undefined,
   );
 
-  // Resolve both directions of the follow relationship in parallel.
-  // Skipped entirely if both initial values were supplied (avoids the round
-  // trips for callers that already know — e.g. server-rendered profile
-  // pages that pre-load membership).
+  // Resolve both directions of the follow relationship in one round trip —
+  // skipped entirely when both initial values were supplied.
   useEffect(() => {
     async function checkStatus() {
       if (!user) return;
       if (initialIsFollowing !== undefined && initialIsFollowedByTarget !== undefined) {
         return;
       }
-
       setIsCheckingStatus(true);
       try {
-        // One round trip returns both directions.
-        const needsServer = initialIsFollowing === undefined || initialIsFollowedByTarget === undefined;
-        const rel = needsServer
-          ? await apiCall<{ isFollowing: boolean; isFollowedBy: boolean }>(
-              'GET', `/api/v1/users/${targetUserId}/follow-status`,
-            ).catch(() => ({ isFollowing: false, isFollowedBy: false }))
-          : { isFollowing: false, isFollowedBy: false };
+        const rel = await apiCall<{ isFollowing: boolean; isFollowedBy: boolean }>(
+          'GET', `/api/v1/users/${targetUserId}/follow-status`,
+        ).catch(() => ({ isFollowing: false, isFollowedBy: false }));
         setFollowing(initialIsFollowing ?? rel.isFollowing);
         setFollowsViewer(initialIsFollowedByTarget ?? rel.isFollowedBy);
       } catch (error) {
@@ -67,29 +65,26 @@ export function FollowButton({
         setIsCheckingStatus(false);
       }
     }
-
     checkStatus();
   }, [user, targetUserId, initialIsFollowing, initialIsFollowedByTarget]);
 
   const handleToggleFollow = async () => {
     if (!user) return;
-
+    haptic('selection');
     setIsLoading(true);
     try {
       if (following) {
         await apiCall('DELETE', `/api/v1/users/${targetUserId}/follow`);
         setFollowing(false);
         onFollowChange?.(false);
-        // Invalidate the cached following set so the home `friends` filter
-        // reflects the change immediately on the next mount.
         invalidateCachedAction(`following:${user.uid}`);
-        toast({ title: 'Unfollowed', description: `You unfollowed @${targetUsername}` });
+        toast({ title: 'unfollowed', description: `you unfollowed @${targetUsername}` });
       } else {
         await apiCall('POST', `/api/v1/users/${targetUserId}/follow`);
         setFollowing(true);
         onFollowChange?.(true);
         invalidateCachedAction(`following:${user.uid}`);
-        toast({ title: 'Following', description: `You are now following @${targetUsername}` });
+        toast({ title: 'following', description: `you're now following @${targetUsername}` });
       }
     } catch (err) {
       toast({
@@ -102,45 +97,43 @@ export function FollowButton({
     }
   };
 
-  // Don't show button if viewing own profile
-  if (user?.uid === targetUserId) {
-    return null;
-  }
+  // Hidden on your own row.
+  if (user?.uid === targetUserId) return null;
+
+  const dims = size === 'sm' ? 'h-9 px-3.5 text-[13px]' : 'h-11 px-5 text-[14px]';
+  const base =
+    'inline-flex items-center justify-center gap-1.5 rounded-full font-headline font-semibold lowercase tracking-tight transition-transform active:scale-95 disabled:opacity-60';
 
   if (isCheckingStatus) {
     return (
-      <Button disabled className={retroButtonClass} size={size}>
+      <button disabled className={cn(base, dims, 'bg-secondary text-foreground')}>
         <Loader2 className="h-4 w-4 animate-spin" />
-      </Button>
+      </button>
     );
   }
 
-  // Label priority: viewer-follows-target wins ("Following"). If we don't
-  // already follow them but they follow us → "Follow back". Otherwise plain
-  // "Follow". `followsViewer` defaults to `false` so the safe label is
-  // always shown while the lazy fetch is in flight.
-  const label = following ? 'Following' : followsViewer ? 'Follow back' : 'Follow';
+  // viewer-follows-target wins ("following"); else if they follow us →
+  // "follow back"; else "follow".
+  const label = following ? 'following' : followsViewer ? 'follow back' : 'follow';
 
   return (
-    <Button
+    <button
       onClick={handleToggleFollow}
       disabled={isLoading || !user}
-      className={`${retroButtonClass} ${following ? 'bg-secondary text-foreground hover:bg-destructive hover:text-destructive-foreground' : ''}`}
-      size={size}
+      className={cn(
+        base,
+        dims,
+        following ? 'bg-secondary text-foreground' : 'bg-primary text-primary-foreground shadow-fab',
+      )}
     >
       {isLoading ? (
         <Loader2 className="h-4 w-4 animate-spin" />
-      ) : following ? (
-        <>
-          <UserMinus className="h-4 w-4 mr-2" />
-          {label}
-        </>
       ) : (
         <>
-          <UserPlus className="h-4 w-4 mr-2" />
+          {following && <Check className="h-4 w-4" strokeWidth={2.4} />}
           {label}
         </>
       )}
-    </Button>
+    </button>
   );
 }

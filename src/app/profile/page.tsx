@@ -2,17 +2,14 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 import {
-  Pencil, X, MoreVertical, LogOut,
+  Pencil, MoreVertical, LogOut,
   Eye, EyeOff, ImageIcon, Settings, Share2,
 } from 'lucide-react';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc, where, limit, getDocs } from 'firebase/firestore';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -25,12 +22,12 @@ import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
-import { ProfileAvatar } from '@/components/profile-avatar';
 import { TopFivePicker } from '@/components/v3/top-five-picker';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
 import { EditProfileSheet } from '@/components/v3/edit-profile-sheet';
+import { PeopleSheet } from '@/components/v3/people-sheet';
 import { BottomNav } from '@/components/bottom-nav';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/types';
@@ -65,10 +62,7 @@ export default function MyProfilePage() {
   const { toast } = useToast();
 
   // AUDIT.md 2.3 (Option A): usernames are permanent — no edit state needed.
-  const [followers, setFollowers] = useState<UserProfile[]>([]);
-  const [following, setFollowing] = useState<UserProfile[]>([]);
-  const [showFollowers, setShowFollowers] = useState(false);
-  const [showFollowing, setShowFollowing] = useState(false);
+  const [peopleTab, setPeopleTab] = useState<'followers' | 'following' | null>(null);
   const [isEditProfileOpen, setIsEditProfileOpen] = useState(false);
   const [isFavoritePickerOpen, setIsFavoritePickerOpen] = useState(false);
   const [favoriteMovies, setFavoriteMovies] = useState<FavoriteMovie[]>([]);
@@ -167,38 +161,6 @@ export default function MyProfilePage() {
     fetchPreviews();
   }, [user, lists]);
 
-  const handleLoadFollowers = async () => {
-    if (!user) return;
-    try {
-      const result = await apiCall<{ users: UserProfile[] }>(
-        'GET',
-        `/api/v1/users/${user.uid}/followers`,
-      );
-      setFollowers(result.users || []);
-      setShowFollowers(true);
-    } catch {
-      setFollowers([]);
-      setShowFollowers(true);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load followers' });
-    }
-  };
-
-  const handleLoadFollowing = async () => {
-    if (!user) return;
-    try {
-      const result = await apiCall<{ users: UserProfile[] }>(
-        'GET',
-        `/api/v1/users/${user.uid}/following`,
-      );
-      setFollowing(result.users || []);
-      setShowFollowing(true);
-    } catch {
-      setFollowing([]);
-      setShowFollowing(true);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load following' });
-    }
-  };
-
   const handleToggleVisibility = async (listId: string, currentIsPublic: boolean) => {
     if (!user) return;
     const nextIsPublic = !currentIsPublic;
@@ -266,8 +228,8 @@ export default function MyProfilePage() {
   );
 
   const stats: { label: string; value: number; onClick: () => void }[] = [
-    { label: 'followers', value: followersCount, onClick: handleLoadFollowers },
-    { label: 'following', value: followingCount, onClick: handleLoadFollowing },
+    { label: 'followers', value: followersCount, onClick: () => setPeopleTab('followers') },
+    { label: 'following', value: followingCount, onClick: () => setPeopleTab('following') },
     { label: 'lists', value: listsCount, onClick: () => setTab('lists') },
   ];
 
@@ -281,7 +243,7 @@ export default function MyProfilePage() {
     <MovieModalProvider returnPath="/profile">
       <PullToRefresh
         onRefresh={handleRefresh}
-        disabled={showFollowers || showFollowing || isEditProfileOpen || isFavoritePickerOpen || isCoverPickerOpen}
+        disabled={peopleTab !== null || isEditProfileOpen || isFavoritePickerOpen || isCoverPickerOpen}
       >
         <main className="min-h-screen text-foreground pb-24 md:pb-8">
           {/* Cinematic hero — the profile photo IS the hero (design v2). When
@@ -541,89 +503,16 @@ export default function MyProfilePage() {
         </main>
       </PullToRefresh>
 
-      {/* Followers Modal */}
-      {showFollowers && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md shadow-photo">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>followers</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="max-h-96 overflow-y-auto">
-              {followers.length > 0 ? (
-                <ul className="divide-y divide-border">
-                  {followers.map((profile) => (
-                    <li key={profile.uid}>
-                      <Link
-                        href={`/profile/${profile.username}`}
-                        onClick={() => setShowFollowers(false)}
-                        className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                      >
-                        <ProfileAvatar
-                          photoURL={profile.photoURL}
-                          displayName={profile.displayName}
-                          username={profile.username}
-                          size="md"
-                        />
-                        <div>
-                          <p className="font-headline font-semibold text-sm">{profile.displayName || profile.username}</p>
-                          <p className="cc-meta text-[11px] text-muted-foreground">@{profile.username}</p>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center font-serif italic text-muted-foreground py-4">no followers yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Following Modal */}
-      {showFollowing && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md shadow-photo">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>following</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="max-h-96 overflow-y-auto">
-              {following.length > 0 ? (
-                <ul className="divide-y divide-border">
-                  {following.map((profile) => (
-                    <li key={profile.uid}>
-                      <Link
-                        href={`/profile/${profile.username}`}
-                        onClick={() => setShowFollowing(false)}
-                        className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                      >
-                        <ProfileAvatar
-                          photoURL={profile.photoURL}
-                          displayName={profile.displayName}
-                          username={profile.username}
-                          size="md"
-                        />
-                        <div>
-                          <p className="font-headline font-semibold text-sm">{profile.displayName || profile.username}</p>
-                          <p className="cc-meta text-[11px] text-muted-foreground">@{profile.username}</p>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center font-serif italic text-muted-foreground py-4">not following anyone yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* People sheet — followers / following with follow-back + search */}
+      <PeopleSheet
+        isOpen={peopleTab !== null}
+        onClose={() => setPeopleTab(null)}
+        subjectUid={user.uid}
+        subjectUsername={userProfile?.username || null}
+        followersCount={followersCount}
+        followingCount={followingCount}
+        initialTab={peopleTab ?? 'followers'}
+      />
 
       {/* Edit Profile Sheet — photo (camera roll / take photo / house avatar)
           + name + bio in one save. Handle is read-only. */}

@@ -205,6 +205,19 @@ browser).
   crossing, light on remove. **Owner: run `npx cap sync` so the native build
   picks up the plugin.** Still TODO in 0.7.2: page push/pop transitions +
   app-wide swipe-back (the heavier motion piece). typecheck + build + static ✓.
+- [x] **0.7.3.5f** **"your people" sheet** (mocks 17+18): new full-screen
+  `PeopleSheet` replacing the two Card modals on both profiles. Eyebrow
+  (@subject) + "your people" + ×, **Segmented followers/following** (with
+  counts, inherits haptics+spring), search field (client-side filter), rows =
+  ProfileAvatar + name/@handle/bio + **FollowButton** + tap-to-profile.
+  **FollowButton restyled to a v3 pill** (universal): film-red filled for
+  follow / follow-back, tonal + ✓ for following, lowercase, size-aware, haptic
+  on toggle. **Zero per-row status fetches** — every row's relationship is
+  pre-resolved from the viewer's own follower/following sets (loaded once; on
+  the owner's own profile those ARE the subject lists → no extra calls). Meta
+  is the person's **bio** (real); films-count / mutual-count deferred (no cheap
+  aggregation). Removed Card/ProfileAvatar/Link/X usage from the profiles.
+  typecheck + build ✓.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the

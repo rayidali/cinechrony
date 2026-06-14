@@ -3,14 +3,12 @@
 import { useEffect, useState, useMemo, useCallback } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, X, Share2 } from 'lucide-react';
+import { ChevronLeft, Share2 } from 'lucide-react';
 import Image from 'next/image';
 import { useUser, useFirestore } from '@/firebase';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { FollowButton } from '@/components/follow-button';
-import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { ProfileOverflowMenu } from '@/components/profile-overflow-menu';
 import { BottomNav } from '@/components/bottom-nav';
@@ -19,6 +17,7 @@ import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
 import { ListTile } from '@/components/v3/list-tile';
 import { RecentRow } from '@/components/v3/recent-row';
+import { PeopleSheet } from '@/components/v3/people-sheet';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
@@ -62,10 +61,7 @@ export default function UserProfilePage() {
   const [lists, setLists] = useState<MovieList[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [followers, setFollowers] = useState<UserProfile[]>([]);
-  const [following, setFollowing] = useState<UserProfile[]>([]);
-  const [showFollowers, setShowFollowers] = useState(false);
-  const [showFollowing, setShowFollowing] = useState(false);
+  const [peopleTab, setPeopleTab] = useState<'followers' | 'following' | null>(null);
   const [listPreviews, setListPreviews] = useState<Record<string, { previewPosters: string[]; movieCount: number }>>({});
   const [activities, setActivities] = useState<Activity[] | null>(null);
   const [isLoadingActivities, setIsLoadingActivities] = useState(true);
@@ -169,38 +165,6 @@ export default function UserProfilePage() {
     fetchListPreviews();
   }, [profile, lists]);
 
-  const handleLoadFollowers = async () => {
-    if (!profile) return;
-    try {
-      const result = await apiCall<{ users: UserProfile[] }>(
-        'GET',
-        `/api/v1/users/${profile.uid}/followers`,
-      );
-      setFollowers(result.users || []);
-      setShowFollowers(true);
-    } catch {
-      setFollowers([]);
-      setShowFollowers(true);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load followers' });
-    }
-  };
-
-  const handleLoadFollowing = async () => {
-    if (!profile) return;
-    try {
-      const result = await apiCall<{ users: UserProfile[] }>(
-        'GET',
-        `/api/v1/users/${profile.uid}/following`,
-      );
-      setFollowing(result.users || []);
-      setShowFollowing(true);
-    } catch {
-      setFollowing([]);
-      setShowFollowing(true);
-      toast({ variant: 'destructive', title: 'Error', description: 'Failed to load following' });
-    }
-  };
-
   const handleFollowChange = (isFollowing: boolean) => {
     if (profile) {
       setProfile({
@@ -277,8 +241,8 @@ export default function UserProfilePage() {
   }
 
   const stats: { label: string; value: number; onClick: () => void }[] = [
-    { label: 'followers', value: profile.followersCount || 0, onClick: handleLoadFollowers },
-    { label: 'following', value: profile.followingCount || 0, onClick: handleLoadFollowing },
+    { label: 'followers', value: profile.followersCount || 0, onClick: () => setPeopleTab('followers') },
+    { label: 'following', value: profile.followingCount || 0, onClick: () => setPeopleTab('following') },
     { label: 'lists', value: lists.length, onClick: () => setTab('lists') },
   ];
 
@@ -498,89 +462,16 @@ export default function UserProfilePage() {
         </div>
       </main>
 
-      {/* Followers Modal */}
-      {showFollowers && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md shadow-photo">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>followers</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => setShowFollowers(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="max-h-96 overflow-y-auto">
-              {followers.length > 0 ? (
-                <ul className="divide-y divide-border">
-                  {followers.map((follower) => (
-                    <li key={follower.uid}>
-                      <Link
-                        href={`/profile/${follower.username}`}
-                        onClick={() => setShowFollowers(false)}
-                        className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                      >
-                        <ProfileAvatar
-                          photoURL={follower.photoURL}
-                          displayName={follower.displayName}
-                          username={follower.username}
-                          size="md"
-                        />
-                        <div>
-                          <p className="font-headline font-semibold text-sm">{follower.displayName || follower.username}</p>
-                          <p className="cc-meta text-[11px] text-muted-foreground">@{follower.username}</p>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center font-serif italic text-muted-foreground py-4">no followers yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
-      {/* Following Modal */}
-      {showFollowing && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <Card className="w-full max-w-md shadow-photo">
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle>following</CardTitle>
-              <Button variant="ghost" size="icon" onClick={() => setShowFollowing(false)}>
-                <X className="h-4 w-4" />
-              </Button>
-            </CardHeader>
-            <CardContent className="max-h-96 overflow-y-auto">
-              {following.length > 0 ? (
-                <ul className="divide-y divide-border">
-                  {following.map((followedUser) => (
-                    <li key={followedUser.uid}>
-                      <Link
-                        href={`/profile/${followedUser.username}`}
-                        onClick={() => setShowFollowing(false)}
-                        className="flex items-center gap-3 py-3 hover:opacity-70 transition-opacity"
-                      >
-                        <ProfileAvatar
-                          photoURL={followedUser.photoURL}
-                          displayName={followedUser.displayName}
-                          username={followedUser.username}
-                          size="md"
-                        />
-                        <div>
-                          <p className="font-headline font-semibold text-sm">{followedUser.displayName || followedUser.username}</p>
-                          <p className="cc-meta text-[11px] text-muted-foreground">@{followedUser.username}</p>
-                        </div>
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-center font-serif italic text-muted-foreground py-4">not following anyone yet</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      )}
+      {/* People sheet — this user's followers / following + follow-back */}
+      <PeopleSheet
+        isOpen={peopleTab !== null}
+        onClose={() => setPeopleTab(null)}
+        subjectUid={profile.uid}
+        subjectUsername={profile.username}
+        followersCount={profile.followersCount || 0}
+        followingCount={profile.followingCount || 0}
+        initialTab={peopleTab ?? 'followers'}
+      />
 
       <BottomNav />
     </MovieModalProvider>
