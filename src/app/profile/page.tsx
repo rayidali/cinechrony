@@ -29,7 +29,9 @@ import type { CollaborativeListSummary } from '@/lib/lists-server';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { AvatarPicker } from '@/components/avatar-picker';
 import { FavoriteMoviesPicker } from '@/components/favorite-movies-picker';
-import { ThemeToggle } from '@/components/theme-toggle';
+import { Hero } from '@/components/v3/hero';
+import { GlassBtn } from '@/components/v3/glass-button';
+import { Segmented } from '@/components/v3/segmented';
 import { BottomNav } from '@/components/bottom-nav';
 import type { UserProfile, MovieList, ListInvite, FavoriteMovie } from '@/lib/types';
 
@@ -363,37 +365,19 @@ export default function MyProfilePage() {
         onRefresh={handleRefresh}
         disabled={showFollowers || showFollowing || isAvatarPickerOpen || isFavoritePickerOpen || isCoverPickerOpen}
       >
-        <main className="min-h-screen text-foreground pb-24 md:pb-8 md:pt-20">
-          <div className="container mx-auto px-4 md:px-8 max-w-2xl">
-
-            {/* Topbar */}
-            <div className="flex justify-between items-center pt-1 pb-5">
-              <span className="cc-eyebrow">profile</span>
-              <div className="flex items-center gap-1">
-                <ThemeToggle />
-                <Link
-                  href="/settings"
-                  className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-secondary transition-colors"
-                  aria-label="Settings"
-                >
-                  <Settings className="h-[18px] w-[18px]" strokeWidth={1.6} />
-                </Link>
-                <button
-                  onClick={() => auth.signOut()}
-                  className="w-9 h-9 rounded-full flex items-center justify-center hover:bg-secondary text-destructive transition-colors"
-                  aria-label="Sign out"
-                >
-                  <LogOut className="h-[18px] w-[18px]" strokeWidth={1.6} />
-                </button>
-              </div>
-            </div>
-
-            {/* Editorial header — eyebrow → hairline → avatar + name */}
-            {memberSince && <div className="cc-eyebrow">critic · member since {memberSince}</div>}
-            <div className="h-px bg-border my-3" />
-
+        <main className="min-h-screen text-foreground pb-24 md:pb-8">
+          {/* Cinematic hero — seeded gradient + glass settings / sign-out */}
+          <Hero
+            seed={userProfile?.displayName || userProfile?.username || 'profile'}
+            topRight={
+              <>
+                <GlassBtn icon={Settings} ariaLabel="Settings" onClick={() => router.push('/settings')} />
+                <GlassBtn icon={LogOut} ariaLabel="Sign out" onClick={() => auth.signOut()} />
+              </>
+            }
+          >
             <div className="flex items-end gap-4">
-              <div className="relative flex-shrink-0 group">
+              <div className="group relative flex-shrink-0">
                 <ProfileAvatar
                   photoURL={userProfile?.photoURL}
                   displayName={userProfile?.displayName}
@@ -401,24 +385,30 @@ export default function MyProfilePage() {
                   email={user.email}
                   size="xl"
                   onClick={() => setIsAvatarPickerOpen(true)}
-                  className="cursor-pointer shadow-photo"
+                  className="cursor-pointer shadow-photo ring-[3px] ring-white/90"
                 />
                 <div
-                  className="absolute inset-0 rounded-full bg-black/45 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+                  className="absolute inset-0 flex cursor-pointer items-center justify-center rounded-full bg-black/40 opacity-0 transition-opacity group-hover:opacity-100"
                   onClick={() => setIsAvatarPickerOpen(true)}
                 >
                   <Camera className="h-5 w-5 text-white" />
                 </div>
               </div>
               <div className="min-w-0 pb-1">
-                <h1 className="font-headline font-bold text-3xl lowercase tracking-tight leading-none truncate">
+                <h1 className="truncate font-headline text-[30px] font-bold lowercase leading-none tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)]">
                   {userProfile?.displayName || user.displayName || 'user'}
                 </h1>
-                <p className="cc-meta text-xs text-muted-foreground mt-1.5">
+                <p className="mt-1.5 font-mono text-[11px] text-white/80">
                   @{userProfile?.username || '…'}
+                  {memberSince ? ` · since ${memberSince}` : ''}
                 </p>
               </div>
             </div>
+          </Hero>
+
+          {/* Pull-up content sheet */}
+          <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
+            <div className="mx-auto max-w-2xl px-4 pt-5">
 
             {/* Bio — serif italic, tap to edit */}
             <div className="mt-4">
@@ -495,21 +485,9 @@ export default function MyProfilePage() {
             </div>
             <div className="h-px bg-border" />
 
-            {/* Segmented tabs — film-red underline on active */}
-            <div className="flex gap-6 mt-5 border-b border-border">
-              {tabs.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => setTab(t.id)}
-                  className={`font-headline font-semibold text-sm lowercase tracking-tight pb-2.5 -mb-px border-b-2 transition-colors ${
-                    tab === t.id
-                      ? 'text-foreground border-primary'
-                      : 'text-muted-foreground border-transparent hover:text-foreground'
-                  }`}
-                >
-                  {t.label}
-                </button>
-              ))}
+            {/* Segmented tabs */}
+            <div className="mt-5">
+              <Segmented value={tab} onChange={(v) => setTab(v as ProfileTab)} options={tabs} />
             </div>
 
             {/* Tab content */}
@@ -706,6 +684,7 @@ export default function MyProfilePage() {
                 </div>
               )}
             </div>
+          </div>
           </div>
         </main>
       </PullToRefresh>

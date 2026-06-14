@@ -124,8 +124,14 @@ browser).
   typecheck + build green. **Universal primitives now: Frost, Segmented,
   NavBar, AddBtn, ListTile, GlassBtn, Hero** + the existing MovieCardGrid is
   the canonical poster tile (kept, not duplicated → consistent card sizes).
-- [ ] **0.7.3.5** **Profile** (own + public, `ProfileIOS`): full-bleed hero,
-  stats, films/lists/activity segmented, top-5 grid, recent list.
+- [x] **0.7.3.5** **Own profile**: cinematic Hero (seeded gradient + avatar
+  overlaid + name/@handle/since + glass settings/sign-out) → pull-up content
+  sheet (editable bio, find-friends/share pills, stats sandwich, **Segmented**
+  lists/shared/top-5 tabs, content). Reused Hero + GlassBtn + Segmented. All
+  edit logic preserved (avatar picker, inline bio, top-5 picker, follower/
+  following modals, invites, cover picker). Public profile (`/profile/[username]`)
+  still pending. Also: persistent add **FAB** now on the lists tab (matches
+  list detail). typecheck + build green.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,
   grouped inset results with IMDb chip + add button.
 - [ ] **0.7.3.7** Auth / onboarding / notifications / settings: apply the
