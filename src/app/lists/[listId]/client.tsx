@@ -3,11 +3,8 @@
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
+import { ArrowLeft, AlertTriangle, Plus, Settings2 } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { UserAvatar } from '@/components/user-avatar';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { collection, doc } from 'firebase/firestore';
@@ -15,7 +12,8 @@ import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
-import { Fab } from '@/components/fab';
+import { Hero } from '@/components/v3/hero';
+import { GlassBtn } from '@/components/v3/glass-button';
 import { apiCall } from '@/lib/api-client';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
@@ -297,30 +295,48 @@ export default function ListDetailPage() {
   //     case; rarer, but should still feel snappy because IndexedDB
   //     persistence makes the second snapshot near-instant).
 
+  const isPublic = !!effectiveListData?.isPublic;
+  const hasCover =
+    !!effectiveListData?.coverImageUrl && effectiveListData?.coverMode !== 'auto';
+  const settingsUrl = isOwner
+    ? `/lists/${listId}/settings`
+    : `/lists/${listId}/settings?owner=${effectiveOwnerId}`;
+
   return (
     <>
       <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen}>
-        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-          <div className="container mx-auto p-4 md:p-8">
-            <header className="mb-8">
-              {/* Top bar with back button */}
-              <div className="w-full flex justify-between items-center mb-6">
-                <Link href="/lists">
-                  <Button variant="ghost" className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    All Lists
-                  </Button>
-                </Link>
-                <div className="flex items-center gap-3">
-                  <NotificationBell />
-                  <ThemeToggle />
-                  <UserAvatar />
-                </div>
-              </div>
+        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
+          {/* Cinematic hero — cover (or seeded gradient) + glass chrome */}
+          <Hero
+            coverImageUrl={hasCover ? effectiveListData?.coverImageUrl : undefined}
+            seed={effectiveListData?.name}
+            topLeft={
+              <GlassBtn icon={ArrowLeft} ariaLabel="Back to lists" onClick={() => router.push('/lists')} />
+            }
+            topRight={
+              canEdit && effectiveOwnerId ? (
+                <>
+                  <GlassBtn icon={Settings2} ariaLabel="List settings" onClick={() => router.push(settingsUrl)} />
+                  <GlassBtn icon={Plus} ariaLabel="Add movie" onClick={() => setIsAddMovieOpen(true)} />
+                </>
+              ) : null
+            }
+          >
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/85">
+              {isPublic ? 'public list' : 'private list'}
+            </div>
+            {effectiveListData ? (
+              <h1 className="mt-2 font-headline text-[34px] font-bold leading-[0.92] tracking-tight lowercase text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)] md:text-5xl">
+                {effectiveListData.name || 'list'}
+              </h1>
+            ) : (
+              <div className="mt-2 h-9 w-2/3 animate-pulse rounded bg-white/20" />
+            )}
+          </Hero>
 
-              {/* List header — renders against effectiveListData so the seed
-                  paints it synchronously. When effectiveOwnerId isn't known
-                  yet (direct URL nav, no seed), a skeleton stands in. */}
+          {/* Pull-up content sheet */}
+          <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
+            <div className="mx-auto max-w-3xl px-4 pt-5">
               {effectiveOwnerId && effectiveListData ? (
                 <ListHeader
                   listId={listId}
@@ -328,44 +344,31 @@ export default function ListDetailPage() {
                   listData={effectiveListData}
                   isOwner={isOwner}
                   isCollaborator={isCollaborator}
+                  movieCount={movies?.length}
                 />
               ) : (
                 <div className="space-y-3" aria-label="Loading list header">
-                  <div className="h-8 w-2/3 rounded bg-muted animate-pulse" />
-                  <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
+                  <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
+                  <div className="h-8 w-1/3 rounded-full bg-muted animate-pulse" />
                 </div>
               )}
-            </header>
 
-            {/* Movie list — `MovieList` shows its own skeleton when isLoading
-                is true. With Firestore IndexedDB persistence, the first
-                snapshot usually lands in <50ms on re-mount, so the skeleton
-                is barely a flash. */}
-            <div className="w-full">
-              <MovieList
-                initialMovies={movies || []}
-                isLoading={isLoadingMovies}
-                listId={listId}
-                listOwnerId={effectiveOwnerId}
-                canEdit={canEdit}
-              />
+              {/* Movie list — `MovieList` shows its own skeleton when isLoading. */}
+              <div className="mt-6">
+                <MovieList
+                  initialMovies={movies || []}
+                  isLoading={isLoadingMovies}
+                  listId={listId}
+                  listOwnerId={effectiveOwnerId}
+                  canEdit={canEdit}
+                />
+              </div>
             </div>
           </div>
         </main>
       </PullToRefresh>
 
       <BottomNav />
-
-      {/* FAB for adding movies */}
-      {canEdit && effectiveOwnerId && (
-        <Fab
-          icon={Plus}
-          label="add"
-          ariaLabel="Add movie"
-          className="z-40"
-          onClick={() => setIsAddMovieOpen(true)}
-        />
-      )}
 
       {/* Add Movie Modal */}
       {effectiveOwnerId && (

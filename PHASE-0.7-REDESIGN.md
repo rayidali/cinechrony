@@ -114,9 +114,16 @@ browser).
   retired on this screen). Built `Segmented`, `NavBar`, `AddBtn`, `ListTile`
   primitives in context. All data/seed/refresh/create logic preserved.
   typecheck + build green. — first full-screen v3 restyle, awaiting green-light.
-- [ ] **0.7.3.4** **List detail** (`ListDetailIOS`): cinematic hero, pull-up
-  sheet, collaborators row + manage button, to-watch/watched segmented, 3-up
-  grid with rating chips + watched check.
+- [x] **0.7.3.4** **List detail** (`ListDetailIOS`): cinematic Hero (cover or
+  seeded gradient + glass back/settings/add) → pull-up content sheet (serif
+  description + collaborators row w/ "N collaborators · N films" + manage
+  button) → to-watch/watched **Segmented** → existing movie grid (already 2:3
+  posters + rating chips; view-modes/search/sort/modal all preserved). Built
+  universal **GlassBtn** + **Hero** primitives (reused by Profile next). All
+  collaborative-lookup / permission / seed / pull-to-refresh logic untouched.
+  typecheck + build green. **Universal primitives now: Frost, Segmented,
+  NavBar, AddBtn, ListTile, GlassBtn, Hero** + the existing MovieCardGrid is
+  the canonical poster tile (kept, not duplicated → consistent card sizes).
 - [ ] **0.7.3.5** **Profile** (own + public, `ProfileIOS`): full-bleed hero,
   stats, films/lists/activity segmented, top-5 grid, recent list.
 - [ ] **0.7.3.6** **Search** (`SearchIOS`): pushed results view, genre chips,

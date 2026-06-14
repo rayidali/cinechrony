@@ -9,7 +9,7 @@ import { MovieCardList } from './movie-card-list';
 import { MovieCardAnnotated } from './movie-card-annotated';
 import { MovieDetailsModal } from './movie-details-modal';
 import { GridViewHint } from './grid-view-hint';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Segmented } from '@/components/v3/segmented';
 import { Button } from '@/components/ui/button';
 import { Grid3X3, List, LayoutGrid, AlignLeft } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
@@ -196,27 +196,17 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     <div className="w-full">
       {/* Header with filter tabs and view toggle */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-        {/* Filter tabs */}
-        <Tabs
-          value={filter}
-          onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
-          className="w-full sm:w-auto"
-        >
-          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-full p-1 h-auto">
-            <TabsTrigger
-              value="To Watch"
-              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
-            >
-              to watch
-            </TabsTrigger>
-            <TabsTrigger
-              value="Watched"
-              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
-            >
-              watched
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
+        {/* Filter — v3 sliding segmented */}
+        <div className="w-full sm:w-[240px]">
+          <Segmented
+            value={filter}
+            onChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
+            options={[
+              { id: 'To Watch', label: 'to watch' },
+              { id: 'Watched', label: 'watched' },
+            ]}
+          />
+        </div>
 
         {/* View mode toggle */}
         <div className="flex items-center gap-1 border border-border rounded-full p-1 bg-background">

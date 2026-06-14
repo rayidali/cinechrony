@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Loader2, Pencil } from 'lucide-react';
+import { Loader2, Settings2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useUser } from '@/firebase';
@@ -16,6 +16,8 @@ interface ListHeaderProps {
   listData: MovieList | null;
   isOwner: boolean;
   isCollaborator?: boolean;
+  /** Film count shown in the collaborators row ("N collaborators · N films"). */
+  movieCount?: number;
 }
 
 export function ListHeader({
@@ -24,6 +26,7 @@ export function ListHeader({
   listData,
   isOwner,
   isCollaborator,
+  movieCount,
 }: ListHeaderProps) {
   // Build settings URL with owner param for collaborators
   const settingsUrl = isOwner
@@ -91,63 +94,25 @@ export function ListHeader({
     return 0;
   });
 
+  const memberCountLabel = `${members.length > 1 ? `${members.length} collaborators · ` : ''}${movieCount ?? 0} films`;
+
   return (
     <div className="flex flex-col">
-      {/* Editorial title block — eyebrow → hairline → lowercase display title. */}
-      <div className="cc-eyebrow">
-        {listData?.isPublic ? 'PUBLIC LIST' : 'PRIVATE LIST'}
-      </div>
-      <div className="h-px bg-border my-3" />
-      <div className="flex items-start justify-between gap-3">
-        <h1 className="font-headline font-bold text-3xl md:text-5xl lowercase tracking-tight leading-[0.95]">
-          {listData?.name || 'list'}
-        </h1>
-        {(isOwner || isCollaborator) && (
-          <Link
-            href={settingsUrl}
-            prefetch={true}
-            className="flex-shrink-0 mt-1 p-2 rounded-full hover:bg-secondary transition-colors"
-            title="Edit list settings"
-          >
-            <Pencil className="h-5 w-5 text-muted-foreground" strokeWidth={1.6} />
-          </Link>
-        )}
-      </div>
-
-      {/* List description — serif italic lead */}
+      {/* Description — serif italic lead */}
       {listData?.description && (
-        <p className="cc-lead text-[17px] mt-3 max-w-xl">
+        <p className="cc-lead text-[16px] text-foreground/90 max-w-xl">
           {listData.description}
         </p>
       )}
 
-      {/* Like count — read-only for members; a stale like stays removable. */}
-      {listData?.isPublic && (
-        <div className="mt-4">
-          <ListLikeButton
-            listOwnerId={listOwnerId}
-            listId={listId}
-            collaboratorIds={listData.collaboratorIds}
-            initialLikes={listData.likes ?? 0}
-            initialLikedBy={listData.likedBy ?? []}
-          />
-        </div>
-      )}
-
-      {/* Tappable Collaborator Bar */}
-      <div className="mt-4">
-      {(isOwner || isCollaborator) ? (
-        <Link
-          href={settingsUrl}
-          prefetch={true}
-          className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50 transition-colors hover:bg-secondary"
-        >
-          {/* Avatar stack */}
-          {isLoadingMembers ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : (
-            <div className="flex -space-x-2">
-              {sortedMembers.slice(0, 3).map((member, index) => (
+      {/* Collaborators row — avatar stack + count + manage */}
+      <div className={`flex items-center gap-3 ${listData?.description ? 'mt-4' : ''}`}>
+        {isLoadingMembers ? (
+          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+        ) : (
+          <div className="flex -space-x-2">
+            {sortedMembers.slice(0, 3).map((member, index) =>
+              isOwner || isCollaborator ? (
                 <div
                   key={member.uid}
                   className="relative"
@@ -161,27 +126,11 @@ export function ListHeader({
                     className="ring-2 ring-background"
                   />
                 </div>
-              ))}
-            </div>
-          )}
-
-          {/* Collaborate text */}
-          <span className="text-sm font-medium">
-            {members.length > 1 ? `${members.length} collaborators` : 'collaborate'}
-          </span>
-        </Link>
-      ) : (
-        <div className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-secondary/50">
-          {/* Avatar stack - clickable to profiles */}
-          {isLoadingMembers ? (
-            <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-          ) : (
-            <div className="flex -space-x-2">
-              {sortedMembers.slice(0, 3).map((member, index) => (
+              ) : (
                 <Link
                   key={member.uid}
                   href={`/profile/${member.username}`}
-                  className="relative hover:opacity-80 transition-opacity"
+                  className="relative transition-opacity hover:opacity-80"
                   style={{ zIndex: sortedMembers.length - index }}
                 >
                   <ProfileAvatar
@@ -192,17 +141,40 @@ export function ListHeader({
                     className="ring-2 ring-background"
                   />
                 </Link>
-              ))}
-            </div>
-          )}
+              )
+            )}
+          </div>
+        )}
+        <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
+          {memberCountLabel}
+        </span>
+        <span className="flex-1" />
+        {(isOwner || isCollaborator) && (
+          <Link
+            href={settingsUrl}
+            prefetch
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-rule px-3 text-foreground transition-colors hover:bg-secondary"
+          >
+            <Settings2 className="h-[15px] w-[15px] text-muted-foreground" strokeWidth={1.9} />
+            <span className="font-headline text-[12.5px] font-semibold lowercase tracking-tight">
+              manage
+            </span>
+          </Link>
+        )}
+      </div>
 
-          {/* Collaborator count text */}
-          <span className="text-sm font-medium">
-            {members.length > 1 ? `${members.length} collaborators` : 'collaborate'}
-          </span>
+      {/* Like — read-only-ish for members; a stale like stays removable. */}
+      {listData?.isPublic && (
+        <div className="mt-4">
+          <ListLikeButton
+            listOwnerId={listOwnerId}
+            listId={listId}
+            collaboratorIds={listData.collaboratorIds}
+            initialLikes={listData.likes ?? 0}
+            initialLikedBy={listData.likedBy ?? []}
+          />
         </div>
       )}
-      </div>
     </div>
   );
 }
