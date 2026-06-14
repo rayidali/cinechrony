@@ -96,10 +96,24 @@ export async function apiCall<T = unknown>(
   // unset (the default — and the only setting the Vercel deploy uses)
   // means same-origin, which preserves Phase A pre-#17 behavior. Only
   // `path`s starting with `/` get prefixed; absolute URLs pass through.
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-  const url = apiBase && path.startsWith('/')
-    ? `${apiBase.replace(/\/$/, '')}${path}`
-    : path;
+  // Resolve the API origin:
+  //  • NEXT_PUBLIC_API_BASE_URL (Capacitor static build) always wins.
+  //  • On a Vercel PREVIEW deployment, same-origin calls hit the Deployment-
+  //    Protection wall — this client sends no cookies (Bearer auth only), so
+  //    the Vercel SSO cookie never accompanies the fetch and the wall returns
+  //    a non-JSON 401. Route preview API calls to the PUBLIC production origin
+  //    instead (routes export OPTIONS + the CORS allowlist permits *.vercel.app).
+  //    Vercel injects these NEXT_PUBLIC_VERCEL_* vars (System Environment
+  //    Variables, on by default). Production + localhost + native stay same-origin.
+  const explicitBase = process.env.NEXT_PUBLIC_API_BASE_URL;
+  const previewBase =
+    typeof window !== 'undefined' &&
+    process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' &&
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
+      : '';
+  const apiBase = (explicitBase || previewBase || '').replace(/\/$/, '');
+  const url = apiBase && path.startsWith('/') ? `${apiBase}${path}` : path;
 
   let res: Response;
   try {
