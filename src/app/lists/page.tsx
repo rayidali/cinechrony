@@ -12,8 +12,8 @@ import { PullToRefresh } from '@/components/pull-to-refresh';
 import { NewListDrawer } from '@/components/new-list-drawer';
 import { NavBar } from '@/components/v3/nav-bar';
 import { Segmented } from '@/components/v3/segmented';
-import { AddBtn } from '@/components/v3/add-button';
 import { ListTile } from '@/components/v3/list-tile';
+import { Fab } from '@/components/fab';
 import { collection, orderBy, query } from 'firebase/firestore';
 import { apiCall } from '@/lib/api-client';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
@@ -263,7 +263,6 @@ export default function ListsPage() {
                 <UserAvatar />
               </>
             }
-            trailing={<AddBtn label="new list" onClick={() => setIsCreateOpen(true)} />}
           />
 
           <div className="mx-auto max-w-2xl px-4">
@@ -346,6 +345,14 @@ export default function ListsPage() {
 
       {/* BottomNav outside PullToRefresh to keep fixed positioning */}
       <BottomNav />
+
+      {/* Persistent add — film-red FAB, consistent with list detail. */}
+      <Fab
+        icon={Plus}
+        label="new list"
+        ariaLabel="Create a new list"
+        onClick={() => setIsCreateOpen(true)}
+      />
 
       {/* Editorial new-list creator (v3) — MUST sit outside PullToRefresh so
           position:fixed anchors to the viewport. PullToRefresh wraps its
