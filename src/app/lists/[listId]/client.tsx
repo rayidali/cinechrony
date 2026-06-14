@@ -14,6 +14,7 @@ import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
+import { Fab } from '@/components/fab';
 import { apiCall } from '@/lib/api-client';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
@@ -310,11 +311,6 @@ export default function ListDetailPage() {
             topLeft={
               <GlassBtn icon={ArrowLeft} ariaLabel="Back to lists" onClick={() => router.push('/lists')} />
             }
-            topRight={
-              canEdit && effectiveOwnerId ? (
-                <GlassBtn icon={Plus} ariaLabel="Add movie" onClick={() => setIsAddMovieOpen(true)} />
-              ) : null
-            }
           >
             <div className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/85">
               {isPublic ? 'public list' : 'private list'}
@@ -363,6 +359,17 @@ export default function ListDetailPage() {
       </PullToRefresh>
 
       <BottomNav />
+
+      {/* Persistent add — film-red FAB (the hero + scrolls away on long lists) */}
+      {canEdit && effectiveOwnerId && (
+        <Fab
+          icon={Plus}
+          label="add"
+          ariaLabel="Add movie"
+          className="z-40"
+          onClick={() => setIsAddMovieOpen(true)}
+        />
+      )}
 
       {/* Add Movie Modal */}
       {effectiveOwnerId && (
