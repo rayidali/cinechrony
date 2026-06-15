@@ -21,7 +21,6 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
-import { activityFromDoc } from '@/lib/activities-server';
 import {
   extractMentions,
   createPostTagNotification,
@@ -541,40 +540,25 @@ export async function getHomeFeed(
   const blockSet = viewerUid ? await getBlockSet(db, viewerUid) : new Set<string>();
   const cursorDate = opts.cursor ? new Date(opts.cursor) : null;
 
-  let actQ = db.collection('activities').orderBy('createdAt', 'desc');
+  // The reel is user-authored posts only. System activities (`added`,
+  // `watched`, `rated`, `reviewed`) are intentionally kept out of the home
+  // feed — they're low-signal logging; opinions belong in a written post.
   let postQ = db.collection('posts').orderBy('createdAt', 'desc');
   if (cursorDate && !Number.isNaN(cursorDate.getTime())) {
-    actQ = actQ.where('createdAt', '<', cursorDate);
     postQ = postQ.where('createdAt', '<', cursorDate);
   }
 
-  // Over-fetch activities — only `rated`/`reviewed` survive the type
-  // filter below, so a `limit+1` fetch would routinely under-fill.
-  const [actSnap, postSnap] = await Promise.all([
-    actQ.limit(limit * 2 + 1).get(),
-    postQ.limit(limit + 1).get(),
-  ]);
+  const postSnap = await postQ.limit(limit + 1).get();
 
-  const merged = [
-    ...actSnap.docs
-      .map((d) => activityFromDoc(d))
-      // Opinions only — `rated` and `reviewed`. `added`/`watched` are
-      // low-signal logging and stay out of the feed.
-      .filter((a) => a.type === 'rated' || a.type === 'reviewed')
-      .map((a) => ({
-        item: { kind: 'activity' as const, activity: a },
-        ts: a.createdAt.getTime(),
-        authorId: a.userId,
-      })),
-    ...postSnap.docs.map((d) => {
+  const merged = postSnap.docs
+    .map((d) => {
       const p = postFromDoc(d);
       return {
         item: { kind: 'post' as const, post: p },
         ts: p.createdAt.getTime(),
         authorId: p.authorId,
       };
-    }),
-  ]
+    })
     .filter((x) => !blockSet.has(x.authorId))
     .sort((a, b) => b.ts - a.ts);
 
