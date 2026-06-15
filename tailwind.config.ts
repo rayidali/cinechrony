@@ -23,6 +23,11 @@ export default {
         body: ['var(--font-headline)', 'system-ui', 'sans-serif'],
         serif: ['var(--font-serif)', 'Georgia', 'serif'],
         mono: ['var(--font-mono)', 'ui-monospace', 'monospace'],
+        // v3 (Phase 0.7): the iOS-native system sans (design's `F_UI`).
+        // Used for chrome/UI text — handles, buttons, search, segmented,
+        // meta — so the app reads native; Bricolage stays display-only.
+        // SF Pro on iOS/Capacitor; system-ui everywhere else.
+        ui: ['-apple-system', 'BlinkMacSystemFont', 'SF Pro Text', 'system-ui', 'sans-serif'],
       },
       colors: {
         background: ok('--background'),

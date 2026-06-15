@@ -30,7 +30,7 @@ export function PostFab({ onPosted }: { onPosted?: () => void }) {
     <>
       <Fab
         icon={PencilLine}
-        label="post"
+        ariaLabel="new post"
         onClick={() => setComposerOpen(true)}
         onLongPress={openSheet}
       />

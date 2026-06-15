@@ -14,10 +14,15 @@
 - **Active: Phase 0.7 — v3 iOS-native redesign** on `feat/v3-redesign`. A
   screen-by-screen restyle to the downloaded Claude Design package, plus a
   native-feel motion layer (haptics done; transitions/swipe-back next).
-  Tracker: **`PHASE-0.7-REDESIGN.md`**. **Profile tab family complete**
-  (photo hero · films/lists/activity · edit-profile · top-5 · your-people ·
-  share). v3 primitives live in `src/components/v3/*`. Next screens: Search,
-  then Home feed.
+  Tracker: **`PHASE-0.7-REDESIGN.md`**. Done: **Profile tab family** (photo
+  hero · films/lists/activity · edit-profile · top-5 · your-people · share),
+  **Search** (0.7.3.6), and the **Home / feed shell + reel** (0.7.3.1 a+b —
+  added `font-ui` system-sans; underline `for you·friends` tabs; icon-only red
+  pencil FAB; `PostCard`→`DiaryEntry` w/ `MovieCell`+`MediaGallery`). v3
+  primitives in `src/components/v3/*`. **Next:** Home **slice c** (discovery
+  rails: dig in / top watchers / featured / community + F15–F18 detail screens,
+  needs 0.7.5 backend) → **movie drawer 0.7.3.2** (F01/F02 + "how was it?"
+  sheet + composer) → motion slice 2 (transitions/swipe-back).
 - **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
   `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
   Presentational — must not regress logic.

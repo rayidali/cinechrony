@@ -31,15 +31,44 @@ Test, same convention as AUDIT.md).
   canonical share URL. Public + own profile both done.
 - **Motion slice 1 — haptics** (0.7.2): `@capacitor/haptics@8` +
   `src/lib/haptics.ts`, wired through the shared primitives.
+- **Search** (0.7.3.6): home search overlay → discover (recs / vibes / now &
+  next) + results (people-first), client-direct TMDB.
+- **Home / feed — shell + reel** (0.7.3.1 **a + b**, built 2026-06-14):
+  - **`font-ui` foundation** — added the iOS system-sans family to Tailwind
+    (the design's `F_UI`); fixes the serif-italic search placeholder + makes
+    chrome read native. New `Section` primitive (`v3/section.tsx`).
+  - **Shell** — frosted scroll-collapsing top bar (`for you · friends`
+    underline tabs + bell + avatar; `saved` dropped from home, archive moves
+    under "you" later) · search + red `scan` (Phase C hook) · **FAB now an
+    icon-only red pencil circle** (`Fab` round variant) · presence pill (real
+    friends-watching count).
+  - **Reel** — `PostCard` → **`DiaryEntry`** (serif caption · `MovieCell` w/
+    `+`→add-to-list · `MediaGallery` hero+rail · heart/comment/share/bookmark);
+    `ActivityCard` matched. All handlers preserved.
+  - **Deferred (honest, no fake):** fav/kicker, video duration, movie-cell
+    rating chip, inline "because you liked X" rows, hot-take cards, fully
+    borderless stream → **slice c / 0.7.5**. Discovery rails (dig in / top
+    watchers / featured / community) = **slice c**.
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green
-(403+/403+). It's a presentational refactor — must not regress logic.
+(403+/403+). It's a presentational refactor — must not regress logic. (Home
+shell+reel: typecheck ✓ · build ✓ as of 2026-06-14; static + audit to re-run
+before the commit.)
 
-**Next in 0.7:** Search screen (0.7.3.6, last 0.7.3 screen) → Home feed
-(centerpiece) → motion slice 2 (push/pop transitions + app-wide swipe-back)
-→ story share (0.7.4). Then **Phase C — the iOS Share Extension** (the hero
-feature that motivated Phase A + B).
+**Capacitor / new-API note (owner asked):** the home reel + shell need **no
+new endpoints** (reuse `/api/v1/*` + client-direct TMDB, all CORS-allowlisted).
+The upcoming design screens (F01/F02 movie drawer, "how was it?", composer,
+F15–F18) mostly reuse existing routes; the only genuinely new ones are the
+0.7.5 rails — `GET /api/v1/leaderboard` (F16) + top-picks category queries
+(F15). All follow the `/api/v1` + CORS pattern → Capacitor-ready.
+
+**Next in 0.7:** Home **slice c** — discovery rails (dig in / top watchers /
+featured / from-the-community) + the F15–F18 "view all" detail screens →
+**0.7.3.2 movie drawer** (F01/F02 + "how was it?" sheet + composer) → motion
+slice 2 (push/pop transitions + app-wide swipe-back) → story share (0.7.4).
+Then **Phase C — the iOS Share Extension** (the hero feature that motivated
+Phase A + B).
 
 **Two owner actions pending from the profile work:**
 - `firebase deploy --only firestore:indexes --project studio-2541484065-75c27`

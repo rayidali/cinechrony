@@ -4,17 +4,28 @@ import { memo, useRef, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Heart, MessageCircle, Image as ImageIcon, Trash2, Flag, Play, Film } from 'lucide-react';
+import {
+  Heart,
+  MessageCircle,
+  Trash2,
+  Flag,
+  Play,
+  Film,
+  Plus,
+  Share,
+} from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
-import { ProfileAvatar } from '@/components/profile-avatar';
+import { haptic } from '@/lib/haptics';
+import { shareOrigin } from '@/lib/share';
 import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
+import { AddToListSheet } from '@/components/add-to-list-sheet';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { cn } from '@/lib/utils';
-import type { Post, Movie } from '@/lib/types';
+import type { Post, Movie, SearchResult } from '@/lib/types';
 
 type PostCardProps = {
   post: Post;
@@ -23,9 +34,13 @@ type PostCardProps = {
 };
 
 /**
- * A user post in the home feed (LAUNCH 0.5.4) — byline, serif text, an
- * image/video grid, the anchored film, friend tags, and a like/comment/save
- * footer. The larger sibling of the system activity card.
+ * DiaryEntry — a film-diary post in the reel (Phase 0.7 / v3,
+ * `ios-home.jsx::DiaryEntry`). Byline (system-sans handle + tabular time) →
+ * serif-italic caption → cinema "movie cell" (poster · title · `+ to a list`)
+ * → media gallery (hero + thumbnail rail) → heart / comment / share / bookmark.
+ *
+ * Pure restyle — every handler (like, comment nav, delete/report, bookmark,
+ * movie-modal open, add-to-list) is preserved from the v2 card.
  */
 export const PostCard = memo(function PostCard({
   post,
@@ -43,12 +58,18 @@ export const PostCard = memo(function PostCard({
     currentUserId ? post.likedBy?.includes(currentUserId) : false,
   );
   const [likeCount, setLikeCount] = useState(post.likes || 0);
+  const [addOpen, setAddOpen] = useState(false);
 
   const isOwn = !!user && user.uid === post.authorId;
-  const handle = post.authorUsername ? `@${post.authorUsername}` : post.authorDisplayName || 'someone';
+  const handle = post.authorUsername
+    ? `@${post.authorUsername}`
+    : post.authorDisplayName || 'someone';
   const profileUrl = post.authorUsername ? `/profile/${post.authorUsername}` : '#';
+  const avatarLetter = (post.authorUsername || post.authorDisplayName || 'S')
+    .charAt(0)
+    .toUpperCase();
   const timeAgo = post.createdAt
-    ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: true })
+    ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: false })
     : '';
 
   const handleLike = () => {
@@ -56,6 +77,7 @@ export const PostCard = memo(function PostCard({
     const next = !isLiked;
     setIsLiked(next);
     setLikeCount((n) => Math.max(0, next ? n + 1 : n - 1));
+    haptic('light');
     startTransition(async () => {
       try {
         if (next) {
@@ -97,6 +119,22 @@ export const PostCard = memo(function PostCard({
     });
   };
 
+  const handleShare = async () => {
+    haptic('light');
+    const url = `${shareOrigin()}/post/${post.id}`;
+    const text = post.text ? post.text.slice(0, 140) : 'a film note on cinechrony';
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({ title: 'cinechrony', text, url });
+      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(url);
+        toast({ title: 'link copied' });
+      }
+    } catch {
+      /* user dismissed the share sheet — no-op */
+    }
+  };
+
   const customRows: OverflowRow[] = isOwn
     ? [{ label: 'delete post', icon: Trash2, onSelect: handleDelete, destructive: true }]
     : [{ label: 'report', icon: Flag, onSelect: handleReport, destructive: true }];
@@ -115,40 +153,48 @@ export const PostCard = memo(function PostCard({
         tmdbId: movie.tmdbId,
       }
     : null;
+  const movieAsSearchResult: SearchResult | null = movie
+    ? {
+        id: String(movie.tmdbId),
+        title: movie.title,
+        year: movie.year || 'N/A',
+        posterUrl: movie.posterUrl || '/placeholder-poster.png',
+        posterHint: `${movie.title} poster`,
+        mediaType: movie.mediaType,
+        tmdbId: movie.tmdbId,
+      }
+    : null;
 
   return (
     <>
-      <div className="bg-card rounded-[20px] border border-border p-4 shadow-lift">
+      <article className="bg-card rounded-[20px] border-[0.5px] border-hair px-4 pt-4 pb-3.5 shadow-lift">
         {/* Byline */}
-        <div className="flex items-center gap-2.5">
+        <div className="flex items-center gap-[11px]">
           <Link href={profileUrl} className="flex-shrink-0">
-            <ProfileAvatar
-              photoURL={post.authorPhotoURL}
-              displayName={post.authorDisplayName}
-              username={post.authorUsername}
-              size="sm"
-            />
+            <span className="h-10 w-10 rounded-full overflow-hidden bg-muted inline-flex items-center justify-center">
+              {post.authorPhotoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={post.authorPhotoURL} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="font-headline font-bold text-sm text-muted-foreground">
+                  {avatarLetter}
+                </span>
+              )}
+            </span>
           </Link>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <Link
-                href={profileUrl}
-                className="font-headline font-semibold text-sm tracking-tight hover:underline truncate"
-              >
-                {handle}
-              </Link>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full border border-border cc-meta text-[10px] lowercase text-muted-foreground">
-                <ImageIcon className="h-3 w-3" strokeWidth={1.8} />
-                posted
-              </span>
-            </div>
-            <p className="cc-meta text-[10px] text-muted-foreground mt-0.5">
-              {timeAgo}
-              {post.place ? ` · ${post.place}` : ''}
+            <Link
+              href={profileUrl}
+              className="font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline truncate block w-fit max-w-full"
+            >
+              {handle}
+            </Link>
+            <p className="font-mono text-[10px] text-muted-foreground mt-0.5 tabular-nums">
+              {timeAgo ? `${timeAgo} ago` : ''}
               {post.editedAt ? ' · edited' : ''}
             </p>
           </div>
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 -mr-1">
             <CardOverflowMenu
               authorId={post.authorId}
               authorUsername={post.authorUsername}
@@ -162,136 +208,209 @@ export const PostCard = memo(function PostCard({
           </div>
         </div>
 
-        {/* Text */}
+        {/* Caption — editorial serif voice */}
         {post.text && (
-          <p className="font-serif text-[15px] leading-relaxed text-foreground mt-3 whitespace-pre-wrap">
+          <p className="font-serif italic font-light text-[16.5px] leading-[1.5] text-foreground tracking-[-0.01em] mt-[11px] whitespace-pre-wrap">
             {post.text}
           </p>
         )}
 
-        {/* Media */}
-        {post.media.length > 0 && (
-          <div
-            className={cn(
-              'mt-3 grid gap-1.5',
-              post.media.length === 1 ? 'grid-cols-1' : post.media.length === 2 ? 'grid-cols-2' : 'grid-cols-3',
-            )}
-          >
-            {post.media.map((m, i) => (
-              <div
-                key={i}
-                className={cn(
-                  'relative overflow-hidden rounded-xl border border-border bg-muted',
-                  post.media.length === 1 ? 'aspect-video' : 'aspect-square',
-                )}
-              >
-                {m.type === 'video' ? (
-                  <VideoTile src={m.url} posterUrl={m.thumbnailUrl} />
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.url} alt="" className="w-full h-full object-cover" />
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Anchored film */}
+        {/* Movie cell */}
         {movie && movieAsMovie && (
-          <button
-            onClick={() => openMovie(movieAsMovie)}
-            className="w-full flex items-center gap-3 mt-3 p-2.5 rounded-xl border border-border bg-background text-left active:opacity-70 transition-opacity"
-          >
-            <div className="relative w-9 h-[54px] rounded-md overflow-hidden bg-muted flex-shrink-0">
-              {movie.posterUrl && (
-                <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="36px" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                {movie.title}
-              </p>
-              {movie.year && (
-                <p className="cc-meta text-[11px] text-muted-foreground">{movie.year}</p>
-              )}
-            </div>
-          </button>
-        )}
-
-        {/* Tagged friends — legacy v2 posts only. v3 composer uses inline
-            @-mentions in the text and doesn't write this list. */}
-        {(post.taggedUsers?.length ?? 0) > 0 && (
-          <p className="cc-meta text-[11px] text-muted-foreground mt-2.5">
-            with{' '}
-            {post.taggedUsers!.map((t, i) => (
-              <span key={t.uid}>
-                {i > 0 && ', '}
-                <Link href={`/profile/${t.username}`} className="hover:text-foreground">
-                  @{t.username || 'user'}
-                </Link>
-              </span>
-            ))}
-          </p>
-        )}
-
-        {/* Footer — touch targets sized for thumbs: each button is min 40×40
-            with a 1px outer ring removed by negative margin so the visual
-            spacing stays compact. Icons bumped from h-3.5 → h-[18px] for
-            legibility. */}
-        <div className="flex items-center justify-between mt-2.5 pt-3 border-t border-border">
-          <div className="flex items-center gap-1 -my-1">
-            <button
-              onClick={handleLike}
-              disabled={!currentUserId}
-              className={cn(
-                'flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full transition-colors active:scale-95',
-                isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
-                !currentUserId && 'opacity-50 cursor-not-allowed',
-              )}
-              aria-label={isLiked ? 'Unlike' : 'Like'}
-            >
-              <Heart className={cn('h-[18px] w-[18px]', isLiked && 'fill-current')} strokeWidth={1.8} />
-              {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
-            </button>
-
-            <button
-              onClick={() => router.push(`/post/${post.id}`)}
-              className="flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full text-muted-foreground hover:text-foreground transition-colors active:scale-95"
-              aria-label="View comments"
-            >
-              <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.8} />
-              {post.commentCount > 0 && <span className="tabular-nums">{post.commentCount}</span>}
-            </button>
-
-            <BookmarkButton itemType="post" itemId={post.id} className="h-10 px-2 rounded-full" />
+          <div className="mt-[13px]">
+            <MovieCell
+              movie={movie}
+              onOpen={() => openMovie(movieAsMovie)}
+              onAdd={() => {
+                haptic('light');
+                setAddOpen(true);
+              }}
+            />
           </div>
+        )}
 
-          {(post.taggedUsers?.length ?? 0) > 0 && (
-            <span className="cc-meta text-[10px] text-muted-foreground">
-              {post.taggedUsers!.length} tagged
-            </span>
-          )}
+        {/* Media gallery */}
+        {post.media.length > 0 && (
+          <div className="mt-3">
+            <MediaGallery media={post.media} />
+          </div>
+        )}
+
+        {/* Actions */}
+        <div className="flex items-center gap-[22px] mt-3.5">
+          <button
+            onClick={handleLike}
+            disabled={!currentUserId}
+            className={cn(
+              'inline-flex items-center gap-[7px] font-ui text-[13px] font-semibold transition-transform active:scale-95',
+              isLiked ? 'text-primary' : 'text-foreground',
+              !currentUserId && 'opacity-50',
+            )}
+            aria-label={isLiked ? 'Unlike' : 'Like'}
+          >
+            <Heart
+              className={cn('h-[19px] w-[19px]', isLiked ? 'fill-primary text-primary' : 'text-primary')}
+              strokeWidth={1.9}
+            />
+            {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
+          </button>
+
+          <button
+            onClick={() => router.push(`/post/${post.id}`)}
+            className="inline-flex items-center gap-[7px] font-ui text-[13px] font-medium text-muted-foreground transition-transform active:scale-95"
+            aria-label="View comments"
+          >
+            <MessageCircle className="h-[18px] w-[18px]" strokeWidth={1.9} />
+            {post.commentCount > 0 && <span className="tabular-nums">{post.commentCount}</span>}
+          </button>
+
+          <span className="flex-1" />
+
+          <button
+            onClick={handleShare}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-rule text-foreground transition-transform active:scale-95"
+            aria-label="Share"
+          >
+            <Share className="h-[15px] w-[15px]" strokeWidth={1.9} />
+            <span className="font-ui text-[12.5px] font-semibold tracking-[-0.01em]">share</span>
+          </button>
+
+          <BookmarkButton itemType="post" itemId={post.id} />
         </div>
-      </div>
+      </article>
 
+      {movieAsSearchResult && (
+        <AddToListSheet
+          movie={addOpen ? movieAsSearchResult : null}
+          isOpen={addOpen}
+          onClose={() => setAddOpen(false)}
+        />
+      )}
     </>
   );
 });
 
 /**
- * Inline video tile.
- *
- * If `posterUrl` is set (post created after client-side poster capture
- * shipped), it's used as the `<video poster=…>` — the feed paints the
- * real first frame, no grey default. Tap → swaps to native controls and
- * autoplays inline.
- *
- * If `posterUrl` is NOT set (legacy post from before the capture, or a
- * capture that failed gracefully), we render an INTENTIONALLY-styled
- * dark placeholder with a centered play badge instead of falling back to
- * the bare `<video>` element. iOS PWA shows the bare element as a grey
- * box with the system play icon — looks broken — so a styled placeholder
- * is the better failure mode. Tap mounts the real video element on top.
+ * Movie cell — the app's movie-row language: poster chip · lowercase title ·
+ * meta · a film-red `+ to a list`. Tap the body to open the movie drawer; the
+ * `+` opens the add-to-list sheet (nested-button-safe: sibling buttons).
+ */
+function MovieCell({
+  movie,
+  onOpen,
+  onAdd,
+}: {
+  movie: NonNullable<Post['taggedMovie']>;
+  onOpen: () => void;
+  onAdd: () => void;
+}) {
+  const meta = [movie.year, movie.mediaType === 'tv' ? 'tv' : 'film'].filter(Boolean).join(' · ');
+  return (
+    <div className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[14px] bg-background border-[0.5px] border-hair">
+      <button
+        onClick={onOpen}
+        className="flex items-center gap-3 flex-1 min-w-0 text-left transition-opacity active:opacity-70"
+      >
+        <span className="relative w-10 h-[60px] rounded-[7px] overflow-hidden bg-muted flex-shrink-0">
+          {movie.posterUrl && (
+            <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="40px" />
+          )}
+        </span>
+        <span className="flex-1 min-w-0">
+          <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.025em] text-foreground truncate leading-tight">
+            {movie.title}
+          </span>
+          {meta && (
+            <span className="block font-mono text-[10px] text-muted-foreground mt-[3px] tabular-nums">
+              {meta}
+            </span>
+          )}
+        </span>
+      </button>
+      <button
+        onClick={onAdd}
+        aria-label="add to a list"
+        className="w-[34px] h-[34px] rounded-full bg-primary text-primary-foreground inline-flex items-center justify-center flex-shrink-0 transition-transform active:scale-90"
+      >
+        <Plus className="h-[18px] w-[18px]" strokeWidth={2.6} />
+      </button>
+    </div>
+  );
+}
+
+/**
+ * Media gallery — a Corner-style swipeable hero (4:3) + a thumbnail rail. The
+ * hero shows the selected media; tapping a thumb switches. Counter top-right.
+ * Video playback reuses the inline `VideoTile`.
+ */
+function MediaGallery({ media }: { media: Post['media'] }) {
+  const [i, setI] = useState(0);
+  const n = media.length;
+  const idx = Math.min(i, n - 1);
+  const cur = media[idx];
+
+  return (
+    <div>
+      <div className="relative aspect-[4/3] rounded-[18px] overflow-hidden border-[0.5px] border-hair bg-muted shadow-lift">
+        <div className="absolute inset-0">
+          {cur.type === 'video' ? (
+            <VideoTile src={cur.url} posterUrl={cur.thumbnailUrl} />
+          ) : (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={cur.url} alt="" className="w-full h-full object-cover" />
+          )}
+        </div>
+        {n > 1 && (
+          <span className="absolute top-2.5 right-2.5 px-2 py-0.5 rounded-full bg-black/50 backdrop-blur-sm font-mono text-[10px] font-bold text-white tabular-nums">
+            {idx + 1}/{n}
+          </span>
+        )}
+      </div>
+
+      {n > 1 && (
+        <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide p-px">
+          {media.map((m, k) => {
+            const active = k === idx;
+            return (
+              <button
+                key={k}
+                onClick={() => setI(k)}
+                className={cn(
+                  'relative flex-shrink-0 w-[58px] h-[58px] rounded-[10px] overflow-hidden',
+                  active ? 'ring-2 ring-primary' : 'border-[0.5px] border-hair',
+                )}
+              >
+                {m.type === 'video' ? (
+                  m.thumbnailUrl ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="block w-full h-full bg-foreground/80" />
+                  )
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.url} alt="" className="w-full h-full object-cover" />
+                )}
+                {!active && <span className="absolute inset-0 bg-background/30" />}
+                {m.type === 'video' && (
+                  <span className="absolute inset-0 flex items-center justify-center">
+                    <span className="h-5 w-5 rounded-full bg-black/55 flex items-center justify-center">
+                      <Play className="h-[11px] w-[11px] text-white ml-px" fill="currentColor" strokeWidth={0} />
+                    </span>
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Inline video tile (unchanged behavior from v2). Poster frame when known,
+ * styled dark placeholder otherwise; tap mounts the real element + plays.
  */
 function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -299,8 +418,6 @@ function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
 
   const start = () => {
     setPlaying(true);
-    // play() must run after the controls-rendering commit so iOS doesn't
-    // hand the gesture to its own poster-tap default.
     requestAnimationFrame(() => {
       const v = videoRef.current;
       if (!v) return;
@@ -311,9 +428,6 @@ function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
 
   return (
     <div className="relative w-full h-full bg-foreground/85">
-      {/* Once the user taps, the real video element mounts and takes over.
-          Until then we render nothing media-wise: either the poster (set
-          via `poster` attribute) OR the dark surface from the wrapper bg. */}
       {(playing || posterUrl) && (
         <video
           ref={videoRef}
@@ -328,9 +442,6 @@ function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
         />
       )}
 
-      {/* Idle state — centered play badge over the poster (or the dark
-          fallback surface). A small `Film` glyph in the corner declares
-          "this is a video" at a glance, even on a tiny grid tile. */}
       {!playing && (
         <button
           type="button"
@@ -338,14 +449,10 @@ function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
           aria-label="Play video"
           className="absolute inset-0 flex items-center justify-center bg-black/15 group"
         >
-          <div className="h-14 w-14 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center group-active:scale-95 transition-transform">
-            <Play
-              className="h-6 w-6 text-white ml-0.5"
-              fill="currentColor"
-              strokeWidth={0}
-            />
+          <div className="h-[52px] w-[52px] rounded-full bg-black/35 backdrop-blur-sm border-[0.5px] border-white/45 flex items-center justify-center group-active:scale-95 transition-transform">
+            <Play className="h-[21px] w-[21px] text-white ml-0.5" fill="currentColor" strokeWidth={0} />
           </div>
-          <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm text-white cc-meta text-[9px] lowercase tracking-wider">
+          <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm text-white font-mono text-[9px] lowercase tracking-wider">
             <Film className="h-2.5 w-2.5" strokeWidth={2} />
             video
           </span>

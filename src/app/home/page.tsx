@@ -17,18 +17,19 @@ import { SearchOverlay } from '@/components/search-overlay';
 import { PostFab } from '@/components/post-fab';
 import { HomeTopBar, type HomeFilter } from '@/components/home-top-bar';
 import { PresencePill } from '@/components/presence-pill';
+import { Section } from '@/components/v3/section';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
 const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
 /**
- * Home — the unified editorial feed, v3 iOS-native shell (Phase 0.7.3.1a).
+ * Home — the unified editorial feed, v3 iOS-native (Phase 0.7.3.1, `ios-home.jsx`).
  *
- * Frosted scroll-collapsing top bar (`for you · friends` underline tabs + saved
- * + bell + avatar) → search + `scan` row → discovery rail (`TrendingStrip`, for
- * you only) → "the reel" framing (presence pill) → the feed. The reel cards,
- * discovery rails (dig in / leaderboard / featured), and richer data land in
- * the b/c slices — the feed below is the existing real-data `ActivityFeed`.
+ * Frosted scroll-collapsing top bar (`for you · friends` underline tabs + bell +
+ * avatar) → search + `scan` row → discovery rail (`TrendingStrip`, for-you only)
+ * → "the reel" (presence pill + the `DiaryEntry` feed). The full discovery rails
+ * (dig in / leaderboard / featured / lists-for-you) land in slice c — they need
+ * the 0.7.5 backend; the feed below is the existing real-data `ActivityFeed`.
  */
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
@@ -46,7 +47,7 @@ export default function HomePage() {
     }
   }, [user, isUserLoading, router]);
 
-  // Chrome collapse — fade the top-bar hairline in once the feed scrolls.
+  // Chrome collapse — fade the top-bar tint + hairline in once the feed scrolls.
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8);
     onScroll();
@@ -90,73 +91,62 @@ export default function HomePage() {
     );
   }
 
-  const isSaved = feedFilter === 'saved';
   const isForYou = feedFilter === 'all';
 
   return (
     <MovieModalProvider returnPath="/home">
       <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
-        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
-          <div className="container mx-auto px-4 md:px-8 max-w-2xl">
+        <main className="min-h-screen font-ui text-foreground pb-28 md:pb-8">
+          <div className="container mx-auto px-[18px] md:px-8 max-w-2xl">
             <HomeTopBar filter={feedFilter} onSelect={setFeedFilter} scrolled={scrolled} />
 
             {/* Search + scan — one rounded unit, scan is the Phase C hook */}
-            <div className="mt-3.5 flex items-center h-12 rounded-[14px] border border-hair bg-sunken overflow-hidden">
+            <div className="mt-1.5 flex items-center h-[46px] rounded-[14px] border-[0.5px] border-hair bg-sunken overflow-hidden">
               <button
                 onClick={() => setSearchOpen(true)}
-                className="flex-1 h-full flex items-center gap-2.5 px-4 text-left transition-colors active:bg-foreground/[0.03]"
+                className="flex-1 h-full flex items-center gap-2.5 px-[13px] text-left transition-colors active:bg-foreground/[0.03]"
               >
-                <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={1.9} />
-                <span className="font-serif italic text-[15px] text-muted-foreground">
+                <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={2} />
+                <span className="font-ui text-[16px] text-muted-foreground">
                   films, tv, genres, people
                 </span>
               </button>
               <button
                 onClick={handleScan}
                 aria-label="Scan a poster"
-                className="h-full flex items-center gap-1.5 pl-3 pr-4 border-l border-hair text-primary transition-colors active:bg-primary/5"
+                className="h-full flex items-center gap-[5px] pl-2.5 pr-[13px] text-primary transition-colors active:bg-primary/5"
               >
-                <ScanLine className="h-[18px] w-[18px]" strokeWidth={1.9} />
-                <span className="font-mono text-[10px] uppercase tracking-[0.12em] font-semibold">
+                <ScanLine className="h-[15px] w-[15px]" strokeWidth={2} />
+                <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] font-bold">
                   scan
                 </span>
               </button>
             </div>
 
-            {/* Discovery rail — for-you only (films + loved lists) */}
+            {/* Discovery rail — for-you only (films + loved lists, interim until
+                the full dig-in / leaderboard / featured rails in slice c) */}
             {isForYou && (
               <div className="mt-6">
                 <TrendingStrip />
               </div>
             )}
 
-            {/* The reel — section framing + presence */}
-            {isSaved ? (
-              <div className="mt-7 mb-5">
-                <div className="cc-eyebrow">your archive</div>
-                <h2 className="mt-1.5 font-headline font-bold text-[26px] leading-none lowercase tracking-tight">
-                  saved
-                </h2>
-                <div className="h-px bg-hair mt-3.5" />
-              </div>
-            ) : (
-              <div className="mt-7 mb-5">
-                <div className="flex items-end justify-between">
-                  <div>
-                    <div className="cc-eyebrow">the reel</div>
-                    <h2 className="mt-1.5 font-headline font-bold text-[26px] leading-none lowercase tracking-tight">
-                      watching lately
-                    </h2>
-                  </div>
-                  <span className="inline-flex items-center gap-1.5 pb-1">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
-                    <span className="cc-eyebrow text-success">live</span>
+            {/* The reel */}
+            <div className="mt-7 mb-4">
+              <Section
+                eyebrow="the reel"
+                title="watching lately"
+                trailing={
+                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                    live
                   </span>
-                </div>
-                <div className="h-px bg-hair mt-3.5" />
+                }
+              />
+              <div className="mt-3">
                 <PresencePill userId={user.uid} />
               </div>
-            )}
+            </div>
 
             <ActivityFeed
               currentUserId={user.uid}
@@ -169,7 +159,7 @@ export default function HomePage() {
       </PullToRefresh>
 
       {/* Post FAB — tap to compose, long-press for the action sheet */}
-      {!isSaved && <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />}
+      <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />
 
       {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
       <BottomNav />

@@ -11,8 +11,8 @@ interface FabProps {
   onLongPress?: () => void;
   /** Lucide icon component — `Plus` for add / new list, `PencilLine` for post. */
   icon: LucideIcon;
-  /** Lowercase label, e.g. "add", "new list", "post". */
-  label: string;
+  /** Lowercase label, e.g. "add", "new list". Omit for an icon-only round FAB. */
+  label?: string;
   ariaLabel?: string;
   /** Extra classes — e.g. `z-40` to sit a FAB under a drawer overlay. */
   className?: string;
@@ -53,6 +53,8 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
     onClick?.();
   };
 
+  const round = !label;
+
   return (
     <button
       onClick={handleClick}
@@ -65,17 +67,18 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
       aria-label={ariaLabel ?? label}
       className={cn(
         'fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50',
-        'h-12 px-[18px] rounded-full',
         'bg-primary text-white shadow-fab',
-        'inline-flex items-center justify-center gap-2',
-        'font-headline font-bold text-[13px] lowercase tracking-tight',
+        'inline-flex items-center justify-center',
         'transition-transform duration-150 ease-out',
-        'md:hover:-translate-y-0.5 active:scale-[0.97]',
+        'md:hover:-translate-y-0.5 active:scale-[0.94]',
+        round
+          ? 'h-14 w-14 rounded-full'
+          : 'h-12 px-[18px] rounded-full gap-2 font-headline font-bold text-[13px] lowercase tracking-tight',
         className,
       )}
     >
-      <Icon className="h-[18px] w-[18px]" strokeWidth={2.5} />
-      <span>{label}</span>
+      <Icon className={round ? 'h-[22px] w-[22px]' : 'h-[18px] w-[18px]'} strokeWidth={2.4} />
+      {label && <span>{label}</span>}
     </button>
   );
 }

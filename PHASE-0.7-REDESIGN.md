@@ -111,26 +111,45 @@ browser).
   **the reel → watching lately** (presence pill + `DiaryEntry` posts +
   ticket-stub film card + media gallery + inline "because you liked X" rec rows
   + derived hot-take cards). Restyle only — same feed data/logic.
-  - [x] **0.7.3.1a — Home shell & chrome** (structural foundation, build first):
-    frosted **scroll-collapsing top bar** carrying a `for you · friends`
-    **Segmented** that *replaces the `all/saved/friends` filter pills*
-    (`for you`→`all`, `friends`→`friends`); `saved` relocated to a header
-    bookmark icon (preserves the bookmarks feed — no logic lost; likely migrates
-    under the "you" tab in a later slice). Restyled **search row + red `scan`
-    affordance** (honest "coming soon" → Phase C extractor hook, not fake).
-    **the reel** section framing (eyebrow → `watching lately` → `• live`) +
-    **presence pill** ("N of your circle logged films this week", real
-    `/activities`-derived count, hidden at 0). Existing `TrendingStrip` kept
-    (for-you only) and existing `ActivityFeed` kept underneath — cards restyled
-    in **b**. **Test:** light/dark walk, typecheck + build + static + audit green.
-  - [ ] **0.7.3.1b — The reel cards**: restyle `PostCard` → `DiaryEntry`
-    (byline + ☆fav + red kicker label like "a masterpiece"/"first watch" +
-    serif-italic blurb + **ticket-stub film card** [poster chip · title · rating
-    chip · dir·year·genre · red `+`] + **media gallery** [counter `1/3` +
-    duration + thumbnail strip + ♥/💬/share/bookmark action row]); `ActivityCard`
-    polish; inline **"because you liked X"** rec poster rows (reuse
-    `RecommendationCard` data, new poster-row presentation w/ rating stickers);
-    derived **hot-take** colored quote cards.
+  - **FOUNDATION (this wave):** read the **actual design source**
+    (`design_files/ios-{home,kit}.jsx`) for exact metrics rather than guessing
+    off the mocks. Key fix: the design's `F_UI` is the **iOS system sans**
+    (`-apple-system / SF Pro`), NOT Newsreader — so the app was missing a 4th
+    font family. Added **`font-ui`** to `tailwind.config.ts` (chrome/handles/
+    buttons/search/meta use it; Bricolage stays display-only; serif stays for
+    pull-quotes). Accent tokens (`violet/blue/pink`) already existed. New shared
+    **`Section`** primitive (`v3/section.tsx`) = eyebrow → 22px lowercase title
+    (`wdth 95`) → trailing, matching `ios-kit.jsx::Section` exactly.
+  - [x] **0.7.3.1a — Home shell & chrome** (structural foundation): frosted
+    **scroll-collapsing top bar** with `for you · friends` **underline tabs**
+    (Bricolage 22px `wdth 95`, film-red underline — the design's home tabs are
+    underline-style, NOT the sunken `Segmented`). Right cluster = **bell + avatar
+    only** (faithful to the 2-tab design). `saved` **dropped from the home tabs**
+    — the bookmarks feed/endpoint + `BookmarkButton` are untouched (no logic
+    lost); the saved *archive* will get a home under the **you** tab in a later
+    slice. Search row + red `scan` to exact spec (`font-ui` 16px placeholder —
+    fixes the serif-italic bug; scan = honest "coming soon" → Phase C hook). The
+    **FAB is now an icon-only red pencil circle** (`Fab` gained a round variant;
+    `PostFab` drops the label) — was a labelled pill. `TrendingStrip` kept
+    (for-you only, interim) + `ActivityFeed` kept underneath.
+  - [x] **0.7.3.1b — The reel cards** (built 2026-06-14): `PostCard` →
+    **`DiaryEntry`** (`ios-home.jsx` exact): byline (40px avatar · `font-ui`
+    bold handle · tabular-mono time) → **serif-italic caption** → **`MovieCell`**
+    (poster chip · lowercase title · `year · film/tv` meta · film-red `+` →
+    `AddToListSheet`; body tap → movie drawer) → **`MediaGallery`** (4:3 hero +
+    `1/n` counter + thumbnail rail, reuses `VideoTile`) → **actions** (heart
+    [film-red] · comment → `/post` · `share` pill [Web Share / clipboard] ·
+    bookmark). `ActivityCard` brought to the same language (hairline card, 40px
+    avatar, `font-ui` handle, film-red heart). **All handlers preserved** (like /
+    delete / report / overflow / bookmark / modal / add-to-list). **Deferrals
+    (honest — no fake data):** the ☆fav badge + red kicker label (no post
+    "lead"/fav field), video **duration** (not stored), the **movie-cell rating
+    chip** (post doesn't carry the film's rating), inline **"because you liked X"**
+    rec poster-rows, and **hot-take** cards (need the 0.7.5 short-high-rated-
+    review selection rule) → all land with 0.7.5 data. The fully **borderless
+    reel stream** (vs the current subtle cards) is a feed-composition change
+    deferred to **F18 / slice c** so the mixed feed (posts + activities + rec
+    blocks) stays coherent now.
   - [ ] **0.7.3.1c — Discovery rails** (for-you tab, above the reel): **dig in**
     (top-picks category shelves — collage cards), **top watchers** weekly
     leaderboard (ranked avatars), **featured list** hero carousel, **lists for
@@ -141,13 +160,42 @@ browser).
   - [ ] **0.7.3.1d — Home test/polish pass**: scroll-collapse feel, both themes,
     Simulator; audit + build green; `prefers-reduced-motion` gates.
 
-> **Heads-up — broad UI/UX revamp incoming (owner, 2026-06-14).** After the
-> home rails, the next wave restyles the **interaction surfaces**, not just
-> screens: the **movie-details drawer** (the Vaul modal opened everywhere),
-> the **add-to-list sheet**, rating/review flows, and assorted tabs/sheets.
-> These are tracked under **0.7.3.2** (movie modal + card variants) and will
-> spawn their own sub-slices as we get to them. Captured here so the sequence
-> is visible; built screen-by-screen with the same green-light cadence.
+> **Heads-up — broad UI/UX revamp incoming (owner sent F01/F02/F15–F18 mocks
+> 2026-06-14).** After the home rails, the next wave restyles the **interaction
+> surfaces**. New design screens received (in `../cinechrony ios redesign june/`
+> conceptually — owner-supplied mocks):
+> - **F01 — movie drawer (from feed/search):** hero backdrop + ghost title +
+>   glass collapse/bookmark/⋯; poster + title + rating chips (`9.4` sage +
+>   `IMDb 7.8` amber) + `2023 · 1h 46m · drama`; two big buttons **`want to
+>   watch`(add-to-list)** + **`comments`**; `your rating` drag-to-rate (10
+>   segments); `your history · N watches` (rewatch/first-watch rows w/ rating).
+> - **F02 — movie drawer (inside a list):** same, but `IN · DATE NIGHT` eyebrow
+>   + **three** buttons (`date night`→add-to-list · `comments` · **`to watch`
+>   → how was it?** status flip, styled like the others, NOT a segmented toggle).
+> - **"how was it?" sheet:** flipping a film to watched → skip/save header,
+>   drag-to-rate + optional review → `save` writes the review + moves to watched.
+> - **create-a-post composer:** film cell + `change`; `your watch`
+>   (first-watch/rewatch + `watched on` date); drag-to-rate; `your take` (serif);
+>   `photos & clips` (N/10).
+> - **F15 dig in › all · F16 top watchers › all · F17 from the community ›
+>   all · F18 post · thread** — the "view all" / detail destinations for the
+>   home rails.
+>
+> **New APIs needed for these (answer to owner's Capacitor question):** the home
+> reel + shell need **none** (reuse existing `/api/v1/*` + client-direct TMDB,
+> all already CORS-allowlisted for `capacitor://localhost`/`http://localhost`).
+> The only genuinely **new** endpoints are the 0.7.5 rails: **`GET
+> /api/v1/leaderboard?window=week|month|all`** (F16 — films-watched per followed
+> user, rank + weekly movement, block-filtered) and **top-picks category
+> queries** (F15 `new`/`popular`/`lowkey`; `trending` exists). F17 reuses
+> `/api/v1/lists/loved` (+ a `staffPick` flag, "N saved" = list `likes`); F01/F02/
+> the rate sheet/F18 reuse existing ratings/reviews/status/comments/post-comments
+> endpoints (+ a small per-user-per-film "watch history" read). Every new route
+> follows the same `/api/v1` + CORS pattern → automatically Capacitor-ready.
+>
+> Tracked under **0.7.3.2** (movie modal + card variants) + new sub-slices for
+> the rate sheet / composer / F15–F18 as we reach them. Built screen-by-screen
+> with the same green-light cadence.
 - [ ] **0.7.3.2** **Movie detail modal + movie-card variants** (grid / list).
 - [x] **0.7.3.3** **Lists** (`ListsIOS`): album tiles + `MiniFan` poster fans +
   collapsing frosted NavBar + mine/shared segmented + AddBtn in the nav (FAB

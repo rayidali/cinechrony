@@ -5,7 +5,7 @@ import { apiCall } from '@/lib/api-client';
 import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 
 /**
- * Presence pill — "the reel" (Phase 0.7 / v3).
+ * Presence pill — "the reel" (Phase 0.7 / v3, `ios-home.jsx::PresencePill`).
  *
  * "N of your circle are watching" — a real, non-fabricated count derived from
  * the existing friends-watching aggregate (followed users who recently touched
@@ -37,28 +37,35 @@ export function PresencePill({ userId }: { userId: string }) {
   const shown = friends.slice(0, 3);
 
   return (
-    <div className="mt-3 inline-flex items-center gap-2.5 pl-1.5 pr-3.5 py-1.5 rounded-full border border-hair bg-card shadow-lift">
-      <div className="flex -space-x-2">
-        {shown.map((f) => (
+    <div className="flex">
+      <div className="inline-flex items-center gap-2.5 pl-2 pr-3.5 py-[7px] rounded-full bg-card border-[0.5px] border-hair shadow-lift">
+        <div className="flex">
+          {shown.map((f, k) => (
+            <span
+              key={f.uid}
+              className="h-[22px] w-[22px] rounded-full overflow-hidden bg-muted inline-flex items-center justify-center ring-2 ring-card"
+              style={{ marginLeft: k ? -9 : 0 }}
+            >
+              {f.photoURL ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={f.photoURL} alt="" className="h-full w-full object-cover" />
+              ) : (
+                <span className="font-headline font-bold text-[9px] text-muted-foreground">
+                  {(f.username || f.displayName || '?').charAt(0).toUpperCase()}
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+        <span className="inline-flex items-center gap-1.5 font-ui text-[12.5px] font-semibold text-foreground tracking-[-0.01em]">
           <span
-            key={f.uid}
-            className="h-[22px] w-[22px] rounded-full ring-2 ring-card overflow-hidden bg-muted inline-flex items-center justify-center"
-          >
-            {f.photoURL ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={f.photoURL} alt="" className="h-full w-full object-cover" />
-            ) : (
-              <span className="text-[9px] font-semibold text-muted-foreground">
-                {(f.username || f.displayName || '?').charAt(0).toUpperCase()}
-              </span>
-            )}
-          </span>
-        ))}
+            className="h-[7px] w-[7px] rounded-full bg-success"
+            style={{ boxShadow: '0 0 0 3px oklch(var(--success) / 0.2)' }}
+          />
+          <span className="tabular-nums">{friends.length}</span> of your circle{' '}
+          {friends.length === 1 ? 'is' : 'are'} watching
+        </span>
       </div>
-      <span className="cc-meta text-[12px] text-foreground/90">
-        <span className="font-semibold text-foreground tabular-nums">{friends.length}</span>{' '}
-        of your circle {friends.length === 1 ? 'is' : 'are'} watching
-      </span>
     </div>
   );
 }
