@@ -102,12 +102,52 @@ browser).
 > → they feed the reel directly. `socialLink` + `video-embed.tsx` already
 > handle attached clips. `favoriteMovies` → the "fav" badge + profile top-5.
 
-- [ ] **0.7.3.1** **Home / feed** (centerpiece, `ios-home.jsx`): for-you /
-  friends top tabs, in-feed search trigger (+ the red "scan" affordance →
-  Phase C extractor entry point), the reel (presence pill [real data] +
-  `DiaryEntry` from posts + `MediaGallery` + derived hot-take cards). Top
-  picks / leaderboard / featured / lists-for-you render with **placeholder/
-  existing-data sources** now; richer data lands in 0.7.5.
+- **0.7.3.1** **Home / feed** (centerpiece, `ios-home.jsx`). Too large for one
+  PR — sliced a→d so each is independently reviewable on a Vercel preview,
+  highest-structural-risk first. Design = the 6 `home / feed` mocks (light
+  "paper" + dark "projection room"): `for you · friends` frosted tabs, search +
+  red `scan`, **top picks → dig in**, **weekly leaderboard → top watchers**,
+  **featured list hero carousel**, **lists for you → from the community**, and
+  **the reel → watching lately** (presence pill + `DiaryEntry` posts +
+  ticket-stub film card + media gallery + inline "because you liked X" rec rows
+  + derived hot-take cards). Restyle only — same feed data/logic.
+  - [x] **0.7.3.1a — Home shell & chrome** (structural foundation, build first):
+    frosted **scroll-collapsing top bar** carrying a `for you · friends`
+    **Segmented** that *replaces the `all/saved/friends` filter pills*
+    (`for you`→`all`, `friends`→`friends`); `saved` relocated to a header
+    bookmark icon (preserves the bookmarks feed — no logic lost; likely migrates
+    under the "you" tab in a later slice). Restyled **search row + red `scan`
+    affordance** (honest "coming soon" → Phase C extractor hook, not fake).
+    **the reel** section framing (eyebrow → `watching lately` → `• live`) +
+    **presence pill** ("N of your circle logged films this week", real
+    `/activities`-derived count, hidden at 0). Existing `TrendingStrip` kept
+    (for-you only) and existing `ActivityFeed` kept underneath — cards restyled
+    in **b**. **Test:** light/dark walk, typecheck + build + static + audit green.
+  - [ ] **0.7.3.1b — The reel cards**: restyle `PostCard` → `DiaryEntry`
+    (byline + ☆fav + red kicker label like "a masterpiece"/"first watch" +
+    serif-italic blurb + **ticket-stub film card** [poster chip · title · rating
+    chip · dir·year·genre · red `+`] + **media gallery** [counter `1/3` +
+    duration + thumbnail strip + ♥/💬/share/bookmark action row]); `ActivityCard`
+    polish; inline **"because you liked X"** rec poster rows (reuse
+    `RecommendationCard` data, new poster-row presentation w/ rating stickers);
+    derived **hot-take** colored quote cards.
+  - [ ] **0.7.3.1c — Discovery rails** (for-you tab, above the reel): **dig in**
+    (top-picks category shelves — collage cards), **top watchers** weekly
+    leaderboard (ranked avatars), **featured list** hero carousel, **lists for
+    you** community row (progress bars). Renders on **placeholder/existing data
+    now**; the real backend rails land in **0.7.5** (leaderboard aggregate,
+    top-picks categories, featured/staffPick). Needs the accent token set
+    (rank/category dots — violet/blue/pink) added to `globals.css` here.
+  - [ ] **0.7.3.1d — Home test/polish pass**: scroll-collapse feel, both themes,
+    Simulator; audit + build green; `prefers-reduced-motion` gates.
+
+> **Heads-up — broad UI/UX revamp incoming (owner, 2026-06-14).** After the
+> home rails, the next wave restyles the **interaction surfaces**, not just
+> screens: the **movie-details drawer** (the Vaul modal opened everywhere),
+> the **add-to-list sheet**, rating/review flows, and assorted tabs/sheets.
+> These are tracked under **0.7.3.2** (movie modal + card variants) and will
+> spawn their own sub-slices as we get to them. Captured here so the sequence
+> is visible; built screen-by-screen with the same green-light cadence.
 - [ ] **0.7.3.2** **Movie detail modal + movie-card variants** (grid / list).
 - [x] **0.7.3.3** **Lists** (`ListsIOS`): album tiles + `MiniFan` poster fans +
   collapsing frosted NavBar + mine/shared segmented + AddBtn in the nav (FAB

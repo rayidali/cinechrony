@@ -2,53 +2,57 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Users, Bookmark } from 'lucide-react';
+import { Search, ScanLine } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
+import { useToast } from '@/hooks/use-toast';
+import { haptic } from '@/lib/haptics';
 import type { UserProfile } from '@/lib/types';
-import { UserAvatar } from '@/components/user-avatar';
-import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { TrendingStrip } from '@/components/trending-strip';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
-import { FilterPills, type FilterPill } from '@/components/filter-pills';
 import { PostFab } from '@/components/post-fab';
+import { HomeTopBar, type HomeFilter } from '@/components/home-top-bar';
+import { PresencePill } from '@/components/presence-pill';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
 const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
-/** Tabular date — `23.11.25`. */
-function formatToday(): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}.${mm}.${yy}`;
-}
-
 /**
- * Home — the unified editorial feed (UX_PATTERNS.md "HOME").
+ * Home — the unified editorial feed, v3 iOS-native shell (Phase 0.7.3.1a).
  *
- * Topbar → search → filter pills → eyebrow/hairline/title → trending strip →
- * the feed. More feed sources (posts, recommendations) and more filter pills
- * (`saved`, `for you`, `trending`) fold in over the later Phase 0.5 steps.
+ * Frosted scroll-collapsing top bar (`for you · friends` underline tabs + saved
+ * + bell + avatar) → search + `scan` row → discovery rail (`TrendingStrip`, for
+ * you only) → "the reel" framing (presence pill) → the feed. The reel cards,
+ * discovery rails (dig in / leaderboard / featured), and richer data land in
+ * the b/c slices — the feed below is the existing real-data `ActivityFeed`.
  */
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [feedFilter, setFeedFilter] = useState<'all' | 'saved' | 'friends'>('all');
+  const [feedFilter, setFeedFilter] = useState<HomeFilter>('all');
+  const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  // Chrome collapse — fade the top-bar hairline in once the feed scrolls.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Following set powers the `friends` filter — SWR cached so tab returns
   // paint the prior list synchronously and refresh in the background.
@@ -70,6 +74,14 @@ export default function HomePage() {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }, []);
 
+  const handleScan = useCallback(() => {
+    haptic('selection');
+    toast({
+      title: 'scan — coming soon',
+      description: 'point at a poster or a screen to log a film. landing with the extractor.',
+    });
+  }, [toast]);
+
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -78,73 +90,74 @@ export default function HomePage() {
     );
   }
 
-  const pills: FilterPill[] = [
-    { id: 'all', label: 'all' },
-    { id: 'saved', label: 'saved', icon: Bookmark },
-    { id: 'friends', label: 'friends', icon: Users },
-  ];
+  const isSaved = feedFilter === 'saved';
+  const isForYou = feedFilter === 'all';
 
   return (
     <MovieModalProvider returnPath="/home">
       <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
-        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8 md:pt-20">
+        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
           <div className="container mx-auto px-4 md:px-8 max-w-2xl">
-            {/* Topbar — sticky */}
-            <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-border/60">
-              <div
-                className="flex justify-between items-center"
-                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.875rem)', paddingBottom: '0.875rem' }}
+            <HomeTopBar filter={feedFilter} onSelect={setFeedFilter} scrolled={scrolled} />
+
+            {/* Search + scan — one rounded unit, scan is the Phase C hook */}
+            <div className="mt-3.5 flex items-center h-12 rounded-[14px] border border-hair bg-sunken overflow-hidden">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex-1 h-full flex items-center gap-2.5 px-4 text-left transition-colors active:bg-foreground/[0.03]"
               >
-                <div className="flex items-center gap-2.5">
-                  <img src={CINECHRONY_LOGO} alt="Cinechrony" className="h-8 w-8" />
-                  <span className="font-headline font-bold text-lg lowercase tracking-tight">
-                    cinechrony
+                <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={1.9} />
+                <span className="font-serif italic text-[15px] text-muted-foreground">
+                  films, tv, genres, people
+                </span>
+              </button>
+              <button
+                onClick={handleScan}
+                aria-label="Scan a poster"
+                className="h-full flex items-center gap-1.5 pl-3 pr-4 border-l border-hair text-primary transition-colors active:bg-primary/5"
+              >
+                <ScanLine className="h-[18px] w-[18px]" strokeWidth={1.9} />
+                <span className="font-mono text-[10px] uppercase tracking-[0.12em] font-semibold">
+                  scan
+                </span>
+              </button>
+            </div>
+
+            {/* Discovery rail — for-you only (films + loved lists) */}
+            {isForYou && (
+              <div className="mt-6">
+                <TrendingStrip />
+              </div>
+            )}
+
+            {/* The reel — section framing + presence */}
+            {isSaved ? (
+              <div className="mt-7 mb-5">
+                <div className="cc-eyebrow">your archive</div>
+                <h2 className="mt-1.5 font-headline font-bold text-[26px] leading-none lowercase tracking-tight">
+                  saved
+                </h2>
+                <div className="h-px bg-hair mt-3.5" />
+              </div>
+            ) : (
+              <div className="mt-7 mb-5">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <div className="cc-eyebrow">the reel</div>
+                    <h2 className="mt-1.5 font-headline font-bold text-[26px] leading-none lowercase tracking-tight">
+                      watching lately
+                    </h2>
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 pb-1">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+                    <span className="cc-eyebrow text-success">live</span>
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <NotificationBell />
-                  <UserAvatar />
-                </div>
+                <div className="h-px bg-hair mt-3.5" />
+                <PresencePill userId={user.uid} />
               </div>
-            </header>
+            )}
 
-            {/* Search trigger */}
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="mt-4 w-full flex items-center gap-2.5 h-11 px-4 bg-card border border-border rounded-full shadow-press text-left transition-colors hover:border-foreground/30"
-            >
-              <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />
-              <span className="font-serif italic text-sm text-muted-foreground">
-                films, friends, lists…
-              </span>
-            </button>
-
-            {/* Feed filter pills */}
-            <div className="mt-3">
-              <FilterPills
-                pills={pills}
-                active={feedFilter}
-                onChange={(id) => setFeedFilter(id as 'all' | 'saved' | 'friends')}
-              />
-            </div>
-
-            {/* Page title block */}
-            <div className="mt-5 mb-6">
-              <div className="cc-eyebrow">{formatToday()}</div>
-              <div className="h-px bg-border my-2.5" />
-              <h1 className="font-headline font-bold text-[34px] leading-[0.92] lowercase tracking-tight">
-                home
-              </h1>
-            </div>
-
-            {/* Trending strip — films + loved lists, mixed */}
-            <TrendingStrip />
-
-            {/* The feed */}
-            <div className="mb-4">
-              <div className="cc-eyebrow">the feed</div>
-              <div className="h-px bg-border mt-2.5" />
-            </div>
             <ActivityFeed
               currentUserId={user.uid}
               refreshKey={refreshKey}
@@ -156,7 +169,7 @@ export default function HomePage() {
       </PullToRefresh>
 
       {/* Post FAB — tap to compose, long-press for the action sheet */}
-      {feedFilter !== 'saved' && <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />}
+      {!isSaved && <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />}
 
       {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
       <BottomNav />
