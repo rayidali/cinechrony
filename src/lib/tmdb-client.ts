@@ -189,3 +189,42 @@ export async function discoverByVibe(vibeId: string, limit = 24): Promise<Search
   });
   return mapMovies(s?.results, limit);
 }
+
+/**
+ * "dig in" home rail — four real TMDB category shelves (Phase 0.7 / v3,
+ * `ios-home.jsx::TopPicks`). All client-direct (public, non-secret TMDB),
+ * fetched in parallel, so the rail works on web + preview + native with no
+ * server round-trip. `new` = now playing, `trending` = trending/day, `popular`
+ * = most-voted, `lowkey` = well-rated but under-seen (the hidden-gems heuristic).
+ */
+export type DigInCategory = 'new' | 'trending' | 'popular' | 'lowkey';
+export type DigInData = Record<DigInCategory, SearchResult[]>;
+
+export async function getDigIn(perCat = 6): Promise<DigInData> {
+  const [now, trend, popular, lowkey] = await Promise.all([
+    tmdbFetch('movie/now_playing', { language: 'en-US', page: '1', region: 'US' }),
+    tmdbFetch('trending/movie/day', { language: 'en-US' }),
+    tmdbFetch('discover/movie', {
+      sort_by: 'vote_count.desc',
+      'vote_count.gte': '4000',
+      include_adult: 'false',
+      language: 'en-US',
+      page: '1',
+    }),
+    tmdbFetch('discover/movie', {
+      sort_by: 'vote_average.desc',
+      'vote_count.gte': '300',
+      'vote_count.lte': '1800',
+      'vote_average.gte': '7.4',
+      include_adult: 'false',
+      language: 'en-US',
+      page: '1',
+    }),
+  ]);
+  return {
+    new: mapMovies(now?.results, perCat),
+    trending: mapMovies(trend?.results, perCat),
+    popular: mapMovies(popular?.results, perCat),
+    lowkey: mapMovies(lowkey?.results, perCat),
+  };
+}

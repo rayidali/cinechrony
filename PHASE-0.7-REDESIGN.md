@@ -150,13 +150,28 @@ browser).
     reel stream** (vs the current subtle cards) is a feed-composition change
     deferred to **F18 / slice c** so the mixed feed (posts + activities + rec
     blocks) stays coherent now.
-  - [ ] **0.7.3.1c — Discovery rails** (for-you tab, above the reel): **dig in**
-    (top-picks category shelves — collage cards), **top watchers** weekly
-    leaderboard (ranked avatars), **featured list** hero carousel, **lists for
-    you** community row (progress bars). Renders on **placeholder/existing data
-    now**; the real backend rails land in **0.7.5** (leaderboard aggregate,
-    top-picks categories, featured/staffPick). Needs the accent token set
-    (rank/category dots — violet/blue/pink) added to `globals.css` here.
+  - [x] **0.7.3.1c — Discovery rails** (R1, built 2026-06-15) — for-you tab,
+    above the reel, **on real data, each rail hides when empty**:
+    - **dig in** (`dig-in.tsx`) — 4 TMDB category shelves (new/trending/popular/
+      lowkey) as **fanned 3-poster collages** + colored brand dot, **client-
+      direct TMDB** (`getDigIn()` in `tmdb-client.ts`: now_playing / trending /
+      most-voted / well-rated-but-under-seen). Tap → top film's drawer (the F15
+      category grid is a later slice).
+    - **top watchers** (`top-watchers.tsx`) — weekly leaderboard, rounded-square
+      avatars + rank badges. **NEW API `GET /api/v1/leaderboard?window=`**
+      (`leaderboard-server.ts::getWeeklyLeaderboard` — distinct films logged
+      [watched/rated/reviewed] per followed user over the window, block-filtered,
+      one capped `/activities` scan grouped in memory; denormalized weekly
+      counter = scale follow-up). Tap → profile.
+    - **featured** (`featured-carousel.tsx`) — swipeable list hero (ghost title +
+      scrim + glass advance + dots) off real **loved lists** (`/api/v1/lists/loved`).
+    - **from the community** (`community-lists.tsx`) — gradient tiles off the
+      loved lists past the featured 4 (`N films · M saved`, saved = list likes).
+    - Accent tokens (`violet/blue/pink`) already existed; dot/rank colors use the
+      design's oklch brand constants inline. `seededGradient()` helper added.
+    - `TrendingStrip` retired from home (orphaned). **Deferred:** the F15/F16/F17
+      "view all" **detail screens**; `friends`-tab rail variant. typecheck ✓ ·
+      build ✓ · static ✓ · audit 403/403 ✓.
   - [ ] **0.7.3.1d — Home test/polish pass**: scroll-collapse feel, both themes,
     Simulator; audit + build green; `prefers-reduced-motion` gates.
 

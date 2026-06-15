@@ -10,7 +10,10 @@ import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import type { UserProfile } from '@/lib/types';
 import { BottomNav } from '@/components/bottom-nav';
-import { TrendingStrip } from '@/components/trending-strip';
+import { DigIn } from '@/components/dig-in';
+import { TopWatchers } from '@/components/top-watchers';
+import { FeaturedCarousel } from '@/components/featured-carousel';
+import { CommunityLists } from '@/components/community-lists';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -123,16 +126,28 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Discovery rail — for-you only (films + loved lists, interim until
-                the full dig-in / leaderboard / featured rails in slice c) */}
+            {/* Discovery rails — for-you only (real data; each rail hides when
+                empty). Order matches the design: dig in → top watchers →
+                featured hero → from the community. */}
             {isForYou && (
-              <div className="mt-6">
-                <TrendingStrip />
-              </div>
+              <>
+                <div className="mt-5">
+                  <DigIn />
+                </div>
+                <div className="mt-7">
+                  <TopWatchers />
+                </div>
+                <div className="mt-7">
+                  <FeaturedCarousel />
+                </div>
+                <div className="mt-7">
+                  <CommunityLists />
+                </div>
+              </>
             )}
 
             {/* The reel */}
-            <div className="mt-7 mb-4">
+            <div className="mt-8 mb-4">
               <Section
                 eyebrow="the reel"
                 title="watching lately"
