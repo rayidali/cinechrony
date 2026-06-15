@@ -208,9 +208,9 @@ export const PostCard = memo(function PostCard({
           </div>
         </div>
 
-        {/* Caption — editorial serif voice, upright for readability */}
+        {/* Caption — iOS system sans, clean and legible (matches the chrome) */}
         {post.text && (
-          <p className="font-serif text-[16.5px] leading-[1.5] text-foreground tracking-[-0.01em] mt-[11px] whitespace-pre-wrap">
+          <p className="font-ui text-[16.5px] leading-[1.5] text-foreground tracking-[-0.01em] mt-[11px] whitespace-pre-wrap">
             {post.text}
           </p>
         )}
