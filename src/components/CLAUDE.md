@@ -497,3 +497,44 @@ on a desktop browser.
 
 Web push opt-in (`push-notification-prompt.tsx`) is unchanged — it
 remains the path for desktop browser users via Service Worker + VAPID.
+
+---
+
+## Phase 0.7 — v3 home / feed revamp (2026-06-15)
+
+The home page (`src/app/home/page.tsx`) is recomposed to the design
+(`ios-home.jsx`): `for you · friends` tabs → search/scan → discovery rails →
+the reel. New + changed components:
+
+**Shell**
+- `home-top-bar.tsx` — frosted scroll-collapsing bar; `for you · friends`
+  underline tabs + bell + avatar (no `saved`; `HomeFilter = 'all' | 'friends'`).
+- `v3/section.tsx` — `Section` (eyebrow → 22px lowercase title → trailing).
+- `presence-pill.tsx` — "N of your circle are watching" (real friends-watching
+  union; shares the `home-fw:{uid}` SWR key).
+- `fab.tsx` — gained an **icon-only round variant** (omit `label`); `PostFab`
+  uses it (red pencil compose FAB).
+
+**Discovery rails** (for-you only; each hides when empty)
+- `dig-in.tsx` — 4 TMDB category shelves (new/trending/popular/lowkey) as
+  fanned 3-poster collages. Data: `getDigIn()` in `tmdb-client.ts` (client-direct).
+- `top-watchers.tsx` — weekly leaderboard. Data: `GET /api/v1/leaderboard`
+  (`leaderboard-server.ts`).
+- `featured-carousel.tsx` — swipeable loved-list hero. Exports `useLovedLists()`
+  (shared `home-loved-lists` cache).
+- `community-lists.tsx` — gradient loved-list tiles (the lists past the
+  featured 4). Reuses `useLovedLists()`.
+- `seeded-gradient.ts` (lib) — deterministic cover/avatar gradient fallback.
+
+**The reel** — now a **borderless** diary stream (no card chrome;
+`divide-y divide-hair` in `activity-feed.tsx`):
+- `post-card.tsx` — `PostCard`/DiaryEntry: serif caption · `MovieCell`
+  (`+`→`AddToListSheet`) · `MediaGallery` (4:3 hero + thumbnail rail) ·
+  heart/comment/share/bookmark.
+- `activity-card.tsx` — matched to the diary language, borderless.
+- `recommendation-card.tsx` — borderless "because you liked X" poster row with
+  punched rating stickers (`getRatingStyle`).
+
+`trending-strip.tsx` is **retired from home** (orphaned; safe to delete later).
+Deferred (no fake data): hot-take cards (`/api/v1/reviews/highlights`, 0.7.5),
+the F15–F18 "view all" detail screens.

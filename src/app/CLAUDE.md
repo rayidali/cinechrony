@@ -57,6 +57,7 @@ src/app/
     │   ├── users/search                   # Search by username
     │   ├── movies/{trending,similar,…}    # TMDB/OMDB proxies
     │   ├── recommendations                # Personal recs
+    │   ├── leaderboard                    # Weekly top watchers (follow graph)
     │   ├── bookmarks/…  mutes/…  blocks/… reports/…
     │   ├── friends-watching               # Friends activity hero card
     │   ├── imports/letterboxd/…           # Letterboxd parse/import

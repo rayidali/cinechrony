@@ -408,9 +408,32 @@ share link now resolves a **canonical https origin** instead of
 natively). Rich per-user share cards were deliberately deferred to the story
 renderer (0.7.4) — same infra, build it once.
 
-Tracker: `PHASE-0.7-REDESIGN.md`. Remaining: Search, Home feed (the
-centerpiece), motion slice 2 (page transitions + app-wide swipe-back), story
-share, then the deferred data rails.
+Then **Search** and the **home / feed** — the centerpiece — landed. Home took
+four passes (a/b + R1/R2) and one real lesson: *restyling pieces isn't the same
+as rebuilding the composition.* The first attempts kept the old `TrendingStrip`
++ card-feed and just reskinned them — and it still didn't match the mocks,
+because the mocks are a different **composition**: `dig in` category shelves, a
+weekly **top watchers** leaderboard, a featured list hero, a community-lists
+rail, and a **borderless film-diary reel**. The fix was to read the actual
+design source (`ios-home.jsx` / `ios-kit.jsx`) for exact metrics — which also
+surfaced the real reason the chrome read "webby": the design's `F_UI` is the
+**iOS system sans**, a 4th font family the app never had. Added `font-ui`, then
+recomposed the whole screen on **real data** (client-direct TMDB for `dig in`;
+loved-lists for featured/community), each rail hiding when empty rather than
+faking content.
+
+**A logged decision reversed, on purpose.** Phase 0.5 had recorded "the loved-
+lists showcase is *not a leaderboard* — no #1." Phase 0.7's design brings a
+**weekly top-watchers leaderboard** back — but scoped to *your follow graph*
+(films you and the people you follow logged this week), not a global vanity
+board. New endpoint `GET /api/v1/leaderboard`. The earlier "no leaderboards"
+instinct still holds for *global* ranking; a friends-scoped weekly board is a
+different, social thing. Noted here so the reversal isn't mistaken for drift.
+
+Tracker: `PHASE-0.7-REDESIGN.md`. Remaining: the F15–F18 "view all" detail
+screens + hot-take rail, the movie drawer (F01/F02) + "how was it?" sheet +
+composer, motion slice 2 (page transitions + app-wide swipe-back), story share,
+then the rest of the deferred data rails.
 
 ## Chapter 9 — Where we are, and what's next
 
@@ -479,7 +502,8 @@ launch, plus Apple-review buffer.
    built; blocking before posts; API routes before the native wrap; the
    wrap before the Share Extension.
 4. **Decide once, write it down.** Usernames immutable; no GPS; no
-   leaderboards; URL-first extraction; FCM over raw APNs; Bearer over
+   *global* leaderboards (a friends-scoped weekly board returned in 0.7 — see
+   Ch. 8); URL-first extraction; FCM over raw APNs; Bearer over
    cookies. Each decision is logged with its *why*, so it doesn't get
    re-litigated.
 5. **On mobile WebKit, trust nothing's cleanup.** Watchdogs (BodyStyleWatchdog),

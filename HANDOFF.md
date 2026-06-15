@@ -33,39 +33,46 @@ Test, same convention as AUDIT.md).
   `src/lib/haptics.ts`, wired through the shared primitives.
 - **Search** (0.7.3.6): home search overlay → discover (recs / vibes / now &
   next) + results (people-first), client-direct TMDB.
-- **Home / feed — shell + reel** (0.7.3.1 **a + b**, built 2026-06-14):
-  - **`font-ui` foundation** — added the iOS system-sans family to Tailwind
-    (the design's `F_UI`); fixes the serif-italic search placeholder + makes
-    chrome read native. New `Section` primitive (`v3/section.tsx`).
-  - **Shell** — frosted scroll-collapsing top bar (`for you · friends`
-    underline tabs + bell + avatar; `saved` dropped from home, archive moves
-    under "you" later) · search + red `scan` (Phase C hook) · **FAB now an
-    icon-only red pencil circle** (`Fab` round variant) · presence pill (real
-    friends-watching count).
-  - **Reel** — `PostCard` → **`DiaryEntry`** (serif caption · `MovieCell` w/
-    `+`→add-to-list · `MediaGallery` hero+rail · heart/comment/share/bookmark);
-    `ActivityCard` matched. All handlers preserved.
-  - **Deferred (honest, no fake):** fav/kicker, video duration, movie-cell
-    rating chip, inline "because you liked X" rows, hot-take cards, fully
-    borderless stream → **slice c / 0.7.5**. Discovery rails (dig in / top
-    watchers / featured / community) = **slice c**.
+- **Home / feed — FULL revamp** (0.7.3.1, recomposed to `ios-home.jsx` in four
+  passes a/b + R1/R2; the home is now the design composition, not a restyle):
+  - **`font-ui` foundation** (a) — iOS system-sans (`F_UI`) added to Tailwind;
+    fixes the serif-italic search placeholder. New `Section` primitive.
+  - **Shell** (a) — frosted scroll-collapsing top bar (`for you · friends`
+    underline tabs + bell + avatar; `saved` dropped, archive → "you" later) ·
+    search + red `scan` · **icon-only red pencil FAB** (`Fab` round variant) ·
+    presence pill (real friends-watching count).
+  - **Discovery rails** (R1, 2026-06-15) — the design middle, real data, each
+    hides when empty: **dig in** (`dig-in.tsx`, 4 client-direct TMDB category
+    shelves as fanned 3-poster collages) · **top watchers** (`top-watchers.tsx`,
+    weekly leaderboard) · **featured** (`featured-carousel.tsx`, loved-lists
+    hero) · **from the community** (`community-lists.tsx`, loved-lists tiles).
+    `TrendingStrip` retired. **New API `GET /api/v1/leaderboard`**
+    (`leaderboard-server.ts`). `seededGradient()` helper.
+  - **The reel** (b + R2) — `PostCard` → **`DiaryEntry`** (serif caption ·
+    `MovieCell` w/ `+`→add-to-list · `MediaGallery` hero+rail ·
+    heart/comment/share/bookmark); now a **borderless diary stream**
+    (`DiaryEntry` + `ActivityCard` lost the card chrome; `divide-y divide-hair`
+    between entries) with the inline **"because you liked X"** poster row
+    (`RecommendationCard`, punched rating stickers). All handlers preserved.
+  - **Deferred (honest, no fake):** fav/kicker label, video duration,
+    movie-cell rating chip, **hot-take cards** (need a `/api/v1/reviews/
+    highlights` selection rule, 0.7.5), and the **F15–F18 "view all" detail
+    screens** (dig-in grid / full leaderboard / community browse / post thread).
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green
-(403+/403+). It's a presentational refactor — must not regress logic. (Home
-shell+reel: typecheck ✓ · build ✓ as of 2026-06-14; static + audit to re-run
-before the commit.)
+(403/403). It's a presentational refactor — must not regress logic. (Home
+a/b/R1/R2 each shipped all four green.)
 
-**Capacitor / new-API note (owner asked):** the home reel + shell need **no
-new endpoints** (reuse `/api/v1/*` + client-direct TMDB, all CORS-allowlisted).
-The upcoming design screens (F01/F02 movie drawer, "how was it?", composer,
-F15–F18) mostly reuse existing routes; the only genuinely new ones are the
-0.7.5 rails — `GET /api/v1/leaderboard` (F16) + top-picks category queries
-(F15). All follow the `/api/v1` + CORS pattern → Capacitor-ready.
+**Capacitor / new-API note (owner asked):** the home needed exactly **one** new
+endpoint — `GET /api/v1/leaderboard` (built, standard `/api/v1` + CORS pattern →
+Capacitor-ready). Everything else reuses existing routes + client-direct TMDB.
+The upcoming screens (F01/F02 movie drawer, "how was it?", composer, F15/F17/F18)
+mostly reuse existing routes; the genuinely new ones still ahead are the **dig-in
+category** query (F15 detail) and **`/api/v1/reviews/highlights`** (hot-takes).
 
-**Next in 0.7:** Home **slice c** — discovery rails (dig in / top watchers /
-featured / from-the-community) + the F15–F18 "view all" detail screens →
-**0.7.3.2 movie drawer** (F01/F02 + "how was it?" sheet + composer) → motion
+**Next in 0.7:** **R3** — the F15–F18 "view all" detail screens + hot-take rail
+→ **0.7.3.2 movie drawer** (F01/F02 + "how was it?" sheet + composer) → motion
 slice 2 (push/pop transitions + app-wide swipe-back) → story share (0.7.4).
 Then **Phase C — the iOS Share Extension** (the hero feature that motivated
 Phase A + B).
@@ -83,7 +90,7 @@ Phase A + B).
 ```
 main ◄── Phases A + B + 0.5 all merged (PR #88, tip 9c81360)
   │
-  └── feat/v3-redesign  ◄── HEAD (Phase 0.7 redesign, profile family done)
+  └── feat/v3-redesign  ◄── HEAD (Phase 0.7 — profile + search + home revamp done)
 ```
 
 **Operational rule (in force):** Claude pushes only to feature branches;

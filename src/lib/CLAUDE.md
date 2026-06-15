@@ -39,12 +39,14 @@ src/lib/
 ├── blocks-server.ts          # blockUser, unblockUser, getBlockSet
 ├── reports-server.ts         # reportContent (5 content types)
 ├── friends-watching-server.ts# Aggregated "your circle is watching"
+├── leaderboard-server.ts     # Weekly "top watchers" (follow-graph aggregate)
 ├── letterboxd-server.ts      # ZIP parse + TMDB match + import
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────
 ├── tmdb-details-cache.ts     # Module-level cache (modal back-nav contract)
 ├── tmdb-client.ts            # Browser-side TMDB fetch (NEXT_PUBLIC_ token)
+├── seeded-gradient.ts        # Deterministic cover/avatar gradient fallback
 ├── use-cached-action.ts      # SWR-style cache hook with persistence
 ├── cache-config.ts           # Registers localStorage-mirrored keys
 ├── list-detail-seed.ts       # sessionStorage seed for list page chrome
