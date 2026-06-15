@@ -13,6 +13,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getRecommendationsForUser(auth.uid);
-});
+}, { softFallback: { sets: [] } });
 
 export const OPTIONS = optionsHandler;

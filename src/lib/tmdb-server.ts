@@ -14,6 +14,7 @@
  */
 
 import { getUserRatings as getUserRatingsLib } from '@/lib/ratings-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 // ─── Shared types ─────────────────────────────────────────────────────────
 
@@ -223,9 +224,15 @@ export async function getSimilarMovies(
  * up to 2) → the single most-recent rating, so cautious raters still get
  * something.
  */
+// Per-caller cache — recs read the viewer's ratings then fan out to TMDB
+// `similar` per basis. 5 min staleness is fine (taste doesn't shift by the
+// minute) and spares both Firestore reads and TMDB calls on repeated loads.
+const recommendationsCache = createTtlCache<{ sets: RecommendationSet[] }>({ ttlMs: 300_000 });
+
 export async function getRecommendationsForUser(
   callerUid: string,
 ): Promise<{ sets: RecommendationSet[] }> {
+  return cached(recommendationsCache, callerUid, async () => {
   const { ratings } = await getUserRatingsLib(callerUid, { limit: 40 });
   const seen = new Set<number>();
   const rated = (ratings || []).filter((r) => {
@@ -270,4 +277,5 @@ export async function getRecommendationsForUser(
     }),
   );
   return { sets: sets.filter((s) => s.recommendations.length > 0) };
+  });
 }

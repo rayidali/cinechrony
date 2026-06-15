@@ -10,6 +10,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getUnreadNotificationCount(auth.uid);
-});
+}, { softFallback: { count: 0 } });
 
 export const OPTIONS = optionsHandler;

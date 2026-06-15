@@ -9,6 +9,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getMyMutes(auth.uid);
-});
+}, { softFallback: { mutedIds: [] } });
 
 export const OPTIONS = optionsHandler;

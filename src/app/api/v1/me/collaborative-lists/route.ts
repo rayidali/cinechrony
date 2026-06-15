@@ -11,6 +11,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getCollaborativeLists(auth.uid);
-});
+}, { softFallback: { lists: [] } });
 
 export const OPTIONS = optionsHandler;

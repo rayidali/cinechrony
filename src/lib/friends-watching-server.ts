@@ -12,6 +12,7 @@
  */
 
 import { getDb } from '@/firebase/admin';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 export type FriendsWatchingCard = {
   tmdbId: number;
@@ -24,9 +25,14 @@ export type FriendsWatchingCard = {
   reviewCount: number;
 };
 
+// Per-caller cache — collapses the recent-activity scan + per-card enrichment
+// across repeated home loads. 2 min staleness is fine for a "watching" rail.
+const friendsWatchingCache = createTtlCache<{ cards: FriendsWatchingCard[] }>({ ttlMs: 120_000 });
+
 export async function getFriendsWatching(
   callerUid: string,
 ): Promise<{ cards: FriendsWatchingCard[] }> {
+  return cached(friendsWatchingCache, callerUid, async () => {
   const db = getDb();
 
   const followingSnap = await db
@@ -80,4 +86,5 @@ export async function getFriendsWatching(
   }
   cards.sort((a, b) => b.friends.length - a.friends.length);
   return { cards: cards.slice(0, 4) };
+  });
 }

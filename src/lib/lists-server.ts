@@ -13,6 +13,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import type { ListMember } from '@/lib/types';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
@@ -646,7 +647,14 @@ async function hydrateListCards(
  * Cold-start gated: returns `{ lists: [], gated: true }` until at least
  * MIN_LOVED_LISTS public lists have been liked.
  */
+// Global cache — the loved-lists showcase is identical for every viewer, so one
+// collectionGroup scan every few minutes serves the whole user base. Keyed by
+// limit (the only input). This is the highest-leverage cache: it fires on every
+// home load via both the featured carousel and the community rail.
+const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 180_000 });
+
 export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[]; gated: boolean }> {
+  return cached(lovedListsCache, `limit:${limit}`, async () => {
   const MIN_LOVED_LISTS = 3;
   const db = getDb();
   const snap = await db
@@ -676,6 +684,7 @@ export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[
 
   const lists = await hydrateListCards(db, ranked);
   return { lists, gated: false };
+  });
 }
 
 // ─── searchPublicLists (LAUNCH 0.5.3 — Home search overlay) ─────────────

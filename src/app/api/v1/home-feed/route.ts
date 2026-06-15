@@ -24,6 +24,6 @@ export const GET = publicApiRoute(async (req, { auth }) => {
     limit: Number.isFinite(limit) ? limit : undefined,
     cursor,
   });
-});
+}, { softFallback: { items: [], hasMore: false } });
 
 export const OPTIONS = optionsHandler;

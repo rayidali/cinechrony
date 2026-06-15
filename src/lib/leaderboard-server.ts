@@ -15,6 +15,7 @@
 import { getDb } from '@/firebase/admin';
 import { getFollowing } from '@/lib/follows-server';
 import { getMyBlockSet } from '@/lib/blocks-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 export type LeaderboardEntry = {
   uid: string;
@@ -27,11 +28,17 @@ export type LeaderboardEntry = {
 
 const LOG_TYPES = new Set(['watched', 'rated', 'reviewed']);
 
+// Per-caller cache — the underlying 800-doc /activities scan is the single most
+// read-expensive query on the home rail. 2 min staleness is invisible for a
+// weekly ranking and collapses repeated home loads to one scan per window.
+const leaderboardCache = createTtlCache<{ entries: LeaderboardEntry[] }>({ ttlMs: 120_000 });
+
 export async function getWeeklyLeaderboard(
   callerUid: string,
   windowDays = 7,
   limit = 12,
 ): Promise<{ entries: LeaderboardEntry[] }> {
+  return cached(leaderboardCache, `${callerUid}:${windowDays}:${limit}`, async () => {
   const db = getDb();
 
   const [following, blocked] = await Promise.all([
@@ -101,4 +108,5 @@ export async function getWeeklyLeaderboard(
     .map((e, i) => ({ ...e, rank: i + 1 }));
 
   return { entries };
+  });
 }

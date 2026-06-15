@@ -13,6 +13,6 @@ export const GET = publicApiRoute(async (req) => {
   const url = new URL(req.url);
   const limit = Number(url.searchParams.get('limit') ?? '12');
   return getLovedLists(Number.isFinite(limit) ? limit : 12);
-});
+}, { softFallback: { lists: [], gated: true } });
 
 export const OPTIONS = optionsHandler;

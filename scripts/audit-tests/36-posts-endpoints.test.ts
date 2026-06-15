@@ -287,8 +287,8 @@ test('DELETE /posts/[id]/like: not-liked → 409', async () => {
 
 // ─── GET /home-feed (merged + block-filtered) ────────────────────────────
 
-test('GET /home-feed: merges activities + posts, block-filters', async () => {
-  // alice posts; bob activity (rated); carol-posts blocked.
+test('GET /home-feed: posts only, block-filtered (system activities excluded)', async () => {
+  // alice posts; bob activity (rated) — now EXCLUDED; carol-posts blocked.
   const carol = await createTestUser('carol');
   await adminDb().collection('posts').doc('p1').set({
     id: 'p1', authorId: alice.uid, text: 'a post', likes: 0, likedBy: [],
@@ -314,11 +314,13 @@ test('GET /home-feed: merges activities + posts, block-filters', async () => {
     token: bobToken,
   });
   if (res.body.ok !== true) return assert.fail('expected ok');
-  // Sees alice's post + own activity = 2 items; carol's post filtered.
-  assert.equal(res.body.data.items.length, 2);
+  // Feed is posts-only: alice's post shows; carol's post is block-filtered;
+  // bob's `rated` activity is NOT in the feed (system activities excluded).
+  assert.equal(res.body.data.items.length, 1);
+  assert.equal((res.body.data.items[0] as { kind: string }).kind, 'post');
 });
 
-test('GET /home-feed: low-signal activity types (added/watched) filtered out', async () => {
+test('GET /home-feed: system activities (added/watched/rated) never appear', async () => {
   await adminDb().collection('activities').doc('a-added').set({
     id: 'a-added', userId: alice.uid, type: 'added',
     tmdbId: 1, movieTitle: 'X', moviePosterUrl: null, movieYear: '', mediaType: 'movie',
@@ -342,5 +344,7 @@ test('GET /home-feed: low-signal activity types (added/watched) filtered out', a
   const activityTypes = res.body.data.items
     .filter((i) => i.kind === 'activity')
     .map((i) => i.activity!.type);
-  assert.deepEqual(activityTypes.sort(), ['rated'], 'only rated survives — added/watched filtered');
+  // The reel is posts-only now — NO system activity appears, including `rated`.
+  assert.deepEqual(activityTypes, [], 'no system activities appear in the home feed');
+  assert.equal(res.body.data.items.length, 0, 'only activities were seeded → empty feed');
 });

@@ -13,6 +13,6 @@ export const GET = apiRoute(async (req, { auth }) => {
   const window = new URL(req.url).searchParams.get('window') ?? 'week';
   const days = window === 'all' ? 3650 : window === 'month' ? 30 : 7;
   return getWeeklyLeaderboard(auth.uid, days);
-});
+}, { softFallback: { entries: [] } });
 
 export const OPTIONS = optionsHandler;

@@ -18,6 +18,6 @@ export const GET = publicApiRoute<RouteParams>(async (req, { params }) => {
   const limit = rawLimit ? Number.parseInt(rawLimit, 10) : undefined;
   const users = await getFollowing(params.uid, Number.isFinite(limit) ? limit : undefined);
   return { users };
-});
+}, { softFallback: { users: [] } });
 
 export const OPTIONS = optionsHandler;
