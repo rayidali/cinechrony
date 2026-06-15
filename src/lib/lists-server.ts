@@ -655,35 +655,47 @@ const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean 
 
 export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[]; gated: boolean }> {
   return cached(lovedListsCache, `limit:${limit}`, async () => {
-  const MIN_LOVED_LISTS = 3;
-  const db = getDb();
-  const snap = await db
-    .collectionGroup('lists')
-    .where('isPublic', '==', true)
-    .where('likes', '>', 0)
-    .orderBy('likes', 'desc')
-    .limit(60)
-    .get();
+    const db = getDb();
+    const now = Date.now();
 
-  if (snap.size < MIN_LOVED_LISTS) {
-    return { lists: [], gated: true };
-  }
+    // ONE index-free query: all public lists. We split + rank in memory rather
+    // than `where('likes','>',0).orderBy('likes')` so there's NO composite-index
+    // dependency (which 500s in prod if undeployed) and it's a single read.
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .limit(80)
+      .get();
 
-  const now = Date.now();
-  const ranked = snap.docs
-    .map((doc) => {
-      const d = doc.data();
-      const likes: number = d.likes || 0;
-      const lastMs = d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
-      const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
-      return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((r) => r.doc);
+    // 1. Liked lists, ranked by a recency-weighted trending score (HN-style).
+    const liked = snap.docs
+      .filter((doc) => (doc.data().likes || 0) > 0)
+      .map((doc) => {
+        const d = doc.data();
+        const likes: number = d.likes || 0;
+        const lastMs = d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
+        const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
+        return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((r) => r.doc);
 
-  const lists = await hydrateListCards(db, ranked);
-  return { lists, gated: false };
+    // 2. Backfill with the most recent NON-empty public lists (even unliked) so
+    //    the showcase isn't blank on a young app. Deduped against the liked set.
+    const likedPaths = new Set(liked.map((d) => d.ref.path));
+    const fresh = snap.docs
+      .filter((doc) => !likedPaths.has(doc.ref.path) && (doc.data().movieCount || 0) > 0)
+      .sort((a, b) => {
+        const am = a.data().updatedAt?.toMillis?.() ?? a.data().createdAt?.toMillis?.() ?? 0;
+        const bm = b.data().updatedAt?.toMillis?.() ?? b.data().createdAt?.toMillis?.() ?? 0;
+        return bm - am;
+      });
+
+    const top = [...liked, ...fresh].slice(0, limit);
+    if (top.length === 0) return { lists: [], gated: true };
+
+    const lists = await hydrateListCards(db, top);
+    return { lists, gated: false };
   });
 }
 

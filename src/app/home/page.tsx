@@ -9,6 +9,7 @@ import { useCachedAction } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import type { UserProfile } from '@/lib/types';
+import type { DigInCategory } from '@/lib/tmdb-client';
 import { BottomNav } from '@/components/bottom-nav';
 import { DigIn } from '@/components/dig-in';
 import { TopWatchers } from '@/components/top-watchers';
@@ -48,6 +49,8 @@ export default function HomePage() {
   const [scrolled, setScrolled] = useState(false);
   // Which rail "view all" detail screen is open (F15/F16/F17).
   const [detail, setDetail] = useState<null | 'dig-in' | 'top-watchers' | 'community'>(null);
+  // The dig-in category to open the F15 grid on (a tile tap or "view all").
+  const [digInTab, setDigInTab] = useState<DigInCategory>('trending');
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -137,7 +140,12 @@ export default function HomePage() {
             {isForYou && (
               <>
                 <div className="mt-5">
-                  <DigIn onViewAll={() => setDetail('dig-in')} />
+                  <DigIn
+                    onViewAll={(cat) => {
+                      setDigInTab(cat ?? 'trending');
+                      setDetail('dig-in');
+                    }}
+                  />
                 </div>
                 <div className="mt-7">
                   <TopWatchers onViewAll={() => setDetail('top-watchers')} />
@@ -189,7 +197,7 @@ export default function HomePage() {
 
       {/* Rail "view all" detail screens (F15/F16/F17). Rendered OUTSIDE
           PullToRefresh — a transform on an ancestor breaks their position:fixed. */}
-      <DigInAll isOpen={detail === 'dig-in'} onClose={() => setDetail(null)} />
+      <DigInAll isOpen={detail === 'dig-in'} initialTab={digInTab} onClose={() => setDetail(null)} />
       <TopWatchersAll isOpen={detail === 'top-watchers'} onClose={() => setDetail(null)} />
       <CommunityListsAll isOpen={detail === 'community'} onClose={() => setDetail(null)} />
     </MovieModalProvider>

@@ -1,10 +1,14 @@
 /**
- * LAUNCH 0.5.2 — the loved-lists showcase.
+ * LAUNCH 0.5.2 — the loved-lists showcase (Phase 0.7 revision: free-tier robust).
  *
- * `getLovedLists` is a collection-group query over public lists, re-ranked in
- * memory by a recency-weighted score. Asserts:
- *  - the cold-start gate hides the showcase below the minimum;
- *  - only public, liked lists appear;
+ * `getLovedLists` is ONE index-free `isPublic` collection-group query, split +
+ * ranked in memory: liked lists by a recency-weighted score, then a backfill of
+ * the most recent NON-empty public lists so the showcase isn't blank on a young
+ * app. Asserts:
+ *  - no cold-start minimum — even a single liked list shows;
+ *  - a truly empty showcase (no public content) is gated;
+ *  - non-empty public lists backfill when liked ones are sparse;
+ *  - private + empty lists are excluded;
  *  - a recently-liked list outranks an older, more-liked one (no ossification).
  */
 
@@ -30,7 +34,7 @@ before(() => { setupTestEnv(); });
 /** Seed a list under users/{ownerId}/lists/{listId}. */
 async function seedList(
   listId: string,
-  opts: { isPublic: boolean; likes: number; ageHours: number; ownerId?: string },
+  opts: { isPublic: boolean; likes: number; ageHours: number; ownerId?: string; movieCount?: number },
 ) {
   const ownerId = opts.ownerId ?? 'owner1';
   const lastLikedAt = new Date(Date.now() - opts.ageHours * 3_600_000);
@@ -46,19 +50,39 @@ async function seedList(
       likedBy: [],
       lastLikedAt,
       createdAt: lastLikedAt,
-      movieCount: 0,
+      updatedAt: lastLikedAt,
+      movieCount: opts.movieCount ?? 0,
     });
 }
 
 beforeEach(async () => { await clearFirestore(); });
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('cold-start gate hides the showcase below the minimum', async () => {
-  await seedList('a', { isPublic: true, likes: 3, ageHours: 1 });
-  await seedList('b', { isPublic: true, likes: 2, ageHours: 1 });
+test('no cold-start minimum — even a single liked list shows', async () => {
+  await seedList('a', { isPublic: true, likes: 1, ageHours: 1, movieCount: 4 });
   const res = await getLovedLists();
-  assert.equal(res.gated, true, 'gated below 3 liked lists');
+  assert.equal(res.gated, false);
+  assert.equal(res.lists.length, 1);
+});
+
+test('a truly empty showcase (no public content) is gated', async () => {
+  await seedList('private', { isPublic: false, likes: 9, ageHours: 1, movieCount: 5 });
+  await seedList('empty', { isPublic: true, likes: 0, ageHours: 1, movieCount: 0 });
+  const res = await getLovedLists();
+  assert.equal(res.gated, true, 'no liked + no non-empty public list → gated');
   assert.deepEqual(res.lists, []);
+});
+
+test('non-empty public lists backfill when liked ones are sparse', async () => {
+  await seedList('liked', { isPublic: true, likes: 5, ageHours: 1, movieCount: 3 });
+  await seedList('fresh1', { isPublic: true, likes: 0, ageHours: 2, movieCount: 7 });
+  await seedList('fresh2', { isPublic: true, likes: 0, ageHours: 3, movieCount: 5 });
+  const res = await getLovedLists();
+  const ids = res.lists.map((l: any) => l.id);
+  assert.equal(res.gated, false);
+  assert.equal(res.lists.length, 3, 'liked + two fresh backfill');
+  assert.equal(ids[0], 'liked', 'the liked list ranks ahead of the backfill');
+  assert.ok(ids.includes('fresh1') && ids.includes('fresh2'));
 });
 
 test('above the threshold, returns liked public lists', async () => {

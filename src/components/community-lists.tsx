@@ -15,9 +15,9 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
   const router = useRouter();
   const { data } = useLovedLists();
 
-  // The featured hero shows the top 4; this rail shows the rest so we never
+  // The featured hero shows the top 3; this rail shows the rest so we never
   // repeat a list on screen.
-  const lists = (data ?? []).slice(4);
+  const lists = (data ?? []).slice(3);
   if (lists.length === 0) return null;
 
   return (

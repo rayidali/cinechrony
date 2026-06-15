@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { getDigIn, type DigInData, type DigInCategory } from '@/lib/tmdb-client';
-import { useCachedAction } from '@/lib/use-cached-action';
+import { type DigInCategory } from '@/lib/tmdb-client';
+import { useDigIn } from '@/components/dig-in';
 import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 import { DetailScreen } from '@/components/v3/detail-screen';
@@ -25,13 +25,26 @@ const TABS: { key: DigInCategory; label: string; sub: string }[] = [
   { key: 'lowkey', label: 'lowkey', sub: 'hidden gems' },
 ];
 
-export function DigInAll({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
-  const [tab, setTab] = useState<DigInCategory>('trending');
+export function DigInAll({
+  isOpen,
+  onClose,
+  initialTab,
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  initialTab?: DigInCategory;
+}) {
+  const [tab, setTab] = useState<DigInCategory>(initialTab ?? 'trending');
   const [selected, setSelected] = useState<Movie | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
 
-  // Fuller category lists, fetched once and cached for the session.
-  const { data } = useCachedAction<DigInData>('digin-all', () => getDigIn(20));
+  // Open on the category the user tapped (a dig-in tile or "view all").
+  useEffect(() => {
+    if (isOpen && initialTab) setTab(initialTab);
+  }, [isOpen, initialTab]);
+
+  // Shared session cache with the home rail — one fetch, no double read.
+  const { data } = useDigIn();
 
   const films = data?.[tab] ?? [];
   const active = TABS.find((t) => t.key === tab)!;

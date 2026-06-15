@@ -3,16 +3,14 @@
 import { useMemo } from 'react';
 import { getDigIn, type DigInData, type DigInCategory } from '@/lib/tmdb-client';
 import { useCachedAction } from '@/lib/use-cached-action';
-import { useMovieModal } from '@/contexts/movie-modal-context';
 import { Section, ViewAll } from '@/components/v3/section';
-import type { SearchResult } from '@/lib/types';
 
 /**
  * "dig in" — top-picks category shelves (Phase 0.7 / v3, `ios-home.jsx::TopPicks`).
  *
  * Four real TMDB categories rendered as fanned poster collages with a colored
- * dot. Tapping a shelf opens its top film for now (the F15 category grid is a
- * later slice). All client-direct TMDB — no server round-trip.
+ * dot. Tapping a shelf (or "view all") opens the F15 dig-in grid on that
+ * category. All client-direct TMDB — no server round-trip.
  */
 const CATS: {
   key: DigInCategory;
@@ -25,9 +23,17 @@ const CATS: {
   { key: 'lowkey', dot: 'oklch(0.55 0.14 300)', sub: 'hidden gems' },
 ];
 
-export function DigIn({ onViewAll }: { onViewAll?: () => void }) {
-  const { openMovie } = useMovieModal();
-  const { data } = useCachedAction<DigInData>('home-dig-in', () => getDigIn(6));
+/**
+ * Shared dig-in fetch — 20 per category, cached for the session. The home rail
+ * (3-poster collage) and the F15 "view all" grid both read this one cache, so
+ * the rail's film count matches the grid and there's no double fetch.
+ */
+export function useDigIn() {
+  return useCachedAction<DigInData>('home-dig-in', () => getDigIn(20));
+}
+
+export function DigIn({ onViewAll }: { onViewAll?: (cat?: DigInCategory) => void }) {
+  const { data } = useDigIn();
 
   const cats = useMemo(
     () => CATS.map((c) => ({ ...c, films: data?.[c.key] ?? [] })),
@@ -37,32 +43,19 @@ export function DigIn({ onViewAll }: { onViewAll?: () => void }) {
   const hasAny = cats.some((c) => c.films.length > 0);
   if (data && !hasAny) return null;
 
-  const openFilm = (f: SearchResult) =>
-    openMovie({
-      id: `digin_${f.tmdbId}`,
-      title: f.title,
-      year: f.year,
-      posterUrl: f.posterUrl,
-      posterHint: f.posterHint,
-      addedBy: '',
-      status: 'To Watch',
-      mediaType: f.mediaType,
-      tmdbId: f.tmdbId,
-    });
-
   return (
     <section>
       <Section
         eyebrow="top picks"
         title="dig in"
-        trailing={<ViewAll onTap={onViewAll} />}
+        trailing={<ViewAll onTap={onViewAll ? () => onViewAll() : undefined} />}
         className="mb-3"
       />
       <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">
         {cats.map((c) => (
           <button
             key={c.key}
-            onClick={() => c.films[0] && openFilm(c.films[0])}
+            onClick={() => onViewAll?.(c.key)}
             className="flex-shrink-0 w-[124px] text-left"
           >
             <div className="relative aspect-[3/4] rounded-[15px] bg-sunken overflow-hidden">

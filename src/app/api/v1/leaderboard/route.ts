@@ -17,7 +17,11 @@ export const GET = apiRoute(async (req, { auth }) => {
   // rail omits it and gets the default 12. Capped at 50.
   const limitRaw = Number(params.get('limit') ?? '12');
   const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, limitRaw), 50) : 12;
-  return getWeeklyLeaderboard(auth.uid, days, limit);
+  // `fallback=1` (the home rail) widens to all recent activity when the chosen
+  // window is empty, so the rail isn't blank on a young app. The "view all"
+  // tabs omit it — an empty week there reads honestly as empty.
+  const fallbackToAllTime = params.get('fallback') === '1';
+  return getWeeklyLeaderboard(auth.uid, days, limit, { fallbackToAllTime });
 }, { softFallback: { entries: [] } });
 
 export const OPTIONS = optionsHandler;

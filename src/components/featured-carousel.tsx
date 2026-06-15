@@ -28,7 +28,9 @@ export function FeaturedCarousel() {
   const { data } = useLovedLists();
   const [i, setI] = useState(0);
 
-  const lists = (data ?? []).slice(0, 4);
+  // Top 3 in the hero; the rest fall to the "from the community" rail (slice 3),
+  // so that rail appears once there are ≥4 lists (no overlap between the two).
+  const lists = (data ?? []).slice(0, 3);
   if (data && lists.length === 0) return null;
   if (lists.length === 0) return null;
 
