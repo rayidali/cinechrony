@@ -167,7 +167,7 @@ export const PostCard = memo(function PostCard({
 
   return (
     <>
-      <article className="bg-card rounded-[20px] border-[0.5px] border-hair px-4 pt-4 pb-3.5 shadow-lift">
+      <article className="py-5">
         {/* Byline */}
         <div className="flex items-center gap-[11px]">
           <Link href={profileUrl} className="flex-shrink-0">

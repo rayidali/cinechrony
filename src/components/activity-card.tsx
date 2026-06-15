@@ -100,7 +100,7 @@ export const ActivityCard = memo(function ActivityCard({
     : '';
 
   return (
-    <div className="bg-card rounded-[20px] border-[0.5px] border-hair p-4 shadow-lift">
+    <div className="py-5">
       {/* Row 1 — who · what · when */}
       <div className="flex items-center gap-[11px]">
         <Link href={profileUrl} className="flex-shrink-0">

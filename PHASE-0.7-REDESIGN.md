@@ -139,17 +139,20 @@ browser).
     `AddToListSheet`; body tap → movie drawer) → **`MediaGallery`** (4:3 hero +
     `1/n` counter + thumbnail rail, reuses `VideoTile`) → **actions** (heart
     [film-red] · comment → `/post` · `share` pill [Web Share / clipboard] ·
-    bookmark). `ActivityCard` brought to the same language (hairline card, 40px
-    avatar, `font-ui` handle, film-red heart). **All handlers preserved** (like /
+    bookmark). `ActivityCard` brought to the same language (40px avatar,
+    `font-ui` handle, film-red heart). **R2 (2026-06-15): the reel is now a
+    borderless diary stream** — `DiaryEntry` + `ActivityCard` dropped the card
+    chrome (full-bleed on the paper, `divide-y divide-hair` between entries); the
+    in-reel **`RecommendationCard` is now the borderless "because you liked X"
+    poster row** (sparkle eyebrow + lowercase headline + 3 posters with punched
+    rating stickers). **All handlers preserved** (like /
     delete / report / overflow / bookmark / modal / add-to-list). **Deferrals
     (honest — no fake data):** the ☆fav badge + red kicker label (no post
     "lead"/fav field), video **duration** (not stored), the **movie-cell rating
-    chip** (post doesn't carry the film's rating), inline **"because you liked X"**
-    rec poster-rows, and **hot-take** cards (need the 0.7.5 short-high-rated-
-    review selection rule) → all land with 0.7.5 data. The fully **borderless
-    reel stream** (vs the current subtle cards) is a feed-composition change
-    deferred to **F18 / slice c** so the mixed feed (posts + activities + rec
-    blocks) stays coherent now.
+    chip** (post doesn't carry the film's rating), and **hot-take** cards (need a
+    0.7.5 short-high-rated-review selection rule + a `/api/v1/reviews/highlights`
+    read) → land with 0.7.5 data. ✅ The inline **"because you liked X"** rows and
+    the fully **borderless reel stream** shipped in R2.
   - [x] **0.7.3.1c — Discovery rails** (R1, built 2026-06-15) — for-you tab,
     above the reel, **on real data, each rail hides when empty**:
     - **dig in** (`dig-in.tsx`) — 4 TMDB category shelves (new/trending/popular/

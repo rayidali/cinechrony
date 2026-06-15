@@ -394,7 +394,9 @@ export function ActivityFeed({
         (pos === firstFwAt || (pos > firstFwAt && (pos - firstFwAt) % 9 === 0))
       ) {
         nodes.push(
-          <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
+          <div key={`fw_${fwCards[fwIdx].tmdbId}`} className="py-5">
+            <FriendsWatchingCard card={fwCards[fwIdx]} />
+          </div>,
         );
         fwIdx++;
       }
@@ -423,7 +425,7 @@ export function ActivityFeed({
         </>
       ) : (
         <>
-          <div className="space-y-4">{feedNodes}</div>
+          <div className="divide-y divide-hair">{feedNodes}</div>
           <div ref={sentinelRef} className="h-1" />
           {isLoadingMore && <LoadingMore />}
           {!hasMore && visibleItems.length > 0 && <EndOfFeed />}
