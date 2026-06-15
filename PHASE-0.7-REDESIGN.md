@@ -259,8 +259,20 @@ rating + optional review). Quota: ~1 small read/open, 1–2 writes/log.
 **Build waves** (recommended order — reorderable; each ships green per the
 Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
 
-- [ ] **Wave 1 — Rail detail screens (F15 · F16 · F17).** Continues the home
-  rails just shipped; reuses existing endpoints; quota-light; lowest risk.
+- [x] **Wave 1 — Rail detail screens (F15 · F16 · F17). ✅ built 2026-06-15.**
+  Continues the home rails just shipped; reuses existing endpoints; quota-light.
+  Shared `v3/detail-screen.tsx` shell (fixed `z-[70]` overlay · film-red back ·
+  centered title · body-scroll-lock), rendered at the home root **outside
+  PullToRefresh**. `dig-in-all.tsx` (client-direct `getDigIn(20)`, cached, tabs +
+  2-up grid + rating chips → own `PublicMovieDetailsModal` at `z-[80]`);
+  `top-watchers-all.tsx` (week/month/all-time `Segmented` over the cached
+  `GET /api/v1/leaderboard?window=&limit=50` — **added a `limit` param** — podium
+  top-3 + ranked rows + your-row highlight → profile); `community-lists-all.tsx`
+  (cached `/api/v1/lists/loved?limit=60` · 2-up cover-fan cards → list detail).
+  Shared `ViewAll` affordance added to `v3/section.tsx`; the three home rails got
+  an `onViewAll` prop. **Deferred (honest):** "logged by N friends" (F15) +
+  weekly movement +/− (F16) — no fake data until a cheap social-proof/snapshot
+  source exists. typecheck · build · static · audit 403/403 all green.
   - **F15 dig in › all** — new/trending/popular/lowkey tabs over a 2-up poster
     grid (rating chip · title · "logged by N friends"). Posters **client-direct
     TMDB** (`getDigIn` extended to return full paginated lists). "logged by N

@@ -10,9 +10,14 @@ import { getWeeklyLeaderboard } from '@/lib/leaderboard-server';
 export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (req, { auth }) => {
-  const window = new URL(req.url).searchParams.get('window') ?? 'week';
+  const params = new URL(req.url).searchParams;
+  const window = params.get('window') ?? 'week';
   const days = window === 'all' ? 3650 : window === 'month' ? 30 : 7;
-  return getWeeklyLeaderboard(auth.uid, days);
+  // `limit` lets the "view all" board (F16) request the full ranking; the home
+  // rail omits it and gets the default 12. Capped at 50.
+  const limitRaw = Number(params.get('limit') ?? '12');
+  const limit = Number.isFinite(limitRaw) ? Math.min(Math.max(1, limitRaw), 50) : 12;
+  return getWeeklyLeaderboard(auth.uid, days, limit);
 }, { softFallback: { entries: [] } });
 
 export const OPTIONS = optionsHandler;

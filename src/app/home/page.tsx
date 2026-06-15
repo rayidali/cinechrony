@@ -14,6 +14,9 @@ import { DigIn } from '@/components/dig-in';
 import { TopWatchers } from '@/components/top-watchers';
 import { FeaturedCarousel } from '@/components/featured-carousel';
 import { CommunityLists } from '@/components/community-lists';
+import { DigInAll } from '@/components/dig-in-all';
+import { TopWatchersAll } from '@/components/top-watchers-all';
+import { CommunityListsAll } from '@/components/community-lists-all';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -43,6 +46,8 @@ export default function HomePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedFilter, setFeedFilter] = useState<HomeFilter>('all');
   const [scrolled, setScrolled] = useState(false);
+  // Which rail "view all" detail screen is open (F15/F16/F17).
+  const [detail, setDetail] = useState<null | 'dig-in' | 'top-watchers' | 'community'>(null);
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -132,16 +137,16 @@ export default function HomePage() {
             {isForYou && (
               <>
                 <div className="mt-5">
-                  <DigIn />
+                  <DigIn onViewAll={() => setDetail('dig-in')} />
                 </div>
                 <div className="mt-7">
-                  <TopWatchers />
+                  <TopWatchers onViewAll={() => setDetail('top-watchers')} />
                 </div>
                 <div className="mt-7">
                   <FeaturedCarousel />
                 </div>
                 <div className="mt-7">
-                  <CommunityLists />
+                  <CommunityLists onViewAll={() => setDetail('community')} />
                 </div>
               </>
             )}
@@ -181,6 +186,12 @@ export default function HomePage() {
 
       {/* Fullscreen search */}
       <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Rail "view all" detail screens (F15/F16/F17). Rendered OUTSIDE
+          PullToRefresh — a transform on an ancestor breaks their position:fixed. */}
+      <DigInAll isOpen={detail === 'dig-in'} onClose={() => setDetail(null)} />
+      <TopWatchersAll isOpen={detail === 'top-watchers'} onClose={() => setDetail(null)} />
+      <CommunityListsAll isOpen={detail === 'community'} onClose={() => setDetail(null)} />
     </MovieModalProvider>
   );
 }

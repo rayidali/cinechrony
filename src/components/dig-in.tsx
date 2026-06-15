@@ -4,7 +4,7 @@ import { useMemo } from 'react';
 import { getDigIn, type DigInData, type DigInCategory } from '@/lib/tmdb-client';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { useMovieModal } from '@/contexts/movie-modal-context';
-import { Section } from '@/components/v3/section';
+import { Section, ViewAll } from '@/components/v3/section';
 import type { SearchResult } from '@/lib/types';
 
 /**
@@ -25,7 +25,7 @@ const CATS: {
   { key: 'lowkey', dot: 'oklch(0.55 0.14 300)', sub: 'hidden gems' },
 ];
 
-export function DigIn() {
+export function DigIn({ onViewAll }: { onViewAll?: () => void }) {
   const { openMovie } = useMovieModal();
   const { data } = useCachedAction<DigInData>('home-dig-in', () => getDigIn(6));
 
@@ -55,7 +55,7 @@ export function DigIn() {
       <Section
         eyebrow="top picks"
         title="dig in"
-        trailing={<span className="font-ui font-semibold text-[13px] text-primary">view all</span>}
+        trailing={<ViewAll onTap={onViewAll} />}
         className="mb-3"
       />
       <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">

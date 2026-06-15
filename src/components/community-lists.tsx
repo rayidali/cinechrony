@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { Section } from '@/components/v3/section';
+import { Section, ViewAll } from '@/components/v3/section';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { useLovedLists } from '@/components/featured-carousel';
 
@@ -11,7 +11,7 @@ import { useLovedLists } from '@/components/featured-carousel';
  * hero), tile cover + title + `N films · M saved`. Hidden when there aren't
  * enough lists to fill a second rail.
  */
-export function CommunityLists() {
+export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
   const router = useRouter();
   const { data } = useLovedLists();
 
@@ -25,7 +25,7 @@ export function CommunityLists() {
       <Section
         eyebrow="lists for you"
         title="from the community"
-        trailing={<span className="font-ui font-semibold text-[13px] text-primary">view all</span>}
+        trailing={<ViewAll onTap={onViewAll} />}
         className="mb-3.5"
       />
       <div className="flex gap-3.5 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">

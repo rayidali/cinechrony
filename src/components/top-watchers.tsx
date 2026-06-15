@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
-import { Section } from '@/components/v3/section';
+import { Section, ViewAll } from '@/components/v3/section';
 import { seededGradient } from '@/lib/seeded-gradient';
 import type { LeaderboardEntry } from '@/lib/leaderboard-server';
 
@@ -21,7 +21,7 @@ const RANK_ACCENT = [
   'oklch(0.55 0.14 300)', // 5 violet
 ];
 
-export function TopWatchers() {
+export function TopWatchers({ onViewAll }: { onViewAll?: () => void }) {
   const { data } = useCachedAction<LeaderboardEntry[]>('home-leaderboard', async () => {
     const r = await apiCall<{ entries: LeaderboardEntry[] }>('GET', '/api/v1/leaderboard?window=week');
     return r.entries ?? [];
@@ -35,7 +35,7 @@ export function TopWatchers() {
       <Section
         eyebrow="weekly leaderboard"
         title="top watchers"
-        trailing={<span className="font-ui font-semibold text-[13px] text-primary">view all</span>}
+        trailing={<ViewAll onTap={onViewAll} />}
         className="mb-3.5"
       />
       <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">

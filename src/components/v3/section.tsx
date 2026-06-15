@@ -1,6 +1,27 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { haptic } from '@/lib/haptics';
+
+/**
+ * ViewAll — the film-red "view all" trailing affordance for a rail's Section.
+ * No-op (renders nothing) when no handler is wired, so a rail without a detail
+ * screen yet simply omits it.
+ */
+export function ViewAll({ onTap }: { onTap?: () => void }) {
+  if (!onTap) return null;
+  return (
+    <button
+      onClick={() => {
+        haptic('light');
+        onTap();
+      }}
+      className="font-ui font-semibold text-[13px] text-primary transition-opacity active:opacity-60"
+    >
+      view all
+    </button>
+  );
+}
 
 /**
  * Section header — Phase 0.7 / v3 (`ios-kit.jsx::Section`).
