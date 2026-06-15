@@ -21,9 +21,20 @@
   watchers [new `GET /api/v1/leaderboard`] · featured hero · from-the-community,
   all real loved-lists/TMDB data); and the **borderless reel** (`DiaryEntry` +
   `MovieCell`+`MediaGallery` + inline "because you liked X" poster rows). v3
-  primitives in `src/components/v3/*`. **Next:** **R3** — F15–F18 "view all"
-  detail screens + hot-take rail (needs `/api/v1/reviews/highlights`) → **movie
-  drawer 0.7.3.2** (F01/F02 + "how was it?" sheet + composer) → motion slice 2.
+  primitives in `src/components/v3/*`. The home **feed is now posts-only**
+  (rated/reviewed dropped); captions are Bricolage. **Next: the F-screen
+  interaction-surface waves** — full plan + screen catalog in
+  `PHASE-0.7-REDESIGN.md` § "0.7.3.2+ — Interaction surfaces". Wave 1 rail detail
+  screens (F15/F16/F17) → Wave 2 movie-drawer cluster (F01/F02 + F05 + F03 "how
+  was it?" + new **watch-log** model) → Wave 3 create-a-post (F04) → Wave 4
+  threads (F18/F07) → Wave 5 reel·player (F19) → Wave 6 data rails → Wave 7
+  onboarding/auth/settings.
+- **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
+  quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
+  `softFallback` · lazy detail reads · no per-item N+1). Quota-hardening pass
+  landed (`server-cache.ts` + `softFallback` on 13 routes; 4 heavy rails cached).
+  Preview deploys now call their **own** API (api-client same-origin + cookie
+  credentials) so server changes show on a preview.
 - **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
   `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
   Presentational — must not regress logic.

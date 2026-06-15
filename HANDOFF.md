@@ -71,11 +71,28 @@ The upcoming screens (F01/F02 movie drawer, "how was it?", composer, F15/F17/F18
 mostly reuse existing routes; the genuinely new ones still ahead are the **dig-in
 category** query (F15 detail) and **`/api/v1/reviews/highlights`** (hot-takes).
 
-**Next in 0.7:** **R3** — the F15–F18 "view all" detail screens + hot-take rail
-→ **0.7.3.2 movie drawer** (F01/F02 + "how was it?" sheet + composer) → motion
-slice 2 (push/pop transitions + app-wide swipe-back) → story share (0.7.4).
-Then **Phase C — the iOS Share Extension** (the hero feature that motivated
-Phase A + B).
+**Next in 0.7 — the F-screen interaction-surface waves** (full plan +
+screen catalog + tests in `PHASE-0.7-REDESIGN.md` § "0.7.3.2+ — Interaction
+surfaces"). Recommended order: **Wave 1** rail detail screens (F15 dig-in›all ·
+F16 top-watchers›all · F17 community›all) → **Wave 2** movie-drawer cluster
+(F01/F02 + F05 add-to-list + F03 "how was it?" + the new **watch-log** data
+model) → **Wave 3** create-a-post (F04) → **Wave 4** threads (F18 post·thread ·
+F07 comments) → **Wave 5** the reel·player (F19) → **Wave 6** data-rail finish
+(hot-take `reviews/highlights`, leaderboard movement, dig-in social proof) →
+**Wave 7** onboarding/auth/settings/notifications (more onboarding screens
+incoming). Then motion slice 2 (push/pop + swipe-back) → story share (0.7.4) →
+**Phase C — the iOS Share Extension**.
+
+**⚠ Free-tier Firestore is now a hard constraint (no Blaze — owner has no
+budget until there's revenue).** Locked decision 4 in the tracker: build
+quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
+`softFallback` graceful degradation · lazy-load detail data on tap · no per-item
+N+1 social-proof reads). The quota-hardening pass already landed
+(`src/lib/server-cache.ts` + `softFallback` on 13 read routes; the 4 heavy home
+rails cached). **The home feed is now posts-only** (rated/reviewed dropped from
+`getHomeFeed`); captions are Bricolage (`font-headline`); **preview deployments
+now call their OWN API** (api-client same-origin + SSO-cookie credentials) so
+server changes are testable on a preview.
 
 **Two owner actions pending from the profile work:**
 - `firebase deploy --only firestore:indexes --project studio-2541484065-75c27`

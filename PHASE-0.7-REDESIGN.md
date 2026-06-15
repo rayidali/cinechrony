@@ -35,6 +35,16 @@
    direct-to-Instagram-story native layer after, with share sheet as the
    permanent fallback (web always uses it). The attribution link sticker in
    the direct path is the growth lever — worth the App ID, but not a blocker.
+4. **Free-tier Firestore is the binding constraint (no Blaze — added 2026-06-15).**
+   The owner is on the Spark plan (50K reads/day) until there's revenue, so
+   every new screen is built **quota-first**: prefer **client-direct TMDB** for
+   non-user data; **cache** shared server reads via `src/lib/server-cache.ts`;
+   **soft-degrade** via the route `softFallback` so a quota blip empties a rail
+   instead of 500-ing the page; **lazy-load** detail data on tap (drawer/thread),
+   never on list render; and **never** add per-item N+1 "social proof" reads
+   ("logged by N friends", "weekly movement") unless they fall out of an
+   already-running capped scan or a cheap precomputed counter. Reads are the
+   budget. (See the quota-hardening pass: `server-cache.ts` + `softFallback`.)
 
 ## Verification (applies to every UI item — same as Phase 0.4.3)
 
@@ -211,10 +221,115 @@ browser).
 > endpoints (+ a small per-user-per-film "watch history" read). Every new route
 > follows the same `/api/v1` + CORS pattern → automatically Capacitor-ready.
 >
-> Tracked under **0.7.3.2** (movie modal + card variants) + new sub-slices for
-> the rate sheet / composer / F15–F18 as we reach them. Built screen-by-screen
-> with the same green-light cadence.
-- [ ] **0.7.3.2** **Movie detail modal + movie-card variants** (grid / list).
+> The concrete, authoritative plan is the **interaction-surface waves** below
+> (this note is the high-level preview). Built screen-by-screen, same cadence.
+
+### 0.7.3.2+ — Interaction surfaces & detail screens (the F-screens)
+
+> **Status: planned 2026-06-15** from the owner's F01–F07 / F15–F19 mocks (light
+> "paper" + dark "projection room"). These are the screens every home / list /
+> profile tap *leads to*. Convention: **every item has a Test.** All of these are
+> governed by **locked decision 4 (free-tier discipline) — reads are the budget.**
+
+**Screen catalog** (mock → where it lives → new/restyle → data):
+
+| F | Screen | From → leads to | File | New/restyle | Backend |
+|---|---|---|---|---|---|
+| F01 | movie drawer (feed/search) | poster/cell → drawer | `movie-details-modal.tsx` | restyle | existing ratings/status/comments (+ watch log) |
+| F02 | movie drawer (in list) | list cell → drawer | same, in-list variant | restyle | + list membership + watch log |
+| F03 | how was it? sheet | status→watched → sheet | `rate-on-watch-modal.tsx` | rebuild (Vaul sheet) | writes rating + review + watch |
+| F04 | create a post | + FAB → composer | `post-composer.tsx` | restyle | existing posts (+ optional watch) |
+| F05 | add to a list | drawer `+` → sheet | `add-to-list-sheet.tsx` | restyle | existing lists |
+| F07 | comments | post comment icon → thread | `/movie/[tmdbId]/comments` | restyle | existing reviews / post-comments |
+| F15 | dig in › all | rail "view all" → drawer | new screen + `dig-in.tsx` data | new | client-direct TMDB (+ social proof, deferred) |
+| F16 | top watchers › all | leaderboard "view all" → profile | new screen | new | `/api/v1/leaderboard` (movement deferred) |
+| F17 | community lists › all | "lists for you" view all → list detail | new screen | new | `/api/v1/lists/loved` (+ pagination) |
+| F18 | post · thread | tap post → full post + replies | `/post/[postId]` | restyle | existing post + comments |
+| F19 | the reel · player | reel clip → full-screen viewer | new screen | new | a user's posts-with-media |
+
+**New data model — the watch log** (F02 history; F03/F04 first-watch · rewatch):
+`users/{uid}/watches/{watchId}` = `{ tmdbId, mediaType, watchedOn, rating?,
+note?, watchNumber, createdAt }`, **server-only** in `firestore.rules`. The
+canonical *current* rating stays in `/ratings/{uid}_{tmdbId}` (the latest watch
+syncs it; review text → `/reviews`). Drawer "your history · N watches" = one
+small `where tmdbId ==` query, **lazy on drawer open, cached** — one read, never
+on a list render. "how was it?" + the composer write one watch entry (+ sync the
+rating + optional review). Quota: ~1 small read/open, 1–2 writes/log.
+
+**Build waves** (recommended order — reorderable; each ships green per the
+Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
+
+- [ ] **Wave 1 — Rail detail screens (F15 · F16 · F17).** Continues the home
+  rails just shipped; reuses existing endpoints; quota-light; lowest risk.
+  - **F15 dig in › all** — new/trending/popular/lowkey tabs over a 2-up poster
+    grid (rating chip · title · "logged by N friends"). Posters **client-direct
+    TMDB** (`getDigIn` extended to return full paginated lists). "logged by N
+    friends" derived from ONE capped `/activities` scan grouped by tmdbId
+    (shared with the leaderboard) **or deferred** (drop the line) for v1.
+  - **F16 top watchers › all** — week / month / all-time tabs · podium top-3 ·
+    ranked rows · your row highlighted. `/api/v1/leaderboard?window=` exists
+    (cached). **Weekly movement (+4 / −2) deferred** — needs a prior-window rank;
+    show "–" until a cheap weekly snapshot exists (don't double the scan/load).
+  - **F17 community lists › all** — 2-up cover cards (films · N saved ·
+    visibility). `/api/v1/lists/loved` (cached) + a `limit`/cursor for "all".
+  - Routes vs overlays: full-screen **overlays** (the `search-overlay`
+    precedent) to avoid new static-export shells; back-chevron now, native
+    push/pop later.
+  - **Test:** each renders on real data + hides/empties gracefully; tap → drawer
+    / profile / list detail; typecheck + build + static + audit green; **no
+    per-item fetches** (quota check).
+
+- [ ] **Wave 2 — Movie drawer cluster (F01 · F02 · F05 · F03 + watch log).** The
+  keystone — nearly every screen leads here.
+  - **F01 / F02 drawer restyle** — hero backdrop + ghost title + glass
+    collapse/bookmark/⋯; poster + title + chips (sage rating + amber IMDb) +
+    `year · runtime · genre`. F01 = two buttons (want-to-watch / comments);
+    F02 = `IN · <list>` eyebrow + three buttons (list-name → add-to-list ·
+    comments · to-watch → how-was-it). Reuse existing rating/status/comments —
+    **no new data in this slice.**
+  - **F05 add-to-list sheet restyle** — Vaul sheet, toggle membership across
+    lists with checkmarks (`add-to-list-sheet.tsx` exists).
+  - **Watch log + "your history" + F03 how-was-it** — the new model above;
+    `your history · N watches` (rewatch / first-watch rows w/ rating + note);
+    flipping status → watched opens the **how-was-it** Vaul sheet (drag-to-rate +
+    optional review → save writes watch + rating + review; skip just marks it
+    watched).
+  - **Test:** drawer opens above overlays/feed and the **modal back-nav contract
+    holds** (`tmdb-details-cache` + fresh-mount `key`); history reads once + caches;
+    "how was it" writes are transactional + don't drift counts; audit green incl.
+    a new `watches` deny-rule test.
+
+- [ ] **Wave 3 — Create a post (F04).** Restyle `post-composer.tsx`: film cell +
+  change · first-watch / rewatch + watched-on date · drag-to-rate · serif take ·
+  photos & clips (N/10) · tag friends · visibility. **No "add to a list"** (it
+  doesn't belong in a post). Optionally writes a watch-log entry too. **Test:**
+  post lands in feed + reel; R2 media upload unchanged; audit green.
+
+- [ ] **Wave 4 — Threads (F18 post · thread · F07 comments).** Restyle
+  `/post/[postId]` (post body + movie cell → drawer + still + engagement bar +
+  threaded replies + sticky composer) and `/movie/[tmdbId]/comments` (pinned
+  original + threaded replies + sticky reply composer). Restyle only — threading
+  logic preserved. **Test:** reply/like/thread invariants unchanged; swipe-back +
+  modal back-nav hold; audit green.
+
+- [ ] **Wave 5 — The reel · player (F19).** New full-screen viewer for a user's
+  uploaded photos/clips: author + follow · serif caption · tappable film tag →
+  drawer · segment progress (clip n/N) · swipe → next. Data: a user's
+  posts-with-media (reuse, lazy). **Test:** swipe through media; film tag →
+  drawer; follow toggle; no extra reads per swipe.
+
+- [ ] **Wave 6 — Data-rail finish.** Hot-take rail (`GET /api/v1/reviews/
+  highlights` — short, high-rated reviews → the green quote card); leaderboard
+  weekly-movement (cheap snapshot); dig-in "logged by N friends". All cached +
+  soft-degraded. **Test:** each rail real-data + cached + hides empty.
+
+- [ ] **Wave 7 — Onboarding · auth · settings · notifications** (folds the old
+  0.7.3.7). **More onboarding screens incoming** (owner) — restyle to v3 +
+  coordinate with Phase C try-before-signup. **Test:** per-screen light/dark walk.
+
+> After the waves: **motion slice 2** (push/pop transitions + app-wide
+> swipe-back — the F-screens are designed as pushed screens, so build them
+> transition-ready) and **story share (0.7.4)**, both already tracked below.
 - [x] **0.7.3.3** **Lists** (`ListsIOS`): album tiles + `MiniFan` poster fans +
   collapsing frosted NavBar + mine/shared segmented + AddBtn in the nav (FAB
   retired on this screen). Built `Segmented`, `NavBar`, `AddBtn`, `ListTile`
