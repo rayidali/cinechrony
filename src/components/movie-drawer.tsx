@@ -34,6 +34,9 @@ import {
 } from '@/lib/tmdb-details-cache';
 import { rememberMovieForReturn } from '@/contexts/movie-modal-context';
 
+// next/image throws on an empty `src` — a list movie can have a blank poster.
+const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
+
 // Glassy floating control over the hero — translucent, blurred, on-brand green wash.
 const GLASS_BTN =
   'w-10 h-10 rounded-full bg-black/30 backdrop-blur-md text-white flex items-center justify-center border border-white/15 transition-transform active:scale-95';
@@ -164,6 +167,15 @@ export function MovieDrawer({
   const drawerHeight = useViewportHeight(94);
   const tmdbId = movie ? tmdbIdOf(movie) : 0;
 
+  // Collaborator members for note-author lookup (in-list). MUST stay above the
+  // `if (!movie) return null` early return so the hook order is stable when the
+  // drawer mounts with a null movie and the parent assigns it a frame later
+  // (the search-overlay path) — otherwise React throws a client-side exception.
+  const cachedMembers = useMemo(
+    () => (inList && listOwnerId && listId ? getMembers(listOwnerId, listId) : null),
+    [inList, listOwnerId, listId, getMembers],
+  );
+
   useEffect(() => { setOverride(null); }, [movieProp?.id, isOpen]);
 
   // Reset per-movie state on movie change.
@@ -254,8 +266,9 @@ export function MovieDrawer({
   const hasEmbeddableVideo = parsedVideo && parsedVideo.provider !== null;
   const SocialIcon = getProviderIcon(movie.socialLink);
 
+  const posterSrc = movie.posterUrl || POSTER_FALLBACK;
   const backdropPath = mediaDetails && 'backdrop_path' in mediaDetails ? mediaDetails.backdrop_path : null;
-  const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : movie.posterUrl;
+  const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : posterSrc;
 
   let runtimeLabel: string | null = null;
   if (mediaDetails) {
@@ -395,11 +408,8 @@ export function MovieDrawer({
     }
   };
 
-  // collaborator notes (in-list)
-  const cachedMembers = useMemo(
-    () => (inList && listOwnerId && listId ? getMembers(listOwnerId, listId) : null),
-    [inList, listOwnerId, listId, getMembers],
-  );
+  // collaborator notes (in-list) — `cachedMembers` is hoisted above the
+  // early return; these two are plain derivations of `movie`.
   const allNotes = Object.entries(movie.notes || {}).sort((a) => (a[0] === user?.uid ? -1 : 1));
   const noteAuthorName = (uid: string): string => {
     if (uid === user?.uid) return 'you';
@@ -471,7 +481,7 @@ export function MovieDrawer({
               <div className="px-5">
                 <div className="flex gap-4">
                   <div className="relative -mt-14 w-[104px] flex-shrink-0 aspect-[2/3] rounded-2xl overflow-hidden shadow-photo bg-sunken ring-1 ring-black/10">
-                    <Image src={movie.posterUrl} alt={movie.title} fill className="object-cover" sizes="104px" />
+                    <Image src={posterSrc} alt={movie.title} fill className="object-cover" sizes="104px" />
                   </div>
                   <div className="flex-1 min-w-0 pt-2">
                     {/* eyebrow */}
