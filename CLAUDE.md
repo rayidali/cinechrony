@@ -31,10 +31,19 @@
   onboarding/auth/settings.
 - **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
   quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
-  `softFallback` · lazy detail reads · no per-item N+1). Quota-hardening pass
-  landed (`server-cache.ts` + `softFallback` on 13 routes; 4 heavy rails cached).
-  Preview deploys now call their **own** API (api-client same-origin + cookie
-  credentials) so server changes show on a preview.
+  `softFallback` · lazy detail reads · no per-item N+1). **Deep read-reduction
+  pass (2026-06-16, see [[project_quota_read_reduction]]):** `useCachedAction`
+  now TTL-gates revalidation (`{staleTime}` + `isCachedActionFresh`) so repeat
+  navigations don't refetch; leaderboard uses `getFollowingIds` (no 200-profile
+  hydration); `getBlockSet`/collab/members/preview/unread-count/activity-author
+  all server-TTL-cached **with write-invalidation** (the cardinal rule — never
+  show the user stale data after their OWN action); unbounded queries capped;
+  bell poll 30s→120s+cached. Verified by a 9-agent read audit + 5-agent
+  adversarial cache-invalidation review (caught + fixed 3 stale-after-own-action
+  bugs). Repeat home nav ≈ 0 reads (was ~270); idle bell ~75% lower. Firestore
+  client persistence (`persistentLocalCache`) already mitigates the real-time
+  `onSnapshot` channel. Preview deploys call their **own** API so server changes
+  show on a preview.
 - **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
   `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
   Presentational — must not regress logic.
