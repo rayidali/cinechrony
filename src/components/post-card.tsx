@@ -1,6 +1,6 @@
 'use client';
 
-import { memo, useRef, useState, useTransition } from 'react';
+import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
@@ -10,7 +10,6 @@ import {
   Trash2,
   Flag,
   Play,
-  Film,
   Plus,
   Share,
 } from 'lucide-react';
@@ -23,6 +22,7 @@ import { shareOrigin } from '@/lib/share';
 import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
 import { AddToListSheet } from '@/components/add-to-list-sheet';
+import { ReelViewer } from '@/components/v3/reel-viewer';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { cn } from '@/lib/utils';
 import type { Post, Movie, SearchResult } from '@/lib/types';
@@ -59,6 +59,7 @@ export const PostCard = memo(function PostCard({
   );
   const [likeCount, setLikeCount] = useState(post.likes || 0);
   const [addOpen, setAddOpen] = useState(false);
+  const [reelIndex, setReelIndex] = useState<number | null>(null);
 
   const isOwn = !!user && user.uid === post.authorId;
   const handle = post.authorUsername
@@ -233,7 +234,7 @@ export const PostCard = memo(function PostCard({
         {/* Media gallery */}
         {post.media.length > 0 && (
           <div className="mt-3">
-            <MediaGallery media={post.media} />
+            <MediaGallery media={post.media} onOpenReel={(k) => { haptic('light'); setReelIndex(k); }} />
           </div>
         )}
 
@@ -287,6 +288,23 @@ export const PostCard = memo(function PostCard({
           onClose={() => setAddOpen(false)}
         />
       )}
+
+      <ReelViewer
+        isOpen={reelIndex !== null}
+        initialIndex={reelIndex ?? 0}
+        onClose={() => setReelIndex(null)}
+        media={post.media}
+        author={{
+          uid: post.authorId,
+          username: post.authorUsername,
+          displayName: post.authorDisplayName,
+          photoURL: post.authorPhotoURL,
+        }}
+        caption={post.text}
+        film={movie}
+        currentUserId={currentUserId}
+        onOpenFilm={movieAsMovie ? () => { setReelIndex(null); openMovie(movieAsMovie); } : undefined}
+      />
     </>
   );
 });
@@ -340,11 +358,11 @@ function MovieCell({
 }
 
 /**
- * Media gallery — a Corner-style swipeable hero (4:3) + a thumbnail rail. The
- * hero shows the selected media; tapping a thumb switches. Counter top-right.
- * Video playback reuses the inline `VideoTile`.
+ * Media gallery — a Corner-style hero (4:3) + a thumbnail rail. The hero opens
+ * the full-screen story-style reel viewer (F22) at the tapped index; tapping a
+ * thumb switches the hero. Counter top-right; videos show a poster + play badge.
  */
-function MediaGallery({ media }: { media: Post['media'] }) {
+function MediaGallery({ media, onOpenReel }: { media: Post['media']; onOpenReel: (index: number) => void }) {
   const [i, setI] = useState(0);
   const n = media.length;
   const idx = Math.min(i, n - 1);
@@ -352,10 +370,26 @@ function MediaGallery({ media }: { media: Post['media'] }) {
 
   return (
     <div>
-      <div className="relative aspect-[4/3] rounded-[18px] overflow-hidden border-[0.5px] border-hair bg-muted shadow-lift">
+      <button
+        onClick={() => onOpenReel(idx)}
+        aria-label="Open reel"
+        className="relative block w-full aspect-[4/3] rounded-[18px] overflow-hidden border-[0.5px] border-hair bg-muted shadow-lift active:opacity-95 transition-opacity"
+      >
         <div className="absolute inset-0">
           {cur.type === 'video' ? (
-            <VideoTile src={cur.url} posterUrl={cur.thumbnailUrl} />
+            <>
+              {cur.thumbnailUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={cur.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <span className="block w-full h-full bg-foreground/85" />
+              )}
+              <span className="absolute inset-0 flex items-center justify-center bg-black/15">
+                <span className="h-[52px] w-[52px] rounded-full bg-black/35 backdrop-blur-sm border-[0.5px] border-white/45 flex items-center justify-center">
+                  <Play className="h-[21px] w-[21px] text-white ml-0.5" fill="currentColor" strokeWidth={0} />
+                </span>
+              </span>
+            </>
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={cur.url} alt="" className="w-full h-full object-cover" />
@@ -366,7 +400,7 @@ function MediaGallery({ media }: { media: Post['media'] }) {
             {idx + 1}/{n}
           </span>
         )}
-      </div>
+      </button>
 
       {n > 1 && (
         <div className="flex gap-2 mt-2 overflow-x-auto scrollbar-hide p-px">
@@ -409,56 +443,3 @@ function MediaGallery({ media }: { media: Post['media'] }) {
   );
 }
 
-/**
- * Inline video tile (unchanged behavior from v2). Poster frame when known,
- * styled dark placeholder otherwise; tap mounts the real element + plays.
- */
-function VideoTile({ src, posterUrl }: { src: string; posterUrl?: string }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const [playing, setPlaying] = useState(false);
-
-  const start = () => {
-    setPlaying(true);
-    requestAnimationFrame(() => {
-      const v = videoRef.current;
-      if (!v) return;
-      const p = v.play();
-      if (p && typeof p.catch === 'function') p.catch(() => setPlaying(false));
-    });
-  };
-
-  return (
-    <div className="relative w-full h-full bg-foreground/85">
-      {(playing || posterUrl) && (
-        <video
-          ref={videoRef}
-          src={src}
-          poster={posterUrl}
-          preload="none"
-          playsInline
-          controls={playing}
-          onPause={() => setPlaying(false)}
-          onEnded={() => setPlaying(false)}
-          className="w-full h-full object-cover"
-        />
-      )}
-
-      {!playing && (
-        <button
-          type="button"
-          onClick={start}
-          aria-label="Play video"
-          className="absolute inset-0 flex items-center justify-center bg-black/15 group"
-        >
-          <div className="h-[52px] w-[52px] rounded-full bg-black/35 backdrop-blur-sm border-[0.5px] border-white/45 flex items-center justify-center group-active:scale-95 transition-transform">
-            <Play className="h-[21px] w-[21px] text-white ml-0.5" fill="currentColor" strokeWidth={0} />
-          </div>
-          <span className="absolute top-2 left-2 inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/55 backdrop-blur-sm text-white font-mono text-[9px] lowercase tracking-wider">
-            <Film className="h-2.5 w-2.5" strokeWidth={2} />
-            video
-          </span>
-        </button>
-      )}
-    </div>
-  );
-}
