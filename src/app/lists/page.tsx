@@ -20,7 +20,10 @@ import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { MovieList, ListInvite } from '@/lib/types';
-import { useCachedAction } from '@/lib/use-cached-action';
+import {
+  useCachedAction, readCachedAction, setCachedAction,
+  isCachedActionFresh, invalidateCachedAction,
+} from '@/lib/use-cached-action';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 
 // Preview data for list cards
@@ -132,11 +135,16 @@ export default function ListsPage() {
     }
   }, [user, isUserLoading, router]);
 
-  // Fetch list previews (posters and counts) when lists change
+  // Fetch list previews (posters and counts) when lists change. TTL-gated +
+  // cached so navigating away and back doesn't re-fire it; the count/posters
+  // self-heal within the window (server preview cache is busted on movie add).
   useEffect(() => {
     async function fetchPreviews() {
       if (!user || !lists || lists.length === 0) return;
-
+      const key = `lists-own-previews:${user.uid}`;
+      const cached = readCachedAction<Record<string, ListPreview>>(key);
+      if (cached) setListPreviews(cached);
+      if (cached && isCachedActionFresh(key, 60_000)) return;
       try {
         const listIds = lists.map((list) => list.id);
         const result = await apiCall<{ previews: Record<string, { previewPosters: string[]; movieCount: number }> }>(
@@ -145,6 +153,7 @@ export default function ListsPage() {
         );
         if (result.previews) {
           setListPreviews(result.previews);
+          setCachedAction(key, result.previews);
         }
       } catch (error) {
         console.error('Failed to fetch list previews:', error);
@@ -154,11 +163,14 @@ export default function ListsPage() {
     fetchPreviews();
   }, [user, lists]);
 
-  // Fetch collaborative list previews when collaborative lists change
+  // Fetch collaborative list previews when collaborative lists change (gated).
   useEffect(() => {
     async function fetchCollabPreviews() {
-      if (collaborativeLists.length === 0) return;
-
+      if (!user || collaborativeLists.length === 0) return;
+      const key = `collab-previews:${user.uid}`;
+      const cached = readCachedAction<Record<string, ListPreview>>(key);
+      if (cached) setCollabListPreviews(cached);
+      if (cached && isCachedActionFresh(key, 60_000)) return;
       try {
         const previews: Record<string, ListPreview> = {};
         await Promise.all(
@@ -173,22 +185,28 @@ export default function ListsPage() {
           })
         );
         setCollabListPreviews(previews);
+        setCachedAction(key, previews);
       } catch (error) {
         console.error('Failed to fetch collaborative list previews:', error);
       }
     }
 
     fetchCollabPreviews();
-  }, [collaborativeLists]);
+  }, [user, collaborativeLists]);
 
-  // Pending list invites — shown atop the "shared" segment (this surface moved
-  // here from the profile in the v3 redesign; invites also live in /notifications).
+  // Pending list invites — shown atop the "shared" segment (gated; invalidated
+  // by accept/decline below so a handled invite disappears immediately).
   useEffect(() => {
     async function loadInvites() {
       if (!user) return;
+      const key = `invites:${user.uid}`;
+      const cached = readCachedAction<ListInvite[]>(key);
+      if (cached) setPendingInvites(cached);
+      if (cached && isCachedActionFresh(key, 60_000)) return;
       try {
         const result = await apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites');
         setPendingInvites(result.invites || []);
+        setCachedAction(key, result.invites || []);
       } catch (error) {
         console.error('Failed to load invites:', error);
       }
@@ -201,6 +219,10 @@ export default function ListsPage() {
       await apiCall('POST', '/api/v1/invites/accept', { inviteId: invite.id });
       toast({ title: 'invite accepted', description: `you're now on "${invite.listName}"` });
       setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+      if (user) {
+        invalidateCachedAction(`invites:${user.uid}`);
+        invalidateCachedAction(`collab-previews:${user.uid}`);
+      }
       collabResult.refetch();
     } catch (err) {
       toast({
@@ -209,13 +231,14 @@ export default function ListsPage() {
         description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
       });
     }
-  }, [toast, collabResult]);
+  }, [toast, collabResult, user]);
 
   const handleDeclineInvite = useCallback(async (invite: ListInvite) => {
     try {
       await apiCall('POST', `/api/v1/invites/${invite.id}/decline`);
       toast({ title: 'invite declined' });
       setPendingInvites((prev) => prev.filter((i) => i.id !== invite.id));
+      if (user) invalidateCachedAction(`invites:${user.uid}`);
     } catch (err) {
       toast({
         variant: 'destructive',
@@ -223,7 +246,7 @@ export default function ListsPage() {
         description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
       });
     }
-  }, [toast]);
+  }, [toast, user]);
 
   const handleListCreated = useCallback(
     (listId: string) => {
@@ -268,10 +291,15 @@ export default function ListsPage() {
     try {
       collabResult.refetch();
 
+      // Pull-to-refresh is a true bypass — drop the gated caches so the fresh
+      // values below (and the collab-previews effect) replace them.
+      invalidateCachedAction(`collab-previews:${user.uid}`);
+
       // Refresh pending invites
       try {
         const inv = await apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites');
         setPendingInvites(inv.invites || []);
+        setCachedAction(`invites:${user.uid}`, inv.invites || []);
       } catch { /* non-fatal */ }
 
       // Refresh own list previews
@@ -283,6 +311,7 @@ export default function ListsPage() {
         );
         if (previewResult.previews) {
           setListPreviews(previewResult.previews);
+          setCachedAction(`lists-own-previews:${user.uid}`, previewResult.previews);
         }
       }
     } catch (error) {
