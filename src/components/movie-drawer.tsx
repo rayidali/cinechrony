@@ -389,9 +389,15 @@ export function MovieDrawer({
     try {
       await apiCall('DELETE', `/api/v1/ratings/${tmdbId}`);
     } catch (err) {
-      setUserRating(prev);
-      setRating(tmdbId, prev);
-      toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to clear rating.' });
+      // 404 = the rating's already gone, which is exactly what clear wants —
+      // treat as success (idempotent), don't bounce the rating back.
+      if (err instanceof ApiClientError && err.status === 404) {
+        // no-op: end state (no rating) achieved
+      } else {
+        setUserRating(prev);
+        setRating(tmdbId, prev);
+        toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to clear rating.' });
+      }
     } finally { setIsSavingRating(false); }
   };
 
