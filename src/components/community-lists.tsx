@@ -43,10 +43,10 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
                 haptic('light');
                 router.push(`/profile/${l.ownerUsername}/lists/${l.id}`);
               }}
-              className="flex-shrink-0 w-[150px] text-left"
+              className="flex-shrink-0 w-[210px] text-left"
             >
               <div
-                className="relative h-[144px] rounded-[18px] overflow-hidden shadow-photo"
+                className="relative h-[158px] rounded-[20px] overflow-hidden shadow-photo"
                 style={!cover ? { background: seededGradient(l.name) } : undefined}
               >
                 {cover && (
@@ -61,19 +61,19 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
                       'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.42) 45%, rgba(0,0,0,0.66) 100%)',
                   }}
                 />
-                <div className="absolute inset-0 p-3.5 flex flex-col justify-between">
+                <div className="absolute inset-0 p-4 flex flex-col justify-between">
                   <AvatarCluster members={l.members} />
                   <div>
                     <div
-                      className="font-headline font-bold lowercase text-white text-[15px] leading-[1.04] tracking-[-0.03em] line-clamp-2"
+                      className="font-headline font-bold lowercase text-white text-[18px] leading-[1.03] tracking-[-0.035em] line-clamp-2"
                       style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
                     >
                       {l.name}
                     </div>
-                    <div className="mt-2 h-[3px] rounded-full bg-white/25 overflow-hidden">
+                    <div className="mt-2.5 h-[3px] rounded-full bg-white/25 overflow-hidden">
                       <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
                     </div>
-                    <div className="mt-1.5 truncate font-mono text-[10px] text-white/80 tabular-nums">
+                    <div className="mt-2 truncate font-mono text-[10.5px] text-white/80 tabular-nums">
                       {l.watchedCount}/{l.movieCount} watched
                       {l.ownerUsername ? ` · @${l.ownerUsername}` : ''}
                     </div>
