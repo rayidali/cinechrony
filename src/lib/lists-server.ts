@@ -827,6 +827,61 @@ export async function getUserLists(userId: string): Promise<{ lists: ListSummary
   return { lists };
 }
 
+// ─── getListsForMovie — membership across the caller's own lists (F05) ─────
+
+export type ListForMovie = {
+  id: string;
+  name: string;
+  movieCount: number;
+  coverImageUrl: string | null;
+  coverMode: string | null;
+  contains: boolean; // does this list already hold the film?
+};
+
+/**
+ * The caller's own lists, each flagged with whether it already contains the
+ * film — powers the add-to-list membership sheet (F05). The in-list movie doc
+ * id is deterministic (`${mediaType}_${tmdbId}`), so membership is ONE getAll
+ * batch across the lists rather than a per-list scan.
+ */
+export async function getListsForMovie(
+  callerUid: string,
+  movieDocId: string,
+): Promise<{ lists: ListForMovie[] }> {
+  const db = getDb();
+  const listsSnap = await db
+    .collection('users').doc(callerUid).collection('lists')
+    .limit(100)
+    .get();
+  if (listsSnap.empty) return { lists: [] };
+
+  const movieRefs = listsSnap.docs.map((l) =>
+    db.collection('users').doc(callerUid).collection('lists').doc(l.id)
+      .collection('movies').doc(movieDocId),
+  );
+  const memberDocs = await db.getAll(...movieRefs);
+  const containsListIds = new Set(
+    memberDocs.filter((d) => d.exists).map((d) => d.ref.parent.parent!.id),
+  );
+
+  const lists = listsSnap.docs
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        movieCount: data.movieCount || 0,
+        coverImageUrl: data.coverImageUrl || null,
+        coverMode: data.coverMode || null,
+        contains: containsListIds.has(doc.id),
+        _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,
+      };
+    })
+    .sort((a, b) => b._sortTime - a._sortTime)
+    .map(({ _sortTime: _, ...rest }) => rest);
+  return { lists };
+}
+
 export async function getUserPublicLists(userId: string): Promise<{ lists: ListSummary[] }> {
   const db = getDb();
   const listsSnapshot = await db
