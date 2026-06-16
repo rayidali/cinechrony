@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { ListTile } from '@/components/v3/list-tile';
 import { RecentRow } from '@/components/v3/recent-row';
+import { useActivitiesVersion } from '@/lib/activity-events';
 import { rememberListSeed } from '@/lib/list-detail-seed';
 import { CoverPicker } from '@/components/cover-picker';
 import { useToast } from '@/hooks/use-toast';
@@ -123,9 +124,12 @@ export default function MyProfilePage() {
     }
   }, [firestore, user]);
 
+  // Re-fetch "recent" when the activity feed changes (e.g. a rating cleared or a
+  // watch removed from a drawer opened over this page) so it never lingers stale.
+  const activitiesVersion = useActivitiesVersion();
   useEffect(() => {
     loadActivities();
-  }, [loadActivities]);
+  }, [loadActivities, activitiesVersion]);
 
   const recentActivities = useMemo(() => (activities ?? []).slice(0, 4), [activities]);
 

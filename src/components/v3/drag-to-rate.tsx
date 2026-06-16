@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 
@@ -82,26 +83,29 @@ export function DragToRate({
   const content = (
     <>
       <div className="flex items-end justify-between">
-        <div className="flex items-baseline gap-2">
+        <div className="flex items-baseline gap-1.5">
           <span className="font-headline font-bold text-[34px] leading-none tabular-nums" style={{ color: fillColor }}>
             {shown > 0 ? shown.toFixed(1) : '–'}
           </span>
           <span className="font-headline font-semibold text-[15px] text-muted-foreground">/ 10</span>
-          {onClear && shown > 0 && !disabled && (
-            <button
-              type="button"
-              // stop the pointer from starting a drag on the rating surface
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => { e.stopPropagation(); haptic('light'); onClear(); }}
-              className="ml-1 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground underline underline-offset-2 active:opacity-60"
-            >
-              clear
-            </button>
-          )}
         </div>
-        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-          drag to rate
-        </span>
+        {/* Once rated, the right label becomes a proper-sized CLEAR button (a
+            generous tap target replaces the hint); otherwise the drag hint. */}
+        {onClear && shown > 0 && !disabled ? (
+          <button
+            type="button"
+            onPointerDown={(e) => e.stopPropagation()} // don't start a drag
+            onClick={(e) => { e.stopPropagation(); haptic('light'); onClear(); }}
+            className="-my-1.5 inline-flex items-center gap-1 rounded-full border border-hair px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground active:opacity-60"
+          >
+            <X className="h-3 w-3" strokeWidth={2.6} />
+            clear
+          </button>
+        ) : (
+          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            drag to rate
+          </span>
+        )}
       </div>
 
       <div ref={barRef} className="mt-3.5 flex gap-1">

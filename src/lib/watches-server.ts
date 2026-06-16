@@ -235,12 +235,48 @@ export async function updateWatch(
 }
 
 /** Owner-only delete of a single watch (undo an accidental log). Remaining
- *  watches re-derive their ordinals on the next read. */
+ *  watches re-derive their ordinals on the next read. When the LAST watch for a
+ *  film is removed, the film is no longer "watched" — so the matching 'watched'
+ *  activity is cleaned up too (best-effort), mirroring deleteRating, so it
+ *  leaves the profile's "recent" feed instead of lingering. */
 export async function deleteWatch(callerUid: string, watchId: string): Promise<void> {
   if (!watchId) throw new WatchValidationError('watchId is required.');
   const db = getDb();
-  const ref = db.collection('users').doc(callerUid).collection('watches').doc(watchId);
+  const col = db.collection('users').doc(callerUid).collection('watches');
+  const ref = col.doc(watchId);
   const snap = await ref.get();
   if (!snap.exists) throw new WatchNotFoundError();
+  const tmdbId = snap.data()?.tmdbId as number | undefined;
   await ref.delete();
+
+  // If that was the last viewing of this film, drop the 'watched' activity.
+  if (typeof tmdbId === 'number') {
+    try {
+      let remaining = 0;
+      try {
+        const agg = await col.where('tmdbId', '==', tmdbId).count().get();
+        remaining = agg.data().count ?? 0;
+      } catch {
+        const rest = await col.where('tmdbId', '==', tmdbId).get();
+        remaining = rest.size;
+      }
+      if (remaining === 0) {
+        const recent = await db
+          .collection('activities')
+          .where('userId', '==', callerUid)
+          .orderBy('createdAt', 'desc')
+          .limit(100)
+          .get();
+        const batch = db.batch();
+        let n = 0;
+        recent.docs.forEach((d) => {
+          const a = d.data();
+          if (a.type === 'watched' && a.tmdbId === tmdbId) { batch.delete(d.ref); n++; }
+        });
+        if (n > 0) await batch.commit();
+      }
+    } catch (err) {
+      console.error('[deleteWatch] watched-activity cleanup failed:', err);
+    }
+  }
 }

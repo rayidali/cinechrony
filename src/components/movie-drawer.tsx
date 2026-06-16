@@ -30,6 +30,7 @@ import { useUser } from '@/firebase';
 import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { readCachedAction, setCachedAction, isCachedActionFresh, invalidateCachedAction } from '@/lib/use-cached-action';
+import { notifyActivitiesChanged } from '@/lib/activity-events';
 import { useToast } from '@/hooks/use-toast';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { getRatingStyle } from '@/lib/utils';
@@ -372,6 +373,7 @@ export function MovieDrawer({
         tmdbId, mediaType: movie.mediaType || 'movie',
         movieTitle: movie.title, moviePosterUrl: movie.posterUrl, rating,
       });
+      notifyActivitiesChanged(); // a first rating may add a 'rated' activity
     } catch (err) {
       setUserRating(prev);
       setRating(tmdbId, prev);
@@ -397,8 +399,10 @@ export function MovieDrawer({
         setUserRating(prev);
         setRating(tmdbId, prev);
         toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to clear rating.' });
+        return;
       }
     } finally { setIsSavingRating(false); }
+    notifyActivitiesChanged(); // the 'rated' activity was removed → refresh recent
   };
 
   const patchStatus = (status: 'To Watch' | 'Watched') => {
@@ -444,6 +448,7 @@ export function MovieDrawer({
     if (user?.uid) invalidateCachedAction(`drawer-watches:${user.uid}:${tmdbId}`);
     if (note.trim()) invalidateCachedAction(`drawer-reviews:${tmdbId}`);
     setWatchesNonce((n) => n + 1);
+    notifyActivitiesChanged(); // a watch adds a 'watched' (and maybe 'rated') activity
   };
 
   const handleHowWasItSave = async (rating: number | null, note: string) => {
@@ -485,6 +490,7 @@ export function MovieDrawer({
     try {
       await apiCall('DELETE', `/api/v1/watches/${w.id}`);
       toast({ title: 'watch removed' });
+      notifyActivitiesChanged(); // removing the last watch drops the 'watched' activity
     } catch (err) {
       toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to remove watch.' });
     }
