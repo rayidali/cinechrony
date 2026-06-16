@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Plus, Film, Users, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
@@ -54,6 +54,7 @@ export default function ListsPage() {
   const [listPreviews, setListPreviews] = useState<Record<string, ListPreview>>({});
   const [collabListPreviews, setCollabListPreviews] = useState<Record<string, ListPreview>>({});
   const [pendingInvites, setPendingInvites] = useState<ListInvite[]>([]);
+  const collabPreviewSigRef = useRef('');
   const [seg, setSeg] = useState<'mine' | 'shared'>('mine');
   const [scrolled, setScrolled] = useState(false);
   const [dateLabel, setDateLabel] = useState('');
@@ -170,7 +171,13 @@ export default function ListsPage() {
       const key = `collab-previews:${user.uid}`;
       const cached = readCachedAction<Record<string, ListPreview>>(key);
       if (cached) setCollabListPreviews(cached);
-      if (cached && isCachedActionFresh(key, 60_000)) return;
+      // Dedup the double-fire: collaborativeLists changes ref twice (cached →
+      // revalidated), and the per-list GETs out-race the cache write. Skip if
+      // we've already kicked off a fetch for this exact set this mount.
+      const sig = collaborativeLists.map((l) => l.id).sort().join(',');
+      if (collabPreviewSigRef.current === sig) return;
+      if (cached && isCachedActionFresh(key, 60_000)) { collabPreviewSigRef.current = sig; return; }
+      collabPreviewSigRef.current = sig;
       try {
         const previews: Record<string, ListPreview> = {};
         await Promise.all(
