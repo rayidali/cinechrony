@@ -553,9 +553,15 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
 
 ### 0.7.5 — Data-rail fast-follow (the deferred backend)
 
-- [ ] **0.7.5.1** Weekly leaderboard — films-watched-per-followed-user over 7
-  days (aggregate over `/activities` within the follow graph). **Test:** seed
-  activity, assert ranking + counts; block-filtered.
+- [x] **0.7.5.1** Weekly leaderboard — films-watched-per-followed-user over 7
+  days. ✅ Shipped, then **re-architected for free-tier scale (2026-06-16):** no
+  longer a per-user 800-doc `/activities` scan (which grew with users × activity
+  → would blow the 50k-reads/day cap). Now a GLOBAL `/snapshots/home` doc built
+  by ONE scan (lazy, SWR, transaction-claimed rebuild ~hourly — no Vercel-cron
+  dependency), read once + filtered to the follow graph in memory; friends-watching
+  shares the same snapshot. `src/lib/home-snapshot-server.ts`; both rails fall back
+  to a live scan if the snapshot is missing. Tests: `43-leaderboard-snapshot`
+  (ranking, seen-signals-only, block-filter, follow-scope, week-window, fallback).
 - [ ] **0.7.5.2** Top-picks categories — define + query `new` (fresh logs),
   `trending` (exists), `popular` (all-time loved), `lowkey` (hidden gems).
 - [ ] **0.7.5.3** Featured carousel — lean on the Phase 0.5 loved-lists
