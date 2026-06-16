@@ -154,6 +154,7 @@ export function MovieDrawer({
   const [reviewCount, setReviewCount] = useState(0);
 
   const [userRating, setUserRating] = useState<number | null>(null);
+  const [ratingCreatedAt, setRatingCreatedAt] = useState<string | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>(movieProp?.status ?? 'To Watch');
   const [isPending, setIsPending] = useState(false);
@@ -188,6 +189,7 @@ export function MovieDrawer({
     setLocalStatus(movie.status);
     setNewSocialLink(movie.socialLink ?? '');
     setUserRating(null);
+    setRatingCreatedAt(null);
     setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     setShowNoteEditor(false);
     setShowSocialLinkEditor(false);
@@ -211,10 +213,13 @@ export function MovieDrawer({
     let cancelled = false;
     (async () => {
       try {
-        const r = await apiCall<{ rating: { rating: number } | null }>(
+        const r = await apiCall<{ rating: { rating: number; createdAt?: string } | null }>(
           'GET', `/api/v1/ratings/by-user?userId=${user.uid}&tmdbId=${tmdbId}`,
         );
-        if (!cancelled && r.rating) setUserRating(r.rating.rating);
+        if (!cancelled && r.rating) {
+          setUserRating(r.rating.rating);
+          setRatingCreatedAt(r.rating.createdAt ?? null);
+        }
       } catch { /* non-critical */ }
     })();
     return () => { cancelled = true; };
@@ -287,6 +292,27 @@ export function MovieDrawer({
   const posterSrc = movie.posterUrl || POSTER_FALLBACK;
   const backdropPath = mediaDetails && 'backdrop_path' in mediaDetails ? mediaDetails.backdrop_path : null;
   const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : posterSrc;
+
+  // "your history" — real watch docs, or (for films watched before the watch
+  // log existed) a single synthesized "first watch" derived from the existing
+  // rating + the user's own review. Read-time only — no backfill writes.
+  const history: Watch[] = watches.length > 0
+    ? watches
+    : userRating != null
+      ? [{
+          id: 'synthetic-first-watch',
+          userId: user?.uid ?? '',
+          tmdbId,
+          mediaType: movie.mediaType === 'tv' ? 'tv' : 'movie',
+          movieTitle: movie.title,
+          moviePosterUrl: movie.posterUrl || null,
+          watchedAt: ratingCreatedAt ? new Date(ratingCreatedAt) : new Date(),
+          rating: userRating,
+          note: reviewPreviews.find((r) => r.userId === user?.uid)?.text ?? null,
+          ordinal: 1,
+          createdAt: new Date(),
+        }]
+      : [];
 
   let runtimeLabel: string | null = null;
   if (mediaDetails) {
@@ -577,10 +603,10 @@ export function MovieDrawer({
                 </Block>
 
                 {/* ── your history (watch log) ── */}
-                {watches.length > 0 && (
-                  <Block eyebrow="your history" title={`${watches.length} ${watches.length === 1 ? 'watch' : 'watches'}`}>
+                {history.length > 0 && (
+                  <Block eyebrow="your history" title={`${history.length} ${history.length === 1 ? 'watch' : 'watches'}`}>
                     <div className="rounded-2xl border border-hair bg-card divide-y divide-hair overflow-hidden">
-                      {watches.map((w) => <WatchRow key={w.id} watch={w} />)}
+                      {history.map((w) => <WatchRow key={w.id} watch={w} />)}
                     </div>
                   </Block>
                 )}

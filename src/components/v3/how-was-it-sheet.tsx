@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { DragToRate } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
@@ -40,6 +41,10 @@ export function HowWasItSheet({
   const [rating, setRating] = useState<number>(initialRating && initialRating > 0 ? initialRating : 7.5);
   const [note, setNote] = useState('');
   const [shown, setShown] = useState(false);
+  const [mounted, setMounted] = useState(false);
+
+  // Portal needs `document` — only available after mount (static export SSRs).
+  useEffect(() => { setMounted(true); }, []);
 
   // Reset to a fresh prompt each open; trigger the enter transition.
   useEffect(() => {
@@ -52,9 +57,12 @@ export function HowWasItSheet({
     setShown(false);
   }, [isOpen, initialRating]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
+  // Portal to <body> so the sheet is viewport-fixed and z-index escapes any
+  // transformed ancestor (e.g. the list page's PullToRefresh) — otherwise the
+  // page behind bleeds through and the overlay is mispositioned. [[project_drawer_route_roundtrip]]
+  return createPortal(
     <div className="fixed inset-0 z-[88]">
       <div
         className={`absolute inset-0 bg-black/55 transition-opacity duration-200 ${shown ? 'opacity-100' : 'opacity-0'}`}
@@ -114,6 +122,7 @@ export function HowWasItSheet({
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
