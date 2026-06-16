@@ -147,19 +147,13 @@ export default function UserProfilePage() {
     async function fetchListPreviews() {
       if (!profile || lists.length === 0) return;
       try {
-        const previews: Record<string, { previewPosters: string[]; movieCount: number }> = {};
-        await Promise.all(
-          lists.map(async (list) => {
-            const result = await apiCall<{ previewPosters: string[]; movieCount: number }>(
-              'GET', `/api/v1/lists/${profile.uid}/${list.id}/preview`,
-            );
-            previews[list.id] = {
-              previewPosters: result.previewPosters || [],
-              movieCount: result.movieCount || 0,
-            };
-          })
-        );
-        setListPreviews(previews);
+        // ONE batch call instead of N serial per-list preview reads.
+        const { previews } = await apiCall<{
+          previews: Record<string, { previewPosters: string[]; movieCount: number }>;
+        }>('POST', `/api/v1/users/${profile.uid}/lists/previews`, {
+          listIds: lists.map((l) => l.id),
+        });
+        setListPreviews(previews ?? {});
       } catch (error) {
         console.error('Failed to fetch list previews:', error);
       }

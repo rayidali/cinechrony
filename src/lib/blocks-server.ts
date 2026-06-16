@@ -57,8 +57,8 @@ export async function getBlockSet(
   uid: string,
 ): Promise<Set<string>> {
   const [iBlocked, blockedMe] = await Promise.all([
-    db.collection('blocks').where('blockerId', '==', uid).get(),
-    db.collection('blocks').where('blockedId', '==', uid).get(),
+    db.collection('blocks').where('blockerId', '==', uid).limit(500).get(),
+    db.collection('blocks').where('blockedId', '==', uid).limit(500).get(),
   ]);
   const set = new Set<string>();
   iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
@@ -111,14 +111,22 @@ export async function blockUser(
   }
   await batch.commit();
 
-  // Revoke pending invites between the two (best-effort — failures here
-  // shouldn't roll back the block).
+  // Revoke pending invites between the two (best-effort). TARGETED queries —
+  // the old code scanned EVERY pending invite in the whole app (an unbounded
+  // global read that scales with total invites). Now we read only invites
+  // where one of the two is the inviter. [free-tier read reduction]
   try {
-    const pending = await db.collection('invites').where('status', '==', 'pending').get();
+    // Single-field equality (auto-indexed, no composite index needed); a
+    // user's sent invites are few, so filter status + counterparty in memory.
+    const [aSent, bSent] = await Promise.all([
+      db.collection('invites').where('inviterId', '==', blockerUid).get(),
+      db.collection('invites').where('inviterId', '==', blockedUid).get(),
+    ]);
     const invBatch = db.batch();
     let touched = false;
-    pending.docs.forEach((d) => {
+    for (const d of [...aSent.docs, ...bSent.docs]) {
       const inv = d.data();
+      if (inv.status !== 'pending') continue;
       if (
         (inv.inviterId === blockerUid && inv.inviteeId === blockedUid) ||
         (inv.inviterId === blockedUid && inv.inviteeId === blockerUid)
@@ -126,7 +134,7 @@ export async function blockUser(
         invBatch.update(d.ref, { status: 'revoked' });
         touched = true;
       }
-    });
+    }
     if (touched) await invBatch.commit();
   } catch (err) {
     console.error('[blockUser] invite revoke failed:', err);
@@ -156,8 +164,8 @@ export async function getMyBlockContext(
 ): Promise<{ blockedIds: string[]; iBlocked: string[] }> {
   const db = getDb();
   const [iBlockedSnap, blockedMeSnap] = await Promise.all([
-    db.collection('blocks').where('blockerId', '==', callerUid).get(),
-    db.collection('blocks').where('blockedId', '==', callerUid).get(),
+    db.collection('blocks').where('blockerId', '==', callerUid).limit(500).get(),
+    db.collection('blocks').where('blockedId', '==', callerUid).limit(500).get(),
   ]);
   const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
   const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);

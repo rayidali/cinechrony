@@ -53,6 +53,6 @@ export async function getMyMutes(
   const db = getDb();
   const snap = await db
     .collection('users').doc(callerUid)
-    .collection('mutes').get();
+    .collection('mutes').limit(500).get();
   return { mutedIds: snap.docs.map((d) => d.id) };
 }

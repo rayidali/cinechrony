@@ -7,7 +7,7 @@ import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
@@ -75,7 +75,13 @@ export default function ListDetailPage() {
   // Get movies in this list
   const moviesQuery = useMemoFirebase(() => {
     if (!effectiveOwnerId || !listId) return null;
-    return collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies');
+    // Cap the real-time listener so a runaway/huge list can't read thousands of
+    // docs on mount. 300 covers any real list; MovieList still sorts/filters.
+    return query(
+      collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies'),
+      orderBy('createdAt', 'desc'),
+      limit(300),
+    );
   }, [firestore, effectiveOwnerId, listId]);
 
   const { data: movies, isLoading: isLoadingMovies, error: moviesError } = useCollection<Movie>(moviesQuery);

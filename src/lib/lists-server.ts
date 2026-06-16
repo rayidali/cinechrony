@@ -832,6 +832,7 @@ export async function getUserPublicLists(userId: string): Promise<{ lists: ListS
   const listsSnapshot = await db
     .collection('users').doc(userId).collection('lists')
     .where('isPublic', '==', true)
+    .limit(50)
     .get();
 
   const lists = listsSnapshot.docs.map((doc) => {
@@ -871,71 +872,88 @@ export type CollaborativeListSummary = {
   updatedAt: string;
 };
 
-export async function getCollaborativeLists(userId: string): Promise<{ lists: CollaborativeListSummary[] }> {
-  const db = getDb();
-  const acceptedInvites = await db.collection('invites')
-    .where('inviteeId', '==', userId)
-    .where('status', '==', 'accepted')
-    .get();
+// Per-user; the collab-lists grid tolerates a couple minutes of lag.
+// Invalidated on invite accept so a freshly-joined list shows immediately.
+const collabListsCache = createTtlCache<{ lists: CollaborativeListSummary[] }>({ ttlMs: 180_000 });
+export function invalidateCollaborativeLists(userId: string): void {
+  collabListsCache.delete(userId);
+}
 
-  const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
-    const inviteData = inviteDoc.data();
-    const listDoc = await db
-      .collection('users').doc(inviteData.listOwnerId)
-      .collection('lists').doc(inviteData.listId)
+export async function getCollaborativeLists(userId: string): Promise<{ lists: CollaborativeListSummary[] }> {
+  return cached(collabListsCache, userId, async () => {
+    const db = getDb();
+    const acceptedInvites = await db.collection('invites')
+      .where('inviteeId', '==', userId)
+      .where('status', '==', 'accepted')
+      .limit(50)
       .get();
-    if (!listDoc.exists) return null;
-    const listData = listDoc.data();
-    if (!listData?.collaboratorIds?.includes(userId)) return null;
-    return {
-      id: listDoc.id,
-      name: listData.name,
-      ownerId: inviteData.listOwnerId,
-      ownerUsername: inviteData.inviterUsername || null,
-      ownerDisplayName: inviteData.inviterDisplayName || inviteData.inviterUsername || null,
-      isPublic: listData.isPublic || false,
-      isDefault: listData.isDefault || false,
-      collaboratorIds: listData.collaboratorIds || [],
-      coverImageUrl: listData.coverImageUrl || null,
-      createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-      updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-    };
+
+    const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
+      const inviteData = inviteDoc.data();
+      const listDoc = await db
+        .collection('users').doc(inviteData.listOwnerId)
+        .collection('lists').doc(inviteData.listId)
+        .get();
+      if (!listDoc.exists) return null;
+      const listData = listDoc.data();
+      if (!listData?.collaboratorIds?.includes(userId)) return null;
+      return {
+        id: listDoc.id,
+        name: listData.name,
+        ownerId: inviteData.listOwnerId,
+        ownerUsername: inviteData.inviterUsername || null,
+        ownerDisplayName: inviteData.inviterDisplayName || inviteData.inviterUsername || null,
+        isPublic: listData.isPublic || false,
+        isDefault: listData.isDefault || false,
+        collaboratorIds: listData.collaboratorIds || [],
+        coverImageUrl: listData.coverImageUrl || null,
+        createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+      };
+    });
+    const results = await Promise.all(listPromises);
+    return { lists: results.filter((l): l is CollaborativeListSummary => l !== null) };
   });
-  const results = await Promise.all(listPromises);
-  return { lists: results.filter((l): l is CollaborativeListSummary => l !== null) };
 }
 
 // ─── getListMembers ──────────────────────────────────────────────────────
+
+// Members are the same for every viewer; cache per list. Self-heals in ≤3min;
+// the list-detail page also tracks collaboratorIds live via the client cache.
+const listMembersCache = createTtlCache<{ members: ListMember[] }>({ ttlMs: 180_000 });
+export function invalidateListMembers(ownerId: string, listId: string): void {
+  listMembersCache.delete(`${ownerId}:${listId}`);
+}
 
 export async function getListMembers(
   listOwnerId: string,
   listId: string,
 ): Promise<{ members: ListMember[] }> {
-  const db = getDb();
-  const listDoc = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .get();
-  if (!listDoc.exists) throw new ListNotFoundError();
+  return cached(listMembersCache, `${listOwnerId}:${listId}`, async () => {
+    const db = getDb();
+    const listDoc = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId)
+      .get();
+    if (!listDoc.exists) throw new ListNotFoundError();
 
-  const collaboratorIds: string[] = listDoc.data()?.collaboratorIds || [];
-  const allUserIds = [listOwnerId, ...collaboratorIds];
+    const collaboratorIds: string[] = listDoc.data()?.collaboratorIds || [];
+    const allUserIds = [listOwnerId, ...collaboratorIds];
 
-  const userPromises = allUserIds.map(async (userId, index) => {
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) return null;
-    const userData = userDoc.data();
-    return {
-      uid: userId,
-      username: userData?.username || null,
-      displayName: userData?.displayName || null,
-      photoURL: userData?.photoURL || null,
-      role: index === 0 ? 'owner' as const : 'collaborator' as const,
-    };
+    const userDocs = await db.getAll(...allUserIds.map((uid) => db.collection('users').doc(uid)));
+    const members = userDocs.map((userDoc, index) => {
+      if (!userDoc.exists) return null;
+      const userData = userDoc.data();
+      return {
+        uid: allUserIds[index],
+        username: userData?.username || null,
+        displayName: userData?.displayName || null,
+        photoURL: userData?.photoURL || null,
+        role: index === 0 ? 'owner' as const : 'collaborator' as const,
+      };
+    });
+    return { members: members.filter((m): m is ListMember => m !== null) };
   });
-
-  const results = await Promise.all(userPromises);
-  return { members: results.filter((m): m is ListMember => m !== null) };
 }
 
 // ─── getListPreview / getListsPreviews (AUDIT 1.13 — privacy gated) ─────
@@ -946,44 +964,52 @@ export async function getListMembers(
  * - private lists: only owner or collaborator (by verified token uid).
  *   Returns an empty preview (no leak, no error) for anyone else.
  */
+// Preview thumbnails (grid cards on /lists + profile). Cached per
+// owner:list:viewer — viewer matters only for the private-list privacy gate.
+// Short TTL (2min) self-heals after a movie add without per-viewer invalidation.
+const listPreviewCache = createTtlCache<{ previewPosters: string[]; movieCount: number }>({ ttlMs: 120_000 });
+
 export async function getListPreview(
   listOwnerId: string,
   listId: string,
   viewerUid: string | null,
 ): Promise<{ previewPosters: string[]; movieCount: number }> {
-  const db = getDb();
-  const listSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId).get();
-  if (!listSnap.exists) return { previewPosters: [], movieCount: 0 };
+  return cached(listPreviewCache, `${listOwnerId}:${listId}:${viewerUid ?? 'anon'}`, async () => {
+    const db = getDb();
+    const listSnap = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId).get();
+    if (!listSnap.exists) return { previewPosters: [], movieCount: 0 };
 
-  const listInfo = listSnap.data();
-  if (listInfo?.isPublic !== true) {
-    const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
-    const allowed = viewerUid != null &&
-      (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
-    if (!allowed) return { previewPosters: [], movieCount: 0 };
-  }
+    const listInfo = listSnap.data();
+    if (listInfo?.isPublic !== true) {
+      const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
+      const allowed = viewerUid != null &&
+        (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
+      if (!allowed) return { previewPosters: [], movieCount: 0 };
+    }
 
-  const moviesSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .collection('movies')
-    .orderBy('createdAt', 'desc')
-    .limit(4)
-    .get();
-  const previewPosters: string[] = [];
-  moviesSnap.forEach((doc) => {
-    const url = doc.data().posterUrl;
-    if (typeof url === 'string' && url) previewPosters.push(url);
+    const moviesSnap = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId)
+      .collection('movies')
+      .orderBy('createdAt', 'desc')
+      .limit(4)
+      .get();
+    const previewPosters: string[] = [];
+    moviesSnap.forEach((doc) => {
+      const url = doc.data().posterUrl;
+      if (typeof url === 'string' && url) previewPosters.push(url);
+    });
+
+    // Use the denormalized movieCount on the list doc we already read — drops a
+    // separate count() aggregate read per list (×N lists on /lists + profile).
+    const movieCount = typeof listInfo?.movieCount === 'number'
+      ? listInfo.movieCount
+      : previewPosters.length;
+
+    return { previewPosters, movieCount };
   });
-
-  const countSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .collection('movies').count().get();
-
-  return { previewPosters, movieCount: countSnap.data().count };
 }
 
 export async function getListsPreviews(
@@ -1055,7 +1081,7 @@ export async function getPublicListMovies(
     .collection('users').doc(ownerId)
     .collection('lists').doc(listId)
     .collection('movies')
-    .orderBy('createdAt', 'desc').get();
+    .orderBy('createdAt', 'desc').limit(300).get();
 
   const movies = moviesSnapshot.docs.map((doc) => {
     const data = doc.data();
