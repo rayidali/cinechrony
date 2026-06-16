@@ -215,6 +215,12 @@ export async function unfollowUser(
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
+// IDs-only reads (getFollowingIds / getFollowerIds) hydrate NO profiles — one
+// query, doc-ids only — so they can scan far deeper than the profile-hydrating
+// lists. This is the ceiling for the follow SET used by mutuals/leaderboard/
+// friends-watching, so a 'friends' post or a top-watcher tally isn't silently
+// capped at 200.
+const MAX_ID_LIMIT = 2000;
 
 function profileFromDoc(
   doc: FirebaseFirestore.DocumentSnapshot,
@@ -296,7 +302,7 @@ export async function getFollowingIds(
   targetUid: string,
   limit: number = DEFAULT_LIST_LIMIT,
 ): Promise<string[]> {
-  const effectiveLimit = Math.min(Math.max(1, limit), MAX_LIST_LIMIT);
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_ID_LIMIT);
   // cached() auto-bypasses under the test emulator, so tests see fresh follows.
   return cached(followingIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
     const db = getDb();
@@ -317,7 +323,7 @@ export async function getFollowerIds(
   targetUid: string,
   limit: number = DEFAULT_LIST_LIMIT,
 ): Promise<string[]> {
-  const effectiveLimit = Math.min(Math.max(1, limit), MAX_LIST_LIMIT);
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_ID_LIMIT);
   return cached(followerIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
     const db = getDb();
     const snap = await db
@@ -332,12 +338,13 @@ export async function getFollowerIds(
 /**
  * The target's MUTUALS — users they follow who also follow them back. This is
  * the "friends" audience for posts. Two cached set reads + an in-memory
- * intersection (no per-edge reads). Capped at MAX_LIST_LIMIT each side.
+ * intersection (no per-edge reads). Scans the full follow graph (MAX_ID_LIMIT)
+ * so a large account's 'friends' audience isn't silently truncated.
  */
 export async function getMutualIds(targetUid: string): Promise<string[]> {
   const [following, followers] = await Promise.all([
-    getFollowingIds(targetUid, MAX_LIST_LIMIT),
-    getFollowerIds(targetUid, MAX_LIST_LIMIT),
+    getFollowingIds(targetUid, MAX_ID_LIMIT),
+    getFollowerIds(targetUid, MAX_ID_LIMIT),
   ]);
   const followerSet = new Set(followers);
   return following.filter((id) => followerSet.has(id));

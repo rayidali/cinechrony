@@ -22,7 +22,7 @@ import { WatchedOnSheet } from '@/components/v3/watched-on-sheet';
 import { TagFriendsSheet } from '@/components/v3/tag-friends-sheet';
 import { VisibleToSheet } from '@/components/v3/visible-to-sheet';
 import type {
-  PostMedia, Post, SearchResult, TaggedUser, PostVisibility, PostWatchType, TMDBCrew,
+  PostMedia, Post, SearchResult, TaggedUser, PostVisibility, PostWatchType, TMDBCrew, UserProfile,
 } from '@/lib/types';
 
 // ─── Constants ───────────────────────────────────────────────────────────
@@ -134,6 +134,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const [visibility, setVisibility] = useState<PostVisibility>('everyone');
   const [closeFriends, setCloseFriends] = useState<TaggedUser[]>([]);
   const [closeFriendIds, setCloseFriendIds] = useState<string[]>([]);
+  const [closeFriendsFollowing, setCloseFriendsFollowing] = useState<UserProfile[]>([]);
   const [isPosting, setIsPosting] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -317,24 +318,35 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   };
 
   // ── Close-friends management (reuses the friend picker) ──────────────────
+  // ONE following read: seed the current selection AND hand the same list to the
+  // sheet (seedFollowing) so it doesn't re-fetch.
   const openCloseFriends = async () => {
     if (!user) return;
+    let users: UserProfile[] = [];
     try {
-      const res = await apiCall<{ users: TaggedUser[] }>('GET', `/api/v1/users/${user.uid}/following?limit=200`);
-      const set = new Set(closeFriendIds);
-      setCloseFriends((res.users ?? []).filter((u) => set.has(u.uid)).map((u) => ({
-        uid: u.uid, username: u.username ?? null, displayName: u.displayName ?? null, photoURL: u.photoURL ?? null,
-      })));
-    } catch { setCloseFriends([]); }
+      const res = await apiCall<{ users: UserProfile[] }>('GET', `/api/v1/users/${user.uid}/following?limit=200`);
+      users = res.users ?? [];
+    } catch { users = []; }
+    const set = new Set(closeFriendIds);
+    setCloseFriendsFollowing(users);
+    setCloseFriends(users.filter((u) => set.has(u.uid)).map((u) => ({
+      uid: u.uid, username: u.username ?? null, displayName: u.displayName ?? null, photoURL: u.photoURL ?? null,
+    })));
     setSheet('closeFriends');
   };
+  // "done" — persist, then trust the server-normalized id set for the count.
   const commitCloseFriends = async () => {
-    setSheet('visibleTo');
     const ids = closeFriends.map((u) => u.uid);
-    setCloseFriendIds(ids);
-    try { await apiCall('PUT', '/api/v1/me/close-friends', { ids }); }
-    catch { toast({ variant: 'destructive', title: "couldn't save close friends." }); }
+    try {
+      const res = await apiCall<{ ids: string[] }>('PUT', '/api/v1/me/close-friends', { ids });
+      setCloseFriendIds(res.ids ?? ids);
+    } catch {
+      toast({ variant: 'destructive', title: "couldn't save close friends." });
+    }
+    setSheet('visibleTo');
   };
+  // "cancel"/swipe — back out with no write; the count keeps its saved value.
+  const cancelCloseFriends = () => setSheet('visibleTo');
 
   // ── Submit ───────────────────────────────────────────────────────────────
   const uploading = media.some((m) => m.status === 'uploading');
@@ -577,8 +589,10 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
         isOpen={sheet === 'closeFriends'}
         title="close friends"
         value={closeFriends}
-        onClose={commitCloseFriends}
+        seedFollowing={closeFriendsFollowing}
         onChange={setCloseFriends}
+        onClose={cancelCloseFriends}
+        onDone={commitCloseFriends}
       />
       <VisibleToSheet
         isOpen={sheet === 'visibleTo'}

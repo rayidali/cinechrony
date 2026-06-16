@@ -24,6 +24,8 @@ import { POST as createPost } from '@/app/api/v1/posts/route';
 import { GET as getPost } from '@/app/api/v1/posts/[id]/route';
 import { GET as homeFeed } from '@/app/api/v1/home-feed/route';
 import { GET as getCloseFriends, PUT as putCloseFriends } from '@/app/api/v1/me/close-friends/route';
+import { POST as createComment, GET as getComments } from '@/app/api/v1/posts/[id]/comments/route';
+import { POST as likePost } from '@/app/api/v1/posts/[id]/like/route';
 
 let alice: TestUser, bob: TestUser;
 
@@ -33,11 +35,8 @@ beforeEach(async () => {
   await clearFirestore();
   alice = await createTestUser('alice');
   bob = await createTestUser('bob');
-  for (const u of [alice, bob]) {
-    await adminDb().collection('users').doc(u.uid).set({
-      uid: u.uid, username: u.uid, usernameLower: u.uid,
-    });
-  }
+  await adminDb().collection('users').doc(alice.uid).set({ uid: alice.uid, username: 'alice', usernameLower: 'alice' });
+  await adminDb().collection('users').doc(bob.uid).set({ uid: bob.uid, username: 'bob', usernameLower: 'bob' });
 });
 
 after(async () => { await clearFirestore(); await clearAuth(); });
@@ -198,4 +197,93 @@ test('PUT /me/close-friends: non-array → 400', async () => {
   const token = await alice.getIdToken();
   const res = await callRoute(putCloseFriends, 'PUT', { token, body: { ids: 'nope' } });
   assert.equal(res.status, 400);
+});
+
+// ─── audience leaks closed (review fixes) ───────────────────────────────────
+
+test('comment thread of a restricted post is hidden from outsiders + anonymous', async () => {
+  const aToken = await alice.getIdToken();
+  const id = await makePost(aToken, { text: 'private', visibility: 'only_me' });
+  // author can comment on their own post
+  const c = await callRoute(createComment, 'POST', { token: aToken, params: { id }, body: { text: 'mine' } });
+  assert.equal(c.status, 200, JSON.stringify(c.body));
+
+  // author sees the thread
+  const mine = await callRoute<{ comments: unknown[] }>(getComments, 'GET', { token: aToken, params: { id } });
+  if (mine.body.ok !== true) return assert.fail('ok');
+  assert.equal(mine.body.data.comments.length, 1);
+
+  // outsider + anonymous get an empty thread (not the leaked comments)
+  const outsider = await callRoute<{ comments: unknown[] }>(getComments, 'GET', { token: await bob.getIdToken(), params: { id } });
+  if (outsider.body.ok !== true) return assert.fail('ok');
+  assert.equal(outsider.body.data.comments.length, 0, 'outsider sees no comments');
+
+  const anon = await callRoute<{ comments: unknown[] }>(getComments, 'GET', { params: { id } });
+  if (anon.body.ok !== true) return assert.fail('ok');
+  assert.equal(anon.body.data.comments.length, 0, 'anonymous sees no comments');
+});
+
+test('an outsider cannot comment on a restricted post (404, no existence oracle)', async () => {
+  const aToken = await alice.getIdToken();
+  const id = await makePost(aToken, { text: 'private', visibility: 'only_me' });
+  const res = await callRoute(createComment, 'POST', { token: await bob.getIdToken(), params: { id }, body: { text: 'sneak' } });
+  assert.equal(res.status, 404);
+});
+
+test('an outsider cannot like a restricted post (404, no existence oracle)', async () => {
+  const aToken = await alice.getIdToken();
+  const id = await makePost(aToken, { text: 'private', visibility: 'only_me' });
+  const res = await callRoute(likePost, 'POST', { token: await bob.getIdToken(), params: { id } });
+  assert.equal(res.status, 404);
+});
+
+test('@-mention on a restricted post does NOT notify an out-of-audience user', async () => {
+  const aToken = await alice.getIdToken();
+  // only_me → audience is just the author; bob is mentioned but not in audience.
+  await makePost(aToken, { text: 'secret @bob', visibility: 'only_me' });
+  const notifs = await adminDb().collection('notifications')
+    .where('userId', '==', bob.uid).where('type', '==', 'post_tag').get();
+  assert.equal(notifs.size, 0, 'no tag notification leaks the restricted post');
+});
+
+test('@-mention on a public post still notifies (control)', async () => {
+  const aToken = await alice.getIdToken();
+  await makePost(aToken, { text: 'hey @bob', visibility: 'everyone' });
+  const notifs = await adminDb().collection('notifications')
+    .where('userId', '==', bob.uid).where('type', '==', 'post_tag').get();
+  assert.equal(notifs.size, 1);
+});
+
+test('home-feed pagination is not dead-ended by a hidden post in the window', async () => {
+  const carol = await createTestUser('carol');
+  await adminDb().collection('users').doc(carol.uid).set({ uid: carol.uid, username: 'carol', usernameLower: 'carol' });
+  // newest → oldest: P1 everyone(alice), P2 only_me(carol, hidden to bob),
+  // P3 everyone(alice), P4 everyone(alice). With limit=2 the +1 window is P1,P2,P3;
+  // the old code dropped P2 and wrongly reported hasMore=false, hiding P4.
+  const mk = (id: string, authorId: string, t: number, visibility: string, audienceUids?: string[]) =>
+    adminDb().collection('posts').doc(id).set({
+      id, authorId, text: id, media: [], taggedMovie: null, rating: null,
+      taggedUserIds: [], taggedUsers: [], place: null, visibility,
+      ...(audienceUids ? { audienceUids } : {}),
+      likes: 0, likedBy: [], commentCount: 0,
+      createdAt: new Date(2024, 0, t), updatedAt: new Date(2024, 0, t),
+    });
+  await mk('P1', alice.uid, 4, 'everyone');
+  await mk('P2', carol.uid, 3, 'only_me', []);
+  await mk('P3', alice.uid, 2, 'everyone');
+  await mk('P4', alice.uid, 1, 'everyone');
+
+  const bobToken = await bob.getIdToken();
+  const page1 = await callRoute<{ items: { post: { id: string } }[]; hasMore: boolean; nextCursor?: string }>(
+    homeFeed, 'GET', { token: bobToken, url: 'http://test/api/v1/home-feed?limit=2' });
+  if (page1.body.ok !== true) return assert.fail('ok');
+  assert.equal(page1.body.data.items.length, 2, 'two visible posts on page 1');
+  assert.equal(page1.body.data.hasMore, true, 'more remain (P4) — not dead-ended by the hidden P2');
+  const ids1 = page1.body.data.items.map((i) => i.post.id);
+  assert.deepEqual(ids1, ['P1', 'P3']);
+
+  const page2 = await callRoute<{ items: { post: { id: string } }[] }>(
+    homeFeed, 'GET', { token: bobToken, url: `http://test/api/v1/home-feed?limit=2&cursor=${encodeURIComponent(page1.body.data.nextCursor!)}` });
+  if (page2.body.ok !== true) return assert.fail('ok');
+  assert.deepEqual(page2.body.data.items.map((i) => i.post.id), ['P4'], 'page 2 surfaces the previously-hidden-tail visible post');
 });

@@ -30,6 +30,10 @@ export default function PostPage() {
   const [notFound, setNotFound] = useState(false);
   const [draft, setDraft] = useState('');
   const [replyTo, setReplyTo] = useState<PostComment | null>(null);
+  // The handle to SHOW in the "replying to @…" banner. For a reply to a nested
+  // reply it's the tapped reply's author, while replyTo (→ parentId) stays the
+  // root comment so threading remains 1-level.
+  const [replyHandle, setReplyHandle] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
   const load = useCallback(async () => {
@@ -67,6 +71,7 @@ export default function PostPage() {
         });
         setDraft('');
         setReplyTo(null);
+        setReplyHandle(null);
         await load();
       } catch (err) {
         toast({
@@ -167,7 +172,7 @@ export default function PostPage() {
                   comment={c}
                   currentUserId={user?.uid ?? null}
                   postAuthorId={post.authorId}
-                  onReply={() => setReplyTo(c)}
+                  onReply={() => { setReplyTo(c); setReplyHandle(c.username); }}
                   onDelete={() => handleDeleteComment(c.id)}
                 />
                 {(repliesByParent[c.id] ?? []).length > 0 && (
@@ -179,7 +184,7 @@ export default function PostPage() {
                         currentUserId={user?.uid ?? null}
                         postAuthorId={post.authorId}
                         isReply
-                        onReply={() => setReplyTo(c)}
+                        onReply={() => { setReplyTo(c); setReplyHandle(r.username); }}
                         onDelete={() => handleDeleteComment(r.id)}
                       />
                     ))}
@@ -199,9 +204,9 @@ export default function PostPage() {
         <div className="container mx-auto px-4 max-w-2xl py-2.5">
           {replyTo && (
             <div className="flex items-center justify-between mb-1.5 font-mono text-[11px] text-muted-foreground">
-              <span>replying to @{replyTo.username || 'user'}</span>
+              <span>replying to @{replyHandle || replyTo.username || 'user'}</span>
               <button
-                onClick={() => setReplyTo(null)}
+                onClick={() => { setReplyTo(null); setReplyHandle(null); }}
                 aria-label="Cancel reply"
                 className="h-8 w-8 -my-2 -mr-2 rounded-full flex items-center justify-center active:bg-foreground/5 active:scale-95 transition-all"
               >
@@ -298,8 +303,12 @@ function CommentRow({
 
   const time = comment.createdAt
     ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: false })
-        .replace('about ', '').replace(' minutes', 'm').replace(' minute', 'm')
-        .replace(' hours', 'h').replace(' hour', 'h').replace(' days', 'd').replace(' day', 'd')
+        .replace('about ', '').replace('almost ', '').replace('over ', '')
+        .replace(' minutes', 'm').replace(' minute', 'm')
+        .replace(' hours', 'h').replace(' hour', 'h')
+        .replace(' days', 'd').replace(' day', 'd')
+        .replace(' months', 'mo').replace(' month', 'mo')
+        .replace(' years', 'y').replace(' year', 'y')
         .replace('less than am', 'now')
     : '';
 

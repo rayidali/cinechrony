@@ -402,8 +402,17 @@ export async function createPost(
 
   const previewText = text.slice(0, 100);
 
+  // A tag/@-mention notification carries the post's preview text — so it must
+  // only go to recipients who are allowed to SEE the post. For a restricted
+  // post, never notify (and never leak the preview to) anyone outside the
+  // write-time audience; an 'only_me' post notifies no one.
+  const audienceSet = audience.audienceUids ? new Set(audience.audienceUids) : null;
+  const canRecipientSee = (uid: string): boolean =>
+    audience.visibility === 'everyone' || uid === callerUid || (audienceSet?.has(uid) ?? false);
+
   // Legacy taggedUserIds — explicit picks, no mentions-pref check.
   for (const t of taggedUsers) {
+    if (!canRecipientSee(t.uid)) continue;
     try {
       await createPostTagNotification(db, {
         postId: postRef.id,
@@ -440,6 +449,7 @@ export async function createPost(
         const doc = snap.docs[0];
         const mentionedUserId = doc.id;
         if (alreadyNotified.has(mentionedUserId)) continue;
+        if (!canRecipientSee(mentionedUserId)) continue;
         await createPostTagNotification(db, {
           postId: postRef.id,
           previewText: mentionPreview,
@@ -558,6 +568,11 @@ export async function likePost(
   const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { kind: 'err' as const, error: new PostNotFoundError() };
+    // F04 audience: an out-of-audience caller gets the same 404 as a missing
+    // post — no liking, and no existence oracle on restricted posts.
+    if (!canViewPost(postFromDoc(snap), callerUid)) {
+      return { kind: 'err' as const, error: new PostNotFoundError() };
+    }
     const d = snap.data() || {};
     const likedBy: string[] = d.likedBy || [];
     if (likedBy.includes(callerUid)) {
@@ -605,6 +620,9 @@ export async function unlikePost(
   const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { kind: 'err' as const, error: new PostNotFoundError() };
+    if (!canViewPost(postFromDoc(snap), callerUid)) {
+      return { kind: 'err' as const, error: new PostNotFoundError() };
+    }
     const d = snap.data() || {};
     const likedBy: string[] = d.likedBy || [];
     if (!likedBy.includes(callerUid)) {
@@ -638,32 +656,60 @@ export async function getHomeFeed(
   // The reel is user-authored posts only. System activities (`added`,
   // `watched`, `rated`, `reviewed`) are intentionally kept out of the home
   // feed — they're low-signal logging; opinions belong in a written post.
-  let postQ = db.collection('posts').orderBy('createdAt', 'desc');
-  if (cursorDate && !Number.isNaN(cursorDate.getTime())) {
-    postQ = postQ.where('createdAt', '<', cursorDate);
+  //
+  // Block + F04-audience filtering happens in-memory AFTER the read, so a window
+  // can shrink below `limit` (others' private posts). Pagination MUST be keyed
+  // off the RAW scan, not the visible count — otherwise a single hidden post
+  // could set hasMore=false and dead-end infinite scroll. We scan in bounded
+  // rounds (cap reads under the free-tier budget) until we have a full visible
+  // page or the collection is exhausted, advancing the cursor past the last
+  // RAW doc each round so hidden docs are never re-scanned.
+  const baseQ = db.collection('posts').orderBy('createdAt', 'desc');
+  const MAX_ROUNDS = 5;
+  const ROUND = limit + 1;
+
+  const visible: { item: FeedItem; ts: number }[] = [];
+  let scanCursor: Date | null = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+  let rawCursor: string | undefined; // ISO of the last RAW doc scanned
+  let exhausted = false;
+  let rounds = 0;
+
+  // Scan until we have one MORE than the page (so we know there's a next page)
+  // or the collection runs out — keep going past hidden posts.
+  for (; rounds < MAX_ROUNDS && visible.length <= limit; rounds++) {
+    let q = baseQ;
+    if (scanCursor) q = q.where('createdAt', '<', scanCursor);
+    const snap = await q.limit(ROUND).get();
+    if (snap.empty) { exhausted = true; break; }
+    for (const d of snap.docs) {
+      const p = postFromDoc(d);
+      rawCursor = p.createdAt.toISOString();
+      scanCursor = p.createdAt;
+      if (blockSet.has(p.authorId)) continue;
+      if (!canViewPost(p, viewerUid)) continue;
+      visible.push({ item: { kind: 'post', post: p }, ts: p.createdAt.getTime() });
+    }
+    if (snap.size < ROUND) { exhausted = true; break; }
   }
 
-  const postSnap = await postQ.limit(limit + 1).get();
+  visible.sort((a, b) => b.ts - a.ts);
+  const page = visible.slice(0, limit);
 
-  const merged = postSnap.docs
-    .map((d) => {
-      const p = postFromDoc(d);
-      return {
-        item: { kind: 'post' as const, post: p },
-        ts: p.createdAt.getTime(),
-        authorId: p.authorId,
-        post: p,
-      };
-    })
-    .filter((x) => !blockSet.has(x.authorId))
-    .filter((x) => canViewPost(x.post, viewerUid)) // F04 audience enforcement
-    .sort((a, b) => b.ts - a.ts);
-
-  const hasMore = merged.length > limit;
-  const page = merged.slice(0, limit);
-  const nextCursor =
-    hasMore && page.length > 0
-      ? new Date(page[page.length - 1].ts).toISOString()
-      : undefined;
+  let hasMore: boolean;
+  let nextCursor: string | undefined;
+  if (visible.length > limit) {
+    // There's a confirmed next visible post — resume just after the LAST
+    // RETURNED item (not the last raw doc) so the surplus visible isn't dropped.
+    hasMore = true;
+    nextCursor = page.length > 0 ? new Date(page[page.length - 1].ts).toISOString() : rawCursor;
+  } else if (rounds >= MAX_ROUNDS && !exhausted) {
+    // Hit the scan cap on a dense run of hidden posts — there may be more;
+    // advance past everything scanned so we don't re-scan the hidden run.
+    hasMore = true;
+    nextCursor = rawCursor;
+  } else {
+    hasMore = false;
+    nextCursor = undefined;
+  }
   return { items: page.map((x) => x.item), hasMore, nextCursor };
 }

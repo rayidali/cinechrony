@@ -70,7 +70,11 @@ export function ReelViewer({
     });
   };
 
-  const onTouchStart = (e: React.TouchEvent) => { touchX.current = e.touches[0]?.clientX ?? null; };
+  // Swipe to move between segments — but NOT over a video (a horizontal drag is
+  // the scrubber there; navigating would fight the native controls).
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchX.current = cur.type === 'video' ? null : (e.touches[0]?.clientX ?? null);
+  };
   const onTouchEnd = (e: React.TouchEvent) => {
     if (touchX.current == null) return;
     const dx = (e.changedTouches[0]?.clientX ?? touchX.current) - touchX.current;
@@ -175,9 +179,11 @@ export function ReelViewer({
                 key={k}
                 onClick={() => { haptic('selection'); setIdx(k); }}
                 aria-label={`Go to ${k + 1}`}
-                className="flex-1 h-[3px] rounded-full overflow-hidden bg-foreground/15"
+                className="flex-1 py-2 -my-2 flex items-center" /* 3px track, ~19px hit area */
               >
-                <span className={`block h-full rounded-full ${k <= idx ? 'bg-foreground' : ''}`} style={{ width: k <= idx ? '100%' : '0%' }} />
+                <span className="block w-full h-[3px] rounded-full overflow-hidden bg-foreground/15">
+                  <span className={`block h-full rounded-full ${k <= idx ? 'bg-foreground' : ''}`} style={{ width: k <= idx ? '100%' : '0%' }} />
+                </span>
               </button>
             ))}
           </div>
