@@ -69,7 +69,7 @@ function ListCard({ list, onOpen }: { list: LovedListCard; onOpen: () => void })
     <button onClick={onOpen} className="text-left group">
       <div
         className="relative aspect-square rounded-[18px] overflow-hidden shadow-photo bg-sunken transition-transform duration-200 group-active:scale-[0.98]"
-        style={!cover && posters.length === 0 ? { background: seededGradient(list.name) } : undefined}
+        style={!cover ? { background: seededGradient(list.name) } : undefined}
       >
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -106,7 +106,7 @@ function CoverFan({ posters }: { posters: string[] }) {
       {items.map((it, k) => (
         <span
           key={k}
-          className="absolute left-1/2 top-1/2 w-[46%] aspect-[2/3] rounded-[8px] overflow-hidden border-[0.5px] border-black/25 shadow-[0_8px_18px_rgba(0,0,0,0.35)]"
+          className="absolute left-1/2 top-1/2 w-[52%] aspect-[2/3] rounded-[9px] overflow-hidden border-[0.5px] border-black/25 shadow-[0_10px_22px_rgba(0,0,0,0.4)]"
           style={{
             transform: `translate(-50%,-50%) translateX(${it.x}) rotate(${it.rot}deg)`,
             zIndex: it.z,

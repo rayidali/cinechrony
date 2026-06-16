@@ -115,3 +115,32 @@ test('a recently-liked list outranks an older, more-liked one', async () => {
   assert.equal(res.lists[0].id, 'fresh', 'recency beats raw like count');
   assert.equal(res.lists[2].id, 'old-popular', 'the stale popular list sinks');
 });
+
+test('rich hydration adds contributor avatars + a watched count', async () => {
+  await adminDb().collection('users').doc('owner1').set({ username: 'owner1', photoURL: null });
+  await adminDb().collection('users').doc('collab1').set({ username: 'collab1', photoURL: 'p.jpg' });
+  await adminDb().collection('users').doc('owner1')
+    .collection('lists').doc('rl')
+    .set({
+      id: 'rl', name: 'rich list', ownerId: 'owner1', isPublic: true, likes: 2,
+      collaboratorIds: ['collab1'], movieCount: 3,
+      lastLikedAt: new Date(), createdAt: new Date(), updatedAt: new Date(),
+    });
+  const seedMovie = (mid: string, status: string) =>
+    adminDb().collection('users').doc('owner1')
+      .collection('lists').doc('rl').collection('movies').doc(mid)
+      .set({ id: mid, title: mid, posterUrl: `${mid}.jpg`, status, addedBy: 'owner1', createdAt: new Date() });
+  await seedMovie('m1', 'Watched');
+  await seedMovie('m2', 'Watched');
+  await seedMovie('m3', 'To Watch');
+
+  const res = await callRoute<{ lists: any[]; gated: boolean }>(
+    lovedListsGet, 'GET', { url: 'http://test/api/v1/lists/loved?rich=1' },
+  );
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  const card = res.body.data.lists.find((l) => l.id === 'rl');
+  assert.ok(card, 'rich list present');
+  assert.equal(card.watchedCount, 2, 'count() tallies Watched movies');
+  assert.ok(Array.isArray(card.members) && card.members.length === 2, 'owner + collaborator avatars');
+  assert.ok(card.members.some((m: any) => m.username === 'collab1'));
+});

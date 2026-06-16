@@ -70,6 +70,8 @@ export function TopWatchersAll({ isOpen, onClose }: { isOpen: boolean; onClose: 
 
   const podium = entries.slice(0, 3);
   const rest = entries.slice(3);
+  // Show the movement column only when there's prior-period data to compare.
+  const showMovement = entries.some((e) => e.movement != null || e.isNew);
 
   return (
     <DetailScreen isOpen={isOpen} onClose={onClose} title="top watchers">
@@ -96,13 +98,14 @@ export function TopWatchersAll({ isOpen, onClose }: { isOpen: boolean; onClose: 
           <>
             <Podium entries={podium} meUid={user?.uid} onOpen={openProfile} />
             {rest.length > 0 && (
-              <div className="mt-7 space-y-2.5">
+              <div className="mt-7 rounded-[18px] border border-hair bg-card overflow-hidden divide-y divide-hair">
                 {rest.map((e) => (
                   <RankRow
                     key={e.uid}
                     entry={e}
                     unit={WINDOW_LABEL[win]}
                     isMe={e.uid === user?.uid}
+                    showMovement={showMovement}
                     onOpen={() => openProfile(e.username)}
                   />
                 ))}
@@ -184,25 +187,27 @@ function RankRow({
   entry,
   unit,
   isMe,
+  showMovement,
   onOpen,
 }: {
   entry: LeaderboardEntry;
   unit: string;
   isMe: boolean;
+  showMovement: boolean;
   onOpen: () => void;
 }) {
   return (
     <button
       onClick={onOpen}
-      className={`w-full flex items-center gap-3 rounded-[16px] px-3.5 py-3 text-left transition-transform active:scale-[0.99] ${
-        isMe ? 'bg-primary/[0.07] border border-primary/30' : 'bg-card border border-hair'
+      className={`w-full flex items-center gap-3 px-3.5 py-3 text-left transition-colors active:bg-foreground/[0.04] ${
+        isMe ? 'bg-primary/[0.06]' : ''
       }`}
     >
       <span className="w-5 flex-shrink-0 text-center font-headline font-bold text-[15px] tabular-nums text-muted-foreground">
         {entry.rank}
       </span>
-      <span className="h-10 w-10 flex-shrink-0 rounded-full overflow-hidden bg-muted">
-        <Avatar entry={entry} size={40} />
+      <span className="h-9 w-9 flex-shrink-0 rounded-full overflow-hidden bg-muted">
+        <Avatar entry={entry} size={36} />
       </span>
       <div className="flex-1 min-w-0">
         <div className="font-ui font-semibold text-[14px] text-foreground tracking-[-0.01em] truncate">
@@ -213,6 +218,29 @@ function RankRow({
           {entry.films} films {unit}
         </div>
       </div>
+      {showMovement && <Movement movement={entry.movement} isNew={entry.isNew} />}
     </button>
+  );
+}
+
+/** Weekly rank movement: +up (sage) · −down (film red) · – same · new entrant. */
+function Movement({ movement, isNew }: { movement?: number | null; isNew?: boolean }) {
+  if (isNew) {
+    return <span className="flex-shrink-0 font-mono text-[11px] font-bold text-success">new</span>;
+  }
+  if (movement == null || movement === 0) {
+    return <span className="flex-shrink-0 font-mono text-[12px] text-muted-foreground">–</span>;
+  }
+  if (movement > 0) {
+    return (
+      <span className="flex-shrink-0 font-mono text-[12px] font-bold tabular-nums text-success">
+        +{movement}
+      </span>
+    );
+  }
+  return (
+    <span className="flex-shrink-0 font-mono text-[12px] font-bold tabular-nums text-primary">
+      {movement}
+    </span>
   );
 }

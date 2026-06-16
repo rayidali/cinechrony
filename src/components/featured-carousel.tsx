@@ -13,7 +13,10 @@ const LOVED_KEY = 'home-loved-lists';
 
 export function useLovedLists() {
   return useCachedAction<LovedListCard[]>(LOVED_KEY, async () => {
-    const r = await apiCall<{ lists: LovedListCard[]; gated: boolean }>('GET', '/api/v1/lists/loved?limit=10');
+    const r = await apiCall<{ lists: LovedListCard[]; gated: boolean }>(
+      'GET',
+      '/api/v1/lists/loved?limit=10&rich=1',
+    );
     return r.lists ?? [];
   });
 }

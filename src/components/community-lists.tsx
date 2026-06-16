@@ -4,12 +4,14 @@ import { useRouter } from 'next/navigation';
 import { Section, ViewAll } from '@/components/v3/section';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { useLovedLists } from '@/components/featured-carousel';
+import { haptic } from '@/lib/haptics';
+import type { ListMemberAvatar } from '@/lib/lists-server';
 
 /**
- * "from the community" — gradient list tiles (Phase 0.7 / v3,
- * `ios-home.jsx::ListsForYou`). Real loved lists (the ones past the featured
- * hero), tile cover + title + `N films · M saved`. Hidden when there aren't
- * enough lists to fill a second rail.
+ * "from the community" — info-dense list cards (Phase 0.7 / v3, `ios-home.jsx::
+ * ListsForYou`). Per the design: contributor avatars · title · a watched-progress
+ * bar · `N/M watched · @author`. Real loved/community lists (the ones past the
+ * featured hero). Hidden when there aren't enough to fill a second rail.
  */
 export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
   const router = useRouter();
@@ -31,37 +33,50 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
       <div className="flex gap-3.5 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">
         {lists.map((l) => {
           const cover = l.coverImageUrl && l.coverMode !== 'auto' ? l.coverImageUrl : null;
+          const pct =
+            l.movieCount > 0 ? Math.min(100, Math.round((l.watchedCount / l.movieCount) * 100)) : 0;
           return (
             <button
               key={l.id}
-              onClick={() => l.ownerUsername && router.push(`/profile/${l.ownerUsername}/lists/${l.id}`)}
-              className="flex-shrink-0 w-[168px] text-left"
+              onClick={() => {
+                if (!l.ownerUsername) return;
+                haptic('light');
+                router.push(`/profile/${l.ownerUsername}/lists/${l.id}`);
+              }}
+              className="flex-shrink-0 w-[230px] text-left"
             >
               <div
-                className="relative h-[168px] rounded-[20px] overflow-hidden shadow-photo"
+                className="relative h-[140px] rounded-[18px] overflow-hidden shadow-photo"
                 style={!cover ? { background: seededGradient(l.name) } : undefined}
               >
                 {cover && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
                 )}
+                {/* dark wash for the editorial card look + legibility */}
                 <div
                   className="absolute inset-0"
                   style={{
                     background:
-                      'linear-gradient(to bottom, rgba(0,0,0,0.25), transparent 40%, rgba(0,0,0,0.7))',
+                      'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.42) 45%, rgba(0,0,0,0.66) 100%)',
                   }}
                 />
-                <div className="absolute left-3.5 right-3.5 bottom-3">
-                  <div
-                    className="font-headline font-bold lowercase text-white leading-[0.98] tracking-[-0.035em] line-clamp-2"
-                    style={{ fontSize: 19, textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
-                  >
-                    {l.name}
-                  </div>
-                  <div className="font-mono text-[10px] text-white/[0.82] mt-1.5 tabular-nums">
-                    {l.movieCount} films
-                    {typeof l.likes === 'number' && l.likes > 0 ? ` · ${formatSaved(l.likes)} saved` : ''}
+                <div className="absolute inset-0 p-3.5 flex flex-col justify-between">
+                  <AvatarCluster members={l.members} />
+                  <div>
+                    <div
+                      className="font-headline font-bold lowercase text-white text-[16px] leading-[1.04] tracking-[-0.03em] line-clamp-2"
+                      style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
+                    >
+                      {l.name}
+                    </div>
+                    <div className="mt-2 h-[3px] rounded-full bg-white/25 overflow-hidden">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="mt-1.5 font-mono text-[10px] text-white/80 tabular-nums">
+                      {l.watchedCount}/{l.movieCount} watched
+                      {l.ownerUsername ? ` · @${l.ownerUsername}` : ''}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -73,6 +88,33 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
   );
 }
 
-function formatSaved(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k` : String(n);
+/** Overlapping contributor avatars (owner + collaborators), top-left of a card. */
+function AvatarCluster({ members }: { members: ListMemberAvatar[] }) {
+  const shown = members.slice(0, 3);
+  if (shown.length === 0) return <div />;
+  return (
+    <div className="flex">
+      {shown.map((m, i) => (
+        <span
+          key={i}
+          className={`h-7 w-7 rounded-full overflow-hidden ring-2 ring-black/40 flex items-center justify-center ${
+            i > 0 ? '-ml-2.5' : ''
+          }`}
+          style={{
+            zIndex: 10 - i,
+            background: m.photoURL ? undefined : seededGradient(m.username || `m${i}`, 140),
+          }}
+        >
+          {m.photoURL ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={m.photoURL} alt="" className="w-full h-full object-cover" />
+          ) : (
+            <span className="font-headline font-bold text-[11px] text-white">
+              {(m.username || '?').charAt(0).toUpperCase()}
+            </span>
+          )}
+        </span>
+      ))}
+    </div>
+  );
 }

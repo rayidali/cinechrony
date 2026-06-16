@@ -574,6 +574,8 @@ export async function unlikeList(
 
 // ─── Shared types ────────────────────────────────────────────────────────
 
+export type ListMemberAvatar = { photoURL: string | null; username: string | null };
+
 export type LovedListCard = {
   id: string;
   name: string;
@@ -586,42 +588,78 @@ export type LovedListCard = {
   movieCount: number;
   likes: number;
   previewPosters: string[];
+  /** Contributor avatars (owner + up to 2 collaborators). Only populated when
+   *  the card is hydrated `rich` (the home community rail); `[{owner}]` otherwise. */
+  members: ListMemberAvatar[];
+  /** Films in the list marked Watched. Only computed when hydrated `rich`. */
+  watchedCount: number;
 };
 
 // ─── Internal: hydrateListCards ──────────────────────────────────────────
 
 /**
- * Turn raw list docs into discovery cards — batch-fetches owner profiles
- * and up to 4 preview posters per list. Shared by getLovedLists +
- * searchPublicLists.
+ * Turn raw list docs into discovery cards — batch-fetches member profiles and
+ * up to 4 preview posters per list. Shared by getLovedLists + searchPublicLists.
+ *
+ * `rich` adds the home-rail extras (contributor avatars + a Watched count via a
+ * cheap `count()` aggregate). It's gated so the lean callers (search, the F17
+ * "view all" grid) don't pay for reads they don't render — free-tier discipline.
  */
 async function hydrateListCards(
   db: FirebaseFirestore.Firestore,
   docs: FirebaseFirestore.QueryDocumentSnapshot[],
+  opts: { rich?: boolean } = {},
 ): Promise<LovedListCard[]> {
-  const ownerIds = [...new Set(docs.map((d) => d.data().ownerId).filter(Boolean))];
-  const ownerDocs = ownerIds.length
-    ? await db.getAll(...ownerIds.map((id) => db.collection('users').doc(id)))
+  const rich = opts.rich === true;
+
+  // Member uids to fetch: the owner always; + up to 2 collaborators when rich.
+  const perListMemberUids = new Map<string, string[]>();
+  const allMemberUids = new Set<string>();
+  for (const doc of docs) {
+    const d = doc.data();
+    const ownerId: string = d.ownerId;
+    const collabs: string[] = Array.isArray(d.collaboratorIds) ? d.collaboratorIds : [];
+    const uids = rich
+      ? [ownerId, ...collabs.filter((c) => c && c !== ownerId)].slice(0, 3)
+      : [ownerId];
+    perListMemberUids.set(doc.id, uids);
+    for (const u of uids) if (u) allMemberUids.add(u);
+  }
+  const memberUids = [...allMemberUids];
+  const memberDocs = memberUids.length
+    ? await db.getAll(...memberUids.map((id) => db.collection('users').doc(id)))
     : [];
-  const ownerById = new Map(ownerDocs.map((s) => [s.id, s.data()]));
+  const userById = new Map(memberDocs.map((s) => [s.id, s.data()]));
 
   return Promise.all(
     docs.map(async (doc) => {
       const d = doc.data();
       const ownerId: string = d.ownerId;
-      const owner = ownerById.get(ownerId);
-      const moviesSnap = await db
+      const owner = userById.get(ownerId);
+      const moviesRef = db
         .collection('users').doc(ownerId)
         .collection('lists').doc(doc.id)
-        .collection('movies')
-        .orderBy('createdAt', 'desc')
-        .limit(4)
-        .get();
+        .collection('movies');
+
+      const [moviesSnap, watchedCount] = await Promise.all([
+        moviesRef.orderBy('createdAt', 'desc').limit(4).get(),
+        rich
+          ? moviesRef.where('status', '==', 'Watched').count().get()
+              .then((a) => a.data().count)
+              .catch(() => 0)
+          : Promise.resolve(0),
+      ]);
       const previewPosters: string[] = [];
       moviesSnap.forEach((m) => {
         const p = m.data().posterUrl;
         if (typeof p === 'string' && p) previewPosters.push(p);
       });
+
+      const members: ListMemberAvatar[] = (perListMemberUids.get(doc.id) ?? []).map((uid) => {
+        const u = userById.get(uid);
+        return { photoURL: u?.photoURL ?? null, username: u?.username ?? null };
+      });
+
       return {
         id: doc.id,
         name: d.name || 'untitled list',
@@ -633,6 +671,8 @@ async function hydrateListCards(
         movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
         likes: d.likes || 0,
         previewPosters,
+        members,
+        watchedCount,
       };
     }),
   );
@@ -653,8 +693,12 @@ async function hydrateListCards(
 // home load via both the featured carousel and the community rail.
 const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 180_000 });
 
-export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[]; gated: boolean }> {
-  return cached(lovedListsCache, `limit:${limit}`, async () => {
+export async function getLovedLists(
+  limit = 12,
+  opts: { rich?: boolean } = {},
+): Promise<{ lists: LovedListCard[]; gated: boolean }> {
+  const rich = opts.rich === true;
+  return cached(lovedListsCache, `limit:${limit}:rich:${rich ? 1 : 0}`, async () => {
     const db = getDb();
     const now = Date.now();
 
@@ -694,7 +738,7 @@ export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[
     const top = [...liked, ...fresh].slice(0, limit);
     if (top.length === 0) return { lists: [], gated: true };
 
-    const lists = await hydrateListCards(db, top);
+    const lists = await hydrateListCards(db, top, { rich });
     return { lists, gated: false };
   });
 }

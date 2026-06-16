@@ -24,6 +24,11 @@ export type LeaderboardEntry = {
   photoURL: string | null;
   films: number;
   rank: number;
+  /** Rank change vs the previous equal-length period (+up / −down / 0 same).
+   *  `null` = not comparable (all-time, the fallback path, or a new entrant). */
+  movement?: number | null;
+  /** Appeared this period (the prior period had data; this user wasn't ranked). */
+  isNew?: boolean;
 };
 
 const LOG_TYPES = new Set(['watched', 'rated', 'reviewed']);
@@ -111,18 +116,41 @@ export async function getWeeklyLeaderboard(
         .map((e, i) => ({ ...e, rank: i + 1 }));
     };
 
+    const tsOf = (doc: FirebaseFirestore.QueryDocumentSnapshot): number =>
+      (doc.data().createdAt as FirebaseFirestore.Timestamp | undefined)?.toMillis?.() ?? 0;
+
     const cutoff = Date.now() - windowDays * 24 * 60 * 60 * 1000;
-    const windowed = snap.docs.filter((doc) => {
-      const ts = (doc.data().createdAt as FirebaseFirestore.Timestamp | undefined)?.toMillis?.() ?? 0;
-      return ts >= cutoff;
-    });
+    const windowed = snap.docs.filter((doc) => tsOf(doc) >= cutoff);
 
     let entries = rank(windowed);
+    let usedFallback = false;
     // Young app / sparse week: rather than render an empty rail, fall back to the
     // most-active loggers over all recent activity (opt-in, home rail only).
     if (entries.length === 0 && fallbackToAllTime) {
       entries = rank(snap.docs);
+      usedFallback = true;
     }
+
+    // Weekly/monthly movement vs the previous equal-length period — computed
+    // in-memory from the SAME scan (no extra reads). Skipped for all-time and
+    // the fallback path (where a window comparison is meaningless).
+    const isAllTime = windowDays >= 3650;
+    if (!isAllTime && !usedFallback) {
+      const priorStart = Date.now() - 2 * windowDays * 24 * 60 * 60 * 1000;
+      const priorDocs = snap.docs.filter((doc) => {
+        const ts = tsOf(doc);
+        return ts >= priorStart && ts < cutoff;
+      });
+      const prior = rank(priorDocs);
+      const priorRankByUid = new Map(prior.map((e) => [e.uid, e.rank]));
+      const priorHadData = prior.length > 0;
+      entries = entries.map((e) =>
+        priorRankByUid.has(e.uid)
+          ? { ...e, movement: (priorRankByUid.get(e.uid) as number) - e.rank, isNew: false }
+          : { ...e, movement: null, isNew: priorHadData },
+      );
+    }
+
     return { entries };
   });
 }
