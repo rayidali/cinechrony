@@ -16,11 +16,14 @@ import { haptic } from '@/lib/haptics';
 export function DragToRate({
   value,
   onChangeComplete,
+  onClear,
   disabled = false,
   framed = true,
 }: {
   value: number | null;
   onChangeComplete: (value: number) => void;
+  /** When provided, a "clear" affordance shows once a rating is set. */
+  onClear?: () => void;
   disabled?: boolean;
   /** Wrap in the bordered card (drawer). F03 sheet passes false (bare). */
   framed?: boolean;
@@ -79,11 +82,22 @@ export function DragToRate({
   const content = (
     <>
       <div className="flex items-end justify-between">
-        <div className="flex items-baseline gap-1.5">
+        <div className="flex items-baseline gap-2">
           <span className="font-headline font-bold text-[34px] leading-none tabular-nums" style={{ color: fillColor }}>
             {shown > 0 ? shown.toFixed(1) : '–'}
           </span>
           <span className="font-headline font-semibold text-[15px] text-muted-foreground">/ 10</span>
+          {onClear && shown > 0 && !disabled && (
+            <button
+              type="button"
+              // stop the pointer from starting a drag on the rating surface
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => { e.stopPropagation(); haptic('light'); onClear(); }}
+              className="ml-1 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground underline underline-offset-2 active:opacity-60"
+            >
+              clear
+            </button>
+          )}
         </div>
         <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
           drag to rate

@@ -30,7 +30,7 @@ export function WatchEditSheet({
   onRemove: () => void;
   onClose: () => void;
 }) {
-  const [rating, setRating] = useState<number>(7.5);
+  const [rating, setRating] = useState<number | null>(7.5);
   const [note, setNote] = useState('');
   const [removeArmed, setRemoveArmed] = useState(false);
   const height = useViewportHeight(88);
@@ -78,7 +78,7 @@ export function WatchEditSheet({
             </div>
 
             <div className="mt-3 rounded-2xl border border-hair bg-card p-4 shadow-press">
-              <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
+              <DragToRate value={rating} onChangeComplete={setRating} onClear={() => setRating(null)} framed={false} />
             </div>
 
             <div className="mt-4">

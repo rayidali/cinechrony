@@ -116,6 +116,24 @@ test('POST /ratings: rounds to one decimal', async () => {
   assert.equal(stored.data()?.rating, 8.5, 'rounded to nearest 0.1');
 });
 
+test('DELETE /ratings: clearing a rating also removes the "rated" activity', async () => {
+  const token = await viewer.getIdToken();
+  // First rating emits a 'rated' activity.
+  await callRoute(ratingPost, 'POST', {
+    token, body: { tmdbId: TMDB_ID, mediaType: 'movie', movieTitle: 'X', rating: 8 },
+  });
+  let acts = await adminDb().collection('activities')
+    .where('userId', '==', viewer.uid).where('type', '==', 'rated').get();
+  assert.equal(acts.size, 1, "the rating emitted a 'rated' activity");
+
+  // Clearing it should remove that activity (so it leaves profile "recent").
+  const del = await callRoute(ratingDelete, 'DELETE', { token, params: { tmdbId: String(TMDB_ID) } });
+  assert.equal(del.status, 200);
+  acts = await adminDb().collection('activities')
+    .where('userId', '==', viewer.uid).where('type', '==', 'rated').get();
+  assert.equal(acts.size, 0, "the 'rated' activity is gone after clearing");
+});
+
 // ─── GET /ratings/by-user ─────────────────────────────────────────────────
 
 test('GET /ratings/by-user: returns the rating', async () => {

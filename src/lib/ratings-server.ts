@@ -185,6 +185,29 @@ export async function deleteRating(
     throw new RatingOwnerMismatchError();
   }
   await ratingRef.delete();
+
+  // Clearing a rating undoes the 'rated' event — remove the matching activity so
+  // it leaves the profile's "recent" feed (and the leaderboard tally). Best-
+  // effort; uses the existing (userId, createdAt) index, scans the caller's
+  // recent activity (a just-rated film's activity is recent → covered).
+  try {
+    const db2 = getDb();
+    const recent = await db2
+      .collection('activities')
+      .where('userId', '==', callerUid)
+      .orderBy('createdAt', 'desc')
+      .limit(100)
+      .get();
+    const batch = db2.batch();
+    let n = 0;
+    recent.docs.forEach((d) => {
+      const a = d.data();
+      if (a.type === 'rated' && a.tmdbId === tmdbId) { batch.delete(d.ref); n++; }
+    });
+    if (n > 0) await batch.commit();
+  } catch (err) {
+    console.error('[deleteRating] rated-activity cleanup failed:', err);
+  }
 }
 
 // ─── getUserRatings — cursor pagination (AUDIT 2.5) ──────────────────────

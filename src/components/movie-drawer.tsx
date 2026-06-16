@@ -446,11 +446,13 @@ export function MovieDrawer({
     setWatchesNonce((n) => n + 1);
   };
 
-  const handleHowWasItSave = async (rating: number, note: string) => {
+  const handleHowWasItSave = async (rating: number | null, note: string) => {
     setShowRateOnWatch(false);
     patchStatus('Watched');
     await logWatch(rating, note);
-    toast({ title: 'logged', description: `you rated ${movie.title} ${rating.toFixed(1)}/10` });
+    toast(rating != null
+      ? { title: 'logged', description: `you rated ${movie.title} ${rating.toFixed(1)}/10` }
+      : { title: 'logged', description: `${movie.title} — marked watched` });
   };
 
   const handleHowWasItSkip = async () => {
@@ -665,12 +667,8 @@ export function MovieDrawer({
                 </div>
 
                 {/* ── your rating ── */}
-                <Block
-                  title="your rating"
-                  trailing={userRating != null ? 'clear' : undefined}
-                  onTrailingTap={userRating != null ? clearRating : undefined}
-                >
-                  <DragToRate value={userRating} onChangeComplete={saveRating} disabled={isSavingRating} />
+                <Block title="your rating">
+                  <DragToRate value={userRating} onChangeComplete={saveRating} onClear={clearRating} disabled={isSavingRating} />
                 </Block>
 
                 {/* ── your history (watch log) ── */}

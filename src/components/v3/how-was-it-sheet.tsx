@@ -36,11 +36,11 @@ export function HowWasItSheet({
   posterUrl: string;
   listName?: string;
   initialRating: number | null;
-  onSave: (rating: number, note: string) => void;
+  onSave: (rating: number | null, note: string) => void;
   onSkip: () => void;
   onCancel: () => void;
 }) {
-  const [rating, setRating] = useState<number>(initialRating && initialRating > 0 ? initialRating : 7.5);
+  const [rating, setRating] = useState<number | null>(initialRating && initialRating > 0 ? initialRating : 7.5);
   const [note, setNote] = useState('');
   const height = useViewportHeight(90);
 
@@ -92,7 +92,7 @@ export function HowWasItSheet({
 
             {/* drag to rate */}
             <div className="mt-4 rounded-2xl border border-hair bg-card p-4 shadow-press">
-              <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
+              <DragToRate value={rating} onChangeComplete={setRating} onClear={() => setRating(null)} framed={false} />
             </div>
 
             {/* optional review */}
