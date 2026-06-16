@@ -3,35 +3,33 @@
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react';
 import Image from 'next/image';
 import {
-  ImagePlus,
-  Film,
-  AtSign,
-  MapPin,
-  Star,
-  X,
-  Search,
-  Loader2,
-  Trash2,
-  ChevronLeft,
-  Play,
+  ChevronLeft, ChevronRight, Search, Loader2, X, Plus, Play, Film,
+  CalendarDays, Users, Globe, Star, Lock,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { searchTmdbMulti } from '@/lib/tmdb-client';
+import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
 import { compressImage } from '@/lib/image-compress';
 import { captureVideoPoster } from '@/lib/video-poster';
 import { invalidateCachedActionsByPrefix } from '@/lib/use-cached-action';
-import { ProfileAvatar } from '@/components/profile-avatar';
-import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useToast } from '@/hooks/use-toast';
-import { cn, getRatingStyle } from '@/lib/utils';
-import type { PostMedia, Post, SearchResult, UserProfile } from '@/lib/types';
+import { cn } from '@/lib/utils';
+import { format, isToday, isYesterday } from 'date-fns';
+import { Segmented } from '@/components/v3/segmented';
+import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
+import { WatchedOnSheet } from '@/components/v3/watched-on-sheet';
+import { TagFriendsSheet } from '@/components/v3/tag-friends-sheet';
+import { VisibleToSheet } from '@/components/v3/visible-to-sheet';
+import type {
+  PostMedia, Post, SearchResult, TaggedUser, PostVisibility, PostWatchType, TMDBCrew,
+} from '@/lib/types';
 
 // ─── Constants ───────────────────────────────────────────────────────────
-const DRAFTS_KEY = 'cinechrony-post-drafts';
-const MAX_MEDIA = 6;
+const DRAFT_KEY = 'cinechrony-post-draft';
+const MAX_MEDIA = 10;
 const MAX_TEXT = 280;
-const AUTOSAVE_MS = 5000;
+const AUTOSAVE_MS = 4000;
 
 // ─── Types ───────────────────────────────────────────────────────────────
 type MediaItem = {
@@ -45,17 +43,20 @@ type MediaItem = {
 
 type TaggedMovie = NonNullable<Post['taggedMovie']>;
 
+// A single implicit draft — restored on open, cleared on a successful post.
+// (Media isn't saved — File objects can't survive a JSON round-trip.)
 type Draft = {
-  id: string;
   text: string;
   taggedMovie: TaggedMovie | null;
   rating: number | null;
-  place: string;
+  watchType: PostWatchType;
+  watchedOn: string | null; // ISO
+  visibility: PostVisibility;
+  taggedUsers: TaggedUser[];
   updatedAt: number;
 };
 
-// Which sub-picker is open. `null` = the normal compose surface.
-type Sheet = null | 'film' | 'mention' | 'location' | 'rating' | 'drafts';
+type Sheet = null | 'film' | 'watchedOn' | 'tagFriends' | 'closeFriends' | 'visibleTo';
 
 type PostComposerProps = {
   isOpen: boolean;
@@ -63,35 +64,25 @@ type PostComposerProps = {
   onPosted?: (postId: string) => void;
 };
 
-// ─── localStorage helpers ────────────────────────────────────────────────
-function loadDrafts(): Draft[] {
+// ─── Draft helpers (single slot) ───────────────────────────────────────────
+function loadDraft(): Draft | null {
   try {
-    const raw = localStorage.getItem(DRAFTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+    const raw = localStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return d && typeof d === 'object' ? d : null;
+  } catch { return null; }
 }
-function saveDrafts(drafts: Draft[]) {
+function persistDraft(d: Draft | null) {
   try {
-    localStorage.setItem(DRAFTS_KEY, JSON.stringify(drafts));
-  } catch {
-    /* quota — ignore */
-  }
-}
-function newDraftId(): string {
-  return `d_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    if (d) localStorage.setItem(DRAFT_KEY, JSON.stringify(d));
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch { /* quota — ignore */ }
 }
 
 // ─── Upload helper ───────────────────────────────────────────────────────
 /** PUT a file to a presigned R2 URL with upload progress. */
-function uploadToR2(
-  url: string,
-  file: File,
-  onProgress: (pct: number) => void,
-): Promise<void> {
+function uploadToR2(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('PUT', url);
@@ -100,362 +91,194 @@ function uploadToR2(
       if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onload = () =>
-      xhr.status >= 200 && xhr.status < 300
-        ? resolve()
-        : reject(new Error(`Upload failed (${xhr.status})`));
+      xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error(`Upload failed (${xhr.status})`));
     xhr.onerror = () => reject(new Error('Upload failed'));
     xhr.send(file);
   });
 }
 
+function dateChipLabel(d: Date): string {
+  if (isToday(d)) return 'today';
+  if (isYesterday(d)) return 'yesterday';
+  return format(d, 'MMM d').toLowerCase();
+}
+
 /**
- * Post composer — v3 ("twitter-shaped, cinechrony-skinned").
+ * Post composer — v3 "create a post" (F04). A film-anchored, scrollable form:
+ * film cell → your watch (first/rewatch + watched-on) → your rating (drag) →
+ * your take (serif) → photos & clips → tag friends → visible to. Posting also
+ * records a watch + (optional) rating for the film server-side, and snapshots
+ * the audience for restricted visibility.
  *
- * The composer is the FAB destination on /home. Rules from the v3 design
- * (`pattern-post-composer.html`):
- *  - Every post is anchored to a film. The body leads with a dashed "pin a
- *    film · what's this about?" row that converts to a filled card on pick.
- *    All 4 toolbar tools (image · @ · location · rating) are disabled until
- *    a film is pinned.
- *  - 280-char limit; counter tints amber at 250, marker over.
- *  - Friends are tagged via inline @mentions in the body (no separate chip
- *    list). The @ tool opens an inline user search → inserts `@username `
- *    at the cursor.
- *  - The rating chip lives in the body, indented under the avatar. Adding
- *    a rating *also* upserts the user's /ratings entry for the pinned film
- *    (createPost handles this server-side).
- *  - Drafts auto-save every 5 s into localStorage. The "drafts (N)" link
- *    in the header opens the drafts list (resume / delete).
- *
- * Layout: a fixed-position bone surface sized to `window.visualViewport`
- * so the action toolbar sits right above the iOS keyboard instead of
- * behind it. The textarea autofocuses on open.
+ * The surface pins to `window.visualViewport` so the form scrolls correctly and
+ * the keyboard never floats the lists/home page through from below (the bug we
+ * shipped before). Pickers are bottom sheets (Vaul) that open over the form.
  */
 export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   const { user } = useUser();
   const auth = useAuth();
-  const myProfile = useUserProfile(user?.uid ?? '');
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const textRef = useRef<HTMLTextAreaElement>(null);
-  const lastCaretRef = useRef<number>(0);
+  const takeRef = useRef<HTMLTextAreaElement>(null);
   const [, startTransition] = useTransition();
 
   // Core post state
   const [text, setText] = useState('');
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [taggedMovie, setTaggedMovie] = useState<TaggedMovie | null>(null);
+  const [filmSubtitle, setFilmSubtitle] = useState<string | null>(null);
   const [rating, setRating] = useState<number | null>(null);
-  const [place, setPlace] = useState('');
+  const [watchType, setWatchType] = useState<PostWatchType>('first');
+  const [watchedOn, setWatchedOn] = useState<Date>(() => new Date());
+  const [taggedUsers, setTaggedUsers] = useState<TaggedUser[]>([]);
+  const [visibility, setVisibility] = useState<PostVisibility>('everyone');
+  const [closeFriends, setCloseFriends] = useState<TaggedUser[]>([]);
+  const [closeFriendIds, setCloseFriendIds] = useState<string[]>([]);
   const [isPosting, setIsPosting] = useState(false);
-
-  // True while iOS is showing the native file action sheet
-  // ("Photo Library / Take Photo or Video / Choose Files"). iOS does NOT
-  // dim the underlying page when it presents this sheet for an `<input
-  // type=file>` — so the sheet appears to float in cream nothingness over
-  // the composer's bone background. Every other iOS modal the user has
-  // ever seen has a dark scrim behind it, so the bare version reads as
-  // broken. We render our own scrim while this flag is true; iOS draws
-  // its native sheet on top (native UI always paints above web), and the
-  // sheet now has visual context.
   const [pickerOpen, setPickerOpen] = useState(false);
 
-  // Drafts
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [draftId, setDraftId] = useState<string | null>(null);
-
-  // Sub-picker state
+  // Pickers
   const [sheet, setSheet] = useState<Sheet>(null);
   const [filmQuery, setFilmQuery] = useState('');
   const [filmResults, setFilmResults] = useState<SearchResult[]>([]);
-  const [mentionQuery, setMentionQuery] = useState('');
-  const [mentionResults, setMentionResults] = useState<UserProfile[]>([]);
-  const [tempRating, setTempRating] = useState<number>(7.5);
-  const [tempPlace, setTempPlace] = useState('');
 
-  // The composer pins itself to the visual viewport — not the layout
-  // viewport — so the surface always covers what the user can see, and the
-  // toolbar lands right above the iOS keyboard. We track BOTH `offsetTop`
-  // and `height`: on iOS, opening the keyboard moves the visual viewport's
-  // top edge down by `offsetTop` (so a plain `top: 0` would float above the
-  // visible area, with the lists/home page bleeding through below the
-  // drawer — exactly the bug we shipped before).
-  const [viewport, setViewport] = useState<{ top: number; height: string }>({
-    top: 0,
-    height: '100dvh',
-  });
+  const [viewport, setViewport] = useState<{ top: number; height: string }>({ top: 0, height: '100dvh' });
 
-  // ── Effects ────────────────────────────────────────────────────────────
-
+  // ── Viewport pinning (iOS keyboard-safe) ─────────────────────────────────
   useEffect(() => {
     if (!isOpen) return;
     const vv = window.visualViewport;
-    if (!vv) {
-      setViewport({ top: 0, height: '100dvh' });
-      return;
-    }
+    if (!vv) { setViewport({ top: 0, height: '100dvh' }); return; }
     const update = () => setViewport({ top: vv.offsetTop, height: `${vv.height}px` });
     update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update); };
   }, [isOpen]);
 
-  // On open: load drafts, lock body scroll, focus the textarea.
-  //
-  // The focus call MUST stay synchronous to the FAB-click user-gesture chain
-  // — iOS Safari only opens the soft keyboard when `.focus()` is reached
-  // before the gesture's event loop ends. Any `setTimeout` past 0 typically
-  // loses that context, and the composer opens with the keyboard down →
-  // the toolbar then sits at the bottom of the screen, out of thumb reach.
-  // We focus immediately on this effect's first synchronous pass, then
-  // double-tap with a microtask + a short timer to defend against the
-  // animate-sheet-rise stealing focus during its commit.
+  // On open: lock scroll, restore a draft, load the close-friends count.
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
-    setDrafts(loadDrafts());
-
-    textRef.current?.focus({ preventScroll: true });
-    queueMicrotask(() => textRef.current?.focus({ preventScroll: true }));
-    const refocus = window.setTimeout(
-      () => textRef.current?.focus({ preventScroll: true }),
-      120,
-    );
-
-    return () => {
-      window.clearTimeout(refocus);
-      document.body.style.overflow = '';
-      setPickerOpen(false);
-    };
+    const d = loadDraft();
+    if (d) {
+      setText(d.text || '');
+      setTaggedMovie(d.taggedMovie ?? null);
+      setRating(d.rating ?? null);
+      setWatchType(d.watchType === 'rewatch' ? 'rewatch' : 'first');
+      setWatchedOn(d.watchedOn ? new Date(d.watchedOn) : new Date());
+      setVisibility(d.visibility ?? 'everyone');
+      setTaggedUsers(Array.isArray(d.taggedUsers) ? d.taggedUsers : []);
+      if (d.taggedMovie) void hydrateFilmSubtitle(d.taggedMovie);
+    }
+    apiCall<{ ids: string[] }>('GET', '/api/v1/me/close-friends')
+      .then((res) => setCloseFriendIds(res.ids ?? []))
+      .catch(() => {});
+    return () => { document.body.style.overflow = ''; setPickerOpen(false); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen]);
 
-  // Listen for `cancel` on the file input — fires in Safari 16.4+ when
-  // the user dismisses the action sheet or photo picker without picking
-  // anything. React's input element types don't expose `onCancel` as a
-  // JSX prop, so we attach it directly. The tap-to-dismiss on the scrim
-  // is the fallback for older Safari versions that don't fire this.
-  //
-  // On dismiss we also refocus the textarea so iOS re-shows the
-  // keyboard, which shrinks the visualViewport back to the smaller
-  // keyboard-up size. Without that the composer stays expanded after
-  // the sheet dismisses, exposing the cream void until the user taps
-  // back into the field manually.
+  // Refocus the take field when the iOS file action sheet dismisses (so the
+  // composer shrinks back to its keyboard-up size — no cream void).
   useEffect(() => {
     if (!isOpen) return;
     const input = fileInputRef.current;
     if (!input) return;
-    const handleCancel = () => {
-      setPickerOpen(false);
-      textRef.current?.focus({ preventScroll: true });
-    };
+    const handleCancel = () => setPickerOpen(false);
     input.addEventListener('cancel', handleCancel);
     return () => input.removeEventListener('cancel', handleCancel);
   }, [isOpen]);
 
-  // Autosave every AUTOSAVE_MS while the composer is open. We DON'T autosave
-  // media — File objects can't survive a JSON round-trip.
+  // Autosave a single draft while there's content.
   useEffect(() => {
     if (!isOpen) return;
-    const hasContent =
-      text.trim() || place.trim() || taggedMovie || rating !== null;
+    const hasContent = text.trim() || taggedMovie || rating !== null || taggedUsers.length > 0;
     if (!hasContent) return;
-
-    const timer = setTimeout(() => {
-      let id = draftId;
-      if (!id) {
-        id = newDraftId();
-        setDraftId(id);
-      }
-      setDrafts((prev) => {
-        const next = prev.filter((d) => d.id !== id);
-        next.unshift({
-          id: id!,
-          text,
-          taggedMovie,
-          rating,
-          place,
-          updatedAt: Date.now(),
-        });
-        const trimmed = next.slice(0, 20); // cap at 20 drafts
-        saveDrafts(trimmed);
-        return trimmed;
+    const t = setTimeout(() => {
+      persistDraft({
+        text, taggedMovie, rating, watchType,
+        watchedOn: watchedOn.toISOString(), visibility, taggedUsers,
+        updatedAt: Date.now(),
       });
     }, AUTOSAVE_MS);
-
-    return () => clearTimeout(timer);
-  }, [isOpen, text, place, taggedMovie, rating, draftId]);
-
-  // When a film is pinned: prefill the rating tray default with the user's
-  // existing /ratings entry — only adopt it into the post if the user opens
-  // the rating sheet (so a pin doesn't silently inherit a rating).
-  useEffect(() => {
-    if (!taggedMovie || !user) return;
-    let cancelled = false;
-    apiCall<{ rating: { rating: number } | null }>(
-      'GET',
-      `/api/v1/ratings/by-user?userId=${user.uid}&tmdbId=${taggedMovie.tmdbId}`,
-    )
-      .then((res) => {
-        if (cancelled) return;
-        if (res?.rating?.rating) setTempRating(res.rating.rating);
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, [taggedMovie, user]);
+    return () => clearTimeout(t);
+  }, [isOpen, text, taggedMovie, rating, watchType, watchedOn, visibility, taggedUsers]);
 
   // Debounced film search.
   useEffect(() => {
     if (sheet !== 'film') return;
     const q = filmQuery.trim();
-    if (q.length < 2) {
-      setFilmResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      searchTmdbMulti(q, 12).then(setFilmResults).catch(() => {});
-    }, 280);
+    if (q.length < 2) { setFilmResults([]); return; }
+    const t = setTimeout(() => { searchTmdbMulti(q, 14).then(setFilmResults).catch(() => {}); }, 280);
     return () => clearTimeout(t);
   }, [filmQuery, sheet]);
 
-  // Debounced friend search.
-  useEffect(() => {
-    if (sheet !== 'mention' || !user) return;
-    const q = mentionQuery.trim();
-    if (q.length < 1) {
-      setMentionResults([]);
-      return;
-    }
-    const t = setTimeout(() => {
-      apiCall<{ users: UserProfile[] }>(
-        'GET', `/api/v1/users/search?q=${encodeURIComponent(q)}`,
-      )
-        .then((r) => setMentionResults(r.users ?? []))
-        .catch(() => {});
-    }, 280);
-    return () => clearTimeout(t);
-  }, [mentionQuery, sheet, user]);
-
-  // ── Reset ──────────────────────────────────────────────────────────────
-
-  const resetAll = useCallback(() => {
-    setMedia((prev) => {
-      prev.forEach((m) => URL.revokeObjectURL(m.localUrl));
-      return [];
-    });
-    setText('');
-    setTaggedMovie(null);
-    setRating(null);
-    setPlace('');
-    setSheet(null);
-    setFilmQuery('');
-    setFilmResults([]);
-    setMentionQuery('');
-    setMentionResults([]);
-    setTempPlace('');
-    setDraftId(null);
+  // ── Film subtitle (director · year), best-effort + module-cached ─────────
+  const hydrateFilmSubtitle = useCallback(async (m: TaggedMovie) => {
+    const fallback = [m.year || null, m.mediaType === 'tv' ? 'tv' : 'film'].filter(Boolean).join(' · ');
+    setFilmSubtitle(fallback);
+    try {
+      const details = await getMovieOrTVDetails(m.mediaType, m.tmdbId);
+      const crew = (details?.credits?.crew ?? []) as TMDBCrew[];
+      const dir = crew.find((c) => c.job === 'Director')?.name;
+      setFilmSubtitle(
+        dir ? `dir. ${dir.toLowerCase()}${m.year ? ` · ${m.year}` : ''}` : fallback,
+      );
+    } catch { /* keep fallback */ }
   }, []);
 
-  // ── File upload ────────────────────────────────────────────────────────
+  // ── Reset ────────────────────────────────────────────────────────────────
+  const resetAll = useCallback(() => {
+    setMedia((prev) => { prev.forEach((m) => URL.revokeObjectURL(m.localUrl)); return []; });
+    setText(''); setTaggedMovie(null); setFilmSubtitle(null); setRating(null);
+    setWatchType('first'); setWatchedOn(new Date()); setTaggedUsers([]); setVisibility('everyone');
+    setSheet(null); setFilmQuery(''); setFilmResults([]);
+  }, []);
 
+  // ── File upload ──────────────────────────────────────────────────────────
   const handleFiles = (files: FileList | null) => {
     setPickerOpen(false);
-    // Bring the keyboard back so the composer shrinks to its keyboard-up
-    // size; otherwise the cream void below the new media strip is
-    // exposed until the user taps the field manually.
-    textRef.current?.focus({ preventScroll: true });
     if (!files || !user) return;
     const room = MAX_MEDIA - media.length;
     const picked = Array.from(files).slice(0, Math.max(0, room));
     for (const file of picked) {
       const isVideo = file.type.startsWith('video/');
       const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const item: MediaItem = {
-        id,
-        kind: isVideo ? 'video' : 'image',
-        localUrl: URL.createObjectURL(file),
-        status: 'uploading',
-        progress: 0,
-      };
-      setMedia((prev) => [...prev, item]);
+      setMedia((prev) => [...prev, { id, kind: isVideo ? 'video' : 'image', localUrl: URL.createObjectURL(file), status: 'uploading', progress: 0 }]);
 
       (async () => {
         try {
           const uploadFile = isVideo ? file : await compressImage(file);
-          const res = await apiCall<{ uploadUrl: string; publicUrl: string }>(
-            'POST',
-            '/api/v1/posts/media-upload-url',
-            {
-              fileName: uploadFile.name,
-              contentType: uploadFile.type,
-              fileSize: uploadFile.size,
-            },
-          );
-          await uploadToR2(res.uploadUrl, uploadFile, (pct) => {
-            setMedia((prev) =>
-              prev.map((m) => (m.id === id ? { ...m, progress: pct } : m)),
-            );
+          const res = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
+            fileName: uploadFile.name, contentType: uploadFile.type, fileSize: uploadFile.size,
           });
+          await uploadToR2(res.uploadUrl, uploadFile, (pct) =>
+            setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, progress: pct } : m))));
 
-          // For videos: capture and upload a JPEG poster frame so the feed
-          // tile can render `<video poster=…>` instead of the browser's grey
-          // default placeholder. Best-effort — a poster failure does NOT
-          // fail the video upload.
           let thumbnailUrl: string | undefined;
           if (isVideo) {
             try {
               const posterBlob = await captureVideoPoster(file);
               if (posterBlob) {
-                const posterFile = new File(
-                  [posterBlob],
-                  `poster_${id}.jpg`,
-                  { type: 'image/jpeg' },
-                );
-                const posterRes = await apiCall<{ uploadUrl: string; publicUrl: string }>(
-                  'POST',
-                  '/api/v1/posts/media-upload-url',
-                  {
-                    fileName: posterFile.name,
-                    contentType: posterFile.type,
-                    fileSize: posterFile.size,
-                  },
-                );
+                const posterFile = new File([posterBlob], `poster_${id}.jpg`, { type: 'image/jpeg' });
+                const posterRes = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
+                  fileName: posterFile.name, contentType: posterFile.type, fileSize: posterFile.size,
+                });
                 if (posterRes.uploadUrl && posterRes.publicUrl) {
                   await uploadToR2(posterRes.uploadUrl, posterFile, () => {});
                   thumbnailUrl = posterRes.publicUrl;
                 }
               }
-            } catch (err) {
-              console.warn('[post-composer] poster capture failed:', err);
-            }
+            } catch (err) { console.warn('[post-composer] poster capture failed:', err); }
           }
 
-          setMedia((prev) =>
-            prev.map((m) =>
-              m.id === id
-                ? {
-                    ...m,
-                    status: 'done',
-                    progress: 100,
-                    media: {
-                      type: isVideo ? 'video' : 'image',
-                      url: res.publicUrl!,
-                      ...(thumbnailUrl ? { thumbnailUrl } : {}),
-                    },
-                  }
-                : m,
-            ),
-          );
+          setMedia((prev) => prev.map((m) => m.id === id ? {
+            ...m, status: 'done', progress: 100,
+            media: { type: isVideo ? 'video' : 'image', url: res.publicUrl!, ...(thumbnailUrl ? { thumbnailUrl } : {}) },
+          } : m));
         } catch (err) {
           console.error('[post-composer] upload failed:', err);
-          setMedia((prev) =>
-            prev.map((m) => (m.id === id ? { ...m, status: 'error' } : m)),
-          );
+          setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' } : m)));
           toast({ variant: 'destructive', title: 'a file failed to upload.' });
         }
       })();
@@ -471,115 +294,52 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     });
   };
 
-  // ── Tools ──────────────────────────────────────────────────────────────
-
-  const pinFilm = (r: SearchResult) => {
-    setTaggedMovie({
-      tmdbId: r.tmdbId ?? Number(r.id),
-      title: r.title,
-      posterUrl: r.posterUrl ?? null,
-      year: r.year === 'N/A' ? '' : r.year,
-      mediaType: r.mediaType,
-    });
-    setSheet(null);
-    setFilmQuery('');
-    setFilmResults([]);
-    setTimeout(() => textRef.current?.focus(), 60);
-  };
-
-  const openMentionPicker = () => {
-    if (textRef.current) {
-      lastCaretRef.current = textRef.current.selectionStart ?? text.length;
-    }
-    setMentionQuery('');
-    setMentionResults([]);
-    setSheet('mention');
-  };
-
-  const insertMention = (u: UserProfile) => {
-    if (!u.username) return;
-    const caret = Math.max(0, Math.min(lastCaretRef.current, text.length));
-    const before = text.slice(0, caret);
-    const after = text.slice(caret);
-    const lead = before.length > 0 && !/\s$/.test(before) ? ' ' : '';
-    const trail = after.length === 0 || /^\s/.test(after) ? ' ' : ' ';
-    const inserted = `${lead}@${u.username}${trail}`;
-    const next = before + inserted + after;
-    if (next.length > MAX_TEXT) {
-      toast({ variant: 'destructive', title: 'message would exceed 280 chars' });
-      return;
-    }
-    setText(next);
-    setSheet(null);
-    setTimeout(() => {
-      const ta = textRef.current;
-      if (!ta) return;
-      const pos = caret + inserted.length;
-      ta.focus();
-      ta.setSelectionRange(pos, pos);
-    }, 40);
-  };
-
-  const openRatingPicker = () => {
-    if (!taggedMovie) return;
-    setTempRating(rating ?? tempRating ?? 7.5);
-    setSheet('rating');
-  };
-  const applyRating = () => {
-    setRating(Math.round(tempRating * 10) / 10);
-    setSheet(null);
-  };
-  const clearRating = () => {
-    setRating(null);
-    setSheet(null);
-  };
-
-  const openLocationPicker = () => {
-    setTempPlace(place);
-    setSheet('location');
-  };
-  const applyLocation = () => {
-    setPlace(tempPlace.trim().slice(0, 120));
-    setSheet(null);
-    setTimeout(() => textRef.current?.focus(), 60);
-  };
-
   const openImagePicker = () => {
     if (media.length >= MAX_MEDIA) return;
     setPickerOpen(true);
     fileInputRef.current?.click();
   };
 
-  // ── Drafts ─────────────────────────────────────────────────────────────
-
-  const loadDraft = (d: Draft) => {
-    setText(d.text);
-    setTaggedMovie(d.taggedMovie);
-    setRating(d.rating);
-    setPlace(d.place);
-    setDraftId(d.id);
-    setMedia([]);
+  // ── Film ───────────────────────────────────────────────────────────────
+  const pinFilm = (r: SearchResult) => {
+    const m: TaggedMovie = {
+      tmdbId: r.tmdbId ?? Number(r.id),
+      title: r.title,
+      posterUrl: r.posterUrl ?? null,
+      year: r.year === 'N/A' ? '' : r.year,
+      mediaType: r.mediaType,
+    };
+    setTaggedMovie(m);
     setSheet(null);
-    setTimeout(() => textRef.current?.focus(), 60);
-  };
-  const deleteDraft = (id: string) => {
-    setDrafts((prev) => {
-      const next = prev.filter((d) => d.id !== id);
-      saveDrafts(next);
-      return next;
-    });
-    if (draftId === id) setDraftId(null);
+    setFilmQuery('');
+    setFilmResults([]);
+    void hydrateFilmSubtitle(m);
   };
 
-  // ── Submission ─────────────────────────────────────────────────────────
+  // ── Close-friends management (reuses the friend picker) ──────────────────
+  const openCloseFriends = async () => {
+    if (!user) return;
+    try {
+      const res = await apiCall<{ users: TaggedUser[] }>('GET', `/api/v1/users/${user.uid}/following?limit=200`);
+      const set = new Set(closeFriendIds);
+      setCloseFriends((res.users ?? []).filter((u) => set.has(u.uid)).map((u) => ({
+        uid: u.uid, username: u.username ?? null, displayName: u.displayName ?? null, photoURL: u.photoURL ?? null,
+      })));
+    } catch { setCloseFriends([]); }
+    setSheet('closeFriends');
+  };
+  const commitCloseFriends = async () => {
+    setSheet('visibleTo');
+    const ids = closeFriends.map((u) => u.uid);
+    setCloseFriendIds(ids);
+    try { await apiCall('PUT', '/api/v1/me/close-friends', { ids }); }
+    catch { toast({ variant: 'destructive', title: "couldn't save close friends." }); }
+  };
 
+  // ── Submit ───────────────────────────────────────────────────────────────
   const uploading = media.some((m) => m.status === 'uploading');
   const doneMedia = media.filter((m) => m.status === 'done' && m.media);
-  // A post needs at least one of: a pinned film, text, or media.
-  const canPost =
-    !isPosting &&
-    !uploading &&
-    (!!taggedMovie || text.trim().length > 0 || doneMedia.length > 0);
+  const canPost = !isPosting && !uploading && !!taggedMovie;
 
   const handlePost = () => {
     if (!canPost || !user) return;
@@ -591,746 +351,310 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           media: doneMedia.map((m) => m.media!),
           taggedMovie,
           rating,
-          place: place.trim(),
+          watchType,
+          watchedOn: watchedOn.toISOString(),
+          taggedUserIds: taggedUsers.map((u) => u.uid),
+          visibility,
         });
-        if (draftId) {
-          const remaining = drafts.filter((d) => d.id !== draftId);
-          saveDrafts(remaining);
-          setDrafts(remaining);
-        }
-        // Home feed caches now stale — drop them so the next mount /
-        // refreshKey++ fetches fresh. Prefix wipe covers every feedFilter
-        // variant (all / saved / friends).
-        if (auth.currentUser) {
-          invalidateCachedActionsByPrefix(`home-feed:${auth.currentUser.uid}`);
-        }
+        persistDraft(null);
+        if (auth.currentUser) invalidateCachedActionsByPrefix(`home-feed:${auth.currentUser.uid}`);
         toast({ title: 'posted.' });
         resetAll();
         setIsPosting(false);
         onPosted?.(res.postId);
         onClose();
       } catch (err) {
-        toast({
-          variant: 'destructive',
-          title: 'Error',
-          description: err instanceof ApiClientError ? err.message : 'Failed to post.',
-        });
+        toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to post.' });
         setIsPosting(false);
       }
     });
   };
 
-  // ── Render ─────────────────────────────────────────────────────────────
-
   if (!isOpen) return null;
-
-  const bodyHidden = sheet === 'film' || sheet === 'mention' || sheet === 'drafts';
-  const charCount = text.length;
-  const charCountClass =
-    charCount > MAX_TEXT
-      ? 'text-destructive'
-      : charCount >= 250
-        ? 'text-amber-600'
-        : 'text-muted-foreground';
-  const showDraftsLink = drafts.length > 0;
 
   return (
     <>
-      {/* Full-screen backdrop in the same `bg-card` (bone) tone as the
-          composer body. This is a safety net against the iOS
-          keyboard-dismiss race: when the user taps photo+, iOS animates
-          the keyboard down in ~100ms and the visualViewport resizes —
-          but our `vv.resize` listener fires asynchronously, so React's
-          state update lags by 100–300ms. During that lag the composer
-          is still at its old keyboard-up size and the area iOS just
-          freed up (where the keyboard was) would expose the home page
-          beneath. With this backdrop sitting at z-[69] in the same bone
-          color, the lag is invisible — the user just sees continuous
-          bone. Once React catches up, the composer covers the backdrop
-          again. No bleed-through, ever. */}
+      {/* bone backdrop — hides the keyboard-dismiss resize race */}
       <div className="fixed inset-0 z-[69] bg-card" aria-hidden />
 
       <div
         className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
         style={{ top: viewport.top, height: viewport.height }}
       >
-      {/* ── Header — cancel · drafts(N) · post ─────────────────────── */}
-      <div
-        className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
-        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
-      >
-        <button
-          onClick={onClose}
-          className="cc-meta text-[12px] text-muted-foreground active:text-foreground transition-colors"
+        {/* header: ← · create a post · post */}
+        <div
+          className="flex-shrink-0 flex items-center justify-between px-4 border-b border-hair"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.6rem)', paddingBottom: '0.6rem' }}
         >
-          cancel
-        </button>
-        {showDraftsLink ? (
-          <button
-            onClick={() => setSheet('drafts')}
-            className="cc-meta text-[11px] text-muted-foreground active:text-foreground transition-colors"
-          >
-            drafts ({drafts.length})
+          <button onClick={onClose} aria-label="Back" className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5">
+            <ChevronLeft className="h-6 w-6" strokeWidth={2} />
           </button>
-        ) : (
-          <span />
-        )}
-        <button
-          onClick={handlePost}
-          disabled={!canPost}
-          className={cn(
-            'h-9 px-5 rounded-full font-headline font-bold text-[12px] lowercase tracking-tight transition-all',
-            canPost
-              ? 'bg-primary text-white shadow-fab active:scale-[0.97]'
-              : 'bg-muted text-muted-foreground/55 cursor-not-allowed',
-          )}
-        >
-          {isPosting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'post'}
-        </button>
-      </div>
+          <span className="font-headline font-bold text-[17px] lowercase tracking-[-0.02em]">create a post</span>
+          <button
+            onClick={handlePost}
+            disabled={!canPost}
+            className={cn('font-ui font-bold text-[16px] lowercase transition-opacity active:opacity-60', canPost ? 'text-primary' : 'text-muted-foreground/45')}
+          >
+            {isPosting ? <Loader2 className="h-5 w-5 animate-spin" /> : 'post'}
+          </button>
+        </div>
 
-      {/* ── Body or full-replacement picker ─────────────────────────── */}
-      <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
-        {sheet === 'film' && (
-          <FullPicker
-            placeholder="search a film…"
+        {sheet === 'film' ? (
+          <FilmPicker
             query={filmQuery}
+            results={filmResults}
             onQuery={setFilmQuery}
-            onBack={() => setSheet(null)}
-          >
-            {filmResults.map((r) => (
-              <button
-                key={`${r.mediaType}_${r.id}`}
-                onClick={() => pinFilm(r)}
-                className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60"
-              >
-                <div className="relative w-9 h-[54px] rounded overflow-hidden bg-muted flex-shrink-0">
-                  {r.posterUrl && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
-                    {r.title}
-                  </p>
-                  {r.year !== 'N/A' && (
-                    <p className="cc-meta text-[10px] text-muted-foreground">
-                      {r.year} · {r.mediaType === 'tv' ? 'tv' : 'film'}
-                    </p>
-                  )}
-                </div>
-              </button>
-            ))}
-            {filmQuery.trim().length >= 2 && filmResults.length === 0 && (
-              <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
-                no matches.
-              </p>
-            )}
-          </FullPicker>
-        )}
-
-        {sheet === 'mention' && (
-          <FullPicker
-            placeholder="tag a friend…"
-            query={mentionQuery}
-            onQuery={setMentionQuery}
-            onBack={() => setSheet(null)}
-          >
-            {mentionResults.map((u) => (
-              <button
-                key={u.uid}
-                onClick={() => insertMention(u)}
-                className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60"
-              >
-                <ProfileAvatar
-                  photoURL={u.photoURL}
-                  displayName={u.displayName}
-                  username={u.username}
-                  size="sm"
-                />
-                <div className="flex-1 min-w-0">
-                  <p className="font-headline font-semibold text-sm tracking-tight truncate">
-                    {u.displayName || u.username || 'user'}
-                  </p>
-                  <p className="cc-meta text-[10px] text-muted-foreground truncate">
-                    @{u.username}
-                  </p>
-                </div>
-              </button>
-            ))}
-            {mentionQuery.trim().length >= 1 && mentionResults.length === 0 && (
-              <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
-                nobody by that name.
-              </p>
-            )}
-          </FullPicker>
-        )}
-
-        {sheet === 'drafts' && (
-          <DraftsList
-            drafts={drafts}
-            onPick={loadDraft}
-            onDelete={deleteDraft}
+            onPick={pinFilm}
             onBack={() => setSheet(null)}
           />
-        )}
-
-        {!bodyHidden && (
-          // Body is `flex-1 flex flex-col` so children can claim
-          // vertical space proportionally. The textarea row inside takes
-          // `flex-1` to fill — that's what makes tap-to-focus work on
-          // the entire cream area and what gives the centered
-          // empty-state prompt a region to center within. See the
-          // textarea row's comment for the empty-state design.
-          <div className="px-4 pt-3 flex-1 flex flex-col min-h-0">
-            {/* Pin-a-film row */}
+        ) : (
+          <div className="flex-1 overflow-y-auto px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+2rem)]">
+            {/* ── film cell ── */}
             {taggedMovie ? (
-              <button
-                onClick={() => setSheet('film')}
-                className="w-full flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-background text-left active:opacity-70"
-              >
-                <div className="relative w-10 h-[60px] rounded-md overflow-hidden bg-muted flex-shrink-0">
-                  {taggedMovie.posterUrl && (
-                    <Image
-                      src={taggedMovie.posterUrl}
-                      alt=""
-                      fill
-                      className="object-cover"
-                      sizes="40px"
-                    />
-                  )}
+              <div className="flex items-center gap-3.5 rounded-2xl border border-hair bg-background p-3.5">
+                <div className="relative h-[68px] w-[46px] flex-shrink-0 rounded-[10px] overflow-hidden bg-sunken">
+                  {taggedMovie.posterUrl && <Image src={taggedMovie.posterUrl} alt="" fill className="object-cover" sizes="46px" />}
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-headline font-semibold text-[13px] lowercase tracking-tight truncate">
-                    {taggedMovie.title}
-                  </p>
-                  {taggedMovie.year && (
-                    <p className="cc-meta text-[10px] text-muted-foreground">
-                      {taggedMovie.year}
-                    </p>
-                  )}
+                <div className="min-w-0 flex-1">
+                  <div className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em] truncate">{taggedMovie.title}</div>
+                  <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">{filmSubtitle ?? taggedMovie.year}</div>
                 </div>
-                <span className="cc-meta text-[10px] text-primary">change</span>
-              </button>
+                <button onClick={() => setSheet('film')} className="flex-shrink-0 font-ui font-semibold text-[14px] text-primary active:opacity-60">change</button>
+              </div>
             ) : (
               <button
                 onClick={() => setSheet('film')}
-                className="w-full flex items-center gap-3 p-3 rounded-xl border border-dashed border-border text-left active:opacity-70"
+                className="w-full flex items-center gap-3.5 rounded-2xl border border-dashed border-hair bg-background p-3.5 text-left active:opacity-70"
               >
-                <div className="w-9 h-[54px] rounded-md border border-dashed border-border bg-background flex items-center justify-center flex-shrink-0">
-                  <Film className="h-4 w-4 text-muted-foreground" strokeWidth={1.6} />
+                <div className="h-[68px] w-[46px] flex-shrink-0 rounded-[10px] border border-dashed border-hair bg-sunken flex items-center justify-center">
+                  <Film className="h-5 w-5 text-muted-foreground" strokeWidth={1.7} />
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-serif italic text-[13px] text-muted-foreground leading-tight">
-                    <span className="font-headline font-bold not-italic text-foreground">
-                      pin a film
-                    </span>{' '}
-                    · optional, but more fun
-                  </p>
+                <div className="min-w-0 flex-1">
+                  <div className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">choose a film</div>
+                  <div className="font-mono text-[11px] text-muted-foreground lowercase mt-0.5">what's this about?</div>
                 </div>
+                <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
               </button>
             )}
 
-            {/* Author + textarea row.
-                ──────────────────────
-                The row is `flex-1` so it grows to fill the body (writing
-                surface is the body). `items-start` pins the avatar at the
-                top; `self-stretch` on the textarea overrides that for
-                itself so it fills the row vertically and tap-to-focus
-                works anywhere in the cream area.
-
-                The native textarea placeholder is gone — we render a
-                centered prompt INSIDE this row instead. Why: a native
-                placeholder anchors at the top of the textarea, with the
-                rest of the cream below it reading as a void. Centering
-                "what did you watch tonight?" inside the writing area
-                turns that cream into intentional negative space — the
-                question sits in the middle of the page like a
-                pull-quote, not orphaned at the top. As soon as the user
-                types anything, the prompt disappears and the textarea
-                takes over normally. */}
-            <div className="flex gap-3 mt-3 items-start flex-1 min-h-0 relative">
-              <ProfileAvatar
-                photoURL={myProfile?.photoURL ?? user?.photoURL}
-                displayName={myProfile?.displayName ?? user?.displayName}
-                username={myProfile?.username ?? null}
-                size="md"
+            {/* ── your watch ── */}
+            <SectionTitle className="mt-7">your watch</SectionTitle>
+            <div className="mt-3 rounded-2xl border border-hair bg-card p-3.5 shadow-press">
+              <Segmented
+                value={watchType}
+                onChange={(v) => setWatchType(v as PostWatchType)}
+                options={[{ id: 'first', label: 'first watch' }, { id: 'rewatch', label: 'rewatch' }]}
               />
-              <textarea
-                ref={textRef}
-                value={text}
-                autoFocus
-                onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT + 20))}
-                onSelect={(e) =>
-                  (lastCaretRef.current =
-                    (e.target as HTMLTextAreaElement).selectionStart ?? text.length)
-                }
-                className="flex-1 self-stretch min-h-[100px] bg-transparent border-0 outline-none resize-none font-serif text-[17px] leading-[1.45]"
-              />
-
-              {/* Centered empty-state prompt. `pointer-events-none` lets
-                  taps fall through to the textarea so tap-to-focus still
-                  works on the whole cream area. `pl-[52px]` matches the
-                  avatar column so the prompt centers within the textarea
-                  region, not shifted left by the avatar. */}
-              {!text && (
-                <div
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 flex items-center justify-center pl-[52px] pr-2 -mt-6"
+              <div className="mt-3.5 pt-3.5 border-t border-hair flex items-center justify-between">
+                <span className="font-headline font-bold text-[15px] lowercase tracking-[-0.02em]">watched on</span>
+                <button
+                  onClick={() => setSheet('watchedOn')}
+                  className="inline-flex items-center gap-1.5 font-ui font-semibold text-[14px] text-primary active:opacity-60"
                 >
-                  <p className="font-serif italic text-[19px] leading-snug text-muted-foreground/55 text-center">
-                    what did you watch tonight?
-                  </p>
+                  <CalendarDays className="h-4 w-4" strokeWidth={2} />
+                  {dateChipLabel(watchedOn)}
+                </button>
+              </div>
+            </div>
+
+            {/* ── your rating ── */}
+            <div className="mt-7 mb-3 flex items-baseline justify-between">
+              <SectionTitle>your rating</SectionTitle>
+              {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
+            </div>
+            <DragToRate value={rating} onChangeComplete={(v) => setRating(Math.round(v * 10) / 10)} />
+
+            {/* ── your take ── */}
+            <SectionTitle className="mt-7">your take</SectionTitle>
+            <div className="mt-3 rounded-2xl border border-hair bg-background px-4 py-3">
+              <textarea
+                ref={takeRef}
+                value={text}
+                onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
+                rows={2}
+                placeholder="had to sit in the car for ten whole minutes after…"
+                className="w-full resize-none bg-transparent border-0 outline-none font-serif italic text-[16px] leading-relaxed text-foreground placeholder:text-muted-foreground/70"
+              />
+              {text.length > 0 && (
+                <div className={cn('text-right font-mono text-[10px] tabular-nums', text.length >= MAX_TEXT - 30 ? 'text-amber-600' : 'text-muted-foreground')}>
+                  {text.length} / {MAX_TEXT}
                 </div>
               )}
             </div>
 
-            {/* Attachments — indented to the avatar column */}
-            <div className="pl-[52px] mt-2 flex-shrink-0">
-              {rating !== null && (
+            {/* ── photos & clips ── */}
+            <div className="mt-7 mb-3 flex items-baseline justify-between">
+              <SectionTitle>photos &amp; clips</SectionTitle>
+              <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{media.length} / {MAX_MEDIA}</span>
+            </div>
+            <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1">
+              {media.map((m) => (
+                <div key={m.id} className="relative h-[92px] w-[92px] flex-shrink-0 rounded-[14px] overflow-hidden border border-hair bg-sunken">
+                  {m.kind === 'video' ? (
+                    <>
+                      <video src={m.localUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                      <div className="absolute bottom-1.5 left-1.5 h-5 w-5 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                        <Play className="h-3 w-3 text-white ml-0.5" fill="currentColor" strokeWidth={0} />
+                      </div>
+                    </>
+                  ) : (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
+                  )}
+                  {m.status === 'uploading' && (
+                    <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                      <span className="font-mono text-[11px] text-white tabular-nums">{m.progress}%</span>
+                    </div>
+                  )}
+                  {m.status === 'error' && (
+                    <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
+                      <span className="font-mono text-[10px] text-white">failed</span>
+                    </div>
+                  )}
+                  <button onClick={() => removeMedia(m.id)} aria-label="Remove" className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center">
+                    <X className="h-3 w-3" strokeWidth={2.5} />
+                  </button>
+                </div>
+              ))}
+              {media.length < MAX_MEDIA && (
                 <button
-                  onClick={openRatingPicker}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full mr-2 mb-2"
-                  style={{
-                    ...getRatingStyle(rating).background,
-                    ...getRatingStyle(rating).textOnBg,
-                  }}
+                  onClick={openImagePicker}
+                  aria-label="Add photo or clip"
+                  className="h-[92px] w-[92px] flex-shrink-0 rounded-[14px] border border-dashed border-hair bg-card flex flex-col items-center justify-center gap-1 text-muted-foreground active:opacity-70"
                 >
-                  <Star className="h-3 w-3 fill-current" strokeWidth={2} />
-                  <span className="font-headline font-bold text-[12px]">
-                    {rating.toFixed(1)}
-                  </span>
-                  <span
-                    role="button"
-                    aria-label="Remove rating"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setRating(null);
-                    }}
-                    className="ml-0.5 opacity-80 inline-flex items-center"
-                  >
-                    <X className="h-3 w-3" strokeWidth={2} />
-                  </span>
+                  <Plus className="h-6 w-6" strokeWidth={1.8} />
+                  <span className="font-mono text-[9px] uppercase tracking-[0.1em]">add</span>
                 </button>
               )}
-
-              {place.trim() && (
-                <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-muted cc-meta text-[11px] text-foreground mr-2 mb-2">
-                  <MapPin className="h-3 w-3 text-muted-foreground" strokeWidth={1.8} />
-                  {place}
-                  <button
-                    onClick={() => setPlace('')}
-                    aria-label="Remove location"
-                    className="ml-0.5 text-muted-foreground"
-                  >
-                    <X className="h-3 w-3" strokeWidth={2} />
-                  </button>
-                </span>
-              )}
             </div>
+
+            {/* ── tag friends ── */}
+            <button onClick={() => setSheet('tagFriends')} className="mt-7 w-full flex items-center gap-3.5 py-3 text-left active:opacity-60">
+              <span className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
+                <Users className="h-5 w-5" strokeWidth={1.9} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">tag friends</span>
+                <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">
+                  {taggedUsers.length === 0 ? 'who watched with you?' : taggedUsers.map((u) => `@${u.username || 'user'}`).join(' · ')}
+                </span>
+              </span>
+              {taggedUsers.length > 0 && <span className="font-mono text-[12px] text-primary tabular-nums">{taggedUsers.length}</span>}
+              <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+            </button>
+            <div className="h-px bg-rule" />
+
+            {/* ── visible to ── */}
+            <button onClick={() => setSheet('visibleTo')} className="w-full flex items-center gap-3.5 py-3 text-left active:opacity-60">
+              <span className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
+                <VisibilityIcon v={visibility} />
+              </span>
+              <span className="flex-1 min-w-0">
+                <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">visible to</span>
+                <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">{visibilityLabel(visibility)}</span>
+              </span>
+              <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+            </button>
           </div>
         )}
       </div>
 
-      {/* ── Trays (rating / location) — compact, above toolbar ────────── */}
-      {sheet === 'rating' && (
-        <RatingTray
-          value={tempRating}
-          onChange={setTempRating}
-          onClear={clearRating}
-          onApply={applyRating}
-          onClose={() => setSheet(null)}
-        />
-      )}
-      {sheet === 'location' && (
-        <LocationTray
-          value={tempPlace}
-          onChange={setTempPlace}
-          onApply={applyLocation}
-          onClose={() => setSheet(null)}
-        />
-      )}
+      {/* ── pickers (bottom sheets over the composer) ── */}
+      <WatchedOnSheet
+        isOpen={sheet === 'watchedOn'}
+        value={watchedOn}
+        movieTitle={taggedMovie?.title ?? 'this film'}
+        onClose={() => setSheet(null)}
+        onSelect={(d) => setWatchedOn(d)}
+      />
+      <TagFriendsSheet
+        isOpen={sheet === 'tagFriends'}
+        value={taggedUsers}
+        onClose={() => setSheet(null)}
+        onChange={setTaggedUsers}
+      />
+      <TagFriendsSheet
+        isOpen={sheet === 'closeFriends'}
+        title="close friends"
+        value={closeFriends}
+        onClose={commitCloseFriends}
+        onChange={setCloseFriends}
+      />
+      <VisibleToSheet
+        isOpen={sheet === 'visibleTo'}
+        value={visibility}
+        closeFriendCount={closeFriendIds.length}
+        onClose={() => setSheet(null)}
+        onChange={setVisibility}
+        onManageCloseFriends={openCloseFriends}
+      />
 
-      {/* ── Media strip — sits directly above the toolbar, twitter-style.
-            Attached photos/videos live HERE, not buried in the post body,
-            so the user can see them at the same time as the toolbar that
-            adds more. Horizontal scroll keeps the strip compact even with
-            6 items. */}
-      {media.length > 0 && (
-        <div className="flex-shrink-0 border-t border-border bg-background px-3 pt-2 pb-1.5">
-          <div className="flex gap-2 overflow-x-auto scrollbar-hide">
-            {media.map((m) => (
-              <div
-                key={m.id}
-                className="relative h-[68px] w-[68px] flex-shrink-0 rounded-[10px] overflow-hidden border border-border bg-muted"
-              >
-                {m.kind === 'video' ? (
-                  <>
-                    <video
-                      src={m.localUrl}
-                      className="w-full h-full object-cover"
-                      muted
-                      playsInline
-                      preload="metadata"
-                    />
-                    {/* tiny play badge so it's obviously a video, not a photo */}
-                    <div className="absolute bottom-1 left-1 h-4 w-4 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                      <Play className="h-2.5 w-2.5 text-white ml-0.5" fill="currentColor" strokeWidth={0} />
-                    </div>
-                  </>
-                ) : (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
-                )}
-                {m.status === 'uploading' && (
-                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                    <span className="cc-meta text-[11px] text-white tabular-nums">
-                      {m.progress}%
-                    </span>
-                  </div>
-                )}
-                {m.status === 'error' && (
-                  <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
-                    <span className="cc-meta text-[10px] text-white">failed</span>
-                  </div>
-                )}
-                <button
-                  onClick={() => removeMedia(m.id)}
-                  aria-label="Remove"
-                  className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center"
-                >
-                  <X className="h-3 w-3" strokeWidth={2.5} />
-                </button>
-              </div>
-            ))}
-            {media.length < MAX_MEDIA && (
-              <button
-                onClick={openImagePicker}
-                aria-label="Add more"
-                className="h-[68px] w-[68px] flex-shrink-0 rounded-[10px] border border-dashed border-border bg-card flex flex-col items-center justify-center text-muted-foreground active:opacity-70"
-              >
-                <ImagePlus className="h-5 w-5" strokeWidth={1.6} />
-                <span className="cc-meta text-[9px] mt-0.5">more</span>
-              </button>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ── Toolbar — 44px touch targets, anchored just above the keyboard
-            via visualViewport tracking. Buttons are borderless film-red
-            glyphs (twitter-shape, cinechrony-skin); the post button has
-            already done its work in the header. */}
-      <div
-        className="flex-shrink-0 flex items-center justify-between gap-1 px-3 border-t border-border bg-background"
-        style={{ paddingTop: '0.375rem', paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.375rem)' }}
-      >
-        <div className="flex items-center">
-          <ToolButton
-            icon={ImagePlus}
-            label="add a photo or video"
-            disabled={media.length >= MAX_MEDIA}
-            onClick={openImagePicker}
-          />
-          <ToolButton
-            icon={AtSign}
-            label="tag a friend"
-            active={sheet === 'mention'}
-            onClick={openMentionPicker}
-          />
-          <ToolButton
-            icon={MapPin}
-            label="add a place"
-            active={sheet === 'location'}
-            onClick={openLocationPicker}
-          />
-          {/* Rating is the one tool that genuinely needs a film — you can't
-              rate "nothing." It enables the moment a film is pinned. */}
-          <ToolButton
-            icon={Star}
-            label="rate this film"
-            disabled={!taggedMovie}
-            active={sheet === 'rating'}
-            onClick={openRatingPicker}
-          />
-        </div>
-        <span className={cn('cc-meta text-[11px] tabular-nums px-2', charCountClass)}>
-          {charCount > 0 ? `${charCount} / ${MAX_TEXT}` : MAX_TEXT}
-        </span>
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/*,video/*"
-          multiple
-          hidden
-          onChange={(e) => handleFiles(e.target.files)}
-          // The `cancel` event is wired via addEventListener in the
-          // effect above — React's input types don't expose `onCancel`.
-        />
-      </div>
-
-      </div>
-
-      {/* iOS file-picker scrim — full-screen so the dim is uniform even
-          while the composer mid-resizes after iOS dismisses the keyboard
-          for the action sheet. Sits at z-[71], above both the backdrop
-          and the composer. iOS native action sheet renders above this
-          (native UI is always on top of web), so the sheet looks like
-          a normal iOS modal: dimmed page below, sheet above.
-
-          Tap-to-dismiss is the recovery hatch in case the input's
-          `cancel` event doesn't fire (older Safari). The refocus on
-          dismiss brings the keyboard back so the composer shrinks
-          quickly. */}
-      {pickerOpen && (
-        <div
-          onClick={() => {
-            setPickerOpen(false);
-            textRef.current?.focus({ preventScroll: true });
-          }}
-          className="fixed inset-0 z-[71] bg-black/40"
-          aria-hidden
-        />
-      )}
+      {/* file input + iOS picker scrim */}
+      <input ref={fileInputRef} type="file" accept="image/*,video/*" multiple hidden onChange={(e) => handleFiles(e.target.files)} />
+      {pickerOpen && <div onClick={() => setPickerOpen(false)} className="fixed inset-0 z-[71] bg-black/40" aria-hidden />}
     </>
   );
 }
 
-// ─── Sub-components ─────────────────────────────────────────────────────
+// ─── Sub-components ─────────────────────────────────────────────────────────
 
-function ToolButton({
-  icon: Icon,
-  label,
-  onClick,
-  active,
-  disabled,
-}: {
-  icon: typeof Film;
-  label: string;
-  onClick: () => void;
-  active?: boolean;
-  disabled?: boolean;
-}) {
+function SectionTitle({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      aria-label={label}
-      className={cn(
-        'h-11 w-11 rounded-full flex items-center justify-center transition-all',
-        disabled
-          ? 'text-muted-foreground/35 cursor-not-allowed'
-          : active
-            ? 'bg-primary/12 text-primary'
-            : 'text-primary hover:bg-primary/8 active:bg-primary/14 active:scale-92',
-      )}
-    >
-      <Icon className="h-5 w-5" strokeWidth={1.85} />
-    </button>
+    <h3 className={cn('font-headline font-bold text-[18px] lowercase tracking-[-0.02em]', className)}>{children}</h3>
   );
 }
 
-function FullPicker({
-  placeholder,
-  query,
-  onQuery,
-  onBack,
-  children,
+function VisibilityIcon({ v }: { v: PostVisibility }) {
+  const Icon = v === 'everyone' ? Globe : v === 'friends' ? Users : v === 'close_friends' ? Star : Lock;
+  return <Icon className="h-5 w-5" strokeWidth={1.9} />;
+}
+function visibilityLabel(v: PostVisibility): string {
+  return v === 'everyone' ? 'everyone' : v === 'friends' ? 'friends' : v === 'close_friends' ? 'close friends' : 'only me';
+}
+
+function FilmPicker({
+  query, results, onQuery, onPick, onBack,
 }: {
-  placeholder: string;
   query: string;
+  results: SearchResult[];
   onQuery: (q: string) => void;
+  onPick: (r: SearchResult) => void;
   onBack: () => void;
-  children: React.ReactNode;
 }) {
   return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 h-12 border-b border-border">
-        <button
-          onClick={onBack}
-          aria-label="Back"
-          className="h-8 w-8 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-muted"
-        >
-          <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
+    <div className="flex-1 flex flex-col min-h-0">
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-hair">
+        <button onClick={onBack} aria-label="Back" className="h-9 w-9 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5">
+          <ChevronLeft className="h-5 w-5" strokeWidth={2} />
         </button>
-        <div className="flex-1 flex items-center gap-2 h-9 px-3 rounded-full border border-border bg-background">
-          <Search className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+        <div className="flex-1 flex items-center gap-2.5 h-11 px-3.5 rounded-[14px] border border-hair bg-sunken">
+          <Search className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} />
           <input
             autoFocus
             value={query}
             onChange={(e) => onQuery(e.target.value)}
-            placeholder={placeholder}
-            className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+            placeholder="search a film…"
+            className="flex-1 bg-transparent border-0 outline-none font-body text-[15px] text-foreground placeholder:text-muted-foreground"
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3">{children}</div>
-    </div>
-  );
-}
-
-function RatingTray({
-  value,
-  onChange,
-  onClear,
-  onApply,
-  onClose,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-  onClear: () => void;
-  onApply: () => void;
-  onClose: () => void;
-}) {
-  const style = getRatingStyle(value);
-  return (
-    <div className="flex-shrink-0 px-4 pt-3 pb-3 border-t border-border bg-card">
-      <div className="flex items-center justify-between mb-2">
-        <span className="cc-eyebrow">your rating</span>
-        <div className="flex items-center gap-3">
-          <button onClick={onClear} className="cc-meta text-[11px] text-muted-foreground">
-            clear
-          </button>
-          <button onClick={onClose} aria-label="Close" className="text-muted-foreground">
-            <X className="h-4 w-4" strokeWidth={1.8} />
-          </button>
-        </div>
-      </div>
-      <div className="flex items-center gap-3">
-        <input
-          type="range"
-          min={1}
-          max={10}
-          step={0.5}
-          value={value}
-          onChange={(e) => onChange(parseFloat(e.target.value))}
-          className="flex-1 accent-primary"
-        />
-        <div
-          className="h-9 min-w-[44px] px-2.5 rounded-full flex items-center justify-center font-headline font-bold text-[13px]"
-          style={{ ...style.background, ...style.textOnBg }}
-        >
-          {value.toFixed(1)}
-        </div>
-      </div>
-      <div className="flex justify-end mt-3">
-        <button
-          onClick={onApply}
-          className="h-9 px-5 rounded-full bg-primary text-white font-headline font-bold text-[12px] lowercase tracking-tight shadow-fab active:scale-[0.97]"
-        >
-          add rating
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function LocationTray({
-  value,
-  onChange,
-  onApply,
-  onClose,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  onApply: () => void;
-  onClose: () => void;
-}) {
-  return (
-    <div className="flex-shrink-0 px-4 pt-3 pb-3 border-t border-border bg-card">
-      <div className="flex items-center justify-between mb-2">
-        <span className="cc-eyebrow">where</span>
-        <button onClick={onClose} aria-label="Close" className="text-muted-foreground">
-          <X className="h-4 w-4" strokeWidth={1.8} />
-        </button>
-      </div>
-      <div className="flex items-center gap-2 h-10 px-3 rounded-full border border-border bg-background">
-        <MapPin className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
-        <input
-          autoFocus
-          value={value}
-          onChange={(e) => onChange(e.target.value.slice(0, 120))}
-          onKeyDown={(e) => e.key === 'Enter' && onApply()}
-          placeholder="alamo · brooklyn"
-          className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
-        />
-      </div>
-      <div className="flex justify-end mt-3">
-        <button
-          onClick={onApply}
-          className="h-9 px-5 rounded-full bg-primary text-white font-headline font-bold text-[12px] lowercase tracking-tight shadow-fab active:scale-[0.97]"
-        >
-          add place
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DraftsList({
-  drafts,
-  onPick,
-  onDelete,
-  onBack,
-}: {
-  drafts: Draft[];
-  onPick: (d: Draft) => void;
-  onDelete: (id: string) => void;
-  onBack: () => void;
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      <div className="flex items-center gap-2 px-3 h-12 border-b border-border">
-        <button
-          onClick={onBack}
-          aria-label="Back"
-          className="h-8 w-8 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-muted"
-        >
-          <ChevronLeft className="h-5 w-5" strokeWidth={1.8} />
-        </button>
-        <span className="font-headline font-bold text-[14px] lowercase tracking-tight">
-          drafts
-        </span>
-      </div>
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {drafts.length === 0 ? (
-          <p className="font-serif italic text-sm text-muted-foreground py-8 text-center">
-            no drafts saved.
-          </p>
-        ) : (
-          drafts.map((d) => (
-            <div
-              key={d.id}
-              className="flex items-start gap-3 py-3 border-b border-border last:border-b-0"
-            >
-              <button
-                onClick={() => onPick(d)}
-                className="flex-1 min-w-0 text-left active:opacity-60"
-              >
-                {d.taggedMovie && (
-                  <p className="cc-eyebrow text-primary mb-1">
-                    re: {d.taggedMovie.title}
-                  </p>
-                )}
-                <p className="font-serif text-[14px] leading-snug line-clamp-3 text-foreground">
-                  {d.text || (
-                    <span className="text-muted-foreground italic">(no text yet)</span>
-                  )}
-                </p>
-                <p className="cc-meta text-[10px] text-muted-foreground mt-1">
-                  {new Date(d.updatedAt).toLocaleString()}
-                </p>
-              </button>
-              <button
-                onClick={() => onDelete(d.id)}
-                aria-label="Delete draft"
-                className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground active:bg-muted"
-              >
-                <Trash2 className="h-4 w-4" strokeWidth={1.8} />
-              </button>
+        {results.map((r) => (
+          <button key={`${r.mediaType}_${r.id}`} onClick={() => onPick(r)} className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60">
+            <div className="relative w-10 h-[60px] rounded-[8px] overflow-hidden bg-sunken flex-shrink-0">
+              {r.posterUrl && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
+              )}
             </div>
-          ))
+            <div className="flex-1 min-w-0">
+              <p className="font-headline font-bold text-[15.5px] lowercase tracking-[-0.02em] truncate">{r.title}</p>
+              {r.year !== 'N/A' && <p className="font-mono text-[10px] text-muted-foreground">{r.year} · {r.mediaType === 'tv' ? 'tv' : 'film'}</p>}
+            </div>
+          </button>
+        ))}
+        {query.trim().length >= 2 && results.length === 0 && (
+          <p className="font-serif italic text-[15px] text-muted-foreground py-6 text-center">no matches.</p>
         )}
       </div>
     </div>

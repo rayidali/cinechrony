@@ -34,7 +34,7 @@ import type { Activity, Post, PostMedia, PostVisibility, TaggedUser } from '@/li
 
 export const MAX_POST_MEDIA_BYTES = 200 * 1024 * 1024; // 200MB — Twitter-class
 export const MAX_POST_TEXT = 2000;
-export const MAX_POST_MEDIA = 6;
+export const MAX_POST_MEDIA = 10;
 const MAX_PLACE_LENGTH = 120;
 const MAX_TAGGED_USERS = 20;
 const MAX_PAGE = 100;
