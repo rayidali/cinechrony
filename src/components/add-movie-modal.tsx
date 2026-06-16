@@ -1,10 +1,11 @@
 'use client';
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
-import { Search, Loader2, Film, Tv, Instagram, Youtube, ChevronLeft, Check } from 'lucide-react';
+import { Search, Loader2, X, Film, Instagram, Youtube, ChevronLeft, Check } from 'lucide-react';
 import Image from 'next/image';
 import { Drawer } from 'vaul';
 import { TiktokIcon } from './icons';
+import { FilmGridTile } from '@/components/v3/film-grid-tile';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
 import { apiCall } from '@/lib/api-client';
@@ -270,64 +271,72 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
 
   return (
     <>
-      {/* Step 1 — search (full-screen overlay; keeps a stable height for the
-          autofocus keyboard, vs a Vaul sheet) */}
+      {/* Step 1 — search. Mirrors the home search overlay (search bar + close,
+          then a 3-up poster grid) so it reads as the same confident surface.
+          Full-screen overlay (not Vaul) keeps a stable height for the keyboard. */}
       {step === 'search' && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in slide-in-from-bottom-4 duration-200" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
-          <div className="flex items-center justify-between px-5 py-3">
-            <button onClick={() => { haptic('light'); onClose(); }} className="font-ui font-semibold text-[15px] text-muted-foreground active:opacity-60">
-              cancel
-            </button>
-            <span className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">add a film</span>
-            <span className="w-12" />
-          </div>
-
-          <div className="px-5 pb-3">
-            <div className="relative">
-              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} />
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-fade-in">
+          <div
+            className="flex items-center gap-2.5 px-4"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
+          >
+            <div className="flex-1 flex items-center gap-2.5 h-12 px-3.5 rounded-[14px] border border-hair bg-sunken">
+              <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={2} />
               <input
                 type="text"
-                placeholder="search movies or tv…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="w-full h-12 pl-11 pr-10 rounded-2xl border border-hair bg-background/60 font-serif italic text-[15px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/30 transition-colors"
+                placeholder="search a film to add…"
+                className="w-full bg-transparent border-0 outline-none font-body text-[15px] text-foreground placeholder:text-muted-foreground"
                 style={{ fontSize: '16px' }}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
                 autoFocus
               />
-              {isSearching && (
-                <Loader2 className="absolute right-3.5 top-1/2 -translate-y-1/2 h-[18px] w-[18px] animate-spin text-muted-foreground" />
-              )}
+              {isSearching ? (
+                <Loader2 className="h-[18px] w-[18px] flex-shrink-0 animate-spin text-muted-foreground" />
+              ) : query ? (
+                <button
+                  onClick={() => setQuery('')}
+                  aria-label="Clear"
+                  className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-foreground/10 text-muted-foreground"
+                >
+                  <X className="h-3 w-3" strokeWidth={2.6} />
+                </button>
+              ) : null}
             </div>
+            <button
+              onClick={() => { haptic('light'); onClose(); }}
+              aria-label="Close"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-transform active:scale-90"
+            >
+              <X className="h-[19px] w-[19px]" strokeWidth={2.2} />
+            </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-[env(safe-area-inset-bottom,0px)]">
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-24">
             {results.length === 0 ? (
-              <p className="pt-16 text-center font-serif italic text-[15px] text-muted-foreground">
-                {query && !isSearching ? 'nothing found — try another title.' : 'search for a film or show to add.'}
+              <p className="pt-24 text-center font-serif italic text-[15px] text-muted-foreground px-8">
+                {query && !isSearching ? "couldn't find that one. try another title?" : 'search for a film or show to add to your list.'}
               </p>
             ) : (
-              <div className="divide-y divide-hair">
-                {results.map((movie) => (
-                  <button
-                    key={`${movie.mediaType}-${movie.id}`}
-                    onClick={() => handleSelectMovie(movie)}
-                    className="w-full text-left py-3 flex items-center gap-3.5 active:opacity-60 transition-opacity"
-                  >
-                    <div className="relative h-[66px] w-11 flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
-                      <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="44px" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em] line-clamp-1">{movie.title}</p>
-                      <p className="font-mono text-[11px] text-muted-foreground tabular-nums mt-0.5">
-                        {movie.year !== 'N/A' ? movie.year : ''}{movie.year !== 'N/A' ? ' · ' : ''}{movie.mediaType === 'tv' ? 'tv' : 'film'}
-                      </p>
-                    </div>
-                    {movie.mediaType === 'tv'
-                      ? <Tv className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />
-                      : <Film className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />}
-                  </button>
-                ))}
-              </div>
+              <section className="pt-2">
+                <div className="cc-eyebrow">films &amp; tv</div>
+                <div className="h-px bg-rule mt-2.5 mb-3.5" />
+                <div className="grid grid-cols-3 gap-3">
+                  {results.map((movie) => (
+                    <FilmGridTile
+                      key={`${movie.mediaType}-${movie.id}`}
+                      posterUrl={movie.posterUrl}
+                      title={movie.title}
+                      year={movie.year}
+                      isTv={movie.mediaType === 'tv'}
+                      onOpen={() => handleSelectMovie(movie)}
+                    />
+                  ))}
+                </div>
+              </section>
             )}
           </div>
         </div>
@@ -437,26 +446,26 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
                     const cover = list.coverImageUrl || null;
                     return (
                       <div key={list.id}>
-                        <button onClick={() => toggleListSelection(list)} className="w-full flex items-center gap-3 p-3 text-left active:bg-foreground/5 transition-colors">
+                        <button onClick={() => toggleListSelection(list)} className="w-full flex items-center gap-3.5 p-3.5 text-left active:bg-foreground/5 transition-colors">
                           <span
-                            className="relative h-11 w-11 flex-shrink-0 rounded-xl overflow-hidden flex items-center justify-center"
+                            className="relative h-[52px] w-[52px] flex-shrink-0 rounded-[14px] overflow-hidden flex items-center justify-center"
                             style={!cover ? { background: seededGradient(list.name) } : undefined}
                           >
                             {cover ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={cover} alt="" className="w-full h-full object-cover" />
                             ) : (
-                              <Film className="h-4 w-4 text-white/80" strokeWidth={1.8} />
+                              <Film className="h-5 w-5 text-white/80" strokeWidth={1.8} />
                             )}
                           </span>
                           <span className="flex-1 min-w-0">
-                            <span className="block font-headline font-bold text-[15px] lowercase tracking-[-0.02em] truncate">{list.name}</span>
-                            <span className="block font-mono text-[10px] text-muted-foreground lowercase truncate">
+                            <span className="block font-headline font-bold text-[16.5px] lowercase tracking-[-0.02em] truncate">{list.name}</span>
+                            <span className="block font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">
                               {list.isShared ? `shared by ${list.ownerDisplayName}` : (list.isPublic ? 'public' : 'private')}
                             </span>
                           </span>
-                          <span className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center transition-colors ${on ? 'bg-primary text-white' : 'border-2 border-hair'}`}>
-                            {on && <Check className="h-3.5 w-3.5" strokeWidth={3} />}
+                          <span className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center transition-colors ${on ? 'bg-primary text-white' : 'border-2 border-hair'}`}>
+                            {on && <Check className="h-4 w-4" strokeWidth={3} />}
                           </span>
                         </button>
                         {on && (

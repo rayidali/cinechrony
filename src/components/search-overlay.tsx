@@ -8,8 +8,6 @@ import {
   Search,
   Loader2,
   X,
-  Film,
-  Tv,
   ListVideo,
 } from 'lucide-react';
 import type { LovedListCard } from '@/lib/lists-server';
@@ -27,6 +25,7 @@ import { VIBES, type Vibe } from '@/lib/vibes';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
 import { Segmented } from '@/components/v3/segmented';
+import { FilmGridTile } from '@/components/v3/film-grid-tile';
 import type { SearchResult, UserProfile, Movie } from '@/lib/types';
 
 type SearchOverlayProps = {
@@ -419,43 +418,6 @@ function PosterTile({
   );
 }
 
-// ─── Grid tile (results + vibe) ───────────────────────────────────────────
-
-function GridFilmTile({
-  posterUrl,
-  title,
-  year,
-  isTv,
-  onOpen,
-}: {
-  posterUrl: string;
-  title: string;
-  year?: string;
-  isTv?: boolean;
-  onOpen: () => void;
-}) {
-  return (
-    <button onClick={onOpen} className="text-left group">
-      <div className="relative aspect-[2/3] rounded-[12px] overflow-hidden border border-border shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image src={posterUrl} alt={title} fill className="object-cover" sizes="33vw" />
-        <div className="absolute top-1 right-1 h-5 w-5 rounded-md bg-black/55 backdrop-blur-sm flex items-center justify-center text-white">
-          {isTv ? (
-            <Tv className="h-3 w-3" strokeWidth={2} />
-          ) : (
-            <Film className="h-3 w-3" strokeWidth={2} />
-          )}
-        </div>
-      </div>
-      <p className="mt-1.5 font-headline font-semibold text-[12px] lowercase tracking-tight line-clamp-1">
-        {title}
-      </p>
-      {year && year !== 'N/A' && (
-        <p className="cc-meta text-[10px] text-muted-foreground">{year}</p>
-      )}
-    </button>
-  );
-}
-
 // ─── Discover view ────────────────────────────────────────────────────────
 
 function DiscoverView({
@@ -599,7 +561,7 @@ function VibeView({
       ) : movies.length > 0 ? (
         <div className="mt-5 grid grid-cols-3 gap-3">
           {movies.map((m) => (
-            <GridFilmTile
+            <FilmGridTile
               key={`vibe_${m.id}`}
               posterUrl={m.posterUrl}
               title={m.title}
@@ -701,7 +663,7 @@ function ResultsView({
           <div className="h-px bg-rule mt-2.5 mb-3.5" />
           <div className="grid grid-cols-3 gap-3">
             {films.map((film) => (
-              <GridFilmTile
+              <FilmGridTile
                 key={`${film.mediaType}_${film.id}`}
                 posterUrl={film.posterUrl}
                 title={film.title}

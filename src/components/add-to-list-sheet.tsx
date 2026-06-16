@@ -104,18 +104,18 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
 
           {/* film cell */}
           {movie && (
-            <div className="flex items-center gap-3 px-5 pb-3">
-              <div className="relative h-12 w-9 flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
+            <div className="flex items-center gap-3.5 px-5 pb-3.5">
+              <div className="relative h-14 w-[38px] flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
                 {movie.posterUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={movie.posterUrl} alt="" className="w-full h-full object-cover" />
                 ) : null}
               </div>
               <div className="min-w-0">
-                <div className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em] truncate">
+                <div className="font-headline font-bold text-[17px] lowercase tracking-[-0.02em] truncate">
                   adding · {movie.title.toLowerCase()}
                 </div>
-                <div className="font-mono text-[10px] text-muted-foreground lowercase truncate">
+                <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">
                   {[movie.year && movie.year !== 'N/A' ? movie.year : null, mediaLabel].filter(Boolean).join(' · ')}
                 </div>
               </div>
@@ -141,36 +141,36 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
                       key={list.id}
                       onClick={() => toggle(list)}
                       disabled={!!busy[list.id]}
-                      className="w-full flex items-center gap-3 p-3 text-left active:bg-foreground/5 transition-colors"
+                      className="w-full flex items-center gap-3.5 p-3.5 text-left active:bg-foreground/5 transition-colors"
                     >
                       <span
-                        className="relative h-11 w-11 flex-shrink-0 rounded-xl overflow-hidden flex items-center justify-center"
+                        className="relative h-[52px] w-[52px] flex-shrink-0 rounded-[14px] overflow-hidden flex items-center justify-center"
                         style={!cover ? { background: seededGradient(list.name) } : undefined}
                       >
                         {cover ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={cover} alt="" className="w-full h-full object-cover" />
                         ) : (
-                          <Film className="h-4 w-4 text-white/80" strokeWidth={1.8} />
+                          <Film className="h-5 w-5 text-white/80" strokeWidth={1.8} />
                         )}
                       </span>
                       <span className="flex-1 min-w-0">
-                        <span className="block font-headline font-bold text-[15px] lowercase tracking-[-0.02em] truncate">
+                        <span className="block font-headline font-bold text-[16.5px] lowercase tracking-[-0.02em] truncate">
                           {list.name}
                         </span>
-                        <span className="block font-mono text-[10px] text-muted-foreground tabular-nums">
+                        <span className="block font-mono text-[11px] text-muted-foreground tabular-nums mt-0.5">
                           {list.movieCount} {list.movieCount === 1 ? 'film' : 'films'}
                         </span>
                       </span>
                       <span
-                        className={`flex-shrink-0 h-6 w-6 rounded-full flex items-center justify-center transition-colors ${
+                        className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center transition-colors ${
                           on ? 'bg-primary text-white' : 'border-2 border-hair'
                         }`}
                       >
                         {busy[list.id] ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
                         ) : on ? (
-                          <Check className="h-3.5 w-3.5" strokeWidth={3} />
+                          <Check className="h-4 w-4" strokeWidth={3} />
                         ) : null}
                       </span>
                     </button>
