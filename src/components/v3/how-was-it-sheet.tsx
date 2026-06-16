@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Image from 'next/image';
 import { Drawer } from 'vaul';
-import { DragToRate } from '@/components/v3/drag-to-rate';
+import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 
@@ -90,9 +90,13 @@ export function HowWasItSheet({
               </div>
             </div>
 
-            {/* drag to rate */}
-            <div className="mt-4 rounded-2xl border border-hair bg-card p-4 shadow-press">
-              <DragToRate value={rating} onChangeComplete={setRating} onClear={() => setRating(null)} framed={false} />
+            {/* your rating — clear sits in the header, top-right of the box */}
+            <div className="mt-4 mb-2 flex items-center justify-between">
+              <div className="cc-eyebrow text-muted-foreground">your rating</div>
+              {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
+            </div>
+            <div className="rounded-2xl border border-hair bg-card p-4 shadow-press">
+              <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
             </div>
 
             {/* optional review */}

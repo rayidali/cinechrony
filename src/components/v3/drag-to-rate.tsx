@@ -6,25 +6,50 @@ import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 
 /**
+ * A reachable "clear rating" action. It lives OUTSIDE the rate box — callers
+ * render it in the section header (top-right, aligned with the title) so it's an
+ * easy tap target that never fights the drag surface. Shared by every place
+ * that hosts a `DragToRate` so the affordance looks identical everywhere.
+ */
+export function ClearRatingButton({
+  onClear,
+  disabled = false,
+}: {
+  onClear: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); haptic('light'); onClear(); }}
+      disabled={disabled}
+      className="-my-1 inline-flex items-center gap-1 rounded-full border border-hair px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground active:opacity-60 disabled:opacity-40"
+    >
+      <X className="h-3 w-3" strokeWidth={2.6} />
+      clear
+    </button>
+  );
+}
+
+/**
  * The v3 "drag to rate" control (F01/F02/F03 design). A big rating-coloured
  * number + a 10-segment bar. The WHOLE control is the drag surface — touch or
  * drag anywhere in the box and it registers, mapping the x-position (measured
  * against the bar's geometry) to 1.0–10.0 in 0.1 steps. The fill is proportional
  * so 8.5 reads as eight-and-a-half cells lit. Colour follows the app's red→green
  * rating system. `onChangeComplete` fires on release / tap — never mid-drag —
- * mirroring the old `RatingSlider` contract so callers persist once.
+ * mirroring the old `RatingSlider` contract so callers persist once. Clearing a
+ * rating lives OUTSIDE the box — render `<ClearRatingButton>` in the section
+ * header (top-right) rather than inside the drag surface.
  */
 export function DragToRate({
   value,
   onChangeComplete,
-  onClear,
   disabled = false,
   framed = true,
 }: {
   value: number | null;
   onChangeComplete: (value: number) => void;
-  /** When provided, a "clear" affordance shows once a rating is set. */
-  onClear?: () => void;
   disabled?: boolean;
   /** Wrap in the bordered card (drawer). F03 sheet passes false (bare). */
   framed?: boolean;
@@ -89,23 +114,9 @@ export function DragToRate({
           </span>
           <span className="font-headline font-semibold text-[15px] text-muted-foreground">/ 10</span>
         </div>
-        {/* Once rated, the right label becomes a proper-sized CLEAR button (a
-            generous tap target replaces the hint); otherwise the drag hint. */}
-        {onClear && shown > 0 && !disabled ? (
-          <button
-            type="button"
-            onPointerDown={(e) => e.stopPropagation()} // don't start a drag
-            onClick={(e) => { e.stopPropagation(); haptic('light'); onClear(); }}
-            className="-my-1.5 inline-flex items-center gap-1 rounded-full border border-hair px-3 py-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.14em] text-muted-foreground active:opacity-60"
-          >
-            <X className="h-3 w-3" strokeWidth={2.6} />
-            clear
-          </button>
-        ) : (
-          <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
-            drag to rate
-          </span>
-        )}
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          drag to rate
+        </span>
       </div>
 
       <div ref={barRef} className="mt-3.5 flex gap-1">

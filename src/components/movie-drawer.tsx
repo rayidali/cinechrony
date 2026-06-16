@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
-import { DragToRate } from '@/components/v3/drag-to-rate';
+import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { FullscreenTextInput } from './fullscreen-text-input';
 import { SimilarMoviesRow } from './similar-movies-row';
 import { AddToListSheet } from './add-to-list-sheet';
@@ -672,9 +672,12 @@ export function MovieDrawer({
                   )}
                 </div>
 
-                {/* ── your rating ── */}
-                <Block title="your rating">
-                  <DragToRate value={userRating} onChangeComplete={saveRating} onClear={clearRating} disabled={isSavingRating} />
+                {/* ── your rating ── (clear sits in the header, top-right) */}
+                <Block
+                  title="your rating"
+                  trailingNode={userRating != null ? <ClearRatingButton onClear={clearRating} disabled={isSavingRating} /> : undefined}
+                >
+                  <DragToRate value={userRating} onChangeComplete={saveRating} disabled={isSavingRating} />
                 </Block>
 
                 {/* ── your history (watch log) ── */}
@@ -919,16 +922,16 @@ function WatchRow({ watch, onEdit }: { watch: Watch; onEdit?: () => void }) {
 }
 
 function Block({
-  title, eyebrow, trailing, onTrailingTap, children,
+  title, eyebrow, trailing, onTrailingTap, trailingNode, children,
 }: {
-  title: string; eyebrow?: string; trailing?: string; onTrailingTap?: () => void; children: React.ReactNode;
+  title: string; eyebrow?: string; trailing?: string; onTrailingTap?: () => void; trailingNode?: React.ReactNode; children: React.ReactNode;
 }) {
   return (
     <section className="mt-7">
       {eyebrow && <div className="cc-eyebrow text-muted-foreground mb-1">{eyebrow}</div>}
       <div className="flex items-baseline justify-between mb-3">
         <h3 className="font-headline font-bold text-[19px] lowercase tracking-[-0.02em]">{title}</h3>
-        {trailing && (
+        {trailingNode ? trailingNode : trailing && (
           onTrailingTap ? (
             <button onClick={onTrailingTap} className="font-ui font-semibold text-[13px] text-primary active:opacity-60">{trailing}</button>
           ) : (

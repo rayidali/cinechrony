@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Drawer } from 'vaul';
 import { Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
-import { DragToRate } from '@/components/v3/drag-to-rate';
+import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import type { Watch } from '@/lib/types';
@@ -72,13 +72,14 @@ export function WatchEditSheet({
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-            <div className="mt-1 mb-1 flex items-baseline gap-2">
+            <div className="mt-1 mb-1 flex items-center gap-2">
               <span className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">{label}</span>
               {dateLabel && <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{dateLabel}</span>}
+              {rating != null && <span className="ml-auto"><ClearRatingButton onClear={() => setRating(null)} /></span>}
             </div>
 
             <div className="mt-3 rounded-2xl border border-hair bg-card p-4 shadow-press">
-              <DragToRate value={rating} onChangeComplete={setRating} onClear={() => setRating(null)} framed={false} />
+              <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
             </div>
 
             <div className="mt-4">
