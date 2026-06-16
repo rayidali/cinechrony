@@ -14,7 +14,10 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
-import { ListNotFoundError, NotListOwnerError } from '@/lib/lists-server';
+import {
+  ListNotFoundError, NotListOwnerError,
+  invalidateCollaborativeLists, invalidateListMembers,
+} from '@/lib/lists-server';
 
 export { ListNotFoundError, NotListOwnerError };
 
@@ -66,6 +69,8 @@ export async function removeCollaborator(
     collaboratorIds: FieldValue.arrayRemove(collaboratorId),
     updatedAt: FieldValue.serverTimestamp(),
   });
+  invalidateListMembers(listOwnerId, listId);
+  invalidateCollaborativeLists(collaboratorId);
 }
 
 // ─── leaveList — collaborator self-removal ────────────────────────────────
@@ -97,4 +102,6 @@ export async function leaveList(
     collaboratorIds: FieldValue.arrayRemove(callerUid),
     updatedAt: FieldValue.serverTimestamp(),
   });
+  invalidateListMembers(listOwnerId, listId);
+  invalidateCollaborativeLists(callerUid);
 }
