@@ -18,6 +18,16 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import { createTtlCache, cached } from '@/lib/server-cache';
+
+// Block reads are called PER REQUEST by the feed/posts/comments/notifications
+// (2 reads each). Blocks change rarely, so cache per-uid and invalidate on the
+// block/unblock writes below. Short-ish TTL bounds any missed-invalidation lag.
+const blockSetCache = createTtlCache<string[]>({ ttlMs: 120_000 });
+const blockContextCache = createTtlCache<{ blockedIds: string[]; iBlocked: string[] }>({ ttlMs: 120_000 });
+function invalidateBlocks(...uids: string[]): void {
+  for (const u of uids) { blockSetCache.delete(u); blockContextCache.delete(u); }
+}
 import type { UserProfile } from '@/lib/types';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -56,14 +66,17 @@ export async function getBlockSet(
   db: FirebaseFirestore.Firestore,
   uid: string,
 ): Promise<Set<string>> {
-  const [iBlocked, blockedMe] = await Promise.all([
-    db.collection('blocks').where('blockerId', '==', uid).limit(500).get(),
-    db.collection('blocks').where('blockedId', '==', uid).limit(500).get(),
-  ]);
-  const set = new Set<string>();
-  iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
-  blockedMe.docs.forEach((d) => set.add(d.data().blockerId as string));
-  return set;
+  const ids = await cached(blockSetCache, uid, async () => {
+    const [iBlocked, blockedMe] = await Promise.all([
+      db.collection('blocks').where('blockerId', '==', uid).limit(500).get(),
+      db.collection('blocks').where('blockedId', '==', uid).limit(500).get(),
+    ]);
+    const set = new Set<string>();
+    iBlocked.docs.forEach((d) => set.add(d.data().blockedId as string));
+    blockedMe.docs.forEach((d) => set.add(d.data().blockerId as string));
+    return [...set];
+  });
+  return new Set(ids);
 }
 
 /** Convenience: defaults to the canonical `getDb()`. */
@@ -139,6 +152,9 @@ export async function blockUser(
   } catch (err) {
     console.error('[blockUser] invite revoke failed:', err);
   }
+
+  // Both users' block views changed — clear so the new block takes effect now.
+  invalidateBlocks(blockerUid, blockedUid);
 }
 
 /**
@@ -151,6 +167,7 @@ export async function unblockUser(
 ): Promise<void> {
   const db = getDb();
   await db.collection('blocks').doc(`${callerUid}_${blockedUid}`).delete();
+  invalidateBlocks(callerUid, blockedUid);
 }
 
 /**
@@ -162,14 +179,16 @@ export async function unblockUser(
 export async function getMyBlockContext(
   callerUid: string,
 ): Promise<{ blockedIds: string[]; iBlocked: string[] }> {
-  const db = getDb();
-  const [iBlockedSnap, blockedMeSnap] = await Promise.all([
-    db.collection('blocks').where('blockerId', '==', callerUid).limit(500).get(),
-    db.collection('blocks').where('blockedId', '==', callerUid).limit(500).get(),
-  ]);
-  const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
-  const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);
-  return { blockedIds: [...new Set([...iBlocked, ...blockedMe])], iBlocked };
+  return cached(blockContextCache, callerUid, async () => {
+    const db = getDb();
+    const [iBlockedSnap, blockedMeSnap] = await Promise.all([
+      db.collection('blocks').where('blockerId', '==', callerUid).limit(500).get(),
+      db.collection('blocks').where('blockedId', '==', callerUid).limit(500).get(),
+    ]);
+    const iBlocked = iBlockedSnap.docs.map((d) => d.data().blockedId as string);
+    const blockedMe = blockedMeSnap.docs.map((d) => d.data().blockerId as string);
+    return { blockedIds: [...new Set([...iBlocked, ...blockedMe])], iBlocked };
+  });
 }
 
 /**

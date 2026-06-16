@@ -26,7 +26,9 @@ import { AddToListSheet } from './add-to-list-sheet';
 import { HowWasItSheet } from '@/components/v3/how-was-it-sheet';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { useUser } from '@/firebase';
+import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh, invalidateCachedAction } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { getRatingStyle } from '@/lib/utils';
@@ -124,6 +126,7 @@ export function MovieDrawer({
   const { user } = useUser();
   const { toast } = useToast();
   const { getMembers } = useListMembersCache();
+  const { getRating, setRating } = useUserRatingsCache();
 
   const inList = context.kind === 'in-list';
   const canEdit = context.kind === 'in-list' && context.canEdit;
@@ -154,7 +157,6 @@ export function MovieDrawer({
   const [reviewCount, setReviewCount] = useState(0);
 
   const [userRating, setUserRating] = useState<number | null>(null);
-  const [ratingCreatedAt, setRatingCreatedAt] = useState<string | null>(null);
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>(movieProp?.status ?? 'To Watch');
   const [isPending, setIsPending] = useState(false);
@@ -189,7 +191,6 @@ export function MovieDrawer({
     setLocalStatus(movie.status);
     setNewSocialLink(movie.socialLink ?? '');
     setUserRating(null);
-    setRatingCreatedAt(null);
     setUserNote(user?.uid && movie.notes?.[user.uid] ? movie.notes[user.uid] : '');
     setShowNoteEditor(false);
     setShowSocialLinkEditor(false);
@@ -207,51 +208,54 @@ export function MovieDrawer({
     }
   }, [isOpen]);
 
-  // user rating
+  // user rating — read from the session-cached ratings Map (already loaded by
+  // UserRatingsCacheProvider), NOT a per-open Firestore fetch. getRating is a
+  // stable callback that changes when the Map updates, so this re-syncs once
+  // the cache hydrates. saveRating/clearRating write back to the cache.
   useEffect(() => {
-    if (!movie || !isOpen || !user?.uid || !tmdbId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const r = await apiCall<{ rating: { rating: number; createdAt?: string } | null }>(
-          'GET', `/api/v1/ratings/by-user?userId=${user.uid}&tmdbId=${tmdbId}`,
-        );
-        if (!cancelled && r.rating) {
-          setUserRating(r.rating.rating);
-          setRatingCreatedAt(r.rating.createdAt ?? null);
-        }
-      } catch { /* non-critical */ }
-    })();
-    return () => { cancelled = true; };
-  }, [movie?.id, isOpen, user?.uid, tmdbId]);
+    if (tmdbId) setUserRating(getRating(tmdbId));
+  }, [tmdbId, isOpen, getRating]);
 
-  // your history (watch log) — owner-scoped, index-free fetch. `watchesNonce`
-  // forces a refetch after logging a watch from "how was it?".
+  // your history (watch log) — owner-scoped, index-free fetch, TTL-gated +
+  // cached so reopening the same film skips the read. `watchesNonce` (bumped by
+  // logWatch) forces a refresh after a new watch.
   useEffect(() => {
     if (!isOpen || !user?.uid || !tmdbId) { setWatches([]); return; }
+    const key = `drawer-watches:${user.uid}:${tmdbId}`;
+    const cachedW = readCachedAction<Watch[]>(key);
+    if (cachedW) setWatches(cachedW);
+    if (cachedW && isCachedActionFresh(key, 300_000)) return; // fresh — skip read
     let cancelled = false;
     (async () => {
       try {
         const r = await apiCall<{ watches: Watch[] }>('GET', `/api/v1/watches?tmdbId=${tmdbId}`);
-        if (!cancelled) setWatches(r.watches ?? []);
+        if (!cancelled) { setWatches(r.watches ?? []); setCachedAction(key, r.watches ?? []); }
       } catch { /* non-critical */ }
     })();
     return () => { cancelled = true; };
   }, [movie?.id, isOpen, user?.uid, tmdbId, watchesNonce]);
 
-  // review previews (top by likes) + count
+  // review previews (top by likes) + count — TTL-gated + cached (public per
+  // film), so reopening the same drawer skips the read.
   useEffect(() => {
     if (!isOpen || !tmdbId) { setReviewPreviews([]); setReviewCount(0); return; }
+    const key = `drawer-reviews:${tmdbId}`;
+    const cachedR = readCachedAction<{ reviews: Review[]; count: number }>(key);
+    if (cachedR) { setReviewPreviews(cachedR.reviews); setReviewCount(cachedR.count); }
+    else setReviewPreviews([]);
+    if (cachedR && isCachedActionFresh(key, 300_000)) return; // fresh — skip read
     let cancelled = false;
-    setReviewPreviews([]);
     (async () => {
       try {
         const r = await apiCall<{ reviews: Review[]; total?: number }>(
           'GET', `/api/v1/reviews?tmdbId=${tmdbId}&sort=likes&limit=2`,
         );
         if (!cancelled) {
-          setReviewPreviews(r.reviews ?? []);
-          setReviewCount(r.total ?? (r.reviews?.length ?? 0));
+          const reviews = r.reviews ?? [];
+          const count = r.total ?? reviews.length;
+          setReviewPreviews(reviews);
+          setReviewCount(count);
+          setCachedAction(key, { reviews, count });
         }
       } catch { /* non-critical */ }
     })();
@@ -295,7 +299,9 @@ export function MovieDrawer({
 
   // "your history" — real watch docs, or (for films watched before the watch
   // log existed) a single synthesized "first watch" derived from the existing
-  // rating + the user's own review. Read-time only — no backfill writes.
+  // rating + the user's own review. Read-time only — no backfill writes, and no
+  // date (the rating's timestamp isn't in the ratings cache → WatchRow omits it
+  // for the synthetic row).
   const history: Watch[] = watches.length > 0
     ? watches
     : userRating != null
@@ -306,7 +312,7 @@ export function MovieDrawer({
           mediaType: movie.mediaType === 'tv' ? 'tv' : 'movie',
           movieTitle: movie.title,
           moviePosterUrl: movie.posterUrl || null,
-          watchedAt: ratingCreatedAt ? new Date(ratingCreatedAt) : new Date(),
+          watchedAt: new Date(0),
           rating: userRating,
           note: reviewPreviews.find((r) => r.userId === user?.uid)?.text ?? null,
           ordinal: 1,
@@ -357,6 +363,7 @@ export function MovieDrawer({
     setIsSavingRating(true);
     const prev = userRating;
     setUserRating(rating);
+    setRating(tmdbId, rating); // write through the session ratings cache
     try {
       await apiCall('POST', '/api/v1/ratings', {
         tmdbId, mediaType: movie.mediaType || 'movie',
@@ -364,6 +371,7 @@ export function MovieDrawer({
       });
     } catch (err) {
       setUserRating(prev);
+      setRating(tmdbId, prev);
       toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to save rating.' });
     } finally { setIsSavingRating(false); }
   };
@@ -373,12 +381,13 @@ export function MovieDrawer({
     const prev = userRating;
     haptic('light');
     setUserRating(null);
-    setRatingCreatedAt(null);
+    setRating(tmdbId, null); // write through the session ratings cache
     setIsSavingRating(true);
     try {
       await apiCall('DELETE', `/api/v1/ratings/${tmdbId}`);
     } catch (err) {
       setUserRating(prev);
+      setRating(tmdbId, prev);
       toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to clear rating.' });
     } finally { setIsSavingRating(false); }
   };
@@ -420,7 +429,11 @@ export function MovieDrawer({
     } catch (err) {
       console.error('[movie-drawer] logWatch failed:', err);
     }
-    if (rating != null) setUserRating(rating);
+    if (rating != null) { setUserRating(rating); setRating(tmdbId, rating); }
+    // The watch (and possibly the note→review) just changed — drop the caches
+    // so the history + conversation reflect the new entry on the next read.
+    if (user?.uid) invalidateCachedAction(`drawer-watches:${user.uid}:${tmdbId}`);
+    if (note.trim()) invalidateCachedAction(`drawer-reviews:${tmdbId}`);
     setWatchesNonce((n) => n + 1);
   };
 
@@ -816,13 +829,15 @@ export function MovieDrawer({
 function WatchRow({ watch }: { watch: Watch }) {
   const label = watch.ordinal <= 1 ? 'first watch' : `rewatch no. ${watch.ordinal}`;
   // watchedAt is an ISO string over the wire (typed Date) — wrap defensively.
-  const date = format(new Date(watch.watchedAt), 'MMM yyyy').toLowerCase();
+  // The synthesized-from-rating row carries no real date (epoch sentinel).
+  const ts = new Date(watch.watchedAt).getTime();
+  const date = ts > 0 ? format(new Date(watch.watchedAt), 'MMM yyyy').toLowerCase() : null;
   const style = watch.rating ? getRatingStyle(watch.rating) : null;
   return (
     <div className="p-3.5">
       <div className="flex items-center gap-2">
         <span className="font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">{label}</span>
-        <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{date}</span>
+        {date && <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{date}</span>}
         {style && (
           <span className="ml-auto px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums" style={{ ...style.background, ...style.textOnBg }}>
             {watch.rating!.toFixed(1)}
