@@ -92,11 +92,19 @@ async function fetchImdbRating(
 
 export type ImdbRating = {
   imdbRating?: string;
-  metascore?: string;
+  metascore?: string; // Metacritic critic score, 0–100
+  rottenTomatoes?: string; // e.g. "96%" — from OMDB's Ratings array
+  awards?: string; // e.g. "Won 1 Oscar. 3 nominations total"
   imdbVotes?: string;
   rated?: string;
   runtime?: string;
 };
+
+/** Pull the Rotten Tomatoes "NN%" value out of OMDB's Ratings array. */
+function extractRottenTomatoes(data: { Ratings?: Array<{ Source?: string; Value?: string }> }): string | undefined {
+  const rt = data.Ratings?.find((r) => r.Source === 'Rotten Tomatoes');
+  return rt?.Value && rt.Value !== 'N/A' ? rt.Value : undefined;
+}
 
 export class ImdbConfigError extends Error {
   constructor(message = 'OMDB API key not configured') {
@@ -127,6 +135,8 @@ export async function getImdbRating(imdbId: string): Promise<ImdbRating> {
   return {
     imdbRating: data.imdbRating !== 'N/A' ? data.imdbRating : undefined,
     metascore: data.Metascore !== 'N/A' ? data.Metascore : undefined,
+    rottenTomatoes: extractRottenTomatoes(data),
+    awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : undefined,
     imdbVotes: data.imdbVotes !== 'N/A' ? data.imdbVotes : undefined,
     rated: data.Rated !== 'N/A' ? data.Rated : undefined,
     runtime: data.Runtime !== 'N/A' ? data.Runtime : undefined,

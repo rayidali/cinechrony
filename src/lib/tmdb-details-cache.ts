@@ -18,23 +18,32 @@
  * and the module is discarded on hard refresh anyway.
  */
 
-import type { TMDBMovieDetails, TMDBTVDetails } from '@/lib/types';
+import type { TMDBMovieDetails, TMDBTVDetails, WatchProviders } from '@/lib/types';
 import { apiCall } from '@/lib/api-client';
 import type { TrendingMovie } from '@/lib/tmdb-server';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
+const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w92';
 
-export type ExtendedMovieDetails = TMDBMovieDetails & {
+// Region for "where to watch". TMDB keys watch providers by ISO-3166 country;
+// US has the deepest catalog, so it's the v1 default. (No GPS — LAUNCH forbids.)
+const WATCH_REGION = 'US';
+
+// Scores + awards (RT/Metacritic/Oscars) ride along on the IMDB lookup;
+// watchProviders is normalized from the same details fetch (append_to_response).
+type EnrichedFields = {
   imdbId?: string;
   imdbRating?: string;
   imdbVotes?: string;
+  metascore?: string;
+  rottenTomatoes?: string;
+  awards?: string;
+  watchProviders?: WatchProviders;
 };
 
-export type ExtendedTVDetails = TMDBTVDetails & {
-  imdbId?: string;
-  imdbRating?: string;
-  imdbVotes?: string;
-};
+export type ExtendedMovieDetails = TMDBMovieDetails & EnrichedFields;
+
+export type ExtendedTVDetails = TMDBTVDetails & EnrichedFields;
 
 export type MediaDetails = ExtendedMovieDetails | ExtendedTVDetails;
 
@@ -46,6 +55,34 @@ const inflight = new Map<string, Promise<MediaDetails | null>>();
 
 function cacheKey(mediaType: 'movie' | 'tv', tmdbId: number): string {
   return `${mediaType}:${tmdbId}`;
+}
+
+type RawProvider = { provider_id: number; provider_name: string; logo_path: string | null };
+
+/**
+ * Normalize TMDB's `watch/providers` block (JustWatch-powered) for one region
+ * into clean stream/rent/buy buckets. TMDB returns the data under a literal
+ * `"watch/providers"` key with results keyed by ISO country code.
+ */
+function normalizeWatchProviders(data: Record<string, unknown>): WatchProviders | undefined {
+  const block = data['watch/providers'] as
+    | { results?: Record<string, { link?: string; flatrate?: RawProvider[]; rent?: RawProvider[]; buy?: RawProvider[] }> }
+    | undefined;
+  const region = block?.results?.[WATCH_REGION];
+  if (!region) return undefined;
+
+  const map = (list?: RawProvider[]) =>
+    (list ?? []).map((p) => ({
+      providerId: p.provider_id,
+      name: p.provider_name,
+      logoUrl: p.logo_path ? `${TMDB_IMAGE_BASE}${p.logo_path}` : null,
+    }));
+
+  const stream = map(region.flatrate);
+  const rent = map(region.rent);
+  const buy = map(region.buy);
+  if (stream.length === 0 && rent.length === 0 && buy.length === 0) return undefined;
+  return { link: region.link ?? null, stream, rent, buy };
 }
 
 /**
@@ -78,7 +115,7 @@ async function fetchAndCache(
     try {
       const path = mediaType === 'tv' ? 'tv' : 'movie';
       const response = await fetch(
-        `${TMDB_API_BASE_URL}/${path}/${tmdbId}?append_to_response=credits,external_ids`,
+        `${TMDB_API_BASE_URL}/${path}/${tmdbId}?append_to_response=credits,external_ids,watch/providers`,
         {
           headers: {
             accept: 'application/json',
@@ -90,27 +127,33 @@ async function fetchAndCache(
       const data = await response.json();
       const imdbId = data.external_ids?.imdb_id;
 
-      let withImdb: MediaDetails = { ...data, imdbId };
+      // "where to watch" rides along on this same fetch (zero extra requests).
+      let enriched: MediaDetails = {
+        ...data,
+        imdbId,
+        watchProviders: normalizeWatchProviders(data),
+      };
       if (imdbId) {
         try {
           const omdbData = await apiCall<{
-            imdbRating?: string; metascore?: string; imdbVotes?: string;
-            rated?: string; runtime?: string;
+            imdbRating?: string; metascore?: string; rottenTomatoes?: string;
+            awards?: string; imdbVotes?: string; rated?: string; runtime?: string;
           }>('GET', `/api/v1/movies/imdb-rating/${encodeURIComponent(imdbId)}`);
-          if (omdbData.imdbRating) {
-            withImdb = {
-              ...withImdb,
-              imdbRating: omdbData.imdbRating,
-              imdbVotes: omdbData.imdbVotes,
-            };
-          }
+          enriched = {
+            ...enriched,
+            imdbRating: omdbData.imdbRating ?? enriched.imdbRating,
+            imdbVotes: omdbData.imdbVotes,
+            metascore: omdbData.metascore,
+            rottenTomatoes: omdbData.rottenTomatoes,
+            awards: omdbData.awards,
+          };
         } catch {
-          /* IMDB is best-effort — leave the rest of the payload intact. */
+          /* OMDB is best-effort — leave the rest of the payload intact. */
         }
       }
 
-      detailsCache.set(key, withImdb);
-      return withImdb;
+      detailsCache.set(key, enriched);
+      return enriched;
     } catch {
       return null;
     } finally {

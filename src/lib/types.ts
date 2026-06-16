@@ -187,6 +187,15 @@ export type TMDBCast = {
   profile_path: string | null;
 };
 
+// TMDB movie credits (crew — director, writers, …)
+export type TMDBCrew = {
+  id: number;
+  name: string;
+  job: string; // 'Director', 'Writer', 'Screenplay', …
+  department: string;
+  profile_path: string | null;
+};
+
 // TMDB movie details response
 export type TMDBMovieDetails = {
   id: number;
@@ -199,8 +208,11 @@ export type TMDBMovieDetails = {
   backdrop_path: string | null;
   runtime: number | null;
   genres: Array<{ id: number; name: string }>;
+  production_companies?: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
   credits?: {
     cast: TMDBCast[];
+    crew?: TMDBCrew[];
   };
 };
 
@@ -256,9 +268,30 @@ export type TMDBTVDetails = {
   genres: Array<{ id: number; name: string }>;
   status: string;
   networks: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_companies?: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
   credits?: {
     cast: TMDBCast[];
+    crew?: TMDBCrew[];
   };
+};
+
+// A single streaming/rental provider (normalized from TMDB watch/providers,
+// which is powered by JustWatch). `logoUrl` is a full TMDB image URL.
+export type WatchProvider = {
+  providerId: number;
+  name: string;
+  logoUrl: string | null;
+};
+
+// Normalized "where to watch" for one region (default US). TMDB returns
+// flatrate/rent/buy buckets + a JustWatch deep-link; prices are NOT in the
+// free API, so we surface providers without invented "from $X".
+export type WatchProviders = {
+  link: string | null;
+  stream: WatchProvider[];
+  rent: WatchProvider[];
+  buy: WatchProvider[];
 };
 
 // Movie review
