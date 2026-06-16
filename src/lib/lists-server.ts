@@ -967,7 +967,7 @@ export async function getListMembers(
 // Preview thumbnails (grid cards on /lists + profile). Cached per
 // owner:list:viewer — viewer matters only for the private-list privacy gate.
 // Short TTL (2min) self-heals after a movie add without per-viewer invalidation.
-const listPreviewCache = createTtlCache<{ previewPosters: string[]; movieCount: number }>({ ttlMs: 120_000 });
+const listPreviewCache = createTtlCache<{ previewPosters: string[]; movieCount: number }>({ ttlMs: 300_000 });
 // Keyed owner:list:viewer — drop every viewer variant when the list's movies change.
 export function invalidateListPreview(ownerId: string, listId: string): void {
   listPreviewCache.deleteByPrefix(`${ownerId}:${listId}:`);

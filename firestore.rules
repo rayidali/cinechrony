@@ -351,6 +351,11 @@ service cloud.firestore {
     match /ratings/{ratingId} {
       allow read, write: if false;
     }
+    // Precomputed home-rail snapshot (leaderboard + friends-watching). Built +
+    // read server-side only; clients reach it via the cached API rails.
+    match /snapshots/{snapshotId} {
+      allow read, write: if false;
+    }
     match /notifications/{notificationId} {
       allow read, write: if false;
     }

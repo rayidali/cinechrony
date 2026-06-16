@@ -16,6 +16,7 @@ import { getDb } from '@/firebase/admin';
 import { getFollowingIds } from '@/lib/follows-server';
 import { getMyBlockSet } from '@/lib/blocks-server';
 import { createTtlCache, cached } from '@/lib/server-cache';
+import { getHomeSnapshot, type SnapshotWatcher } from '@/lib/home-snapshot-server';
 
 export type LeaderboardEntry = {
   uid: string;
@@ -47,6 +48,14 @@ export async function getWeeklyLeaderboard(
   const fallbackToAllTime = opts.fallbackToAllTime === true;
   const key = `${callerUid}:${windowDays}:${limit}:${fallbackToAllTime ? 'f' : ''}`;
   return cached(leaderboardCache, key, async () => {
+    // The home rail (7-day window) is served from the GLOBAL snapshot — one
+    // shared scan instead of a per-user 800-doc scan. Month/all-time (the
+    // infrequent F16 "view all") + a missing snapshot fall through to the live
+    // scan below.
+    if (windowDays === 7) {
+      const snapEntries = await leaderboardFromSnapshot(callerUid, limit, fallbackToAllTime);
+      if (snapEntries) return { entries: snapEntries };
+    }
     const db = getDb();
 
     // IDs only — the leaderboard rows use the activity docs' denormalized
@@ -156,4 +165,61 @@ export async function getWeeklyLeaderboard(
 
     return { entries };
   });
+}
+
+/**
+ * Week leaderboard from the global snapshot — the home-rail fast path. Returns
+ * null if there's no snapshot yet (caller falls back to the live scan), so the
+ * rail never goes empty during the first build / a snapshot outage.
+ */
+async function leaderboardFromSnapshot(
+  callerUid: string,
+  limit: number,
+  fallbackToAllTime: boolean,
+): Promise<LeaderboardEntry[] | null> {
+  const [snapshot, followingIds, blocked] = await Promise.all([
+    getHomeSnapshot(),
+    getFollowingIds(callerUid, 200),
+    getMyBlockSet(callerUid).catch(() => new Set<string>()),
+  ]);
+  if (!snapshot) return null;
+
+  const include = new Set<string>([callerUid]);
+  for (const uid of followingIds) include.add(uid);
+  for (const b of blocked) include.delete(b);
+  if (include.size === 0) return [];
+
+  const rankBy = (pick: (w: SnapshotWatcher) => number): LeaderboardEntry[] =>
+    snapshot.watchers
+      .filter((w) => include.has(w.uid) && pick(w) > 0)
+      .map((w) => ({
+        uid: w.uid,
+        username: w.username,
+        displayName: w.displayName,
+        photoURL: w.photoURL,
+        films: pick(w),
+      }))
+      .sort((a, b) => b.films - a.films || (a.username ?? '').localeCompare(b.username ?? ''))
+      .slice(0, limit)
+      .map((e, i) => ({ ...e, rank: i + 1 }));
+
+  let entries = rankBy((w) => w.filmsCurrent);
+  let usedFallback = false;
+  if (entries.length === 0 && fallbackToAllTime) {
+    entries = rankBy((w) => w.filmsAll);
+    usedFallback = true;
+  }
+
+  if (!usedFallback) {
+    const prior = rankBy((w) => w.filmsPrior);
+    const priorRankByUid = new Map(prior.map((e) => [e.uid, e.rank]));
+    const priorHadData = prior.length > 0;
+    entries = entries.map((e) =>
+      priorRankByUid.has(e.uid)
+        ? { ...e, movement: (priorRankByUid.get(e.uid) as number) - e.rank, isNew: false }
+        : { ...e, movement: null, isNew: priorHadData },
+    );
+  }
+
+  return entries;
 }

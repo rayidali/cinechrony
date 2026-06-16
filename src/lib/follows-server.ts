@@ -22,7 +22,16 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { sendPushToUser } from '@/lib/push-server';
 import { isBlockedBetween } from '@/lib/blocks-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
 import type { UserProfile } from '@/lib/types';
+
+// The follow-id SET is read per home load by BOTH the leaderboard and
+// friends-watching rails (N reads each, N = # follows). It changes rarely, so
+// cache per-user (5min) and invalidate on follow/unfollow.
+const followingIdsCache = createTtlCache<string[]>({ ttlMs: 300_000 });
+function invalidateFollowingIds(uid: string): void {
+  followingIdsCache.deleteByPrefix(`${uid}:`);
+}
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
 
@@ -116,6 +125,7 @@ export async function followUser(
     tx.update(followerUserRef, { followingCount: FieldValue.increment(1) });
     tx.update(targetUserRef, { followersCount: FieldValue.increment(1) });
   });
+  invalidateFollowingIds(callerUid); // the caller's follow set changed
 
   // Best-effort follow notification. Failure here doesn't roll back.
   try {
@@ -175,7 +185,7 @@ export async function unfollowUser(
   const followerUserRef = db.collection('users').doc(callerUid);
   const targetUserRef = db.collection('users').doc(targetUid);
 
-  return db.runTransaction(async (tx) => {
+  const result = await db.runTransaction(async (tx) => {
     const existing = await tx.get(followingRef);
     if (!existing.exists) return { unfollowed: false };
 
@@ -185,6 +195,8 @@ export async function unfollowUser(
     tx.update(targetUserRef, { followersCount: FieldValue.increment(-1) });
     return { unfollowed: true };
   });
+  if (result.unfollowed) invalidateFollowingIds(callerUid);
+  return result;
 }
 
 // ─── getFollowers / getFollowing ──────────────────────────────────────────
@@ -273,13 +285,16 @@ export async function getFollowingIds(
   limit: number = DEFAULT_LIST_LIMIT,
 ): Promise<string[]> {
   const effectiveLimit = Math.min(Math.max(1, limit), MAX_LIST_LIMIT);
-  const db = getDb();
-  const snap = await db
-    .collection('users').doc(targetUid)
-    .collection('following')
-    .limit(effectiveLimit)
-    .get();
-  return snap.docs.map((d) => d.id);
+  // cached() auto-bypasses under the test emulator, so tests see fresh follows.
+  return cached(followingIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
+    const db = getDb();
+    const snap = await db
+      .collection('users').doc(targetUid)
+      .collection('following')
+      .limit(effectiveLimit)
+      .get();
+    return snap.docs.map((d) => d.id);
+  });
 }
 
 // ─── isFollowing — single boolean check (Phase A PR #18) ────────────────

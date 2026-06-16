@@ -68,8 +68,9 @@ export function createTtlCache<T>(opts: { ttlMs: number; maxEntries?: number }):
   };
 }
 
-/** True when caching should be bypassed — emulator/test runs or a kill switch. */
-function cachingDisabled(): boolean {
+/** True when caching should be bypassed — emulator/test runs or a kill switch.
+ *  Exported so bespoke caches (snapshot memo, etc.) can honor the same bypass. */
+export function cachingDisabled(): boolean {
   return !!process.env.FIRESTORE_EMULATOR_HOST || process.env.DISABLE_SERVER_CACHE === '1';
 }
 

@@ -23,8 +23,8 @@ import { createTtlCache, cached } from '@/lib/server-cache';
 // Block reads are called PER REQUEST by the feed/posts/comments/notifications
 // (2 reads each). Blocks change rarely, so cache per-uid and invalidate on the
 // block/unblock writes below. Short-ish TTL bounds any missed-invalidation lag.
-const blockSetCache = createTtlCache<string[]>({ ttlMs: 120_000 });
-const blockContextCache = createTtlCache<{ blockedIds: string[]; iBlocked: string[] }>({ ttlMs: 120_000 });
+const blockSetCache = createTtlCache<string[]>({ ttlMs: 600_000 });
+const blockContextCache = createTtlCache<{ blockedIds: string[]; iBlocked: string[] }>({ ttlMs: 600_000 });
 function invalidateBlocks(...uids: string[]): void {
   for (const u of uids) { blockSetCache.delete(u); blockContextCache.delete(u); }
 }
