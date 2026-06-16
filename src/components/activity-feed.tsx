@@ -12,6 +12,7 @@ import {
   readCachedAction,
   setCachedAction,
   isCachedActionFresh,
+  invalidateCachedActionsByPrefix,
 } from '@/lib/use-cached-action';
 
 // Freshness windows — within these, a mount reuses cache instead of refetching
@@ -358,7 +359,11 @@ export function ActivityFeed({
     setItems((prev) =>
       prev.filter((it) => !(it.kind === 'post' && it.post.id === postId)),
     );
-  }, []);
+    // Bust the cached feed snapshot(s) too, or the deleted post resurrects from
+    // cache on the next remount within the freshness window. Prefix covers every
+    // filter (all/friends share one /home-feed fetch, cached per filter key).
+    if (currentUserId) invalidateCachedActionsByPrefix(`home-feed:${currentUserId}`);
+  }, [currentUserId]);
 
   // Filter — block always; mute on all/friends; friends narrows to follows.
   const visibleItems = useMemo(() => {

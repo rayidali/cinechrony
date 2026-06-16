@@ -21,7 +21,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import type { SearchResult } from '@/lib/types';
-import { canEditList } from '@/lib/lists-server';
+import { canEditList, invalidateListPreview } from '@/lib/lists-server';
 import { emitActivity } from '@/lib/activities-server';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -156,6 +156,10 @@ export async function addMovieToList(
     return fresh;
   });
 
+  // The grid-card preview (posters + count) just changed — drop its cache so
+  // /lists + /profile reflect the add without waiting out the TTL.
+  if (isNew) invalidateListPreview(listOwnerId, listId);
+
   // Best-effort activity emit on genuinely new additions. Failure here cannot
   // roll back the add (matches legacy behavior).
   if (isNew) {
@@ -213,6 +217,8 @@ export async function removeMovieFromList(
     });
     return true;
   });
+
+  if (removed) invalidateListPreview(listOwnerId, listId);
 
   return { removed };
 }

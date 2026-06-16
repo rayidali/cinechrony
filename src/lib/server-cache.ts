@@ -27,6 +27,8 @@ export type TtlCache<T> = {
   get(key: string): T | undefined;
   set(key: string, value: T): void;
   delete(key: string): void;
+  /** Drop every entry whose key starts with `prefix` (e.g. all viewer variants of a list). */
+  deleteByPrefix(prefix: string): void;
 };
 
 export function createTtlCache<T>(opts: { ttlMs: number; maxEntries?: number }): TtlCache<T> {
@@ -57,6 +59,11 @@ export function createTtlCache<T>(opts: { ttlMs: number; maxEntries?: number }):
     },
     delete(key) {
       store.delete(key);
+    },
+    deleteByPrefix(prefix) {
+      for (const key of Array.from(store.keys())) {
+        if (key.startsWith(prefix)) store.delete(key);
+      }
     },
   };
 }

@@ -8,7 +8,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
-import { invalidateCachedAction } from '@/lib/use-cached-action';
+import { invalidateCachedAction, setCachedAction, readCachedAction } from '@/lib/use-cached-action';
 import { formatDistanceToNow } from 'date-fns';
 import { Loader2 } from 'lucide-react';
 import type { Notification } from '@/lib/types';
@@ -77,6 +77,9 @@ export default function NotificationsPage() {
     try {
       await apiCall('POST', '/api/v1/notifications/read');
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      // Clear the bell badge instantly (else it shows the old count until the
+      // client freshness gate / poll lapses).
+      setCachedAction(`notif-count:${user.uid}`, 0);
     } catch (err) {
       console.error('Failed to mark as read:', err);
     }
@@ -157,6 +160,11 @@ export default function NotificationsPage() {
       setNotifications(prev =>
         prev.map(n => (n.id === notification.id ? { ...n, read: true } : n))
       );
+      // Decrement the bell badge cache so it reflects this read immediately.
+      const k = `notif-count:${user.uid}`;
+      const cur = readCachedAction<number>(k);
+      if (typeof cur === 'number') setCachedAction(k, Math.max(0, cur - 1));
+      else invalidateCachedAction(k);
     }
 
     // Navigate based on notification type
