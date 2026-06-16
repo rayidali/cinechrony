@@ -368,6 +368,21 @@ export function MovieDrawer({
     } finally { setIsSavingRating(false); }
   };
 
+  const clearRating = async () => {
+    if (!user?.uid || !tmdbId || userRating == null) return;
+    const prev = userRating;
+    haptic('light');
+    setUserRating(null);
+    setRatingCreatedAt(null);
+    setIsSavingRating(true);
+    try {
+      await apiCall('DELETE', `/api/v1/ratings/${tmdbId}`);
+    } catch (err) {
+      setUserRating(prev);
+      toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to clear rating.' });
+    } finally { setIsSavingRating(false); }
+  };
+
   const patchStatus = (status: 'To Watch' | 'Watched') => {
     if (!listId || !listOwnerId) return;
     const prev = localStatus;
@@ -598,7 +613,11 @@ export function MovieDrawer({
                 </div>
 
                 {/* ── your rating ── */}
-                <Block title="your rating">
+                <Block
+                  title="your rating"
+                  trailing={userRating != null ? 'clear' : undefined}
+                  onTrailingTap={userRating != null ? clearRating : undefined}
+                >
                   <DragToRate value={userRating} onChangeComplete={saveRating} disabled={isSavingRating} />
                 </Block>
 

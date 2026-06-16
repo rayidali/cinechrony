@@ -23,6 +23,6 @@ export const GET = publicApiRoute<RouteParams>(async (_req, { params }) => {
     if (err instanceof ListNotFoundError) throw new NotFoundError(err.message);
     throw err;
   }
-});
+}, { softFallback: { members: [] } });
 
 export const OPTIONS = optionsHandler;

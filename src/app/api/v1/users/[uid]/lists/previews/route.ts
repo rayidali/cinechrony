@@ -25,6 +25,6 @@ export const POST = publicApiRoute<RouteParams>(async (req, { auth, params }) =>
     throw new BadRequestError('listIds must be an array of strings.');
   }
   return getListsPreviews(params.uid, body.listIds, auth?.uid ?? null);
-});
+}, { softFallback: { previews: {} } });
 
 export const OPTIONS = optionsHandler;
