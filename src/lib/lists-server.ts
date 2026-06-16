@@ -626,41 +626,32 @@ async function hydrateListCards(
     for (const u of uids) if (u) allMemberUids.add(u);
   }
   const memberUids = [...allMemberUids];
-  const memberDocs = memberUids.length
-    ? await db.getAll(...memberUids.map((id) => db.collection('users').doc(id)))
-    : [];
-  const userById = new Map(memberDocs.map((s) => [s.id, s.data()]));
+  let userById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+  try {
+    const memberDocs = memberUids.length
+      ? await db.getAll(...memberUids.map((id) => db.collection('users').doc(id)))
+      : [];
+    userById = new Map(memberDocs.map((s) => [s.id, s.data()]));
+  } catch {
+    /* member fetch failed (quota/transient) — degrade to no avatars */
+  }
 
   return Promise.all(
     docs.map(async (doc) => {
       const d = doc.data();
       const ownerId: string = d.ownerId;
       const owner = userById.get(ownerId);
-      const moviesRef = db
-        .collection('users').doc(ownerId)
-        .collection('lists').doc(doc.id)
-        .collection('movies');
-
-      const [moviesSnap, watchedCount] = await Promise.all([
-        moviesRef.orderBy('createdAt', 'desc').limit(4).get(),
-        rich
-          ? moviesRef.where('status', '==', 'Watched').count().get()
-              .then((a) => a.data().count)
-              .catch(() => 0)
-          : Promise.resolve(0),
-      ]);
-      const previewPosters: string[] = [];
-      moviesSnap.forEach((m) => {
-        const p = m.data().posterUrl;
-        if (typeof p === 'string' && p) previewPosters.push(p);
-      });
 
       const members: ListMemberAvatar[] = (perListMemberUids.get(doc.id) ?? []).map((uid) => {
         const u = userById.get(uid);
         return { photoURL: u?.photoURL ?? null, username: u?.username ?? null };
       });
 
-      return {
+      // The base card needs NO extra reads — it's all on the list doc. The
+      // poster/watched reads are best-effort: a per-list failure (quota/timeout)
+      // degrades this one card instead of rejecting the whole request. That
+      // keeps the endpoint 200 with partial data rather than 500-ing the rail.
+      const card: LovedListCard = {
         id: doc.id,
         name: d.name || 'untitled list',
         ownerId,
@@ -668,12 +659,39 @@ async function hydrateListCards(
         ownerDisplayName: owner?.displayName || null,
         coverImageUrl: d.coverImageUrl || '',
         coverMode: (d.coverMode as 'auto' | 'custom' | undefined) ?? null,
-        movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
+        movieCount: typeof d.movieCount === 'number' ? d.movieCount : 0,
         likes: d.likes || 0,
-        previewPosters,
+        previewPosters: [],
         members,
-        watchedCount,
+        watchedCount: 0,
       };
+
+      try {
+        const moviesRef = db
+          .collection('users').doc(ownerId)
+          .collection('lists').doc(doc.id)
+          .collection('movies');
+        const [moviesSnap, watchedCount] = await Promise.all([
+          moviesRef.orderBy('createdAt', 'desc').limit(4).get(),
+          rich
+            ? moviesRef.where('status', '==', 'Watched').count().get()
+                .then((a) => a.data().count)
+                .catch(() => 0)
+            : Promise.resolve(0),
+        ]);
+        moviesSnap.forEach((m) => {
+          const p = m.data().posterUrl;
+          if (typeof p === 'string' && p) card.previewPosters.push(p);
+        });
+        card.watchedCount = watchedCount;
+        if (card.movieCount === 0 && card.previewPosters.length) {
+          card.movieCount = card.previewPosters.length;
+        }
+      } catch {
+        /* preview/watched read failed — keep the base card (no posters) */
+      }
+
+      return card;
     }),
   );
 }

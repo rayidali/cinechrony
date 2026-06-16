@@ -18,10 +18,10 @@ import type { LovedListCard } from '@/lib/lists-server';
  */
 export function CommunityListsAll({ isOpen, onClose }: { isOpen: boolean; onClose: () => void }) {
   const router = useRouter();
-  const { data } = useCachedAction<LovedListCard[]>('community-all', async () => {
+  const { data, isLoading, refetch } = useCachedAction<LovedListCard[]>('community-all', async () => {
     const r = await apiCall<{ lists: LovedListCard[]; gated: boolean }>(
       'GET',
-      '/api/v1/lists/loved?limit=60',
+      '/api/v1/lists/loved?limit=30',
     );
     return r.lists ?? [];
   });
@@ -41,14 +41,25 @@ export function CommunityListsAll({ isOpen, onClose }: { isOpen: boolean; onClos
           lists for you
         </div>
 
-        {!data ? (
+        {isLoading && !data ? (
           <div className="flex justify-center pt-20">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
           </div>
         ) : lists.length === 0 ? (
-          <p className="pt-20 text-center font-serif italic text-[15px] text-muted-foreground">
-            no community lists to show yet — like a few to fill this in.
-          </p>
+          <div className="pt-20 text-center">
+            <p className="font-serif italic text-[15px] text-muted-foreground">
+              no community lists to show yet.
+            </p>
+            <button
+              onClick={() => {
+                haptic('light');
+                refetch();
+              }}
+              className="mt-4 font-ui font-semibold text-[13px] text-primary transition-opacity active:opacity-60"
+            >
+              try again
+            </button>
+          </div>
         ) : (
           <div className="grid grid-cols-2 gap-3.5">
             {lists.map((l) => (

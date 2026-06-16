@@ -44,7 +44,7 @@ export function DigInAll({
   }, [isOpen, initialTab]);
 
   // Shared session cache with the home rail — one fetch, no double read.
-  const { data } = useDigIn();
+  const { data, isLoading } = useDigIn();
 
   const films = data?.[tab] ?? [];
   const active = TABS.find((t) => t.key === tab)!;
@@ -98,7 +98,7 @@ export function DigInAll({
           </p>
 
           {/* grid */}
-          {!data ? (
+          {isLoading && !data ? (
             <GridSkeleton />
           ) : films.length === 0 ? (
             <p className="pt-20 text-center font-serif italic text-[15px] text-muted-foreground">
