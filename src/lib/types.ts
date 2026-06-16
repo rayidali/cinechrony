@@ -466,6 +466,16 @@ export type TaggedUser = {
   photoURL: string | null;
 };
 
+// Who can see a post (F04 "visible to"). 'everyone' = public discovery feed;
+// 'friends' = the author's mutuals (follow-back); 'close_friends' = the author's
+// curated inner circle; 'only_me' = a private log. Restricted posts carry a
+// write-time `audienceUids` snapshot so the feed can filter in-memory (no
+// per-author relationship reads at read time).
+export type PostVisibility = 'everyone' | 'friends' | 'close_friends' | 'only_me';
+
+// Which viewing this post records (F04 "your watch").
+export type PostWatchType = 'first' | 'rewatch';
+
 // A Beli-style user post — free text + media, anchored to a film.
 export type Post = {
   id: string;
@@ -495,6 +505,15 @@ export type Post = {
   taggedUserIds?: string[];
   taggedUsers?: TaggedUser[];
   place: string | null; // Freeform venue text — never GPS
+  // F04 "your watch" — which viewing this post records + when it happened.
+  // Older posts (pre-v3) have these undefined.
+  watchType?: PostWatchType | null;
+  watchedOn?: Date | null;
+  // F04 "visible to". Missing/undefined = 'everyone' (every legacy post).
+  visibility?: PostVisibility;
+  // Write-time snapshot of who may see a RESTRICTED post (excludes the author,
+  // who can always see their own). Absent for 'everyone'. Empty for 'only_me'.
+  audienceUids?: string[];
   likes: number;
   likedBy: string[];
   commentCount: number;

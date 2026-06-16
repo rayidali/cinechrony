@@ -2,11 +2,12 @@
  * `/api/v1/posts/[id]` — GET (block-aware) + PATCH + DELETE.
  *
  *  GET    → `{ post: Post | null }`. Returns null if the viewer is
- *         blocked by/blocks the author (LAUNCH 0.5.5). Anonymous viewers
- *         always see the post. Uses publicApiRoute — auth is optional.
+ *         blocked by/blocks the author (LAUNCH 0.5.5) OR isn't in the post's
+ *         F04 audience. Anonymous viewers see public posts only. publicApiRoute.
  *
  *  PATCH  body: `{ text?, media?, taggedMovie?, rating?, taggedUserIds?,
- *               place? }` — owner-only edit.
+ *               place?, watchType?, watchedOn?, visibility? }` — owner-only edit
+ *               (re-resolves the audience snapshot; never re-logs a watch).
  *
  *  DELETE → owner-only hard delete.
  */

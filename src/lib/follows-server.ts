@@ -33,6 +33,14 @@ function invalidateFollowingIds(uid: string): void {
   followingIdsCache.deleteByPrefix(`${uid}:`);
 }
 
+// The follower-id SET powers "mutuals" (post audience = follow-back). Same
+// rarely-changing shape as following; cache 5min, invalidate the TARGET's set
+// whenever a follow edge to them is created/removed.
+const followerIdsCache = createTtlCache<string[]>({ ttlMs: 300_000 });
+function invalidateFollowerIds(uid: string): void {
+  followerIdsCache.deleteByPrefix(`${uid}:`);
+}
+
 // ─── Typed errors ─────────────────────────────────────────────────────────
 
 export class SelfFollowError extends Error {
@@ -126,6 +134,7 @@ export async function followUser(
     tx.update(targetUserRef, { followersCount: FieldValue.increment(1) });
   });
   invalidateFollowingIds(callerUid); // the caller's follow set changed
+  invalidateFollowerIds(targetUid); // the target gained a follower (mutuals)
 
   // Best-effort follow notification. Failure here doesn't roll back.
   try {
@@ -195,7 +204,10 @@ export async function unfollowUser(
     tx.update(targetUserRef, { followersCount: FieldValue.increment(-1) });
     return { unfollowed: true };
   });
-  if (result.unfollowed) invalidateFollowingIds(callerUid);
+  if (result.unfollowed) {
+    invalidateFollowingIds(callerUid);
+    invalidateFollowerIds(targetUid);
+  }
   return result;
 }
 
@@ -295,6 +307,74 @@ export async function getFollowingIds(
       .get();
     return snap.docs.map((d) => d.id);
   });
+}
+
+/**
+ * Just the UIDs that follow the target — ONE read, no profile hydration.
+ * Mirror of `getFollowingIds` for the followers side. Cached 5min.
+ */
+export async function getFollowerIds(
+  targetUid: string,
+  limit: number = DEFAULT_LIST_LIMIT,
+): Promise<string[]> {
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_LIST_LIMIT);
+  return cached(followerIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
+    const db = getDb();
+    const snap = await db
+      .collection('users').doc(targetUid)
+      .collection('followers')
+      .limit(effectiveLimit)
+      .get();
+    return snap.docs.map((d) => d.id);
+  });
+}
+
+/**
+ * The target's MUTUALS — users they follow who also follow them back. This is
+ * the "friends" audience for posts. Two cached set reads + an in-memory
+ * intersection (no per-edge reads). Capped at MAX_LIST_LIMIT each side.
+ */
+export async function getMutualIds(targetUid: string): Promise<string[]> {
+  const [following, followers] = await Promise.all([
+    getFollowingIds(targetUid, MAX_LIST_LIMIT),
+    getFollowerIds(targetUid, MAX_LIST_LIMIT),
+  ]);
+  const followerSet = new Set(followers);
+  return following.filter((id) => followerSet.has(id));
+}
+
+// ─── Close friends (server-only inner circle) ───────────────────────────────
+
+// Stored in a server-only top-level doc `/closeFriends/{uid}` ({ ids: [] }) so
+// a user's inner circle never leaks through a client-readable profile doc
+// (firestore.rules denies all client access; Admin SDK reads/writes here).
+const MAX_CLOSE_FRIENDS = 150;
+
+export async function getCloseFriendIds(uid: string): Promise<string[]> {
+  const db = getDb();
+  const snap = await db.collection('closeFriends').doc(uid).get();
+  const ids = snap.exists ? snap.data()?.ids : null;
+  return Array.isArray(ids) ? ids : [];
+}
+
+/**
+ * Replace the caller's close-friends list. Dedupes, drops self, caps at 150.
+ * (No follow-relationship requirement — you can keep anyone close.)
+ */
+export async function setCloseFriendIds(
+  callerUid: string,
+  ids: string[],
+): Promise<{ ids: string[] }> {
+  const clean = [...new Set(Array.isArray(ids) ? ids : [])]
+    .filter((id) => typeof id === 'string' && id && id !== callerUid)
+    .slice(0, MAX_CLOSE_FRIENDS);
+  const db = getDb();
+  await db.collection('closeFriends').doc(callerUid).set({
+    uid: callerUid,
+    ids: clean,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return { ids: clean };
 }
 
 // ─── isFollowing — single boolean check (Phase A PR #18) ────────────────

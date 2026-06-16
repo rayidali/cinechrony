@@ -21,12 +21,14 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
+import { getMutualIds, getCloseFriendIds } from '@/lib/follows-server';
+import { recordWatchEntry } from '@/lib/watches-server';
 import {
   extractMentions,
   createPostTagNotification,
   createPostLikeNotification,
 } from '@/lib/notifications-server';
-import type { Activity, Post, PostMedia, TaggedUser } from '@/lib/types';
+import type { Activity, Post, PostMedia, PostVisibility, TaggedUser } from '@/lib/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
@@ -105,6 +107,10 @@ export function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
     taggedUserIds: d.taggedUserIds ?? [],
     taggedUsers: d.taggedUsers ?? [],
     place: d.place ?? null,
+    watchType: d.watchType ?? null,
+    watchedOn: d.watchedOn?.toDate?.() ?? null,
+    visibility: (d.visibility as PostVisibility) ?? 'everyone',
+    audienceUids: Array.isArray(d.audienceUids) ? d.audienceUids : undefined,
     likes: d.likes ?? 0,
     likedBy: d.likedBy ?? [],
     commentCount: d.commentCount ?? 0,
@@ -112,6 +118,43 @@ export function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
     updatedAt: d.updatedAt?.toDate?.() ?? new Date(),
     editedAt: d.editedAt?.toDate?.() ?? null,
   };
+}
+
+// ─── Visibility / audience ──────────────────────────────────────────────────
+
+const VALID_VISIBILITY: readonly PostVisibility[] = ['everyone', 'friends', 'close_friends', 'only_me'];
+const MAX_AUDIENCE = 2000;
+
+/**
+ * Resolve a post's audience snapshot at WRITE time. 'everyone' carries no
+ * snapshot (public). Restricted posts store the exact uid set allowed to see
+ * them (the author is always allowed and is NOT included here), so the feed can
+ * filter in-memory with zero per-author relationship reads at read time.
+ */
+async function resolveAudience(
+  callerUid: string,
+  visibility: PostVisibility,
+): Promise<{ visibility: PostVisibility; audienceUids: string[] | null }> {
+  if (visibility === 'everyone') return { visibility, audienceUids: null };
+  if (visibility === 'only_me') return { visibility, audienceUids: [] };
+  const ids = visibility === 'friends'
+    ? await getMutualIds(callerUid)
+    : await getCloseFriendIds(callerUid);
+  return { visibility, audienceUids: [...new Set(ids)].filter((id) => id && id !== callerUid).slice(0, MAX_AUDIENCE) };
+}
+
+/**
+ * Can `viewerUid` see this post? The single source of truth applied in EVERY
+ * post read path (home feed, saved feed, post detail, profile posts). Public
+ * posts are visible to all (incl. anonymous); the author always sees their own;
+ * restricted posts require membership in the write-time `audienceUids` snapshot.
+ */
+export function canViewPost(post: Post, viewerUid: string | null): boolean {
+  const vis = post.visibility ?? 'everyone';
+  if (vis === 'everyone') return true;
+  if (viewerUid && viewerUid === post.authorId) return true;
+  if (!viewerUid) return false;
+  return (post.audienceUids ?? []).includes(viewerUid);
 }
 
 // ─── resolveTaggedUsers ───────────────────────────────────────────────────
@@ -242,23 +285,24 @@ export type CreatePostInput = {
   media?: PostMedia[];
   taggedMovie?: Post['taggedMovie'];
   rating?: number | null;
-  /** Legacy v2 callers — v3 uses inline @mentions in `text`. */
+  /** F04 "tag friends" (also accepts legacy v2 picks). v3 also extracts inline
+   *  @mentions from `text`; both feed the denormalized taggedUsers + notifs. */
   taggedUserIds?: string[];
   place?: string;
+  /** F04 "your watch" — 'first' | 'rewatch'. */
+  watchType?: 'first' | 'rewatch' | null;
+  /** F04 "watched on" — ISO date string; clamped to now (no future). */
+  watchedOn?: string | null;
+  /** F04 "visible to" — defaults to 'everyone'. */
+  visibility?: PostVisibility;
 };
 
-export async function createPost(
-  callerUid: string,
-  input: CreatePostInput,
-): Promise<{ postId: string }> {
+/** Shared parse/validate for the v3 post fields written by create + update. */
+function parsePostFields(input: CreatePostInput) {
   const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
   const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
   const taggedMovie = input.taggedMovie || null;
   const place = (input.place || '').trim().slice(0, MAX_PLACE_LENGTH) || null;
-
-  if (!taggedMovie && !text && media.length === 0) {
-    throw new PostValidationError('Add a few words, a photo, or a film first.');
-  }
 
   let rating: number | null = null;
   if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
@@ -268,10 +312,39 @@ export async function createPost(
     rating = Math.round(input.rating * 10) / 10;
   }
 
+  const watchType = taggedMovie && (input.watchType === 'first' || input.watchType === 'rewatch')
+    ? input.watchType
+    : null;
+
+  let watchedOn: Date | null = null;
+  if (taggedMovie && input.watchedOn) {
+    const d = new Date(input.watchedOn);
+    if (!Number.isNaN(d.getTime())) watchedOn = d.getTime() > Date.now() ? new Date() : d;
+  }
+
+  const visibility: PostVisibility = VALID_VISIBILITY.includes(input.visibility as PostVisibility)
+    ? (input.visibility as PostVisibility)
+    : 'everyone';
+
+  return { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility };
+}
+
+export async function createPost(
+  callerUid: string,
+  input: CreatePostInput,
+): Promise<{ postId: string }> {
+  const { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility } =
+    parsePostFields(input);
+
+  if (!taggedMovie && !text && media.length === 0) {
+    throw new PostValidationError('Add a few words, a photo, or a film first.');
+  }
+
   const db = getDb();
   const userDoc = await db.collection('users').doc(callerUid).get();
   const u = userDoc.data() || {};
   const taggedUsers = await resolveTaggedUsers(db, callerUid, input.taggedUserIds);
+  const audience = await resolveAudience(callerUid, visibility);
 
   const postRef = db.collection('posts').doc();
   await postRef.set({
@@ -287,6 +360,10 @@ export async function createPost(
     taggedUserIds: taggedUsers.map((t) => t.uid),
     taggedUsers,
     place,
+    watchType,
+    watchedOn: watchedOn ?? null,
+    visibility: audience.visibility,
+    ...(audience.audienceUids ? { audienceUids: audience.audienceUids } : {}),
     likes: 0,
     likedBy: [],
     commentCount: 0,
@@ -300,6 +377,26 @@ export async function createPost(
       await upsertPostRating(db, callerUid, taggedMovie, rating);
     } catch (err) {
       console.error('[createPost] rating upsert failed:', err);
+    }
+  }
+
+  // A post about a film RECORDS a viewing in the watch log (F04 "your watch"),
+  // so "your history" in the movie drawer stays consistent. Lean entry only —
+  // the post body is the take (no duplicate /reviews doc); the rating is already
+  // upserted above. Best-effort: a watch-log hiccup never fails the post.
+  if (taggedMovie) {
+    try {
+      await recordWatchEntry(callerUid, {
+        tmdbId: taggedMovie.tmdbId,
+        mediaType: taggedMovie.mediaType,
+        movieTitle: taggedMovie.title,
+        moviePosterUrl: taggedMovie.posterUrl,
+        rating,
+        note: null,
+        watchedAt: (watchedOn ?? new Date()).toISOString(),
+      });
+    } catch (err) {
+      console.error('[createPost] watch-log entry failed:', err);
     }
   }
 
@@ -375,24 +472,16 @@ export async function updatePost(
   if (!snap.exists) throw new PostNotFoundError();
   if (snap.data()?.authorId !== callerUid) throw new PostAuthorMismatchError();
 
-  const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
-  const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
-  const taggedMovie = input.taggedMovie || null;
-  const place = (input.place || '').trim().slice(0, MAX_PLACE_LENGTH) || null;
+  const { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility } =
+    parsePostFields(input);
   if (!taggedMovie && !text && media.length === 0) {
     throw new PostValidationError('A post needs words, a photo, or a film.');
   }
 
-  let rating: number | null = null;
-  if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
-    if (input.rating < 1 || input.rating > 10) {
-      throw new PostValidationError('Rating must be between 1.0 and 10.0.');
-    }
-    rating = Math.round(input.rating * 10) / 10;
-  }
-
   const taggedUsers = await resolveTaggedUsers(db, callerUid, input.taggedUserIds);
+  const audience = await resolveAudience(callerUid, visibility);
 
+  // Editing does NOT re-log a watch (the viewing already happened at create).
   await ref.update({
     text,
     media,
@@ -401,6 +490,11 @@ export async function updatePost(
     taggedUserIds: taggedUsers.map((t) => t.uid),
     taggedUsers,
     place,
+    watchType,
+    watchedOn: watchedOn ?? null,
+    visibility: audience.visibility,
+    // Clear the snapshot when going public; otherwise replace it.
+    audienceUids: audience.audienceUids ?? FieldValue.delete(),
     updatedAt: FieldValue.serverTimestamp(),
     editedAt: FieldValue.serverTimestamp(),
   });
@@ -443,6 +537,7 @@ export async function getPost(
   const snap = await db.collection('posts').doc(postId).get();
   if (!snap.exists) return null;
   const post = postFromDoc(snap);
+  if (!canViewPost(post, viewerUid)) return null;
   if (viewerUid && (await isBlockedBetween(db, viewerUid, post.authorId))) {
     return null;
   }
@@ -557,9 +652,11 @@ export async function getHomeFeed(
         item: { kind: 'post' as const, post: p },
         ts: p.createdAt.getTime(),
         authorId: p.authorId,
+        post: p,
       };
     })
     .filter((x) => !blockSet.has(x.authorId))
+    .filter((x) => canViewPost(x.post, viewerUid)) // F04 audience enforcement
     .sort((a, b) => b.ts - a.ts);
 
   const hasMore = merged.length > limit;

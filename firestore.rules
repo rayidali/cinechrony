@@ -382,5 +382,11 @@ service cloud.firestore {
     match /reports/{reportId} {
       allow read, write: if false;
     }
+    // F04 "visible to": a user's close-friends inner circle — server-only so it
+    // never leaks through a profile read. Read/written via Admin SDK only
+    // (getCloseFriendIds / setCloseFriendIds + /api/v1/me/close-friends).
+    match /closeFriends/{uid} {
+      allow read, write: if false;
+    }
   }
 }

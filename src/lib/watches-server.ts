@@ -71,7 +71,14 @@ function watchFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Watch {
   };
 }
 
-export async function logWatch(
+/**
+ * The LEAN core of a watch: validate, derive the ordinal, write the watch doc,
+ * return it. NO rating upsert, NO review creation — callers that want those
+ * side-effects (F03 `logWatch`) layer them on top; callers that don't (a post
+ * recording a viewing) call this directly so the post body isn't duplicated
+ * into a separate /reviews doc.
+ */
+export async function recordWatchEntry(
   callerUid: string,
   input: LogWatchInput,
 ): Promise<{ watch: Watch }> {
@@ -123,6 +130,31 @@ export async function logWatch(
     createdAt: FieldValue.serverTimestamp(),
   });
 
+  return {
+    watch: {
+      id: ref.id,
+      userId: callerUid,
+      tmdbId: input.tmdbId,
+      mediaType: input.mediaType,
+      movieTitle: input.movieTitle.trim(),
+      moviePosterUrl,
+      watchedAt,
+      rating,
+      note,
+      ordinal,
+      createdAt: new Date(),
+    },
+  };
+}
+
+export async function logWatch(
+  callerUid: string,
+  input: LogWatchInput,
+): Promise<{ watch: Watch }> {
+  const { watch } = await recordWatchEntry(callerUid, input);
+  const { rating, note } = watch;
+  const moviePosterUrl = watch.moviePosterUrl;
+
   // Upsert the canonical rating (best-effort — the watch already landed).
   if (rating != null) {
     try {
@@ -159,21 +191,7 @@ export async function logWatch(
     }
   }
 
-  return {
-    watch: {
-      id: ref.id,
-      userId: callerUid,
-      tmdbId: input.tmdbId,
-      mediaType: input.mediaType,
-      movieTitle: input.movieTitle.trim(),
-      moviePosterUrl,
-      watchedAt,
-      rating,
-      note,
-      ordinal,
-      createdAt: new Date(),
-    },
-  };
+  return { watch };
 }
 
 /**

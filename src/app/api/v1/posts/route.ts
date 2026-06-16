@@ -1,13 +1,15 @@
 /**
  * `POST /api/v1/posts` — create a user post (LAUNCH 0.5.4).
  *
- * Body: `{ text?, media?, taggedMovie?, rating?, taggedUserIds?, place? }`.
+ * Body: `{ text?, media?, taggedMovie?, rating?, taggedUserIds?, place?,
+ *          watchType?, watchedOn?, visibility? }`.
  *
  * Rate-limited via the shared `post` bucket (AUDIT.md 3.8). Side
  * effects: `post_tag` notifications for tagged users + @-mentions in
  * text; optional rating upsert into `/ratings/{uid}_{tmdbId}` when a
  * rating is supplied alongside a tagged film (post = unified
- * review+rating event).
+ * review+rating event); a watch-log entry for the tagged film (F04
+ * "your watch"); a write-time audience snapshot for restricted posts.
  */
 
 import { revalidatePath } from 'next/cache';
