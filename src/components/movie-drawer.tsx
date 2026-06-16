@@ -24,6 +24,7 @@ import { FullscreenTextInput } from './fullscreen-text-input';
 import { SimilarMoviesRow } from './similar-movies-row';
 import { AddToListSheet } from './add-to-list-sheet';
 import { HowWasItSheet } from '@/components/v3/how-was-it-sheet';
+import { WatchEditSheet } from '@/components/v3/watch-edit-sheet';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { useUser } from '@/firebase';
 import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
@@ -168,6 +169,7 @@ export function MovieDrawer({
   const [showNoteEditor, setShowNoteEditor] = useState(false);
   const [showSocialLinkEditor, setShowSocialLinkEditor] = useState(false);
   const [showRateOnWatch, setShowRateOnWatch] = useState(false);
+  const [editingWatch, setEditingWatch] = useState<Watch | null>(null);
   const [newSocialLink, setNewSocialLink] = useState(movieProp?.socialLink ?? '');
   const [userNote, setUserNote] = useState('');
 
@@ -205,6 +207,7 @@ export function MovieDrawer({
       setShowSocialLinkEditor(false);
       setShowRateOnWatch(false);
       setShowAddToList(false);
+      setEditingWatch(null);
     }
   }, [isOpen]);
 
@@ -450,6 +453,36 @@ export function MovieDrawer({
     await logWatch(null, '');
   };
 
+  const refreshWatches = () => {
+    if (user?.uid) invalidateCachedAction(`drawer-watches:${user.uid}:${tmdbId}`);
+    setWatchesNonce((n) => n + 1);
+  };
+
+  const handleSaveWatchEdit = async (rating: number | null, note: string) => {
+    const w = editingWatch;
+    setEditingWatch(null);
+    if (!w) return;
+    try {
+      await apiCall('PATCH', `/api/v1/watches/${w.id}`, { rating, note: note.trim() || null });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to save watch.' });
+    }
+    refreshWatches();
+  };
+
+  const handleRemoveWatch = async () => {
+    const w = editingWatch;
+    setEditingWatch(null);
+    if (!w) return;
+    try {
+      await apiCall('DELETE', `/api/v1/watches/${w.id}`);
+      toast({ title: 'watch removed' });
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to remove watch.' });
+    }
+    refreshWatches();
+  };
+
   const handleRemove = () => {
     if (!listId || !listOwnerId) return;
     setIsPending(true);
@@ -501,7 +534,7 @@ export function MovieDrawer({
     return m?.username || m?.displayName || 'user';
   };
 
-  const drawerOpen = isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatch;
+  const drawerOpen = isOpen && !showNoteEditor && !showSocialLinkEditor && !showRateOnWatch && !editingWatch;
 
   return (
     <>
@@ -638,7 +671,13 @@ export function MovieDrawer({
                 {history.length > 0 && (
                   <Block eyebrow="your history" title={`${history.length} ${history.length === 1 ? 'watch' : 'watches'}`}>
                     <div className="rounded-2xl border border-hair bg-card divide-y divide-hair overflow-hidden">
-                      {history.map((w) => <WatchRow key={w.id} watch={w} />)}
+                      {history.map((w) => (
+                        <WatchRow
+                          key={w.id}
+                          watch={w}
+                          onEdit={w.id === 'synthetic-first-watch' ? undefined : () => { haptic('light'); setEditingWatch(w); }}
+                        />
+                      ))}
                     </div>
                   </Block>
                 )}
@@ -800,6 +839,15 @@ export function MovieDrawer({
         onCancel={() => setShowRateOnWatch(false)}
       />
 
+      {/* edit / remove a single watch-log entry */}
+      <WatchEditSheet
+        isOpen={isOpen && !!editingWatch}
+        watch={editingWatch}
+        onSave={handleSaveWatchEdit}
+        onRemove={handleRemoveWatch}
+        onClose={() => setEditingWatch(null)}
+      />
+
       {/* note editor */}
       <FullscreenTextInput
         isOpen={isOpen && showNoteEditor}
@@ -826,15 +874,15 @@ export function MovieDrawer({
 
 // ── section primitives ─────────────────────────────────────────────────────
 
-function WatchRow({ watch }: { watch: Watch }) {
+function WatchRow({ watch, onEdit }: { watch: Watch; onEdit?: () => void }) {
   const label = watch.ordinal <= 1 ? 'first watch' : `rewatch no. ${watch.ordinal}`;
   // watchedAt is an ISO string over the wire (typed Date) — wrap defensively.
   // The synthesized-from-rating row carries no real date (epoch sentinel).
   const ts = new Date(watch.watchedAt).getTime();
   const date = ts > 0 ? format(new Date(watch.watchedAt), 'MMM yyyy').toLowerCase() : null;
   const style = watch.rating ? getRatingStyle(watch.rating) : null;
-  return (
-    <div className="p-3.5">
+  const body = (
+    <>
       <div className="flex items-center gap-2">
         <span className="font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">{label}</span>
         {date && <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{date}</span>}
@@ -847,8 +895,17 @@ function WatchRow({ watch }: { watch: Watch }) {
       {watch.note && (
         <p className="mt-1.5 font-serif italic text-[14px] leading-snug text-foreground/85">“{watch.note}”</p>
       )}
-    </div>
+    </>
   );
+  // Tap a real watch to edit / remove it (synthetic rows pass no onEdit).
+  if (onEdit) {
+    return (
+      <button onClick={onEdit} className="w-full p-3.5 text-left transition-colors active:bg-foreground/5">
+        {body}
+      </button>
+    );
+  }
+  return <div className="p-3.5">{body}</div>;
 }
 
 function Block({

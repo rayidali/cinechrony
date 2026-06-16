@@ -32,6 +32,13 @@ export class WatchValidationError extends Error {
   }
 }
 
+export class WatchNotFoundError extends Error {
+  constructor(message = 'Watch not found.') {
+    super(message);
+    this.name = 'WatchNotFoundError';
+  }
+}
+
 export type LogWatchInput = {
   tmdbId: number;
   mediaType: 'movie' | 'tv';
@@ -169,7 +176,12 @@ export async function logWatch(
   };
 }
 
-/** The caller's watches for a film, newest first. Index-free (tmdbId equality). */
+/**
+ * The caller's watches for a film, newest first. Index-free (tmdbId equality).
+ * Ordinal is DERIVED from chronological order at read time (oldest = "first
+ * watch" = 1), NOT the stored field — so deleting a watch correctly re-labels
+ * the rest ("rewatch no. 2" becomes the first watch) with no recompute-on-write.
+ */
 export async function getWatchesForMovie(
   callerUid: string,
   tmdbId: number,
@@ -183,8 +195,52 @@ export async function getWatchesForMovie(
     .collection('watches')
     .where('tmdbId', '==', tmdbId)
     .get();
-  const watches = snap.docs
+  const asc = snap.docs
     .map(watchFromDoc)
-    .sort((a, b) => b.watchedAt.getTime() - a.watchedAt.getTime());
+    .sort((a, b) => a.watchedAt.getTime() - b.watchedAt.getTime());
+  asc.forEach((w, i) => { w.ordinal = i + 1; }); // derive ordinal chronologically
+  const watches = asc.slice().reverse(); // newest first for display
   return { watches };
+}
+
+/** Owner-only edit of a single watch's rating + note (the per-watch log entry
+ *  shown in "your history"). Does NOT touch the canonical /ratings or /reviews —
+ *  those are edited via the drag-to-rate / comments. */
+export async function updateWatch(
+  callerUid: string,
+  watchId: string,
+  fields: { rating?: number | null; note?: string | null },
+): Promise<{ watch: Watch }> {
+  if (!watchId) throw new WatchValidationError('watchId is required.');
+  const db = getDb();
+  const ref = db.collection('users').doc(callerUid).collection('watches').doc(watchId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new WatchNotFoundError();
+
+  const updates: Record<string, unknown> = {};
+  if (fields.rating !== undefined) {
+    if (fields.rating !== null && (typeof fields.rating !== 'number' || fields.rating < 1 || fields.rating > 10)) {
+      throw new WatchValidationError('rating must be between 1.0 and 10.0.');
+    }
+    updates.rating = fields.rating === null ? null : Math.round(fields.rating * 10) / 10;
+  }
+  if (fields.note !== undefined) {
+    updates.note = typeof fields.note === 'string' && fields.note.trim()
+      ? fields.note.trim().slice(0, MAX_NOTE)
+      : null;
+  }
+  if (Object.keys(updates).length > 0) await ref.update(updates);
+  const fresh = await ref.get();
+  return { watch: watchFromDoc(fresh) };
+}
+
+/** Owner-only delete of a single watch (undo an accidental log). Remaining
+ *  watches re-derive their ordinals on the next read. */
+export async function deleteWatch(callerUid: string, watchId: string): Promise<void> {
+  if (!watchId) throw new WatchValidationError('watchId is required.');
+  const db = getDb();
+  const ref = db.collection('users').doc(callerUid).collection('watches').doc(watchId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new WatchNotFoundError();
+  await ref.delete();
 }

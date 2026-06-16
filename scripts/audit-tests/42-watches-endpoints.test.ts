@@ -21,6 +21,7 @@ import {
 import { callRoute } from './lib/route-call.ts';
 
 import { POST as watchPost, GET as watchGet } from '@/app/api/v1/watches/route';
+import { PATCH as watchPatch, DELETE as watchDelete } from '@/app/api/v1/watches/[watchId]/route';
 
 let viewer: TestUser, other: TestUser;
 
@@ -141,6 +142,67 @@ test('skip (no rating, no note) logs the watch but writes no rating or review', 
   assert.equal(ratingDoc.exists, false, 'no rating on skip');
   const reviews = await adminDb().collection('reviews').where('userId', '==', viewer.uid).get();
   assert.equal(reviews.size, 0, 'no review on skip');
+});
+
+// ─── edit + remove a watch ──────────────────────────────────────────────────
+
+async function logWatch(token: string, body: Record<string, unknown>) {
+  const r = await callRoute<{ watch: { id: string } }>(watchPost, 'POST', { token, body: { ...base, ...body } });
+  if (r.body.ok !== true) throw new Error('logWatch failed');
+  return r.body.data.watch;
+}
+
+test('PATCH /watches/[id]: unauth → 401', async () => {
+  const res = await callRoute(watchPatch, 'PATCH', { params: { watchId: 'x' }, body: { rating: 8 } });
+  assert.equal(res.status, 401);
+});
+
+test('PATCH /watches/[id]: edits the watch rating + note (not the canonical rating)', async () => {
+  const token = await viewer.getIdToken();
+  const w = await logWatch(token, { rating: 9, note: 'first take' });
+
+  const res = await callRoute<{ watch: { rating: number; note: string } }>(
+    watchPatch, 'PATCH', { token, params: { watchId: w.id }, body: { rating: 6.5, note: 'on reflection, mid' } },
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok && res.body.data.watch.rating, 6.5);
+  assert.equal(res.body.ok && res.body.data.watch.note, 'on reflection, mid');
+
+  // canonical rating untouched by a watch edit (logWatch set it to 9)
+  const ratingDoc = await adminDb().collection('ratings').doc(`${viewer.uid}_${TMDB_ID}`).get();
+  assert.equal(ratingDoc.data()?.rating, 9, 'watch edit does not move the canonical rating');
+});
+
+test('DELETE /watches/[id]: removes the watch and remaining watches re-derive ordinals', async () => {
+  const token = await viewer.getIdToken();
+  const w1 = await logWatch(token, { rating: 9, watchedAt: '2023-06-01T00:00:00.000Z' });
+  await logWatch(token, { rating: 9.4, watchedAt: '2024-12-01T00:00:00.000Z' });
+
+  let watches = await getWatches(token);
+  assert.equal(watches.length, 2);
+
+  // delete the FIRST watch (2023) — the 2024 one should become ordinal 1 "first watch"
+  const del = await callRoute(watchDelete, 'DELETE', { token, params: { watchId: w1.id } });
+  assert.equal(del.status, 200);
+
+  watches = await getWatches(token);
+  assert.equal(watches.length, 1);
+  assert.equal(watches[0].ordinal, 1, 'survivor re-derives to first watch');
+});
+
+test('PATCH/DELETE /watches/[id]: another user cannot touch your watch (owner-scoped → 404)', async () => {
+  const viewerToken = await viewer.getIdToken();
+  const otherToken = await other.getIdToken();
+  const w = await logWatch(viewerToken, { rating: 8 });
+
+  const patch = await callRoute(watchPatch, 'PATCH', { token: otherToken, params: { watchId: w.id }, body: { rating: 1 } });
+  assert.equal(patch.status, 404, 'other user cannot edit viewer’s watch');
+  const del = await callRoute(watchDelete, 'DELETE', { token: otherToken, params: { watchId: w.id } });
+  assert.equal(del.status, 404, 'other user cannot delete viewer’s watch');
+
+  // viewer's watch is intact
+  const watches = await getWatches(viewerToken);
+  assert.equal(watches.length, 1);
 });
 
 // ─── ownership boundary ─────────────────────────────────────────────────────
