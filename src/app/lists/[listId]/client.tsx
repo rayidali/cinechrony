@@ -16,6 +16,7 @@ import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Fab } from '@/components/fab';
 import { apiCall } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
 import { recallListSeed } from '@/lib/list-detail-seed';
@@ -161,8 +162,16 @@ export default function ListDetailPage() {
       if (!collaborativeListOwner || queryParamFailed) {
         setIsCheckingCollab(true);
         try {
-          const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
-          const collabList = result.lists?.find(l => l.id === listId);
+          // Reuse the shared collab-lists cache (same key as /lists + the
+          // bottom-nav prefetch) so opening a collab list doesn't re-fetch it.
+          const cacheKey = `collab-lists:${user.uid}`;
+          let lists = readCachedAction<CollaborativeListSummary[]>(cacheKey);
+          if (!lists || !isCachedActionFresh(cacheKey, 60_000)) {
+            const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
+            lists = result.lists ?? [];
+            setCachedAction(cacheKey, lists);
+          }
+          const collabList = lists.find(l => l.id === listId);
           if (collabList) {
             setCollaborativeListOwner(collabList.ownerId);
           } else {
