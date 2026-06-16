@@ -43,10 +43,10 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
                 haptic('light');
                 router.push(`/profile/${l.ownerUsername}/lists/${l.id}`);
               }}
-              className="flex-shrink-0 w-[178px] text-left"
+              className="flex-shrink-0 w-[204px] text-left"
             >
               <div
-                className="relative h-[152px] rounded-[18px] overflow-hidden shadow-photo"
+                className="relative h-[174px] rounded-[20px] overflow-hidden shadow-photo"
                 style={!cover ? { background: seededGradient(l.name) } : undefined}
               >
                 {cover && (
@@ -61,11 +61,11 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
                       'linear-gradient(to bottom, rgba(0,0,0,0.45) 0%, rgba(0,0,0,0.42) 45%, rgba(0,0,0,0.66) 100%)',
                   }}
                 />
-                <div className="absolute inset-0 p-3.5 flex flex-col justify-between">
+                <div className="absolute inset-0 p-4 flex flex-col justify-between">
                   <AvatarCluster members={l.members} />
                   <div>
                     <div
-                      className="font-headline font-bold lowercase text-white text-[16px] leading-[1.03] tracking-[-0.035em] line-clamp-2"
+                      className="font-headline font-bold lowercase text-white text-[17px] leading-[1.03] tracking-[-0.035em] line-clamp-2"
                       style={{ textShadow: '0 1px 6px rgba(0,0,0,0.5)' }}
                     >
                       {l.name}
