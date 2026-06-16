@@ -1,0 +1,190 @@
+/**
+ * Watch-log server logic — Phase 0.7 Wave 2 (slice 3).
+ *
+ * A "watch" is one viewing event, stored under `/users/{uid}/watches/{id}`
+ * (owner-read, server-write — see `firestore.rules`). It carries a per-watch
+ * rating snapshot + an optional note, and an `ordinal` so the UI can label
+ * "first watch" / "rewatch no. N".
+ *
+ * `logWatch` is the F03 "how was it?" write. The watch doc is the source of
+ * truth for history; logWatch ALSO (best-effort, never blocking the watch):
+ *   - upserts the canonical rating in `/ratings` (so "your rating" tracks it);
+ *   - makes the note your single public review ("becomes your review") —
+ *     updates the existing one or creates it.
+ * Status flips + the `watched` activity stay with the list movie PATCH
+ * (`updateMovie`), so logWatch never double-emits.
+ *
+ * Quota: history reads use a single `where('tmdbId','==',id)` equality on the
+ * per-user subcollection — Firestore's AUTOMATIC single-field index serves it,
+ * so there is NO composite index to deploy. Ordinal uses a `count()` aggregate.
+ */
+
+import { FieldValue } from 'firebase-admin/firestore';
+import { getDb } from '@/firebase/admin';
+import { createOrUpdateRating } from '@/lib/ratings-server';
+import { createReview, updateReview, getUserReviewForMovie } from '@/lib/reviews-server';
+import type { Watch } from '@/lib/types';
+
+export class WatchValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'WatchValidationError';
+  }
+}
+
+export type LogWatchInput = {
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl?: string | null;
+  /** This watch's rating (1–10). Omit/null to skip rating. */
+  rating?: number | null;
+  /** Optional note — becomes the caller's public review for the film. */
+  note?: string | null;
+  /** ISO string; defaults to now. */
+  watchedAt?: string;
+};
+
+const MAX_NOTE = 500;
+
+function watchFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Watch {
+  const d = doc.data() || {};
+  return {
+    id: doc.id,
+    userId: d.userId,
+    tmdbId: d.tmdbId,
+    mediaType: d.mediaType,
+    movieTitle: d.movieTitle,
+    moviePosterUrl: d.moviePosterUrl ?? null,
+    watchedAt: d.watchedAt?.toDate?.() || new Date(),
+    rating: typeof d.rating === 'number' ? d.rating : null,
+    note: d.note ?? null,
+    ordinal: typeof d.ordinal === 'number' ? d.ordinal : 1,
+    createdAt: d.createdAt?.toDate?.() || new Date(),
+  };
+}
+
+export async function logWatch(
+  callerUid: string,
+  input: LogWatchInput,
+): Promise<{ watch: Watch }> {
+  if (typeof input.tmdbId !== 'number') throw new WatchValidationError('tmdbId is required.');
+  if (input.mediaType !== 'movie' && input.mediaType !== 'tv') {
+    throw new WatchValidationError('mediaType must be "movie" or "tv".');
+  }
+  if (typeof input.movieTitle !== 'string' || !input.movieTitle.trim()) {
+    throw new WatchValidationError('movieTitle is required.');
+  }
+  if (input.rating != null && (typeof input.rating !== 'number' || input.rating < 1 || input.rating > 10)) {
+    throw new WatchValidationError('rating must be between 1.0 and 10.0.');
+  }
+
+  const db = getDb();
+  const col = db.collection('users').doc(callerUid).collection('watches');
+
+  // ordinal = (existing watches for this film) + 1 — count() keeps it cheap.
+  let ordinal = 1;
+  try {
+    const agg = await col.where('tmdbId', '==', input.tmdbId).count().get();
+    ordinal = (agg.data().count ?? 0) + 1;
+  } catch {
+    // Fall back to a doc read if the aggregate is unavailable.
+    const snap = await col.where('tmdbId', '==', input.tmdbId).get();
+    ordinal = snap.size + 1;
+  }
+
+  const rating = typeof input.rating === 'number' ? Math.round(input.rating * 10) / 10 : null;
+  const note = typeof input.note === 'string' && input.note.trim()
+    ? input.note.trim().slice(0, MAX_NOTE)
+    : null;
+  const moviePosterUrl = input.moviePosterUrl ?? null;
+  const watchedAtDate = input.watchedAt ? new Date(input.watchedAt) : new Date();
+  const watchedAt = Number.isNaN(watchedAtDate.getTime()) ? new Date() : watchedAtDate;
+
+  const ref = col.doc();
+  await ref.set({
+    id: ref.id,
+    userId: callerUid,
+    tmdbId: input.tmdbId,
+    mediaType: input.mediaType,
+    movieTitle: input.movieTitle.trim(),
+    moviePosterUrl,
+    watchedAt,
+    rating,
+    note,
+    ordinal,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+
+  // Upsert the canonical rating (best-effort — the watch already landed).
+  if (rating != null) {
+    try {
+      await createOrUpdateRating(callerUid, {
+        tmdbId: input.tmdbId,
+        mediaType: input.mediaType,
+        movieTitle: input.movieTitle,
+        moviePosterUrl: moviePosterUrl ?? undefined,
+        rating,
+      });
+    } catch (err) {
+      console.error('[logWatch] rating upsert failed:', err);
+    }
+  }
+
+  // The note becomes your single public review (update or create).
+  if (note) {
+    try {
+      const existing = await getUserReviewForMovie(callerUid, input.tmdbId);
+      if (existing) {
+        await updateReview(callerUid, existing.id, { text: note });
+      } else {
+        await createReview(callerUid, {
+          tmdbId: input.tmdbId,
+          mediaType: input.mediaType,
+          movieTitle: input.movieTitle,
+          moviePosterUrl: moviePosterUrl ?? undefined,
+          text: note,
+          ratingAtTime: rating,
+        });
+      }
+    } catch (err) {
+      console.error('[logWatch] review upsert failed:', err);
+    }
+  }
+
+  return {
+    watch: {
+      id: ref.id,
+      userId: callerUid,
+      tmdbId: input.tmdbId,
+      mediaType: input.mediaType,
+      movieTitle: input.movieTitle.trim(),
+      moviePosterUrl,
+      watchedAt,
+      rating,
+      note,
+      ordinal,
+      createdAt: new Date(),
+    },
+  };
+}
+
+/** The caller's watches for a film, newest first. Index-free (tmdbId equality). */
+export async function getWatchesForMovie(
+  callerUid: string,
+  tmdbId: number,
+): Promise<{ watches: Watch[] }> {
+  if (typeof tmdbId !== 'number' || Number.isNaN(tmdbId)) {
+    throw new WatchValidationError('tmdbId is required.');
+  }
+  const db = getDb();
+  const snap = await db
+    .collection('users').doc(callerUid)
+    .collection('watches')
+    .where('tmdbId', '==', tmdbId)
+    .get();
+  const watches = snap.docs
+    .map(watchFromDoc)
+    .sort((a, b) => b.watchedAt.getTime() - a.watchedAt.getTime());
+  return { watches };
+}

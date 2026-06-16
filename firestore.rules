@@ -251,6 +251,16 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow write: if false;
       }
+
+      /**
+       * @path /users/{userId}/watches/{watchId}
+       * The owner's watch log (the drawer's "your history"). Owner-read only;
+       * writes go through logWatch (Admin SDK).
+       */
+      match /watches/{watchId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     // ------------------------------------------------------------------------

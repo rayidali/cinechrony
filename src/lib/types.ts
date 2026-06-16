@@ -331,6 +331,23 @@ export type UserRating = {
   updatedAt: Date;
 };
 
+// A single viewing event — the watch-log behind the drawer's "your history".
+// One doc per watch under /users/{uid}/watches; the canonical rating still
+// lives in /ratings, the public review in /reviews.
+export type Watch = {
+  id: string;
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  watchedAt: Date;
+  rating: number | null; // snapshot for THIS watch (null = skipped)
+  note: string | null; // optional note/quote for this watch
+  ordinal: number; // 1 = first watch, 2 = rewatch no. 2, …
+  createdAt: Date;
+};
+
 // Notification types
 export type NotificationType =
   | 'mention'

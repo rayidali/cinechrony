@@ -6,11 +6,12 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
-  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award, Flame,
+  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
-import type { Movie, TMDBCast, TMDBCrew, Review, SearchResult, WatchProvider } from '@/lib/types';
+import type { Movie, TMDBCast, TMDBCrew, Review, SearchResult, WatchProvider, Watch } from '@/lib/types';
+import { format } from 'date-fns';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,6 +23,7 @@ import { DragToRate } from '@/components/v3/drag-to-rate';
 import { FullscreenTextInput } from './fullscreen-text-input';
 import { SimilarMoviesRow } from './similar-movies-row';
 import { AddToListSheet } from './add-to-list-sheet';
+import { HowWasItSheet } from '@/components/v3/how-was-it-sheet';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
@@ -155,6 +157,8 @@ export function MovieDrawer({
   const [isSavingRating, setIsSavingRating] = useState(false);
   const [localStatus, setLocalStatus] = useState<'To Watch' | 'Watched'>(movieProp?.status ?? 'To Watch');
   const [isPending, setIsPending] = useState(false);
+  const [watches, setWatches] = useState<Watch[]>([]);
+  const [watchesNonce, setWatchesNonce] = useState(0);
 
   // overlays + editors (in-list editing)
   const [showAddToList, setShowAddToList] = useState(false);
@@ -215,6 +219,20 @@ export function MovieDrawer({
     })();
     return () => { cancelled = true; };
   }, [movie?.id, isOpen, user?.uid, tmdbId]);
+
+  // your history (watch log) — owner-scoped, index-free fetch. `watchesNonce`
+  // forces a refetch after logging a watch from "how was it?".
+  useEffect(() => {
+    if (!isOpen || !user?.uid || !tmdbId) { setWatches([]); return; }
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiCall<{ watches: Watch[] }>('GET', `/api/v1/watches?tmdbId=${tmdbId}`);
+        if (!cancelled) setWatches(r.watches ?? []);
+      } catch { /* non-critical */ }
+    })();
+    return () => { cancelled = true; };
+  }, [movie?.id, isOpen, user?.uid, tmdbId, watchesNonce]);
 
   // review previews (top by likes) + count
   useEffect(() => {
@@ -344,27 +362,38 @@ export function MovieDrawer({
     else patchStatus('To Watch');
   };
 
-  const handleRateOnWatchSave = async (comment: string, rating?: number) => {
+  // "how was it?" — log a watch (server upserts rating + your review), then
+  // flip the list status (which emits the `watched` activity). `rating` null on
+  // skip. Best-effort: a failed log shouldn't block marking the film watched.
+  const logWatch = async (rating: number | null, note: string) => {
     if (!user?.uid || !tmdbId) return;
-    const finalRating = rating ?? 7;
     try {
-      await apiCall('POST', '/api/v1/ratings', {
-        tmdbId, mediaType: movie.mediaType || 'movie',
-        movieTitle: movie.title, moviePosterUrl: movie.posterUrl, rating: finalRating,
+      await apiCall('POST', '/api/v1/watches', {
+        tmdbId,
+        mediaType: movie.mediaType || 'movie',
+        movieTitle: movie.title,
+        moviePosterUrl: movie.posterUrl || null,
+        rating,
+        note: note.trim() || null,
       });
-    } catch { /* best effort */ }
-    setUserRating(finalRating);
-    if (comment.trim()) {
-      try {
-        await apiCall('POST', '/api/v1/reviews', {
-          tmdbId, mediaType: movie.mediaType || 'movie',
-          movieTitle: movie.title, moviePosterUrl: movie.posterUrl,
-          text: comment, ratingAtTime: finalRating,
-        });
-      } catch { /* best effort */ }
+    } catch (err) {
+      console.error('[movie-drawer] logWatch failed:', err);
     }
+    if (rating != null) setUserRating(rating);
+    setWatchesNonce((n) => n + 1);
+  };
+
+  const handleHowWasItSave = async (rating: number, note: string) => {
+    setShowRateOnWatch(false);
     patchStatus('Watched');
-    toast({ title: 'Marked as watched', description: `you rated ${movie.title} ${finalRating.toFixed(1)}/10` });
+    await logWatch(rating, note);
+    toast({ title: 'logged', description: `you rated ${movie.title} ${rating.toFixed(1)}/10` });
+  };
+
+  const handleHowWasItSkip = async () => {
+    setShowRateOnWatch(false);
+    patchStatus('Watched');
+    await logWatch(null, '');
   };
 
   const handleRemove = () => {
@@ -484,18 +513,14 @@ export function MovieDrawer({
                     <Image src={posterSrc} alt={movie.title} fill className="object-cover" sizes="104px" />
                   </div>
                   <div className="flex-1 min-w-0 pt-2">
-                    {/* eyebrow */}
-                    {inList ? (
+                    {/* eyebrow — in-list only; standalone gets no badge */}
+                    {inList && (
                       <div className="cc-eyebrow flex items-center gap-1.5 text-muted-foreground">
                         <Bookmark className="h-3 w-3" strokeWidth={2} />
                         in · {(listName || 'a list').toLowerCase()}
                       </div>
-                    ) : (
-                      <div className="cc-eyebrow flex items-center gap-1.5 text-primary">
-                        <Flame className="h-3 w-3" strokeWidth={2} /> now showing
-                      </div>
                     )}
-                    <h2 className="font-headline font-bold text-[26px] lowercase tracking-[-0.02em] leading-[0.98] mt-1.5">
+                    <h2 className={`font-headline font-bold text-[26px] lowercase tracking-[-0.02em] leading-[0.98] ${inList ? 'mt-1.5' : ''}`}>
                       {movie.title}
                     </h2>
                     {/* score chips */}
@@ -550,6 +575,15 @@ export function MovieDrawer({
                 <Block title="your rating">
                   <DragToRate value={userRating} onChangeComplete={saveRating} disabled={isSavingRating} />
                 </Block>
+
+                {/* ── your history (watch log) ── */}
+                {watches.length > 0 && (
+                  <Block eyebrow="your history" title={`${watches.length} ${watches.length === 1 ? 'watch' : 'watches'}`}>
+                    <div className="rounded-2xl border border-hair bg-card divide-y divide-hair overflow-hidden">
+                      {watches.map((w) => <WatchRow key={w.id} watch={w} />)}
+                    </div>
+                  </Block>
+                )}
 
                 {/* ── overview ── */}
                 {overview ? (
@@ -696,14 +730,16 @@ export function MovieDrawer({
       {/* want-to-watch / save → which list */}
       <AddToListSheet movie={showAddToList ? movieToSearchResult(movie) : null} isOpen={showAddToList} onClose={() => setShowAddToList(false)} />
 
-      {/* how was it? (interim fullscreen — F03 sheet lands in Slice 3) */}
-      <FullscreenTextInput
+      {/* F03 — how was it? (logs a watch + becomes your review) */}
+      <HowWasItSheet
         isOpen={isOpen && showRateOnWatch}
-        onClose={() => { patchStatus('Watched'); setShowRateOnWatch(false); }}
-        onSave={handleRateOnWatchSave}
-        initialValue="" title="how was it?" subtitle={movie.title}
-        placeholder="say a little about it… (optional)" maxLength={500}
-        showRating initialRating={userRating ?? 7} ratingLabel="your rating"
+        movieTitle={movie.title}
+        posterUrl={posterSrc}
+        listName={listName}
+        initialRating={userRating}
+        onSave={handleHowWasItSave}
+        onSkip={handleHowWasItSkip}
+        onCancel={() => setShowRateOnWatch(false)}
       />
 
       {/* note editor */}
@@ -731,6 +767,29 @@ export function MovieDrawer({
 }
 
 // ── section primitives ─────────────────────────────────────────────────────
+
+function WatchRow({ watch }: { watch: Watch }) {
+  const label = watch.ordinal <= 1 ? 'first watch' : `rewatch no. ${watch.ordinal}`;
+  // watchedAt is an ISO string over the wire (typed Date) — wrap defensively.
+  const date = format(new Date(watch.watchedAt), 'MMM yyyy').toLowerCase();
+  const style = watch.rating ? getRatingStyle(watch.rating) : null;
+  return (
+    <div className="p-3.5">
+      <div className="flex items-center gap-2">
+        <span className="font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">{label}</span>
+        <span className="font-mono text-[10px] text-muted-foreground tabular-nums">{date}</span>
+        {style && (
+          <span className="ml-auto px-1.5 py-0.5 rounded-md font-mono text-[10px] font-bold tabular-nums" style={{ ...style.background, ...style.textOnBg }}>
+            {watch.rating!.toFixed(1)}
+          </span>
+        )}
+      </div>
+      {watch.note && (
+        <p className="mt-1.5 font-serif italic text-[14px] leading-snug text-foreground/85">“{watch.note}”</p>
+      )}
+    </div>
+  );
+}
 
 function Block({
   title, eyebrow, trailing, onTrailingTap, children,
