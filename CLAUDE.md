@@ -38,9 +38,20 @@
 - **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
   `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
   Presentational — must not regress logic.
+- **0.7.3.2+ interaction waves (`PHASE-0.7-REDESIGN.md`):** **Wave 1** (rail
+  detail screens F15/F16/F17) ✅ + **Wave 2** (movie-drawer cluster) ✅ merged on
+  `feat/v3-redesign`. Wave 2 unified the two detail modals into one **`MovieDrawer`**
+  (`movie-drawer.tsx`, `{standalone|in-list}` context; old `public-`/`movie-details-modal.tsx`
+  are thin adapters) to the F01/F02 design — scores (IMDb/RT/Metacritic+awards),
+  where-to-watch (TMDB JustWatch), cast & crew, `v3/drag-to-rate.tsx`, light+dark.
+  New **`/users/{uid}/watches`** watch-log (`watches-server.ts` · `/api/v1/watches`
+  · F03 `v3/how-was-it-sheet.tsx`) powers `your history` + "how was it?".
+  **Next: Wave 3 — create-a-post (F04).**
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
-  recent/activity); `npx cap sync` (picks up `@capacitor/haptics`).
+  recent/activity); **`firebase deploy --only firestore:rules`** (publishes the
+  new `/users/{uid}/watches` owner-read rule — non-blocking, the route uses Admin
+  SDK); `npx cap sync` (picks up `@capacitor/haptics`).
 - **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
   Spec in `LAUNCH.md` §C.
 
@@ -163,8 +174,17 @@ Build:       `npm run build` (Vercel) · `npm run build:static` (Capacitor `out/
 /ratings/{ratingId}  (format: {userId}_{tmdbId})
   ├── userId, tmdbId, mediaType
   ├── movieTitle, moviePosterUrl
-  ├── rating (1.0-10.0)
+  ├── rating (1.0-10.0)          # one canonical rating per user per film
   └── createdAt, updatedAt
+
+/users/{userId}/watches/{watchId}  (Phase 0.7 Wave 2 — the watch log)
+  ├── tmdbId, mediaType, movieTitle, moviePosterUrl
+  ├── watchedAt, rating (per-watch snapshot | null), note (| null)
+  ├── ordinal (1 = first watch, 2 = rewatch no. 2, …)
+  └── createdAt
+  # Server-only writes (logWatch) + owner-read. Powers the drawer's "your
+  # history". /ratings stays the canonical rating; the note becomes the
+  # user's single /reviews entry. Index-free reads (tmdbId equality).
 
 /notifications/{notificationId}
   ├── userId (recipient)

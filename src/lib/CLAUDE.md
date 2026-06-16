@@ -27,6 +27,7 @@ src/lib/
 ├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
 ├── reviews-server.ts         # createReview, like/unlike, threading
 ├── ratings-server.ts         # createOrUpdateRating, deleteRating
+├── watches-server.ts         # logWatch (F03) + getWatchesForMovie (watch log)
 ├── activities-server.ts      # getActivityFeed, likeActivity, …
 ├── posts-server.ts           # createPost, updatePost, deletePost, likePost
 ├── post-comments-server.ts   # createPostComment + likes

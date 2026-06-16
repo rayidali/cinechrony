@@ -538,3 +538,33 @@ the reel. New + changed components:
 `trending-strip.tsx` is **retired from home** (orphaned; safe to delete later).
 Deferred (no fake data): hot-take cards (`/api/v1/reviews/highlights`, 0.7.5),
 the F15–F18 "view all" detail screens.
+
+---
+
+## Phase 0.7 — v3 movie-drawer cluster (Wave 2, 2026-06-15)
+
+The two detail modals were unified into one **`movie-drawer.tsx`** (`MovieDrawer`),
+driven by a `{ kind: 'standalone' | 'in-list' }` context. The old
+`public-movie-details-modal.tsx` + `movie-details-modal.tsx` are now **thin
+adapters** over it (so every call site is untouched) — standalone = now-showing-
+less eyebrow · want-to-watch · comments; in-list = `in · <list>` eyebrow ·
+list-name · comments · watch-status. Built on semantic tokens → dark
+("projection room") for free.
+
+- `v3/drag-to-rate.tsx` — the big rating-coloured number + 10-segment drag bar
+  (replaces `RatingSlider` inside the drawer; same `onChangeComplete` contract).
+- `v3/how-was-it-sheet.tsx` (**F03**) — a **non-Vaul** top-anchored overlay
+  (a textarea inside a Vaul drawer fights the iOS focus trap), shown while the
+  parent drawer is closed. save logs a watch + rating + review + watched; skip
+  logs the watch + watched; scrim cancels.
+- Drawer sections: scores (IMDb/RT/Metacritic + awards), where to watch (TMDB
+  JustWatch chips), cast & crew (incl. director), the conversation (review
+  quotes), in-list list-notes, more like this, footer, `your history` (watch log).
+- The header bookmark + the want-to-watch button both open `add-to-list-sheet.tsx`
+  (raised to z-90 so it clears a drawer opened over the search overlay).
+
+**Gotcha:** the repo has no ESLint, so React rules-of-hooks violations crash at
+runtime, not build — keep ALL hooks above the `if (!movie) return null` early
+return in `movie-drawer.tsx` (a `useMemo` below it blanked the app when opening
+a film from search). `next/image` also throws on empty `src` — poster/hero fall
+back to a placeholder.

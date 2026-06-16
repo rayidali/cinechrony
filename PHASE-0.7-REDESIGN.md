@@ -291,25 +291,48 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
     / profile / list detail; typecheck + build + static + audit green; **no
     per-item fetches** (quota check).
 
-- [ ] **Wave 2 — Movie drawer cluster (F01 · F02 · F05 · F03 + watch log).** The
-  keystone — nearly every screen leads here.
-  - **F01 / F02 drawer restyle** — hero backdrop + ghost title + glass
-    collapse/bookmark/⋯; poster + title + chips (sage rating + amber IMDb) +
-    `year · runtime · genre`. F01 = two buttons (want-to-watch / comments);
-    F02 = `IN · <list>` eyebrow + three buttons (list-name → add-to-list ·
-    comments · to-watch → how-was-it). Reuse existing rating/status/comments —
-    **no new data in this slice.**
-  - **F05 add-to-list sheet restyle** — Vaul sheet, toggle membership across
-    lists with checkmarks (`add-to-list-sheet.tsx` exists).
-  - **Watch log + "your history" + F03 how-was-it** — the new model above;
-    `your history · N watches` (rewatch / first-watch rows w/ rating + note);
-    flipping status → watched opens the **how-was-it** Vaul sheet (drag-to-rate +
-    optional review → save writes watch + rating + review; skip just marks it
-    watched).
-  - **Test:** drawer opens above overlays/feed and the **modal back-nav contract
-    holds** (`tmdb-details-cache` + fresh-mount `key`); history reads once + caches;
-    "how was it" writes are transactional + don't drift counts; audit green incl.
-    a new `watches` deny-rule test.
+- [x] **Wave 2 — Movie drawer cluster (F01 · F02 · F05 · F03 + watch log). ✅ built 2026-06-15.**
+  The keystone, shipped in three slices on `feat/v3-redesign`:
+  - **Slice 1 — data layer.** OMDB extraction now returns rottenTomatoes (from
+    `Ratings[]`) + awards + metascore; the TMDB details fetch appends
+    `watch/providers` (normalized stream/rent/buy, region US) + exposes
+    `credits.crew` + `production_companies`/`_countries` — all on the SAME
+    details request (zero extra calls). Types in `types.ts`
+    (`WatchProvider`/`WatchProviders`/`TMDBCrew`); enrichment in
+    `tmdb-details-cache.ts` (`watchProviders` on `MediaDetails`).
+  - **Slice 2 — unified drawer.** Two divergent modals → one
+    **`movie-drawer.tsx`** (`MovieDrawer`) driven by a
+    `{kind:'standalone'|'in-list'}` context; `public-movie-details-modal.tsx`
+    + `movie-details-modal.tsx` are now thin adapters (zero call-site churn).
+    Semantic tokens → dark "projection room" for free. Green-wash hero + ghost
+    title + glass close/bookmark/⋯; poster straddles hero; F01 = want-to-watch ·
+    comments, F02 = `in · <list>` eyebrow + list-name · comments · status. New
+    **`v3/drag-to-rate.tsx`** (number + 10-segment bar). Sections: scores
+    (IMDb/RT/Metacritic + awards) · where to watch · cast & crew (incl.
+    director) · the conversation · list notes (F02) · more like this · footer.
+    `listName` threaded list page → `MovieList` → drawer. **Bookmark + the
+    want-to-watch button both open the add-to-list sheet** (raised to z-90).
+  - **Slice 3 — watch log.** New **`/users/{uid}/watches/{id}`** subcollection
+    (server-only + owner-read; `watches-server.ts` + `/api/v1/watches`). `logWatch`
+    computes ordinal via `count()`, writes the watch, best-effort upserts
+    `/ratings` + makes the note your SINGLE public review (update-or-create).
+    **Index-free** (tmdbId equality → automatic single-field index; no composite,
+    no owner deploy). **F03 `v3/how-was-it-sheet.tsx`** is a non-Vaul top-anchored
+    overlay (textarea would fight the parent drawer's focus trap) — save
+    logs+rates+reviews+watched, skip logs+watched, scrim cancels. `your history ·
+    N watches` rows in the drawer. The list-PATCH still owns the `watched`
+    activity, so logWatch never double-emits. 9 endpoint tests (42-watches),
+    415/415 audit green. **`now showing` badge removed** per owner.
+  - **Deferred (honest, no fake data):** footer friend counts (`9 friends
+    watched` — needs a follow-graph fan-out) → Wave 6. Per-film "save" model
+    (header bookmark = add-to-list for now). F05 = the existing
+    `add-to-list-sheet.tsx`, reused as-is (restyle deferred).
+  - **Owner action (non-blocking — defense-in-depth only, route uses Admin SDK):**
+    `firebase deploy --only firestore:rules` to publish the `/watches` owner-read
+    rule. No index deploy needed.
+  - **Fixed in-flight:** a hooks-order crash (a `useMemo` below the `if (!movie)
+    return null`) blanked the app when opening a film from search — the repo has
+    NO ESLint, so it wasn't caught at build; keep hooks above the early return.
 
 - [ ] **Wave 3 — Create a post (F04).** Restyle `post-composer.tsx`: film cell +
   change · first-watch / rewatch + watched-on date · drag-to-rate · serif take ·
