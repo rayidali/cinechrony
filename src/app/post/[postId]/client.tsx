@@ -3,12 +3,13 @@
 import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ChevronLeft, Heart, Loader2, Send, X, Trash2 } from 'lucide-react';
+import { ChevronLeft, Heart, Loader2, ArrowUp, X, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { PostCard } from '@/components/post-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { useUserProfile } from '@/contexts/user-profile-cache';
 import { BottomNav } from '@/components/bottom-nav';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useToast } from '@/hooks/use-toast';
@@ -20,6 +21,7 @@ export default function PostPage() {
   const router = useRouter();
   const postId = params.postId as string;
   const { user, isUserLoading } = useUser();
+  const myProfile = useUserProfile(user?.uid ?? '');
   const { toast } = useToast();
 
   const [post, setPost] = useState<Post | null>(null);
@@ -126,17 +128,18 @@ export default function PostPage() {
       <div className="container mx-auto px-4 md:px-8 max-w-2xl">
         {/* Header */}
         <div
-          className="sticky top-0 z-30 bg-background/95 backdrop-blur flex items-center gap-2 -mx-4 px-4 border-b border-border"
+          className="sticky top-0 z-30 bg-background/90 backdrop-blur flex items-center -mx-4 px-4 border-b border-hair"
           style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
         >
           <button
             onClick={() => router.back()}
             aria-label="Back"
-            className="h-11 w-11 -ml-2 rounded-full flex items-center justify-center text-foreground/85 hover:bg-muted active:bg-muted active:scale-95 transition-all"
+            className="h-11 w-11 -ml-2 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5 active:scale-95 transition-all"
           >
             <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
           </button>
-          <h1 className="font-headline font-bold text-lg lowercase tracking-tight">post</h1>
+          <h1 className="flex-1 text-center font-headline font-bold text-[17px] lowercase tracking-[-0.02em]">post</h1>
+          <div className="h-11 w-11 -mr-2" aria-hidden />
         </div>
 
         {/* The post */}
@@ -144,22 +147,22 @@ export default function PostPage() {
           <PostCard post={post} currentUserId={user?.uid ?? null} onDeleted={() => router.push('/home')} />
         </div>
 
-        {/* Comments */}
-        <div className="mt-6 mb-3">
+        {/* Replies */}
+        <div className="mt-6 mb-1">
           <div className="cc-eyebrow">
-            {topLevel.length} {topLevel.length === 1 ? 'comment' : 'comments'}
+            {comments.length} {comments.length === 1 ? 'reply' : 'replies'}
           </div>
-          <div className="h-px bg-border mt-2.5" />
+          <div className="h-px bg-rule mt-2.5" />
         </div>
 
         {topLevel.length === 0 ? (
-          <p className="font-serif italic text-[15px] text-muted-foreground py-6 text-center">
+          <p className="font-serif italic text-[15px] text-muted-foreground py-8 text-center">
             start the conversation.
           </p>
         ) : (
-          <div className="space-y-5">
+          <div>
             {topLevel.map((c) => (
-              <div key={c.id}>
+              <div key={c.id} className="border-b border-rule last:border-b-0 py-4">
                 <CommentRow
                   comment={c}
                   currentUserId={user?.uid ?? null}
@@ -168,7 +171,7 @@ export default function PostPage() {
                   onDelete={() => handleDeleteComment(c.id)}
                 />
                 {(repliesByParent[c.id] ?? []).length > 0 && (
-                  <div className="mt-3 ml-9 pl-3 border-l border-border space-y-3">
+                  <div className="mt-3 ml-[26px] pl-3.5 border-l border-rule space-y-4">
                     {repliesByParent[c.id].map((r) => (
                       <CommentRow
                         key={r.id}
@@ -190,51 +193,49 @@ export default function PostPage() {
 
       {/* Sticky composer */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border"
+        className="fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur border-t border-hair"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="container mx-auto px-4 max-w-2xl py-2.5">
           {replyTo && (
-            <div className="flex items-center justify-between mb-1.5 cc-meta text-[11px] text-muted-foreground">
+            <div className="flex items-center justify-between mb-1.5 font-mono text-[11px] text-muted-foreground">
               <span>replying to @{replyTo.username || 'user'}</span>
               <button
                 onClick={() => setReplyTo(null)}
                 aria-label="Cancel reply"
-                className="h-8 w-8 -my-2 -mr-2 rounded-full flex items-center justify-center hover:bg-muted active:bg-muted active:scale-95 transition-all"
+                className="h-8 w-8 -my-2 -mr-2 rounded-full flex items-center justify-center active:bg-foreground/5 active:scale-95 transition-all"
               >
                 <X className="h-[18px] w-[18px]" strokeWidth={1.8} />
               </button>
             </div>
           )}
           {user ? (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2.5">
+              <ProfileAvatar
+                photoURL={myProfile?.photoURL ?? user.photoURL}
+                displayName={myProfile?.displayName ?? user.displayName}
+                username={myProfile?.username ?? null}
+                size="sm"
+                className="flex-shrink-0"
+              />
               <input
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') submitComment();
-                }}
-                placeholder="share what you thought…"
-                className="flex-1 h-10 px-4 bg-background border border-border rounded-full font-serif italic text-sm outline-none focus:border-foreground/40"
+                onKeyDown={(e) => { if (e.key === 'Enter') submitComment(); }}
+                placeholder="add a reply…"
+                className="flex-1 h-11 px-4 bg-sunken border border-hair rounded-full font-serif italic text-[15px] outline-none focus:border-foreground/30 transition-colors"
               />
               <button
                 onClick={submitComment}
                 disabled={!draft.trim() || isPending}
-                aria-label="Post comment"
-                className="h-10 w-10 rounded-full bg-foreground text-background flex items-center justify-center disabled:opacity-40"
+                aria-label="Post reply"
+                className="h-11 w-11 flex-shrink-0 rounded-full bg-primary text-primary-foreground flex items-center justify-center transition-all active:scale-90 disabled:opacity-40"
               >
-                {isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Send className="h-4 w-4" strokeWidth={1.8} />
-                )}
+                {isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-5 w-5" strokeWidth={2.4} />}
               </button>
             </div>
           ) : (
-            <Link
-              href="/login"
-              className="block text-center py-2 font-serif italic text-sm text-muted-foreground"
-            >
+            <Link href="/login" className="block text-center py-2 font-serif italic text-sm text-muted-foreground">
               sign in to join the conversation
             </Link>
           )}
@@ -295,64 +296,65 @@ function CommentRow({
     });
   };
 
+  const time = comment.createdAt
+    ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: false })
+        .replace('about ', '').replace(' minutes', 'm').replace(' minute', 'm')
+        .replace(' hours', 'h').replace(' hour', 'h').replace(' days', 'd').replace(' day', 'd')
+        .replace('less than am', 'now')
+    : '';
+
   return (
-    <div className="flex gap-2.5">
+    <div className="flex gap-3">
       <Link href={`/profile/${comment.username}`} className="flex-shrink-0">
         <ProfileAvatar
           photoURL={comment.userPhotoUrl}
           displayName={comment.userDisplayName}
           username={comment.username}
-          size={isReply ? 'sm' : 'md'}
+          size={isReply ? 'xs' : 'sm'}
         />
       </Link>
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
           <Link
             href={`/profile/${comment.username}`}
-            className="font-headline font-semibold text-[13px] tracking-tight hover:underline truncate"
+            className="font-mono font-bold text-[12.5px] text-foreground hover:underline truncate"
           >
             @{comment.username || 'user'}
           </Link>
-          <span className="cc-meta text-[10px] text-muted-foreground">
-            {comment.createdAt
-              ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true })
-              : ''}
-          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">{time}</span>
         </div>
-        <p className="font-serif text-[14px] leading-snug text-foreground mt-0.5 whitespace-pre-wrap">
+        <p className="font-serif text-[14.5px] leading-snug text-foreground mt-1 whitespace-pre-wrap">
           {comment.text}
         </p>
         <div className="flex items-center gap-4 mt-1.5">
-          <button
-            onClick={toggleLike}
-            disabled={!currentUserId}
-            className={cn(
-              'flex items-center gap-1 cc-meta text-[10px] transition-colors',
-              liked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
-            )}
-          >
-            <Heart className={cn('h-3 w-3', liked && 'fill-current')} strokeWidth={1.8} />
-            {likes > 0 && <span>{likes}</span>}
+          <button onClick={onReply} className="font-mono text-[11px] text-muted-foreground active:text-foreground transition-colors">
+            reply
           </button>
-          {!isReply && (
-            <button
-              onClick={onReply}
-              className="cc-meta text-[10px] text-muted-foreground hover:text-foreground"
-            >
-              reply
-            </button>
-          )}
           {canDelete && (
             <button
               onClick={onDelete}
               aria-label="Delete comment"
-              className="cc-meta text-[10px] text-muted-foreground hover:text-destructive"
+              className="font-mono text-[11px] text-muted-foreground active:text-destructive transition-colors"
             >
-              <Trash2 className="h-3 w-3" strokeWidth={1.8} />
+              <Trash2 className="h-3 w-3" strokeWidth={1.9} />
             </button>
           )}
         </div>
       </div>
+
+      {/* like column (right) */}
+      <button
+        onClick={toggleLike}
+        disabled={!currentUserId}
+        aria-label="Like comment"
+        className={cn(
+          'flex-shrink-0 flex flex-col items-center gap-0.5 pt-0.5 transition-colors active:scale-90',
+          liked ? 'text-primary' : 'text-muted-foreground active:text-foreground',
+        )}
+      >
+        <Heart className={cn('h-[18px] w-[18px]', liked && 'fill-current')} strokeWidth={1.9} />
+        {likes > 0 && <span className="font-mono text-[10px] tabular-nums">{likes}</span>}
+      </button>
     </div>
   );
 }
