@@ -25,7 +25,7 @@ export function TopWatchers({ onViewAll }: { onViewAll?: () => void }) {
   const { data } = useCachedAction<LeaderboardEntry[]>('home-leaderboard', async () => {
     const r = await apiCall<{ entries: LeaderboardEntry[] }>('GET', '/api/v1/leaderboard?window=week&fallback=1');
     return r.entries ?? [];
-  });
+  }, { staleTime: 600_000 }); // weekly leaderboard — 10 min
 
   const entries = data ?? [];
   if (data && entries.length === 0) return null;

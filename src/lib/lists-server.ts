@@ -709,7 +709,7 @@ async function hydrateListCards(
 // collectionGroup scan every few minutes serves the whole user base. Keyed by
 // limit (the only input). This is the highest-leverage cache: it fires on every
 // home load via both the featured carousel and the community rail.
-const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 180_000 });
+const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 600_000 });
 
 export async function getLovedLists(
   limit = 12,

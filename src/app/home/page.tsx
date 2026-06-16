@@ -78,6 +78,7 @@ export default function HomePage() {
       );
       return (res.users ?? []).map((u) => u.uid);
     },
+    { staleTime: 300_000 }, // follow set changes rarely — 5 min
   );
   const followingIds = followingResult.data ?? [];
 

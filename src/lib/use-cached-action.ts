@@ -33,6 +33,27 @@ const inflight = new Map<string, Promise<unknown>>();
 const persistedKeys = new Set<string>();
 const LS_PREFIX = 'cc-cache:';
 
+/**
+ * When each key was last fetched (ms epoch). Drives TTL-gated revalidation:
+ * a mount whose cached value is younger than `staleTime` does NOT refetch.
+ * This is the single biggest Firestore-read saver — without it the SWR layer
+ * revalidated on EVERY mount, so bouncing between tabs re-fired every home
+ * read. `fetchedAt` is in-memory only; a cold app open (localStorage hydrate)
+ * has no timestamp → treated as stale → revalidates once, as desired.
+ */
+const fetchedAt = new Map<string, number>();
+/** Default freshness window — short, just enough to absorb rapid navigation. */
+const DEFAULT_STALE_MS = 30_000;
+
+function markFetched(key: string): void {
+  fetchedAt.set(key, Date.now());
+}
+function isFresh(key: string, staleMs: number): boolean {
+  if (staleMs <= 0) return false;
+  const at = fetchedAt.get(key);
+  return at !== undefined && Date.now() - at < staleMs;
+}
+
 function lsReadOnce<T>(key: string): T | undefined {
   if (typeof window === 'undefined') return undefined;
   try {
@@ -137,15 +158,27 @@ export function readCachedAction<T>(key: string): T | undefined {
 }
 
 /**
+ * Was `key` fetched within the last `staleMs`? For bespoke loaders (e.g. the
+ * activity feed) that want the same TTL-gated revalidation as `useCachedAction`
+ * but manage their own fetch — call this before refetching to skip a read when
+ * the cached value is still fresh.
+ */
+export function isCachedActionFresh(key: string, staleMs: number): boolean {
+  return isFresh(key, staleMs);
+}
+
+/**
  * Manually replace a cache entry — for optimistic updates after a write.
  * Pass `undefined` to invalidate without setting a new value.
  */
 export function setCachedAction<T>(key: string, value: T | undefined): void {
   if (value === undefined) {
     cache.delete(key);
+    fetchedAt.delete(key);
     if (shouldPersist(key)) lsRemove(key);
   } else {
     cache.set(key, value);
+    markFetched(key);
     if (shouldPersist(key)) lsWrite(key, value);
   }
 }
@@ -156,6 +189,7 @@ export function setCachedAction<T>(key: string, value: T | undefined): void {
 export function invalidateCachedAction(key: string): void {
   cache.delete(key);
   inflight.delete(key);
+  fetchedAt.delete(key);
   if (shouldPersist(key)) lsRemove(key);
 }
 
@@ -168,6 +202,7 @@ export function invalidateCachedActionsByPrefix(prefix: string): void {
     if (key.startsWith(prefix)) {
       cache.delete(key);
       inflight.delete(key);
+      fetchedAt.delete(key);
       if (shouldPersist(key)) lsRemove(key);
     }
   }
@@ -196,6 +231,7 @@ export function prefetchCachedAction<T>(
     try {
       const result = await fetcher();
       cache.set(key, result);
+      markFetched(key);
       if (shouldPersist(key)) lsWrite(key, result);
       return result;
     } finally {
@@ -220,6 +256,7 @@ export function prefetchCachedAction<T>(
 export function useCachedAction<T>(
   key: string | null,
   fetcher: () => Promise<T>,
+  opts?: { staleTime?: number },
 ): ActionResult<T> {
   // Synchronous initial read so the first render paints with cached data.
   const initial = key ? (cache.get(key) as T | undefined) : undefined;
@@ -228,11 +265,13 @@ export function useCachedAction<T>(
     initial === undefined && key !== null,
   );
 
-  // Track the latest fetcher without re-running the effect when it changes.
+  // Track the latest fetcher / staleTime without re-running the effect.
   const fetcherRef = useRef(fetcher);
   useEffect(() => {
     fetcherRef.current = fetcher;
   });
+  const staleRef = useRef(opts?.staleTime ?? DEFAULT_STALE_MS);
+  staleRef.current = opts?.staleTime ?? DEFAULT_STALE_MS;
 
   useEffect(() => {
     if (!key) {
@@ -243,11 +282,14 @@ export function useCachedAction<T>(
 
     let cancelled = false;
 
-    // If we have a cache entry, show it now and refresh silently.
+    // If we have a cache entry, show it now.
     const cached = cache.get(key) as T | undefined;
     if (cached !== undefined) {
       setData(cached);
       setIsLoading(false);
+      // TTL gate: if the cached value is still fresh, DON'T revalidate. This
+      // is what stops every tab-switch from re-firing the underlying reads.
+      if (isFresh(key, staleRef.current)) return;
     } else {
       setIsLoading(true);
     }
@@ -267,9 +309,12 @@ export function useCachedAction<T>(
 
     promise
       .then((result) => {
-        if (cancelled) return;
+        // Always stamp freshness (even if this consumer unmounted) so the
+        // next mount sees a warm, fresh entry and skips its own refetch.
         cache.set(key, result);
+        markFetched(key);
         if (shouldPersist(key)) lsWrite(key, result);
+        if (cancelled) return;
         setData(result);
       })
       .catch(() => {
@@ -289,6 +334,7 @@ export function useCachedAction<T>(
     if (!key) return;
     cache.delete(key);
     inflight.delete(key);
+    fetchedAt.delete(key);
     setIsLoading(true);
     const promise = (async () => {
       try {
@@ -301,6 +347,7 @@ export function useCachedAction<T>(
     promise
       .then((result) => {
         cache.set(key, result);
+        markFetched(key);
         if (shouldPersist(key)) lsWrite(key, result);
         setData(result);
       })

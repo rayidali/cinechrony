@@ -26,8 +26,8 @@ export type FriendsWatchingCard = {
 };
 
 // Per-caller cache — collapses the recent-activity scan + per-card enrichment
-// across repeated home loads. 2 min staleness is fine for a "watching" rail.
-const friendsWatchingCache = createTtlCache<{ cards: FriendsWatchingCard[] }>({ ttlMs: 120_000 });
+// across repeated home loads. 5 min staleness is fine for a "watching" rail.
+const friendsWatchingCache = createTtlCache<{ cards: FriendsWatchingCard[] }>({ ttlMs: 300_000 });
 
 export async function getFriendsWatching(
   callerUid: string,

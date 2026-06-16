@@ -18,7 +18,7 @@ export function useLovedLists() {
       '/api/v1/lists/loved?limit=10&rich=1',
     );
     return r.lists ?? [];
-  });
+  }, { staleTime: 600_000 }); // loved lists shift slowly — 10 min
 }
 
 /**

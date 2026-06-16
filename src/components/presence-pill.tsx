@@ -22,6 +22,7 @@ export function PresencePill({ userId }: { userId: string }) {
       const r = await apiCall<{ cards: FWCard[] }>('GET', '/api/v1/friends-watching');
       return r.cards ?? [];
     },
+    { staleTime: 300_000 }, // friends-watching — 5 min (shares home-fw key with the feed)
   );
 
   const cards = data ?? [];

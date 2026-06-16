@@ -13,7 +13,7 @@
  */
 
 import { getDb } from '@/firebase/admin';
-import { getFollowing } from '@/lib/follows-server';
+import { getFollowingIds } from '@/lib/follows-server';
 import { getMyBlockSet } from '@/lib/blocks-server';
 import { createTtlCache, cached } from '@/lib/server-cache';
 
@@ -36,7 +36,7 @@ const LOG_TYPES = new Set(['watched', 'rated', 'reviewed']);
 // Per-caller cache — the underlying 800-doc /activities scan is the single most
 // read-expensive query on the home rail. 2 min staleness is invisible for a
 // weekly ranking and collapses repeated home loads to one scan per window.
-const leaderboardCache = createTtlCache<{ entries: LeaderboardEntry[] }>({ ttlMs: 120_000 });
+const leaderboardCache = createTtlCache<{ entries: LeaderboardEntry[] }>({ ttlMs: 600_000 });
 
 export async function getWeeklyLeaderboard(
   callerUid: string,
@@ -49,14 +49,17 @@ export async function getWeeklyLeaderboard(
   return cached(leaderboardCache, key, async () => {
     const db = getDb();
 
-    const [following, blocked] = await Promise.all([
-      getFollowing(callerUid, 200),
+    // IDs only — the leaderboard rows use the activity docs' denormalized
+    // username/avatar, so hydrating 200 follow profiles here was pure waste
+    // (~200 reads → 1). [free-tier read reduction]
+    const [followingIds, blocked] = await Promise.all([
+      getFollowingIds(callerUid, 200),
       getMyBlockSet(callerUid).catch(() => new Set<string>()),
     ]);
 
     // The candidate set = people you follow (+ you), minus anyone blocked.
     const include = new Set<string>([callerUid]);
-    for (const u of following) include.add(u.uid);
+    for (const uid of followingIds) include.add(uid);
     for (const b of blocked) include.delete(b);
     if (include.size === 0) return { entries: [] };
 

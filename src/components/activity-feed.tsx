@@ -11,7 +11,14 @@ import { useAuth } from '@/firebase';
 import {
   readCachedAction,
   setCachedAction,
+  isCachedActionFresh,
 } from '@/lib/use-cached-action';
+
+// Freshness windows — within these, a mount reuses cache instead of refetching
+// (the single biggest Firestore-read saver on repeat home loads). Pull-to-
+// refresh (a `refreshKey` bump) always bypasses these.
+const FEED_STALE_MS = 120_000; // 2 min
+const RAILS_STALE_MS = 300_000; // 5 min — recs + friends-watching
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Activity, Movie } from '@/lib/types';
@@ -158,6 +165,10 @@ export function ActivityFeed({
   const { openMovie } = useMovieModal();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  // Track refreshKey per-effect so a pull-to-refresh forces a refetch but a
+  // plain remount respects the freshness window.
+  const lastFeedRefreshRef = useRef(refreshKey);
+  const lastRailsRefreshRef = useRef(refreshKey);
 
   // Fetch one page — `saved` reads the bookmarks feed, everything else the
   // merged home feed (activities + posts).
@@ -213,9 +224,16 @@ export function ActivityFeed({
   // shows the skeleton, then swaps in on first fetch.
   useEffect(() => {
     let cancelled = false;
+    const forced = lastFeedRefreshRef.current !== refreshKey;
+    lastFeedRefreshRef.current = refreshKey;
     (async () => {
       try {
         const hadCached = feedKey ? readCachedAction(feedKey) !== undefined : false;
+        // Fresh cache + not a pull-to-refresh → reuse it, skip the read.
+        if (hadCached && !forced && feedKey && isCachedActionFresh(feedKey, FEED_STALE_MS)) {
+          setIsLoading(false);
+          return;
+        }
         if (!hadCached) setIsLoading(true);
         setError(null);
         const result = await fetchPage();
@@ -250,6 +268,16 @@ export function ActivityFeed({
   // refresh in the background.
   useEffect(() => {
     let cancelled = false;
+    const forced = lastRailsRefreshRef.current !== refreshKey;
+    lastRailsRefreshRef.current = refreshKey;
+    // Fresh recs + friends-watching → skip both reads on a plain remount.
+    if (!forced && recKey && fwKey
+        && isCachedActionFresh(recKey, RAILS_STALE_MS)
+        && isCachedActionFresh(fwKey, RAILS_STALE_MS)
+        && readCachedAction(recKey) !== undefined
+        && readCachedAction(fwKey) !== undefined) {
+      return;
+    }
     (async () => {
       try {
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';

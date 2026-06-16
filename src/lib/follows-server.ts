@@ -262,6 +262,26 @@ export async function getFollowing(
     .map((d) => profileFromDoc(d, d.id));
 }
 
+/**
+ * Just the UIDs the target follows — ONE read, no profile hydration. Use this
+ * (not `getFollowing`) when you only need the follow SET for membership/scoping
+ * (e.g. the leaderboard), since the `following` subcollection doc id IS the
+ * followed uid. Saves up to `limit` per-profile reads per call.
+ */
+export async function getFollowingIds(
+  targetUid: string,
+  limit: number = DEFAULT_LIST_LIMIT,
+): Promise<string[]> {
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_LIST_LIMIT);
+  const db = getDb();
+  const snap = await db
+    .collection('users').doc(targetUid)
+    .collection('following')
+    .limit(effectiveLimit)
+    .get();
+  return snap.docs.map((d) => d.id);
+}
+
 // ─── isFollowing — single boolean check (Phase A PR #18) ────────────────
 
 /**

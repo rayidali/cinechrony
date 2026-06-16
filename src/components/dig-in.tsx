@@ -29,7 +29,7 @@ const CATS: {
  * the rail's film count matches the grid and there's no double fetch.
  */
 export function useDigIn() {
-  return useCachedAction<DigInData>('home-dig-in', () => getDigIn(20));
+  return useCachedAction<DigInData>('home-dig-in', () => getDigIn(20), { staleTime: 900_000 }); // TMDB shelves — 15 min
 }
 
 export function DigIn({ onViewAll }: { onViewAll?: (cat?: DigInCategory) => void }) {

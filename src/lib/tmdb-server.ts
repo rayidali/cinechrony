@@ -237,7 +237,7 @@ export async function getSimilarMovies(
 // Per-caller cache — recs read the viewer's ratings then fan out to TMDB
 // `similar` per basis. 5 min staleness is fine (taste doesn't shift by the
 // minute) and spares both Firestore reads and TMDB calls on repeated loads.
-const recommendationsCache = createTtlCache<{ sets: RecommendationSet[] }>({ ttlMs: 300_000 });
+const recommendationsCache = createTtlCache<{ sets: RecommendationSet[] }>({ ttlMs: 600_000 });
 
 export async function getRecommendationsForUser(
   callerUid: string,
