@@ -75,8 +75,8 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
   return (
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none max-h-[70vh]">
+        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[90]" />
+        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[90] flex flex-col rounded-t-2xl bg-card outline-none max-h-[70vh]">
           <Drawer.Title className="sr-only">Add {movie?.title ?? 'movie'} to a list</Drawer.Title>
           <div className="mx-auto mt-3 mb-1 h-1 w-10 rounded-full bg-muted-foreground/30" />
           <div className="px-5 pt-2 pb-[calc(1.5rem+env(safe-area-inset-bottom))] overflow-y-auto">

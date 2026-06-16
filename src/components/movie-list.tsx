@@ -31,12 +31,13 @@ type MovieListProps = {
   isLoading: boolean;
   listId?: string;
   listOwnerId?: string;
+  listName?: string;
   canEdit?: boolean;
 };
 
 const VIEW_MODE_KEY = 'cinechrony-view-mode';
 
-export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEdit = true }: MovieListProps) {
+export function MovieList({ initialMovies, isLoading, listId, listOwnerId, listName, canEdit = true }: MovieListProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
@@ -331,6 +332,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
         onClose={handleCloseModal}
         listId={listId}
         listOwnerId={listOwnerId}
+        listName={listName}
         canEdit={canEdit}
       />
 

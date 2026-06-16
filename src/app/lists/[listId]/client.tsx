@@ -350,6 +350,7 @@ export default function ListDetailPage() {
                   isLoading={isLoadingMovies}
                   listId={listId}
                   listOwnerId={effectiveOwnerId}
+                  listName={effectiveListData?.name}
                   canEdit={canEdit}
                 />
               </div>
