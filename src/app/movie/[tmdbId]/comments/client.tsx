@@ -13,6 +13,7 @@ import { ReviewReactOverlay } from '@/components/v3/review-react-overlay';
 import { useUser, useFirestore } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
@@ -23,6 +24,11 @@ import type { WallReview, ReviewsWall } from '@/lib/reviews-server';
 import type { Review, TMDBCrew } from '@/lib/types';
 
 type Sort = 'helpful' | 'recent' | 'highest';
+
+// SWR window: a re-open within this paints from cache instantly + skips the
+// refetch. Own-action mutations write the cache in lockstep, so it's never
+// stale after the viewer's own post/react/reply.
+const WALL_STALE_MS = 30_000;
 
 /** Map a freshly-created server Review → the wall shape (no reactions/helpful yet). */
 function reviewToWall(r: Review): WallReview {
@@ -105,7 +111,7 @@ function CommentsPageContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
   const { getRating } = useUserRatingsCache();
@@ -119,6 +125,10 @@ function CommentsPageContent() {
   const returnListId = searchParams.get('returnListId');
   const returnListOwnerId = searchParams.get('returnListOwnerId');
   const returnMovieId = searchParams.get('returnMovieId');
+
+  // Per-caller, per-film cache key (the wall payload carries the viewer's own
+  // reaction/helpful state + friends-seen, so it can't be shared across users).
+  const wallKey = `reviews-wall:${user?.uid ?? 'anon'}:${tmdbId}`;
 
   const [wall, setWall] = useState<ReviewsWall | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -174,14 +184,29 @@ function CommentsPageContent() {
     try {
       const result = await apiCall<ReviewsWall>('GET', `/api/v1/movies/${tmdbId}/reviews-wall`);
       setWall(result);
+      setCachedAction(wallKey, result);
     } catch (err) {
       console.error('Failed to load reviews wall:', err);
     } finally {
       setIsLoading(false);
     }
-  }, [tmdbId]);
+  }, [tmdbId, wallKey]);
 
-  useEffect(() => { loadWall(); }, [loadWall]);
+  // SWR: paint the cached wall instantly on (re)open, then refresh in the
+  // background only if it's stale. Gated on auth resolving so the key + the
+  // per-caller my-state are correct (no anon→uid double-fetch).
+  useEffect(() => {
+    if (isUserLoading) return;
+    const cached = readCachedAction<ReviewsWall>(wallKey);
+    if (cached) {
+      setWall(cached);
+      setIsLoading(false);
+    }
+    if (!cached || !isCachedActionFresh(wallKey, WALL_STALE_MS)) {
+      if (!cached) setIsLoading(true);
+      loadWall();
+    }
+  }, [isUserLoading, wallKey, loadWall]);
 
   // Viewer avatar (freshest from Firestore) for the bottom bar.
   useEffect(() => {
@@ -231,9 +256,13 @@ function CommentsPageContent() {
         }
         return r;
       });
-      return { ...w, reviews };
+      const next = { ...w, reviews };
+      // Keep the SWR cache in lockstep so a re-open never shows a state older
+      // than the viewer's own just-made react/helpful.
+      setCachedAction(wallKey, next);
+      return next;
     });
-  }, []);
+  }, [wallKey]);
 
   const findReview = useCallback((reviewId: string): WallReview | undefined => {
     for (const r of wall?.reviews ?? []) {
@@ -306,12 +335,14 @@ function CommentsPageContent() {
       const wr = reviewToWall(review);
       setWall((w) => {
         if (!w) return w;
-        return {
+        const next = {
           ...w,
           reviews: w.reviews.map((r) =>
             r.id === root ? { ...r, replyCount: r.replyCount + 1, replies: [...(r.replies ?? []), wr] } : r,
           ),
         };
+        setCachedAction(wallKey, next);
+        return next;
       });
       setReplyText('');
       setReplyingTo(null);
@@ -321,7 +352,7 @@ function CommentsPageContent() {
     } finally {
       setReplySending(false);
     }
-  }, [replyingTo, replyText, replySending, tmdbId, mediaType, movieTitle, moviePoster, toast]);
+  }, [replyingTo, replyText, replySending, tmdbId, mediaType, movieTitle, moviePoster, toast, wallKey]);
 
   // ── Overlay actions ───────────────────────────────────────────────────────
   const handleCopy = useCallback((text: string) => {

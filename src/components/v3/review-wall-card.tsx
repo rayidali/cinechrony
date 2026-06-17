@@ -180,7 +180,7 @@ function ReviewBody({
             onClick={(e) => { e.stopPropagation(); setRevealed(true); }}
             className="absolute inset-0 flex items-center justify-center gap-1.5 rounded-lg bg-background/40 font-mono text-[11px] font-bold uppercase tracking-[0.1em] text-foreground"
           >
-            <EyeOff className="h-3.5 w-3.5" strokeWidth={2} /> tap to reveal
+            <EyeOff className="h-3.5 w-3.5" strokeWidth={2} /> spoiler alert · tap to reveal
           </button>
         )}
       </div>

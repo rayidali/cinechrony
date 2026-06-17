@@ -711,7 +711,9 @@ reimagined as scored reviews). Components in `src/components/v3/`:
 - `reaction-icon.tsx` — the lucide glyph per reaction (heart/flame/droplet/grin/sparkle).
 
 Data: `GET /api/v1/movies/[tmdbId]/reviews-wall` (summary + grouped reviews/replies,
-one read, no-cache) + `POST/DELETE /api/v1/reviews/[id]/react`. The existing review
+one read; **server** no-cache, but the **client SWR-caches it** ~30s with
+own-action write-through — instant re-opens, never stale after your own
+post/react/reply) + `POST/DELETE /api/v1/reviews/[id]/react`. The existing review
 **like = "helpful"**; the 5 reactions are separate. Helpful toggles are
 debounced per-review + treat a 409 as success (no double-tap desync). The old
 `review-card.tsx` / `reviews-list.tsx` are now orphaned (safe to delete later).

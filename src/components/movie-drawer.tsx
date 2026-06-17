@@ -562,18 +562,12 @@ export function MovieDrawer({
             <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>
 
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
-              {/* ── Hero — green wash + ghost title + glass controls ── */}
+              {/* ── Hero — backdrop + green wash + glass controls ── */}
               <div className="relative w-full" style={{ height: 'clamp(180px, 30vh, 248px)' }}>
                 <Image src={heroSrc} alt="" fill priority className="object-cover" sizes="100vw" />
                 {/* legibility + brand green tint */}
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0.55))' }} />
                 <div className="absolute inset-0 mix-blend-multiply" style={{ background: 'oklch(0.30 0.05 155 / 0.55)' }} />
-                {/* ghost title */}
-                <div className="absolute inset-0 flex items-center justify-center px-6">
-                  <span className="font-headline font-bold lowercase text-white/10 text-[58px] leading-none tracking-tight text-center line-clamp-2">
-                    {movie.title}
-                  </span>
-                </div>
                 {/* controls */}
                 <div className="absolute top-3 left-3 right-3 z-30 flex items-start justify-between" style={{ paddingTop: 'env(safe-area-inset-top, 0px)' }}>
                   <button onClick={() => { haptic('light'); onClose(); }} className={GLASS_BTN} aria-label="Close">

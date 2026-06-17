@@ -97,7 +97,7 @@ export function TopWatchersAll({ isOpen, onClose }: { isOpen: boolean; onClose: 
         ) : (
           <>
             <Podium entries={podium} meUid={user?.uid} onOpen={openProfile} />
-            {rest.length > 0 && (
+            {rest.length > 0 ? (
               <div className="mt-7 rounded-[18px] border border-hair bg-card overflow-hidden divide-y divide-hair">
                 {rest.map((e) => (
                   <RankRow
@@ -110,6 +110,12 @@ export function TopWatchersAll({ isOpen, onClose }: { isOpen: boolean; onClose: 
                   />
                 ))}
               </div>
+            ) : (
+              // ≤3 watchers in the circle → the podium is the whole board. Make
+              // the space intentional rather than blank (real data, not a bug).
+              <p className="mt-10 px-10 text-center font-serif text-[15px] italic text-muted-foreground">
+                the full ranking fills in as more of your circle logs films.
+              </p>
             )}
           </>
         )}
