@@ -1,6 +1,6 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-06-14. Project: a social movie-watchlist app
+> Last updated 2026-06-17. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 
@@ -58,6 +58,24 @@ Test, same convention as AUDIT.md).
     movie-cell rating chip, **hot-take cards** (need a `/api/v1/reviews/
     highlights` selection rule, 0.7.5), and the **F15–F18 "view all" detail
     screens** (dig-in grid / full leaderboard / community browse / post thread).
+
+**Since this handoff (2026-06-14 → 2026-06-17):**
+- **Wave 1** (rail detail screens F15/F16/F17) ✅ and **Wave 2** (movie-drawer
+  cluster — unified `MovieDrawer`, `drag-to-rate`, `how-was-it-sheet`,
+  `/users/{uid}/watches` watch-log) ✅ merged on `feat/v3-redesign`.
+- **Wave 3** (create-a-post F04 + post-thread F21 + reel F22) ✅ — composer
+  (`post-composer.tsx`, film-optional / **text-required**), picker sheets
+  (`film-picker`/`tag-friends`/`watched-on`/`visible-to`), the post-audience
+  model (`canViewPost`, server-only `/closeFriends/{uid}`), X-style thread,
+  forced-dark IG `reel-viewer.tsx`.
+- **Theme + profile polish (2026-06-17):** light/dark/system is now a **visible**
+  top-right toggle on **every tab** (`ThemeToggle` `default` + `glass` variants;
+  home/lists bars + profile hero) + Settings → Appearance + shared
+  `DEFAULT_THEME`. `RecentRow` + `EditProfileSheet` brought up to the v3 sizing
+  standard.
+- **The one deferred home-feed element left is the green "hot-take" quote card**
+  (0.7.5.4 — needs the real `GET /api/v1/reviews/highlights` selection rule; not
+  built to avoid fake data). **Next up: the Lists-detail cluster (still v2).**
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green

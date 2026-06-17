@@ -77,9 +77,17 @@ browser).
   over imagery), `Segmented` (sliding-thumb iOS control), `Section` header
   (eyebrow → title → trailing), `NavBar` (large lowercase title, collapses on
   scroll). Replace the `Fab` with the `AddBtn` (red round +) per design.
-- [ ] **0.7.1.4** Theme wiring — `next-themes` (already in use) follows **system
-  appearance by default** with a **manual override in settings** (decided
-  2026-06-13, option c). Config, not a new dep; every screen supports both.
+- [x] **0.7.1.4** Theme wiring (2026-06-17) — `next-themes`, every screen
+  supports both. Shipped as a **visible** light/dark/system toggle in **every
+  tab's top-right** (`theme-toggle.tsx` `variant="default"` bordered icon button
+  → home `HomeTopBar` + lists `NavBar`; `variant="glass"` translucent circle →
+  profile `Hero`), the dropdown checkmarks the active choice; PLUS a Settings →
+  **Appearance** `Segmented`. Shared `DEFAULT_THEME` (exported from
+  `theme-provider.tsx`) keeps the pre-mount fallback in lockstep with the
+  provider. Client-side only (localStorage + `.dark` class) → identical in the
+  Capacitor static build. **Note:** the original decision said "system by
+  default"; shipped as **default = light** (the brand's paper theme). Flipping
+  to system-default is a one-line `theme-provider.tsx` change if wanted.
 - [ ] **0.7.1.5 — Test:** render each primitive on a scratch route in
   `npm run dev`, light + dark; typecheck + build green.
 
@@ -566,8 +574,13 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   `trending` (exists), `popular` (all-time loved), `lowkey` (hidden gems).
 - [ ] **0.7.5.3** Featured carousel — lean on the Phase 0.5 loved-lists
   showcase + a manual `staffPick` flag for editorial slots.
-- [ ] **0.7.5.4** Hot-take cards — selection rule over short, high-rated
-  reviews. Presence pill final wording from real activity.
+- [ ] **0.7.5.4** Hot-take cards — **this is the design's green quote card on the
+  home feed** (e.g. "paddington 2 is the only correct serotonin…"). Still
+  deferred / not forgotten: it's the **one remaining unbuilt home-feed element**.
+  Needs a real `GET /api/v1/reviews/highlights` selection rule over short,
+  high-rated reviews (quota-safe: server-TTL-cached, soft-fallback to empty) +
+  a `HotTakeCard` component + feed interleave + a test. Deliberately not built
+  with fake data. Presence pill final wording from real activity.
 
 ### 0.7.6 — Story share: direct-to-Instagram (native fast-follow)
 

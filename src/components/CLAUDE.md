@@ -658,3 +658,30 @@ the thread (PostCard `disableThreadNav` suppresses this on the detail page
 itself). The reel viewer (F22) is a forced-**dark** surface (`bg-black`,
 white text) on both themes; nav = tap left/right thirds + centre play/pause +
 swipe; every MediaGallery tile (hero AND thumbnails) opens it at its index.
+
+## Theme switcher — visible on every tab (2026-06-17)
+
+Light · dark · system is a **visible** top-right control on every tab, NOT
+buried in a menu (an earlier attempt hid it in the avatar dropdown — corrected).
+`theme-toggle.tsx` exposes two variants:
+- `variant="default"` — a bordered icon button for the frosted bars: home
+  `HomeTopBar` (bell · theme · avatar) + lists `NavBar` (bell · theme · avatar).
+- `variant="glass"` — a translucent dark-glass circle matching `GlassBtn`, for
+  use OVER imagery: the profile `Hero` top-right.
+
+Both open the same dropdown (light/dark/system, a `Check` on the active choice;
+light haptic on tap). `Settings → Appearance` (the v3 `Segmented`) is the
+secondary canonical home. `DEFAULT_THEME` (exported from `theme-provider.tsx`,
+= `'light'`) is the single source for the provider default AND any pre-mount
+fallback, so the two surfaces can't drift. next-themes is fully client-side
+(localStorage + `.dark` class via `attribute="class"`) → behaves identically in
+the Capacitor static `out/` build.
+
+## Profile family — built to the sizing standard
+
+`RecentRow` (profile "recent" + "activity") and `EditProfileSheet` follow the
+"v3 sizing standard" above: 48×72 poster chips, 16px row titles, 11px mono meta,
+h-5 chevrons (RecentRow); 19px sheet title, px-5 inset, 60px house-avatar tiles
+(`justify-between`), py-3 field cards (EditProfileSheet). The selected
+house-avatar ring uses `border-primary` (film-red) — on-system: the design
+reserves film-red for selection/focus rings.

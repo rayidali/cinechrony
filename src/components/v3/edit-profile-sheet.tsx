@@ -141,7 +141,7 @@ export function EditProfileSheet({
 
       {/* Header — cancel · title · save */}
       <header
-        className="flex items-center justify-between border-b border-border px-4 pb-3"
+        className="flex items-center justify-between border-b border-border px-5 pb-3"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
       >
         <button
@@ -151,7 +151,7 @@ export function EditProfileSheet({
         >
           cancel
         </button>
-        <h2 className="font-headline text-[17px] font-bold lowercase tracking-tight">edit profile</h2>
+        <h2 className="font-headline text-[19px] font-bold lowercase tracking-tight">edit profile</h2>
         <button
           onClick={handleSave}
           disabled={busy}
@@ -162,12 +162,12 @@ export function EditProfileSheet({
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-5">
+      <div className="flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-5">
         <div className="mx-auto max-w-2xl space-y-7">
           {/* YOUR PROFILE PHOTO */}
           <section>
             <div className="cc-eyebrow mb-2.5">your profile photo</div>
-            <div className="relative h-[200px] overflow-hidden rounded-[18px] border border-hair bg-secondary">
+            <div className="relative h-[210px] overflow-hidden rounded-[18px] border border-hair bg-secondary">
               {draftPhoto ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={draftPhoto} alt="" className="absolute inset-0 h-full w-full object-cover" />
@@ -201,7 +201,7 @@ export function EditProfileSheet({
                 <div className="font-mono text-[9.5px] uppercase tracking-[0.16em] text-white/75 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">
                   critic · @{username}
                 </div>
-                <div className="mt-1 truncate font-headline text-[26px] font-bold lowercase leading-none tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
+                <div className="mt-1 truncate font-headline text-[28px] font-bold lowercase leading-none tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
                   {draftName || 'your name'}
                 </div>
               </div>
@@ -231,7 +231,7 @@ export function EditProfileSheet({
           {/* CAMERA-SHY? GRAB A HOUSE AVATAR */}
           <section>
             <div className="cc-eyebrow mb-2.5">camera-shy? grab a house avatar</div>
-            <div className="flex gap-3">
+            <div className="flex items-center justify-between">
               {DEFAULT_AVATARS.map((avatar) => {
                 const selected = draftPhoto === avatar.url;
                 return (
@@ -240,7 +240,7 @@ export function EditProfileSheet({
                     onClick={() => setDraftPhoto(avatar.url)}
                     disabled={busy}
                     aria-label={avatar.name}
-                    className={`relative h-[58px] w-[58px] overflow-hidden rounded-[16px] border-2 transition-transform active:scale-95 disabled:opacity-60 ${
+                    className={`relative h-[60px] w-[60px] overflow-hidden rounded-[18px] border-2 transition-transform active:scale-95 disabled:opacity-60 ${
                       selected ? 'border-primary' : 'border-transparent'
                     }`}
                   >
@@ -256,7 +256,7 @@ export function EditProfileSheet({
           <section className="space-y-3">
             <div className="cc-eyebrow">who you are</div>
 
-            <div className="rounded-[14px] border border-border bg-card px-3.5 py-2.5">
+            <div className="rounded-[14px] border border-border bg-card px-3.5 py-3">
               <label className="cc-eyebrow text-[9px]">name</label>
               <input
                 value={draftName}
@@ -268,12 +268,12 @@ export function EditProfileSheet({
             </div>
 
             {/* Handle — read-only (usernames are permanent; denormalized widely) */}
-            <div className="rounded-[14px] border border-border bg-card px-3.5 py-2.5">
+            <div className="rounded-[14px] border border-border bg-card px-3.5 py-3">
               <label className="cc-eyebrow text-[9px]">handle</label>
               <div className="mt-0.5 font-mono text-[15px] text-muted-foreground">@{username}</div>
             </div>
 
-            <div className="rounded-[14px] border border-border bg-card px-3.5 py-2.5">
+            <div className="rounded-[14px] border border-border bg-card px-3.5 py-3">
               <label className="cc-eyebrow text-[9px]">bio · one line they’ll remember</label>
               <textarea
                 value={draftBio}

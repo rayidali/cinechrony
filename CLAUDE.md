@@ -2,7 +2,7 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-14)
+## Current state (2026-06-17)
 
 - **Phases A + B + 0.5 merged to `main`** (A+B via PR #88, tip `9c81360`).
   `src/app/actions.ts` is deleted — every former Server Action is now a
@@ -55,7 +55,24 @@
   where-to-watch (TMDB JustWatch), cast & crew, `v3/drag-to-rate.tsx`, light+dark.
   New **`/users/{uid}/watches`** watch-log (`watches-server.ts` · `/api/v1/watches`
   · F03 `v3/how-was-it-sheet.tsx`) powers `your history` + "how was it?".
-  **Next: Wave 3 — create-a-post (F04).**
+  **Wave 3** (create-a-post F04 + post-thread F21 + reel F22) ✅ — the composer
+  (`post-composer.tsx`, FAB) with film-optional / **text-required** rule, picker
+  sheets (`v3/film-picker-sheet` · `tag-friends-sheet` · `watched-on-sheet` ·
+  `visible-to-sheet`), the audience model (`canViewPost`, server-only
+  `/closeFriends/{uid}`), the X-style thread (no bottom nav, keyboard-riding
+  reply bar), and the forced-dark IG-style `v3/reel-viewer.tsx`.
+- **Theme + profile polish (2026-06-17):** light/dark/system is now a **visible**
+  top-right toggle on **every tab** — `ThemeToggle` gained `default` + `glass`
+  variants (home/lists bars + the profile hero) with an active-choice checkmark,
+  a Settings → **Appearance** `Segmented`, and a shared `DEFAULT_THEME` (from
+  `theme-provider.tsx`) so the pre-mount fallback can't drift; the avatar menu is
+  reverted to its original. Profile activity rows (`RecentRow`) + the
+  `EditProfileSheet` were brought up to the **v3 sizing standard** (see
+  `src/components/CLAUDE.md`). next-themes is client-side only (default = light;
+  the 0.7.1.4 spec's "system-default" is a one-line flip if wanted). **The one
+  deferred home-feed element left is the green "hot-take" quote card** (0.7.5.4 —
+  needs a real `GET /api/v1/reviews/highlights` selection rule; not built to
+  avoid fake data). **Next: the Lists-detail cluster restyle (still v2).**
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the
