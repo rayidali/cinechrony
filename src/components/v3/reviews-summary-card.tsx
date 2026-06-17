@@ -38,7 +38,7 @@ export function ReviewsSummaryCard({
 
         {/* score */}
         <div className="min-w-0 flex-1">
-          <div className="cc-eyebrow truncate">friends&apos; score · {title}</div>
+          <div className="cc-eyebrow truncate">score · {title}</div>
           <div className="mt-1 flex items-baseline gap-1.5">
             <span
               className="font-headline text-[40px] font-bold leading-none tabular-nums"

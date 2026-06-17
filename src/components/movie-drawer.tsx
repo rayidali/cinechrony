@@ -657,7 +657,7 @@ export function MovieDrawer({
                     onTap={() => { haptic('light'); setShowAddToList(true); }}
                   />
                   <ActionButton
-                    icon={MessageCircle} label="comments"
+                    icon={MessageCircle} label="reviews"
                     sub={reviewCount > 0 ? String(reviewCount) : undefined}
                     onTap={openFullComments}
                   />

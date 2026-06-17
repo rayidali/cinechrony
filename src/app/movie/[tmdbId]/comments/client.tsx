@@ -6,7 +6,6 @@ import Link from 'next/link';
 import { ChevronLeft, Loader2, ArrowUp, X, Star } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { SwipeBackContainer } from '@/components/swipe-back-container';
-import { Segmented } from '@/components/v3/segmented';
 import { ReviewsSummaryCard } from '@/components/v3/reviews-summary-card';
 import { ReviewWallCard } from '@/components/v3/review-wall-card';
 import { ReviewComposerSheet, type ComposerFilm } from '@/components/v3/review-composer-sheet';
@@ -64,6 +63,42 @@ function applyReactionLocally(r: WallReview, newType: ReactionType | null) {
   if (newType) counts[newType] = (counts[newType] ?? 0) + 1;
   for (const k of Object.keys(counts)) if (!counts[k]) delete counts[k];
   return { counts: counts as ReactionCounts, myReaction: newType };
+}
+
+const SORTS: { id: Sort; label: string }[] = [
+  { id: 'helpful', label: 'helpful' },
+  { id: 'recent', label: 'recent' },
+  { id: 'highest', label: 'highest' },
+];
+
+/**
+ * SortTabs — the F12 sort control: a compact, content-sized track with a
+ * HIGH-CONTRAST active pill (black-in-light / white-in-dark, per the design).
+ * Deliberately not the shared full-width `Segmented` (its flex-1 cells collapse
+ * + overlap when dropped into a content-width slot, and its thumb is the wrong,
+ * low-contrast colour for this surface).
+ */
+function SortTabs({ value, onChange }: { value: Sort; onChange: (s: Sort) => void }) {
+  return (
+    <div className="inline-flex flex-shrink-0 items-center rounded-full bg-sunken p-0.5">
+      {SORTS.map((s) => {
+        const active = value === s.id;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => { if (!active) haptic('selection'); onChange(s.id); }}
+            className={`h-8 rounded-full px-2.5 font-ui text-[12.5px] font-semibold lowercase tracking-tight transition-colors ${
+              active ? 'bg-foreground text-background' : 'text-muted-foreground active:text-foreground'
+            }`}
+          >
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
 }
 
 function CommentsPageContent() {
@@ -393,14 +428,9 @@ function CommentsPageContent() {
               )}
 
               {/* the reviews + sort */}
-              <div className="mt-7 flex items-center justify-between gap-3">
-                <h2 className="font-headline text-[24px] font-bold lowercase tracking-tight text-foreground">the reviews</h2>
-                <Segmented
-                  value={sort}
-                  onChange={(v) => setSort(v as Sort)}
-                  options={[{ id: 'helpful', label: 'helpful' }, { id: 'recent', label: 'recent' }, { id: 'highest', label: 'highest' }]}
-                  className="w-auto"
-                />
+              <div className="mt-7 flex items-center justify-between gap-2">
+                <h2 className="min-w-0 truncate font-headline text-[22px] font-bold lowercase tracking-tight text-foreground">the reviews</h2>
+                <SortTabs value={sort} onChange={setSort} />
               </div>
 
               <div className="mt-4 space-y-4">
