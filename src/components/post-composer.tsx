@@ -190,22 +190,44 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     return () => input.removeEventListener('cancel', handleCancel);
   }, [isOpen]);
 
-  // Autosave a single draft while there's content.
-  useEffect(() => {
-    if (!isOpen) return;
-    // A draft needs a written take (text is the required field). A film/rating
-    // alone is NOT persisted — so picking a film then backing out doesn't leave
-    // it "stuck" in the next composer open.
-    if (!text.trim()) return;
-    const t = setTimeout(() => {
+  // Persist (or clear) the draft slot from the CURRENT state — used by the
+  // debounced autosave AND flushed synchronously on close / backgrounding so a
+  // fast "type then back" (< the debounce) doesn't lose the take.
+  const saveDraftNow = useCallback(() => {
+    if (text.trim()) {
       persistDraft({
         text, taggedMovie, rating, watchType,
         watchedOn: watchedOn.toISOString(), visibility, taggedUsers,
         updatedAt: Date.now(),
       });
-    }, AUTOSAVE_MS);
+    } else {
+      persistDraft(null);
+    }
+  }, [text, taggedMovie, rating, watchType, watchedOn, visibility, taggedUsers]);
+
+  // Flush the draft when the app backgrounds (iOS can suspend the WebView before
+  // the debounce fires).
+  useEffect(() => {
+    if (!isOpen) return;
+    const flush = () => { if (document.visibilityState === 'hidden') saveDraftNow(); };
+    window.addEventListener('pagehide', saveDraftNow);
+    document.addEventListener('visibilitychange', flush);
+    return () => {
+      window.removeEventListener('pagehide', saveDraftNow);
+      document.removeEventListener('visibilitychange', flush);
+    };
+  }, [isOpen, saveDraftNow]);
+
+  // Autosave a single draft while there's content.
+  useEffect(() => {
+    if (!isOpen) return;
+    // A draft needs a written take (text is the required field). When the take is
+    // emptied, actively CLEAR the slot — otherwise a previously-saved draft (incl.
+    // its film/rating) would resurface even though the user cleared everything.
+    if (!text.trim()) { persistDraft(null); return; }
+    const t = setTimeout(() => saveDraftNow(), AUTOSAVE_MS);
     return () => clearTimeout(t);
-  }, [isOpen, text, taggedMovie, rating, watchType, watchedOn, visibility, taggedUsers]);
+  }, [isOpen, text, taggedMovie, rating, watchType, watchedOn, visibility, taggedUsers, saveDraftNow]);
 
   // ── Film subtitle (director · year), best-effort + module-cached ─────────
   const hydrateFilmSubtitle = useCallback(async (m: TaggedMovie) => {
@@ -322,7 +344,11 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     haptic('light');
     setTaggedMovie(null);
     setFilmSubtitle(null);
-    setRating(null); // the rating belonged to the (now-removed) film
+    // The rating + watch metadata all belonged to the now-removed film — reset
+    // them so re-attaching a different film starts from defaults.
+    setRating(null);
+    setWatchType('first');
+    setWatchedOn(new Date());
   };
 
   // ── Close-friends management (reuses the friend picker) ──────────────────
@@ -407,7 +433,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           className="flex-shrink-0 flex items-center justify-between px-4 border-b border-hair"
           style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.6rem)', paddingBottom: '0.6rem' }}
         >
-          <button onClick={onClose} aria-label="Back" className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5">
+          <button onClick={() => { saveDraftNow(); onClose(); }} aria-label="Back" className="h-9 w-9 -ml-2 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5">
             <ChevronLeft className="h-6 w-6" strokeWidth={2} />
           </button>
           <span className="font-headline font-bold text-[17px] lowercase tracking-[-0.02em]">create a post</span>

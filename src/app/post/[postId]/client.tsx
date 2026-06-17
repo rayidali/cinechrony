@@ -66,7 +66,7 @@ export default function PostPage() {
   useEffect(() => {
     const vv = window.visualViewport;
     if (!vv) return;
-    const update = () => setKbInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    const update = () => setKbInset(Math.max(0, window.innerHeight - vv.height));
     update();
     vv.addEventListener('resize', update);
     vv.addEventListener('scroll', update);
@@ -97,10 +97,16 @@ export default function PostPage() {
   };
 
   const handleDeleteComment = (commentId: string) => {
+    // Keep the embedded card's comment pill in sync — the server decrements
+    // post.commentCount only for a TOP-LEVEL comment, so mirror that locally.
+    const wasTopLevel = comments.some((c) => c.id === commentId && !c.parentId);
     startTransition(async () => {
       try {
         await apiCall('DELETE', `/api/v1/posts/${postId}/comments/${commentId}`);
         setComments((prev) => prev.filter((c) => c.id !== commentId && c.parentId !== commentId));
+        if (wasTopLevel) {
+          setPost((p) => (p ? { ...p, commentCount: Math.max(0, p.commentCount - 1) } : p));
+        }
       } catch {
         /* ignore */
       }

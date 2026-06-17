@@ -270,7 +270,7 @@ export const PostCard = memo(function PostCard({
           </button>
 
           <button
-            onClick={() => router.push(`/post/${post.id}`)}
+            onClick={openThread}
             className="inline-flex items-center gap-[7px] font-ui text-[13px] font-medium text-muted-foreground transition-transform active:scale-95"
             aria-label="View comments"
           >
