@@ -25,8 +25,11 @@ src/lib/
 ├── movies-server.ts          # addMovieToList, updateMovieStatus, …
 ├── invites-server.ts         # inviteToList, acceptInvite, revokeInvite, …
 ├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
-├── reviews-server.ts         # createReview, like/unlike, threading,
-│                              # getReviewHighlights (hot-takes, 0.7.5.4)
+├── reviews-server.ts         # createReview, like/unlike (= "helpful"), threading,
+│                              # getReviewHighlights (hot-takes), reactReview/
+│                              # unreactReview + getReviewsWall (F12 reviews wall)
+├── review-verdict.ts         # loved/liked/fine/nope buckets (pure, server+client)
+├── review-reactions.ts       # the 5 icon reactions (pure: types + colours)
 ├── ratings-server.ts         # createOrUpdateRating, deleteRating
 ├── watches-server.ts         # logWatch (F03) + getWatchesForMovie (watch log)
 ├── activities-server.ts      # getActivityFeed, likeActivity, …

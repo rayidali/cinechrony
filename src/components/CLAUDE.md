@@ -690,3 +690,28 @@ h-5 chevrons (RecentRow); 19px sheet title, px-5 inset, 60px house-avatar tiles
 (`justify-between`), py-3 field cards (EditProfileSheet). The selected
 house-avatar ring uses `border-primary` (film-red) — on-system: the design
 reserves film-red for selection/focus rings.
+
+## Reviews wall — Wave 4 / F07 (2026-06-18)
+
+`/movie/[tmdbId]/comments` is rebuilt as a **reviews wall** (the comment section
+reimagined as scored reviews). Components in `src/components/v3/`:
+- `reviews-summary-card.tsx` (**F12**) — poster + friends-framed score + a
+  loved/liked/fine/nope distribution histogram (`review-verdict.ts` colours).
+- `review-wall-card.tsx` (**F12**) — a review card (avatar · @handle · verdict·time
+  · **score badge OR a `NOTE` chip** when unrated · body w/ spoiler-reveal · the
+  5 icon reaction chips + an add-reaction chip · `helpful · reply` footer) + its
+  threaded **reply bubbles** (L-connector). Owns the `useLongPress` hook
+  (suppresses the trailing click; clears its flag on the next tick for the
+  no-click overlay path).
+- `review-composer-sheet.tsx` (**F13**) — rating-forward composer; a fixed
+  `visualViewport`-pinned sheet (NOT Vaul — textarea focus-trap). Rating optional
+  (note vs scored review); text required. ("add a still" = fast-follow.)
+- `review-react-overlay.tsx` (**F14**) — long-press → dimmed wall + a 5-reaction
+  bar + an action menu (mark helpful · reply · copy · report/delete). z-[92].
+- `reaction-icon.tsx` — the lucide glyph per reaction (heart/flame/droplet/grin/sparkle).
+
+Data: `GET /api/v1/movies/[tmdbId]/reviews-wall` (summary + grouped reviews/replies,
+one read, no-cache) + `POST/DELETE /api/v1/reviews/[id]/react`. The existing review
+**like = "helpful"**; the 5 reactions are separate. Helpful toggles are
+debounced per-review + treat a 409 as success (no double-tap desync). The old
+`review-card.tsx` / `reviews-list.tsx` are now orphaned (safe to delete later).

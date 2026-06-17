@@ -80,11 +80,16 @@ Test, same convention as AUDIT.md).
   the reel (leads, then every 8; for-you only). Tests: `46-review-highlights`.
   The **home + feed are fully composed** (a 2026-06-17 sizing pass: search row
   h-12, post movie-cell poster 48×72, leaderboard "view all" + profile top-5).
-- **Reconciled remaining UI/UX (2026-06-17, workflow-audited — see
-  `PHASE-0.7-REDESIGN.md` § "Status snapshot"):** core surfaces are v3 done.
-  Still v2: `/movie/[tmdbId]/comments` (F07), the public list-detail grid
-  (partial), and the **Wave 7 outer cluster** (onboarding · auth · settings ·
-  notifications · invite · add · list-settings). Plus native motion + story-share.
+- **Reviews wall — Wave 4 F07 done (2026-06-18):** `/movie/[tmdbId]/comments`
+  rebuilt as the F12–F15 reviews wall (score + loved/liked/fine/nope distribution +
+  reactions + composer + long-press actions + reply mode). New: `reactions` map +
+  `POST/DELETE /api/v1/reviews/[id]/react`; `getReviewsWall` + `GET
+  /api/v1/movies/[tmdbId]/reviews-wall`. Tests: `47-reviews-wall-react`.
+- **Reconciled remaining UI/UX (see `PHASE-0.7-REDESIGN.md` § "Status snapshot"):**
+  core surfaces (incl. the reviews wall) are v3 done. Still v2: the public
+  list-detail grid (partial), and the **Wave 7 outer cluster** (onboarding · auth ·
+  settings · notifications · invite · add · list-settings). Plus native motion +
+  story-share. (Tracked fast-follow: "add a still" on a review.)
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green

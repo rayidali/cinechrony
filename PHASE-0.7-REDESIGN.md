@@ -71,7 +71,7 @@ leaderboard + weekly movement, dig-in/top-picks, featured, community, **hot-take
 card** (Wave 6 · 0.7.5.1–0.7.5.4).
 
 **⬜ Remaining UI/UX — the "what's next" list:**
-1. **`/movie/[tmdbId]/comments`** (F07, the other half of Wave 4) — still v2.
+1. ~~`/movie/[tmdbId]/comments` (F07)~~ — **✅ done 2026-06-18** (the F12–F15 reviews wall).
 2. **Public list detail** (`profile/[username]/lists/[listId]`) — partial (old
    Tabs + `PublicMovieGrid`; wants Segmented + the v3 grid).
 3. **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
@@ -378,15 +378,23 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   doesn't belong in a post). Optionally writes a watch-log entry too. **Test:**
   post lands in feed + reel; R2 media upload unchanged; audit green.
 
-- [~] **Wave 4 — Threads (F18 post · thread · F07 comments).** Restyle
+- [x] **Wave 4 — Threads (F18 post · thread · F07 comments).** Restyle
   `/post/[postId]` (post body + movie cell → drawer + still + engagement bar +
   threaded replies + sticky composer) and `/movie/[tmdbId]/comments` (pinned
   original + threaded replies + sticky reply composer). Restyle only — threading
   logic preserved. **Test:** reply/like/thread invariants unchanged; swipe-back +
   modal back-nav hold; audit green.
-  - **Status (2026-06-17): PARTIAL.** `/post/[postId]` (F21/F18) ✅ done — the
-    post thread is fully v3. `/movie/[tmdbId]/comments` (F07) is **still v2** —
-    the remaining piece of Wave 4 (pending v3 header / Segmented sort / reply bar).
+  - **Status (2026-06-18): DONE.** `/post/[postId]` (F21/F18) ✅. `/movie/[tmdbId]/comments`
+    rebuilt as the **F12–F15 reviews wall** — friends-framed score + loved/liked/
+    fine/nope distribution + friends-seen + helpful/recent/highest sort + featured
+    most-helpful + review cards (score-badge-or-NOTE + 5 icon reactions) + threaded
+    reply bubbles + **F13** composer + **F14** long-press react/actions + **F15**
+    reply mode. New backend: a `reactions` map on reviews (one-per-user) +
+    `POST/DELETE /api/v1/reviews/[id]/react`; `getReviewsWall` + **`GET
+    /api/v1/movies/[tmdbId]/reviews-wall`** (optional-auth, one index-free scan,
+    no-cache). Shared `review-verdict.ts` + `review-reactions.ts`. Tests:
+    `47-reviews-wall-react`. Reviewed by a 2-pass adversarial workflow. **"add a
+    still" on a review is a tracked fast-follow.**
 
 - [x] **Wave 5 — The reel · player (F19).** New full-screen viewer for a user's
   uploaded photos/clips: author + follow · serif caption · tappable film tag →

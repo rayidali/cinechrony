@@ -79,14 +79,29 @@
   `46-review-highlights`. **Home + feed are fully composed** (a 2026-06-17 sizing
   pass took the search row to `h-12` and the post movie-cell poster to the
   standard 48×72; leaderboard "view all" + profile top-5 also de-timidified).
-- **Reconciled remaining UI/UX (2026-06-17, workflow-audited — see
-  `PHASE-0.7-REDESIGN.md` § "Status snapshot"):** core surfaces (home · search ·
-  lists + own list detail · profile · movie drawer · create-post/thread/reel ·
-  data rails) are **v3 done**. Still on v2: **`/movie/[tmdbId]/comments`** (F07,
-  the other half of Wave 4) · the **public list detail** grid (partial) · the
-  **Wave 7 outer cluster** — onboarding · auth · settings · notifications ·
-  invite · add · list-settings. Plus native motion (push/pop transitions +
-  app-wide swipe-back) and the story-share feature (`@vercel/og` + `@capacitor/share`).
+- **Reviews wall — Wave 4 F07 COMPLETE (2026-06-18):** `/movie/[tmdbId]/comments`
+  rebuilt as the **F12 reviews wall** (friends-framed score card + loved/liked/
+  fine/nope distribution + friends-seen rail + helpful/recent/highest sort +
+  featured most-helpful + review cards w/ score-badge-or-NOTE + 5 icon reactions
+  + threaded reply bubbles), **F13** rating-forward composer, **F14** long-press
+  react/action overlay, **F15** reply mode. New backend: a `reactions` map on
+  reviews (one-per-user) + `POST/DELETE /api/v1/reviews/[id]/react`;
+  `getReviewsWall` + **`GET /api/v1/movies/[tmdbId]/reviews-wall`** (publicApiRoute
+  optional-auth; ONE index-free scan → summary + grouped reviews/replies;
+  deliberately no-cache for no-stale-after-own-post; block-filtered). Shared pure
+  helpers `review-verdict.ts` + `review-reactions.ts`; v3 components
+  `reviews-summary-card` · `review-wall-card` · `review-composer-sheet` ·
+  `review-react-overlay` · `reaction-icon`. Tests: `47-reviews-wall-react`.
+  Reviewed by a 2-pass adversarial workflow (server + client) — fixed a
+  helpful-double-tap desync (debounce + treat 409 as success) + a stale-snapshot
+  overlay + long-press flag. **"add a still" on reviews is a tracked fast-follow.**
+- **Reconciled remaining UI/UX (see `PHASE-0.7-REDESIGN.md` § "Status snapshot"):**
+  core surfaces (home · search · lists + own list detail · profile · movie drawer ·
+  create-post/thread/reel · **reviews wall** · data rails) are **v3 done**. Still
+  on v2: the **public list detail** grid (partial) · the **Wave 7 outer cluster**
+  — onboarding · auth · settings · notifications · invite · add · list-settings.
+  Plus native motion (push/pop transitions + app-wide swipe-back) and the
+  story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the

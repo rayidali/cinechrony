@@ -314,6 +314,9 @@ export type Review = {
   replyCount: number; // Number of replies to this review
   // Author-flagged spoiler — body renders behind a "tap to reveal" shield.
   hasSpoiler?: boolean;
+  // F14 icon reactions — server-only map of { [uid]: ReactionType }. The wall
+  // API derives counts + the viewer's own reaction and never ships this map.
+  reactions?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 };
