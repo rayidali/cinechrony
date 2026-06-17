@@ -570,6 +570,14 @@ list-name · comments · watch-status. Built on semantic tokens → dark
   `append_to_response=images`) with a slow Ken Burns (`cc-kenburns`). Falls back
   to the denormalized `backdropUrl` (instant), then a blurred-poster fill. The
   old static "ghost title" echo was removed.
+- After ~2.5s of lingering, a **Netflix-style muted trailer preview** fades in over
+  the stills: `v3/hero-video.tsx` (`HeroVideoLayer`) plays the TMDB `videos`
+  YouTube trailer via the **YT Iframe API**, revealing ONLY once it's actually
+  PLAYING — so a blocked autoplay (some iOS configs) silently keeps the stills
+  (never a stray play button). Muted · looping · chrome-cropped · pointer-events-
+  none · destroyed on unmount · prefers-reduced-motion-gated. Web autoplays; iOS
+  needs muted-autoplay allowed (graceful fallback otherwise — no Capacitor change
+  forced).
 - Drawer sections: scores (IMDb/RT/Metacritic + awards), where to watch (TMDB
   JustWatch chips), cast & crew (incl. director), the conversation (review
   quotes), in-list list-notes, more like this, footer, `your history` (watch log).
