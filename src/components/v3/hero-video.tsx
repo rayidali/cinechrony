@@ -44,7 +44,8 @@ function loadYouTubeApi(): Promise<void> {
   return apiPromise;
 }
 
-const LEAD_SEC = 3.2;   // playback after a (re)start before YouTube's overlay auto-hides
+const LEAD_SEC = 5.5;   // playback after a (re)start before revealing — long enough that YouTube's start overlay is fully gone
+const WINDOW_SEC = 60;  // loop after ~a minute instead of playing the whole trailer
 const POLL_MS = 250;
 const FADE_MS = 500;    // must match the parent's opacity transition (so the seek lands hidden)
 
@@ -104,7 +105,9 @@ export function HeroVideoLayer({ ytKey, onShownChange }: { ytKey: string; onShow
               const skipIn = Math.min(Math.max(dur * 0.12, 5), 25);
               const skipOut = Math.min(Math.max(dur * 0.12, 5), 15);
               start = dur > 25 ? skipIn : 0;
-              loopEnd = dur > 25 ? Math.max(start + 8, dur - skipOut) : Math.max(2, dur - 2);
+              // Loop after ~WINDOW_SEC (or sooner for a short trailer), always
+              // before the end-screen. Start offset is left unchanged.
+              loopEnd = dur > 25 ? Math.min(start + WINDOW_SEC, dur - skipOut) : Math.max(2, dur - 2);
               revealAt = start + LEAD_SEC;
               p.seekTo(start, true);
               p.playVideo();
