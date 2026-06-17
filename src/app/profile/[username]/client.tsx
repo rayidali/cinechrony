@@ -325,7 +325,7 @@ export default function UserProfilePage() {
             <div className="flex">
               {stats.map((s) => (
                 <button key={s.label} onClick={s.onClick} className="flex-1 py-3 text-left">
-                  <div className="font-headline font-bold text-[22px] tabular-nums leading-none">{s.value}</div>
+                  <div className="font-headline font-bold text-[26px] tabular-nums leading-none">{s.value}</div>
                   <div className="cc-eyebrow mt-1">{s.label}</div>
                 </button>
               ))}
@@ -344,7 +344,7 @@ export default function UserProfilePage() {
                 <div className="space-y-8">
                   <section>
                     <div className="cc-eyebrow">the canon</div>
-                    <h2 className="mt-1 font-headline text-xl font-bold lowercase tracking-tight text-foreground">
+                    <h2 className="mt-1 font-headline text-[22px] font-bold lowercase tracking-tight text-foreground">
                       top 5 films
                     </h2>
                     {favoriteMovies.length > 0 ? (
@@ -371,7 +371,7 @@ export default function UserProfilePage() {
 
                   <section>
                     <div className="cc-eyebrow">lately</div>
-                    <h2 className="mt-1 font-headline text-xl font-bold lowercase tracking-tight text-foreground">
+                    <h2 className="mt-1 font-headline text-[22px] font-bold lowercase tracking-tight text-foreground">
                       recent
                     </h2>
                     {recentActivities.length > 0 ? (
@@ -392,7 +392,7 @@ export default function UserProfilePage() {
               {/* LISTS — public lists, likeable by non-members */}
               {tab === 'lists' && (
                 lists.length > 0 ? (
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-x-5 gap-y-7">
                     {lists.map((list) => {
                       const preview = listPreviews[list.id];
                       // A like is an outside endorsement — hide the heart from the
@@ -443,7 +443,7 @@ export default function UserProfilePage() {
                 isLoadingActivities ? (
                   <div className="overflow-hidden rounded-[22px] border border-hair bg-card">
                     {[1, 2, 3, 4].map((i) => (
-                      <div key={i} className="h-[76px] animate-pulse border-b border-rule last:border-0 bg-secondary/40" />
+                      <div key={i} className="h-[100px] animate-pulse border-b border-rule last:border-0 bg-secondary/40" />
                     ))}
                   </div>
                 ) : activities && activities.length > 0 ? (

@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useAuth, useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { ProfileAvatar } from '@/components/profile-avatar';
@@ -13,14 +15,29 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from './ui/button';
-import { LogOut, User, Search } from 'lucide-react';
+import { LogOut, User, Search, Settings, Sun, Moon, Monitor, Check } from 'lucide-react';
 import type { UserProfile } from '@/lib/types';
+
+// Theme choices — surfaced here so light/dark/system is reachable from every
+// tab that renders the avatar (home + lists). Profile reaches the same control
+// via its Settings gear (Appearance section).
+const THEME_OPTIONS = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+] as const;
 
 export function UserAvatar() {
   const { user } = useUser();
   const auth = useAuth();
   const router = useRouter();
   const firestore = useFirestore();
+  const { theme, setTheme } = useTheme();
+
+  // Avoid a hydration mismatch on the active-theme checkmark (next-themes only
+  // knows the resolved theme after mount).
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Get user profile from Firestore for the photoURL
   const userDocRef = useMemoFirebase(() => {
@@ -73,6 +90,24 @@ export function UserAvatar() {
           <Search className="mr-2 h-4 w-4" />
           <span>Find Friends</span>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => router.push('/settings')}>
+          <Settings className="mr-2 h-4 w-4" />
+          <span>Settings</span>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel className="py-1 text-xs font-normal text-muted-foreground">
+          Theme
+        </DropdownMenuLabel>
+        {THEME_OPTIONS.map((opt) => {
+          const Icon = opt.icon;
+          return (
+            <DropdownMenuItem key={opt.value} onClick={() => setTheme(opt.value)}>
+              <Icon className="mr-2 h-4 w-4" />
+              <span className="flex-1">{opt.label}</span>
+              {mounted && theme === opt.value && <Check className="h-4 w-4 text-primary" />}
+            </DropdownMenuItem>
+          );
+        })}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>
           <LogOut className="mr-2 h-4 w-4" />

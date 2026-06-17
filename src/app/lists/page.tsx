@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation';
 import { Plus, Film, Users, X } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { UserAvatar } from '@/components/user-avatar';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
@@ -349,7 +348,6 @@ export default function ListsPage() {
             topRight={
               <>
                 <NotificationBell />
-                <ThemeToggle />
                 <UserAvatar />
               </>
             }

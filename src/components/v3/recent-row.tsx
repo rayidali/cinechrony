@@ -42,7 +42,7 @@ function relTime(value: unknown): string {
 }
 
 function BadgeIcon({ type }: { type: ActivityType }) {
-  const props = { className: 'h-3 w-3', strokeWidth: 1.8 as const };
+  const props = { className: 'h-3.5 w-3.5', strokeWidth: 1.8 as const };
   switch (type) {
     case 'added':
       return <Plus {...props} />;
@@ -79,9 +79,9 @@ export function RecentRow({ activity, last }: { activity: Activity; last?: boole
   return (
     <button
       onClick={() => openMovie(activityToMovie(activity))}
-      className="relative flex w-full items-center gap-3 px-4 py-3 text-left transition-colors active:bg-foreground/[0.03]"
+      className="relative flex w-full items-center gap-3 px-4 py-3.5 text-left transition-colors active:bg-foreground/[0.03]"
     >
-      <div className="h-[52px] w-9 flex-shrink-0 overflow-hidden rounded-md border border-hair bg-secondary">
+      <div className="h-[72px] w-12 flex-shrink-0 overflow-hidden rounded-[10px] border border-hair bg-secondary">
         {activity.moviePosterUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -95,31 +95,31 @@ export function RecentRow({ activity, last }: { activity: Activity; last?: boole
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded-full border border-rule px-2 py-0.5 font-mono text-[10px] lowercase text-muted-foreground">
+          <span className="inline-flex items-center gap-1 rounded-full border border-rule px-2 py-0.5 font-mono text-[11px] lowercase text-muted-foreground">
             <BadgeIcon type={activity.type} />
             {activity.type}
           </span>
           {activity.type === 'rated' && activity.rating != null && ratingStyle && (
             <span
-              className="rounded-md px-1.5 py-0.5 font-mono text-[10px] font-bold tabular-nums"
+              className="rounded-md px-1.5 py-0.5 font-mono text-[11px] font-bold tabular-nums"
               style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}
             >
               {activity.rating.toFixed(1)}
             </span>
           )}
         </div>
-        <div className="mt-1.5 truncate font-headline text-[14.5px] font-semibold lowercase leading-tight tracking-tight text-foreground">
+        <div className="mt-1.5 truncate font-headline text-[16px] font-semibold lowercase leading-tight tracking-tight text-foreground">
           {activity.movieTitle}
         </div>
-        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+        <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
           {activity.type === 'added' && activity.listName ? `to ${activity.listName} · ` : ''}
           {relTime(activity.createdAt)}
         </div>
       </div>
 
-      <ChevronRight className="h-[17px] w-[17px] flex-shrink-0 text-faint" strokeWidth={1.8} />
+      <ChevronRight className="h-5 w-5 flex-shrink-0 text-faint" strokeWidth={1.8} />
 
-      {!last && <div className="absolute bottom-0 left-[60px] right-0 h-px bg-rule" />}
+      {!last && <div className="absolute bottom-0 left-[76px] right-0 h-px bg-rule" />}
     </button>
   );
 }

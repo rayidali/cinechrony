@@ -3,9 +3,12 @@
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle, Bell, AtSign, Heart, UserPlus, Users } from 'lucide-react';
+import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle, Bell, AtSign, Heart, UserPlus, Users, SunMoon } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/v3/segmented';
+import { DEFAULT_THEME } from '@/components/theme-provider';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
@@ -23,7 +26,13 @@ export default function SettingsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const { theme, setTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // next-themes resolves the active theme only after mount — guard the
+  // segmented value so the static prerender and the client agree.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Import states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -281,8 +290,29 @@ export default function SettingsPage() {
           <h1 className="text-2xl md:text-3xl font-headline font-bold">Settings</h1>
         </header>
 
-        {/* Import from Letterboxd Section */}
+        {/* Appearance — light / dark / system. Reachable from every tab: the
+            avatar menu on home & lists, and here (the profile tab's gear). */}
         <section className="mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <SunMoon className="h-6 w-6 text-primary" />
+            <h2 className="text-xl font-headline font-bold">Appearance</h2>
+          </div>
+          <p className="text-muted-foreground mb-6">
+            Choose how cinechrony looks on this device.
+          </p>
+          <Segmented
+            value={mounted ? (theme ?? DEFAULT_THEME) : DEFAULT_THEME}
+            onChange={(v) => setTheme(v)}
+            options={[
+              { id: 'light', label: 'light' },
+              { id: 'dark', label: 'dark' },
+              { id: 'system', label: 'system' },
+            ]}
+          />
+        </section>
+
+        {/* Import from Letterboxd Section */}
+        <section className="mb-8 pt-8 border-t border-border">
           <div className="flex items-center gap-3 mb-4">
             <img
               src="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png"
