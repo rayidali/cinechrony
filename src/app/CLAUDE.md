@@ -215,11 +215,20 @@ All four are no-ops on web.
 - Uses Vaul drawer for movie details modal
 - Real-time subscription to movies collection
 - Filter tabs: "To Watch" / "Watched"
-- View modes: Grid / List / Cards
+- View modes: Grid / List / Notes (the legacy "Cards" view was retired in 0.7)
 - Extended FAB button: `[+ Add]` for adding movies (pill shape with label)
 - Add movie modal uses fullscreen text input for social links (iOS fix)
 - Pull-to-refresh support (disabled when add movie modal is open)
 - **Security**: Permission check verifies user's UID is actually in `collaboratorIds` array, not just that the list data is readable
+
+### `/profile/[username]/lists/[listId]` Page (public read-only list)
+- v3 to parity with the editable list: cinematic `Hero` (cover/gradient + glass
+  back) → owner attribution + follow → `ListHeader` (read-only: description +
+  collaborator stack + like, no manage pill) → `MovieList publicReadOnly canEdit={false}`.
+- Reuses the SAME `MovieList` (toolbar, shared cells, openMovie round-trip) as
+  the owner page — `publicReadOnly` swaps to the standalone drawer and hides the
+  notes view (collaborators are redirected to the editable page, so a public
+  viewer never has notes access). No more `public-movie-*` fork.
 
 ### `/profile/[username]` Page
 - Public profile view (no auth required)

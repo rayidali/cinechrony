@@ -41,6 +41,9 @@ export default function ListDetailPage() {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   // Add movie modal state
   const [isAddMovieOpen, setIsAddMovieOpen] = useState(false);
+  // Movie detail drawer open state (lifted from MovieList) — so pull-to-refresh
+  // is disabled while the drawer is open, matching the add-modal convention.
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Determine the effective owner ID (user's own or collaborative)
   const effectiveOwnerId = collaborativeListOwner || user?.uid;
@@ -317,7 +320,7 @@ export default function ListDetailPage() {
 
   return (
     <>
-      <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen}>
+      <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen || isDrawerOpen}>
         <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
           {/* Cinematic hero — cover (or seeded gradient) + glass chrome */}
           <Hero
@@ -367,6 +370,7 @@ export default function ListDetailPage() {
                   listOwnerId={effectiveOwnerId}
                   listName={effectiveListData?.name}
                   canEdit={canEdit}
+                  onDrawerOpenChange={setIsDrawerOpen}
                 />
               </div>
             </div>

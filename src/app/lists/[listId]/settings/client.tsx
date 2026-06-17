@@ -362,6 +362,7 @@ export default function ListSettingsPage() {
           <h1 className="text-lg font-semibold">List Settings</h1>
           <button
             onClick={() => router.back()}
+            aria-label="Close"
             className="p-2 -mr-2 rounded-full hover:bg-secondary transition-colors"
           >
             <X className="h-6 w-6" />
@@ -373,9 +374,12 @@ export default function ListSettingsPage() {
         {/* Cover + Name */}
         <div className="flex gap-4 items-start">
           {/* Cover Image */}
-          <div
+          <button
+            type="button"
             onClick={() => !isProcessingImage && fileInputRef.current?.click()}
-            className={`relative w-28 h-28 rounded-xl border border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 ${isProcessingImage ? 'opacity-70 cursor-wait' : ''}`}
+            disabled={isProcessingImage}
+            aria-label="Change cover image"
+            className="relative w-28 h-28 rounded-xl border border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 disabled:opacity-70 disabled:cursor-wait"
           >
             {isProcessingImage ? (
               <div className="flex flex-col items-center gap-1">
@@ -392,7 +396,7 @@ export default function ListSettingsPage() {
             ) : (
               <Camera className="h-8 w-8 text-muted-foreground" />
             )}
-          </div>
+          </button>
           <input
             ref={fileInputRef}
             type="file"

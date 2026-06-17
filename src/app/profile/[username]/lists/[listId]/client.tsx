@@ -1,95 +1,34 @@
 'use client';
 
-import { useEffect, useState, useMemo } from 'react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useEffect, useState } from 'react';
+import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import {
-  User,
-  ArrowLeft,
-  Lock,
-  Grid3X3,
-  List,
-} from 'lucide-react';
+import { ArrowLeft, Lock } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FollowButton } from '@/components/follow-button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { PublicMovieGrid } from '@/components/public-movie-grid';
-import { PublicMovieListItem } from '@/components/public-movie-list-item';
-import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
-import { GridViewHint } from '@/components/grid-view-hint';
 import { BottomNav } from '@/components/bottom-nav';
-import { ListLikeButton } from '@/components/list-like-button';
-import { ListControls } from '@/components/list-controls';
-import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
+import { MovieList } from '@/components/movie-list';
+import { ListHeader } from '@/components/list-header';
+import { Hero } from '@/components/v3/hero';
+import { GlassBtn } from '@/components/v3/glass-button';
+import { ProfileAvatar } from '@/components/profile-avatar';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import type { PublicListResult } from '@/lib/lists-server';
-import type { UserProfile, Movie, MovieList } from '@/lib/types';
-
-type ViewMode = 'grid' | 'list';
-const VIEW_MODE_KEY = 'cinechrony-view-mode';
+import type { UserProfile, Movie, MovieList as MovieListType } from '@/lib/types';
 
 export default function PublicListPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const params = useParams();
-  const searchParams = useSearchParams();
   const username = params.username as string;
   const listId = params.listId as string;
 
   const [owner, setOwner] = useState<UserProfile | null>(null);
-  const [list, setList] = useState<MovieList | null>(null);
+  const [list, setList] = useState<MovieListType | null>(null);
   const [movies, setMovies] = useState<Movie[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<ListSort>('recent');
-  const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // Load view mode from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem(VIEW_MODE_KEY);
-    if (saved && ['grid', 'list'].includes(saved)) {
-      setViewMode(saved as ViewMode);
-    }
-  }, []);
-
-  // Handle openMovie query param - reopen modal when returning from comments page
-  useEffect(() => {
-    const openMovieId = searchParams.get('openMovie');
-    if (openMovieId && movies.length > 0 && !isLoading) {
-      const movieToOpen = movies.find(m => m.id === openMovieId);
-      if (movieToOpen) {
-        // Switch to the correct filter tab based on movie status
-        setFilter(movieToOpen.status);
-        setSelectedMovie(movieToOpen);
-        setIsModalOpen(true);
-        // Clear the query param to avoid reopening on refresh
-        const newUrl = new URL(window.location.href);
-        newUrl.searchParams.delete('openMovie');
-        router.replace(newUrl.pathname + newUrl.search, { scroll: false });
-      }
-    }
-  }, [searchParams, movies, isLoading, router]);
-
-  const handleViewModeChange = (mode: ViewMode) => {
-    setViewMode(mode);
-    localStorage.setItem(VIEW_MODE_KEY, mode);
-  };
-
-  const handleOpenDetails = (movie: Movie) => {
-    setSelectedMovie(movie);
-    setIsModalOpen(true);
-  };
-
-  const handleCloseModal = () => {
-    setIsModalOpen(false);
-    setSelectedMovie(null);
-  };
 
   useEffect(() => {
     async function loadList() {
@@ -136,7 +75,7 @@ export default function PublicListPage() {
           return;
         }
 
-        const loadedList = listResult.list as unknown as MovieList;
+        const loadedList = listResult.list as unknown as MovieListType;
         // Collaborators get the editable view, same as the owner — members
         // shouldn't land on the read-only page for a list they can edit.
         if (
@@ -158,242 +97,128 @@ export default function PublicListPage() {
       }
     }
 
-    if (username && listId) {
+    // Wait for auth to settle before fetching — otherwise the effect runs once
+    // with user=null (during Firebase bootstrap) and again after it resolves,
+    // double-firing the profile + movies-view reads AND briefly showing an
+    // owner/collaborator the read-only page before the redirect fires.
+    if (!isUserLoading && username && listId) {
       loadList();
     }
-  }, [username, listId, user, router]);
-
-  // status tab + search + sort. A search query searches the whole list.
-  const filteredMovies = useMemo(
-    () => arrangeListMovies(movies, { query: search, status: filter, sort }),
-    [movies, search, filter, sort],
-  );
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
-      </div>
-    );
-  }
+  }, [username, listId, user, isUserLoading, router]);
 
   if (error) {
     return (
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
-          <div className="flex flex-col items-center justify-center min-h-[50vh]">
+          <div className="flex flex-col items-center justify-center min-h-[60vh]">
             <Lock className="h-16 w-16 text-muted-foreground mb-4" />
-            <h1 className="text-2xl font-headline font-bold mb-2">
-              {error === 'This list is private.' ? 'Private List' : 'List Not Found'}
+            <h1 className="font-headline text-2xl font-bold lowercase mb-2">
+              {error === 'This list is private.' ? 'private list' : 'list not found'}
             </h1>
             <p className="text-muted-foreground mb-4">{error}</p>
-            <Button onClick={() => router.back()}>Go Back</Button>
+            <Button onClick={() => router.back()}>go back</Button>
           </div>
         </div>
       </main>
     );
   }
 
-  // Render grid skeleton
-  const renderGridSkeleton = () => (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
-      {Array.from({ length: 12 }).map((_, i) => (
-        <div key={i} className="aspect-[2/3]">
-          <Skeleton className="w-full h-full rounded-md border border-border" />
-        </div>
-      ))}
-    </div>
-  );
-
-  // Render list skeleton
-  const renderListSkeleton = () => (
-    <div className="space-y-3">
-      {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[100px] rounded-lg border border-border" />
-      ))}
-    </div>
-  );
+  const hasCover = !!list?.coverImageUrl && list?.coverMode !== 'auto';
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8">
-        <header className="mb-8">
-          <div className="w-full flex justify-between items-center mb-6">
-            <Button variant="ghost" className="gap-2" onClick={() => router.replace(`/profile/${username}`)}>
-              <ArrowLeft className="h-4 w-4" />
-              Back to Profile
-            </Button>
+    <>
+      <main className="min-h-screen font-body text-foreground pb-24 md:pb-8">
+        {/* Cinematic hero — cover (or seeded gradient) + glass back */}
+        <Hero
+          coverImageUrl={hasCover ? list?.coverImageUrl : undefined}
+          seed={list?.name}
+          topLeft={
+            <GlassBtn icon={ArrowLeft} ariaLabel="Back to profile" onClick={() => router.replace(`/profile/${username}`)} />
+          }
+        >
+          <div className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/85">
+            public list
           </div>
+          {list ? (
+            <h1 className="mt-2 font-headline text-[34px] font-bold leading-[0.92] tracking-tight lowercase text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)] md:text-5xl">
+              {list.name || 'list'}
+            </h1>
+          ) : (
+            <div className="mt-2 h-9 w-2/3 animate-pulse rounded bg-white/20" />
+          )}
+        </Hero>
 
-          {/* List Header */}
-          <div className="flex flex-col items-center">
-            <div className="flex items-center gap-4 mb-4">
-              <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-10 w-10 md:h-12 md:w-12" />
-              <h1 className="text-3xl md:text-5xl font-headline font-bold text-center tracking-tighter">
-                {list?.name || 'List'}
-              </h1>
-            </div>
-
-            {/* Owner Info */}
-            {owner && (
-              <div className="flex items-center gap-3 mb-4">
-                <div className="h-10 w-10 rounded-full bg-primary/10 border border-border flex items-center justify-center">
-                  <User className="h-5 w-5 text-primary" />
-                </div>
-                <div>
-                  <Link href={`/profile/${owner.username}`} className="font-medium hover:text-primary transition-colors">
-                    {owner.displayName || owner.username}
-                  </Link>
-                  <p className="text-sm text-muted-foreground">@{owner.username}</p>
-                </div>
-                {!isUserLoading && user && (
-                  <FollowButton
-                    targetUserId={owner.uid}
-                    targetUsername={owner.username || ''}
+        {/* Pull-up content sheet */}
+        <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
+          <div className="mx-auto max-w-3xl px-4 pt-5">
+            {/* Owner attribution + follow */}
+            {owner ? (
+              <div className="flex items-center gap-3">
+                <Link href={`/profile/${owner.username}`} className="transition-opacity hover:opacity-80">
+                  <ProfileAvatar
+                    photoURL={owner.photoURL}
+                    displayName={owner.displayName}
+                    username={owner.username}
                     size="sm"
                   />
+                </Link>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/profile/${owner.username}`}
+                    className="block truncate font-headline text-[15px] font-bold lowercase tracking-tight hover:text-primary transition-colors"
+                  >
+                    {owner.displayName || owner.username}
+                  </Link>
+                  <p className="font-mono text-[11px] text-muted-foreground truncate">@{owner.username}</p>
+                </div>
+                {!isUserLoading && user && owner.username && (
+                  <FollowButton targetUserId={owner.uid} targetUsername={owner.username} size="sm" />
                 )}
               </div>
-            )}
-
-            {/* Like — public lists only. Read-only for members (a like is an
-                outside endorsement); collaborators never reach this page. */}
-            {list && list.isPublic && (
-              <div className="mb-3">
-                <ListLikeButton
-                  listOwnerId={list.ownerId}
-                  listId={list.id}
-                  collaboratorIds={list.collaboratorIds}
-                  initialLikes={list.likes ?? 0}
-                  initialLikedBy={list.likedBy ?? []}
-                />
+            ) : (
+              <div className="flex items-center gap-3" aria-label="Loading owner">
+                <div className="h-9 w-9 rounded-full bg-muted animate-pulse" />
+                <div className="h-4 w-32 rounded bg-muted animate-pulse" />
               </div>
             )}
 
-            <p className="text-sm text-muted-foreground text-center">
-              Viewing {owner?.displayName || owner?.username}&apos;s list (read-only)
-            </p>
-          </div>
-        </header>
+            {/* List meta — description · collaborators · like (read-only) */}
+            {owner && list ? (
+              <div className="mt-5">
+                <ListHeader
+                  listId={listId}
+                  listOwnerId={owner.uid}
+                  listData={list}
+                  isOwner={false}
+                  isCollaborator={false}
+                  movieCount={movies.length}
+                />
+              </div>
+            ) : (
+              <div className="mt-5 space-y-3" aria-label="Loading list header">
+                <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
+                <div className="h-8 w-1/3 rounded-full bg-muted animate-pulse" />
+              </div>
+            )}
 
-        {/* Filter and View Toggle */}
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-          {/* Filter tabs */}
-          <Tabs
-            value={filter}
-            onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
-            className="w-full sm:w-auto"
-          >
-            <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-full shadow-lift p-0 h-auto">
-              <TabsTrigger
-                value="To Watch"
-                className="rounded-l-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none border-r-[3px] border-border px-4"
-              >
-                To Watch
-              </TabsTrigger>
-              <TabsTrigger
-                value="Watched"
-                className="rounded-r-full data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-none px-4"
-              >
-                Watched
-              </TabsTrigger>
-            </TabsList>
-          </Tabs>
-
-          {/* View mode toggle */}
-          <div className="flex items-center gap-1 border border-border rounded-full p-1 bg-background">
-            <Button
-              variant={viewMode === 'grid' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => handleViewModeChange('grid')}
-              className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-              title="Grid view"
-            >
-              <Grid3X3 className="h-4 w-4" />
-            </Button>
-            <Button
-              variant={viewMode === 'list' ? 'default' : 'ghost'}
-              size="sm"
-              onClick={() => handleViewModeChange('list')}
-              className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-              title="List view"
-            >
-              <List className="h-4 w-4" />
-            </Button>
+            {/* Movie list — read-only; shows its own skeleton while loading */}
+            <div className="mt-6">
+              <MovieList
+                initialMovies={movies}
+                isLoading={isLoading}
+                listId={listId}
+                listOwnerId={owner?.uid}
+                listName={list?.name}
+                canEdit={false}
+                publicReadOnly
+                returnPath={`/profile/${username}/lists/${listId}`}
+              />
+            </div>
           </div>
         </div>
-
-        {/* Search + sort */}
-        <ListControls
-          query={search}
-          onQueryChange={setSearch}
-          sort={sort}
-          onSortChange={setSort}
-        />
-
-        {/* Movie count */}
-        <p className="text-sm text-muted-foreground mb-4">
-          {filteredMovies.length} {filteredMovies.length === 1 ? 'movie' : 'movies'}
-          {search.trim() ? ` matching “${search.trim()}”` : ''}
-        </p>
-
-        {/* Movies Display */}
-        {filteredMovies.length > 0 ? (
-          viewMode === 'grid' ? (
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
-              {filteredMovies.map((movie) => (
-                <PublicMovieGrid
-                  key={movie.id}
-                  movie={movie}
-                  onOpenDetails={handleOpenDetails}
-                />
-              ))}
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {filteredMovies.map((movie) => (
-                <PublicMovieListItem
-                  key={movie.id}
-                  movie={movie}
-                  onOpenDetails={handleOpenDetails}
-                />
-              ))}
-            </div>
-          )
-        ) : (
-          <div className="text-center py-16 border border-dashed border-border rounded-2xl bg-secondary">
-            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
-            <h3 className="font-headline text-2xl font-bold lowercase">
-              {search.trim() ? 'nothing matches' : 'no movies here'}
-            </h3>
-            <p className="text-muted-foreground mt-2">
-              {search.trim()
-                ? `no films in this list match "${search.trim()}".`
-                : `There are no movies in the '${filter}' list.`}
-            </p>
-          </div>
-        )}
-
-        {/* Movie Details Modal — `key` keyed to the selected movie's ID so
-            the modal mounts fresh every open. See the comment in
-            movie-list.tsx for the full reasoning (the openMovie return
-            flow from /comments could leave the modal with stale internal
-            state otherwise — TMDB details never loading on re-open). */}
-        <PublicMovieDetailsModal
-          key={selectedMovie?.id ?? 'no-movie-open'}
-          movie={selectedMovie}
-          isOpen={isModalOpen}
-          onClose={handleCloseModal}
-          listId={listId}
-          listOwnerId={owner?.uid}
-          returnPath={`/profile/${username}/lists/${listId}`}
-        />
-
-        {/* One-time hint for grid view on mobile */}
-        {viewMode === 'grid' && <GridViewHint />}
-      </div>
+      </main>
 
       <BottomNav />
-    </main>
+    </>
   );
 }

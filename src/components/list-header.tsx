@@ -44,7 +44,9 @@ export function ListHeader({
   // Load members for avatar bar (check cache first, but refetch if collaboratorIds changed)
   useEffect(() => {
     async function loadMembers() {
-      if (!user) return;
+      // Logged-out public viewers can't fetch members — settle to the film
+      // count (no avatar stack) instead of spinning forever.
+      if (!user) { setIsLoadingMembers(false); return; }
 
       // Check if collaboratorIds changed (someone joined/left)
       const prevIds = collaboratorIdsRef.current?.sort().join(',') || '';

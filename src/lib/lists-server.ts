@@ -1101,6 +1101,7 @@ export type PublicListResult = {
     ownerId: string;
     collaboratorIds: string[];
     coverImageUrl: string;
+    coverMode: 'auto' | 'custom' | null;
     likes: number;
     likedBy: string[];
     createdAt: string;
@@ -1151,6 +1152,14 @@ export async function getPublicListMovies(
       posterUrl: data.posterUrl,
       posterHint: data.posterHint,
       addedBy: data.addedBy,
+      // Denormalized attribution + media type — already on the doc, so projecting
+      // them costs no extra reads and lets the read-only cells show the TV badge
+      // and "added by …" at parity with the editable list. Notes/noteAuthors are
+      // deliberately NOT projected — collaborator notes stay owner/collaborator-only.
+      addedByDisplayName: data.addedByDisplayName ?? null,
+      addedByUsername: data.addedByUsername ?? null,
+      addedByPhotoURL: data.addedByPhotoURL ?? null,
+      mediaType: data.mediaType ?? 'movie',
       socialLink: data.socialLink || '',
       status: data.status,
       tmdbId: data.tmdbId,
@@ -1171,6 +1180,7 @@ export async function getPublicListMovies(
       ownerId: listData?.ownerId,
       collaboratorIds: listData?.collaboratorIds || [],
       coverImageUrl: listData?.coverImageUrl || '',
+      coverMode: listData?.coverMode || null,
       likes: listData?.likes || 0,
       likedBy: listData?.likedBy || [],
       createdAt: listData?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),

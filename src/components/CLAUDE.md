@@ -7,13 +7,17 @@ src/components/
 ├── ui/                     # shadcn/ui primitives (don't modify)
 │
 ├── Movie Display           # Different movie card presentations
-│   ├── movie-card.tsx          # Full card (legacy, used in "cards" view)
-│   ├── movie-card-grid.tsx     # Compact poster grid item
-│   ├── movie-card-list.tsx     # Horizontal list row
-│   ├── movie-list.tsx          # Container with view mode switching
-│   ├── movie-details-modal.tsx # Full details in Vaul drawer
-│   ├── public-movie-grid.tsx   # Public profile grid item
-│   └── public-movie-list-item.tsx
+│   ├── movie-cell.tsx          # ★ SHARED grid tile + list row — used by BOTH
+│   │                           #   the editable list AND the read-only public
+│   │                           #   list. Anon-safe, capability-flagged (canEdit),
+│   │                           #   v3-sized. The one source of truth (replaced the
+│   │                           #   old movie-card-grid/list + public-movie-* forks).
+│   ├── movie-card-annotated.tsx# "notes" reading-mode row (owner/collaborator only)
+│   ├── movie-list.tsx          # Container: toolbar + view switch + drawer. Has a
+│   │                           #   `publicReadOnly` mode (standalone drawer, no
+│   │                           #   notes view) reused by the public list page.
+│   └── movie-details-modal.tsx # in-list adapter over MovieDrawer (public-…-modal
+│                               #   is the standalone adapter)
 │
 ├── Video Embedding
 │   ├── video-embed.tsx         # TikTok/Instagram/YouTube embeds
@@ -69,32 +73,31 @@ src/components/
 
 ---
 
-## Movie Card Variants
+## Movie Cells (shared — `movie-cell.tsx`)
 
-### movie-card-grid.tsx (Primary)
-Compact poster-only display for grid views:
-```
-┌─────────────┐
-│  ★7.5  📺  │  ← Rating badge + TV indicator + Social icon
-│             │
-│   POSTER    │
-│             │
-│  👤    👁️  │  ← Added by initial + Status indicator
-└─────────────┘
-  Title
-  2024
-  @user · note text...
-```
+`MovieCellGrid` + `MovieCellRow` are the ONE grid tile + list row, used by both
+the editable list (`/lists/[listId]`) and the read-only public list
+(`/profile/[username]/lists/[listId]`). Previously these were two divergent
+forks (`movie-card-grid/list` vs `public-movie-grid/list-item`) that drifted on
+every v3 change — now unified so they can't. Properties:
+- **Anon-safe** — never returns null on no user (public viewers see the cells).
+- **`canEdit` gates** every mutating affordance (the row's mark-watched / remove
+  44px buttons render only for editors; the public list passes `canEdit={false}`).
+- **Rating = the viewer's OWN score** (from the ratings cache), labelled "your
+  rating" — consistent on both surfaces, never an ambiguous number.
+- **Optional data** (notes, added-by, social link, TV badge) renders only when
+  present in the payload — so the read-only twin is never strictly poorer.
+- Real `role="button"` + Enter/Space keyboard activation on the tap target.
 
-### movie-card-list.tsx
-Horizontal row for list view:
 ```
-┌────┬─────────────────────────────────┬──────────┐
-│    │ 📺 Movie Title                  │ Watched  │
-│POST│ 2024                            │          │
-│ ER │ ★7.5                            │ 👁️ 🗑️   │
-│    │ Added by Username               │          │
-└────┴─────────────────────────────────┴──────────┘
+GRID                          ROW (v3: 48×72 chip · 16px headline · 44px actions)
+┌─────────────┐               ┌────┬──────────────────────────┬──────────┐
+│  7.5  📺   │               │    │ 📺 movie title           │ 7.5 ·    │
+│   POSTER    │               │POST│ 2024                     │ watched  │
+│  👤    👁️  │               │ ER │ added by username        │ 👁️  🗑️  │
+└─────────────┘               └────┴──────────────────────────┴──────────┘
+  title · 2024
+  own note…
 ```
 
 ### movie-details-modal.tsx
@@ -111,7 +114,7 @@ Full details in Vaul drawer with tabs:
 All movie cards use `React.memo` with denormalized data (no async fetches):
 
 ```typescript
-export const MovieCardGrid = memo(function MovieCardGrid({ movie, onOpenDetails }) {
+export const MovieCellGrid = memo(function MovieCellGrid({ movie, onOpenDetails }) {
   const { user } = useUser();
   const { getRating } = useUserRatingsCache();
 
@@ -284,10 +287,9 @@ className="transition-all duration-200
 
 ```
 movie-list.tsx
-├── movie-card.tsx (cards view)
-├── movie-card-grid.tsx (grid view)
-├── movie-card-list.tsx (list view)
-├── movie-details-modal.tsx (modal)
+├── movie-cell.tsx (MovieCellGrid grid view + MovieCellRow list view — shared)
+├── movie-card-annotated.tsx (notes view — editable only)
+├── movie-details-modal.tsx (in-list drawer) / public-movie-details-modal.tsx (standalone, publicReadOnly)
 │   ├── video-embed.tsx
 │   ├── reviews-list.tsx
 │   │   └── review-card.tsx
