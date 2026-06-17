@@ -570,13 +570,17 @@ list-name · comments · watch-status. Built on semantic tokens → dark
   `append_to_response=images`) with a slow Ken Burns (`cc-kenburns`). Falls back
   to the denormalized `backdropUrl` (instant), then a blurred-poster fill. The
   old static "ghost title" echo was removed.
-  - **Ambient video preview attempted + reverted (2026-06):** a muted YouTube
-    trailer in the hero (TMDB/KinoCheck `videos`) can't be de-branded on mobile
-    (YouTube ToS + the forced mobile transport overlay), so the hero stays clean
-    stills. A truly clean ambient preview needs a **direct MP4** (no free API
-    has one) — the path is a yt-dlp→ffmpeg→R2 clip pipeline + a native `<video>`
-    with the stills as fallback (proposed, not built; YouTube-ToS/copyright gray
-    area).
+- After a brief linger, an **ambient muted trailer** fades in over the stills:
+  `v3/hero-video.tsx` (`HeroVideoLayer`) plays the TMDB `videos` YouTube trailer
+  via the YT Iframe API but **loops a MIDDLE window** — it seeks past the intro
+  title card, never reaches the end screen, and reveals ONLY after YouTube's
+  start overlay auto-hides (`onReveal`, ~3.2s). So the user never sees YouTube's
+  load chrome (which only appears at the start/end). Muted · `pointer-events-
+  none` (no tap→controls) · `youtube-nocookie` · `modestbranding` · hard-cropped
+  (corner logo off-screen) · destroyed on unmount · prefers-reduced-motion-gated.
+  If autoplay is blocked, onReveal never fires → the stills just stay (no broken
+  state). Only residual is a faint corner logo. The R2-clip pipeline
+  (yt-dlp→ffmpeg) was rejected: storage growth + generation latency + ToS.
 - Drawer sections: scores (IMDb/RT/Metacritic + awards), where to watch (TMDB
   JustWatch chips), cast & crew (incl. director), the conversation (review
   quotes), in-list list-notes, more like this, footer, `your history` (watch log).
