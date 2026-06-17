@@ -248,7 +248,7 @@ export default function PostPage() {
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter') submitComment(); }}
                 placeholder="add a reply…"
-                className="flex-1 h-11 px-4 bg-sunken border border-hair rounded-full font-serif italic text-[15px] outline-none focus:border-foreground/30 transition-colors"
+                className="flex-1 h-11 px-4 bg-sunken border border-hair rounded-full font-headline text-[15px] tracking-[-0.01em] outline-none focus:border-foreground/30 transition-colors"
               />
               <button
                 onClick={submitComment}
@@ -350,7 +350,7 @@ function CommentRow({
           </Link>
           <span className="font-mono text-[10px] text-muted-foreground">{time}</span>
         </div>
-        <p className="font-serif text-[14.5px] leading-snug text-foreground mt-1 whitespace-pre-wrap">
+        <p className="font-headline text-[14.5px] leading-[1.45] tracking-[-0.01em] text-foreground mt-1 whitespace-pre-wrap">
           {comment.text}
         </p>
         <div className="flex items-center gap-4 mt-1.5">

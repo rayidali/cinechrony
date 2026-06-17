@@ -489,7 +489,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
               onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
               rows={3}
               placeholder="had to sit in the car for ten whole minutes after…"
-              className="w-full resize-none bg-transparent border-0 outline-none font-serif italic text-[17px] leading-relaxed text-foreground placeholder:text-muted-foreground/70"
+              className="w-full resize-none bg-transparent border-0 outline-none font-headline text-[16.5px] leading-[1.5] tracking-[-0.01em] text-foreground placeholder:text-muted-foreground/70"
             />
             {text.length > 0 && (
               <div className={cn('text-right font-mono text-[10px] tabular-nums', text.length >= MAX_TEXT - 30 ? 'text-amber-600' : 'text-muted-foreground')}>
