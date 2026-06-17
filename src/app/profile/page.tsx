@@ -56,7 +56,7 @@ function shortMonthYear(value: unknown): string | null {
 // Filled tonal action pill — iOS-native (secondarySystemFill), matches the
 // design mock's filled pills. Replaces the old heavy full-outline pill.
 const GHOST_PILL =
-  'inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full bg-secondary text-foreground font-headline font-semibold text-[14px] lowercase tracking-tight transition-transform active:scale-[0.97]';
+  'inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full bg-secondary text-foreground font-headline font-semibold text-[15px] lowercase tracking-tight transition-transform active:scale-[0.97]';
 
 export default function MyProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -305,11 +305,11 @@ export default function MyProfilePage() {
             {/* Primary actions — edit profile + share (design v2) */}
             <div className="flex gap-2.5 mt-3">
               <button onClick={() => setIsEditProfileOpen(true)} className={`${GHOST_PILL} flex-1`}>
-                <Pencil className="h-3.5 w-3.5" strokeWidth={1.8} />
+                <Pencil className="h-4 w-4" strokeWidth={1.8} />
                 edit profile
               </button>
               <button onClick={handleShare} className={`${GHOST_PILL} flex-1`}>
-                <Share2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                <Share2 className="h-4 w-4" strokeWidth={1.8} />
                 share
               </button>
             </div>
@@ -317,7 +317,7 @@ export default function MyProfilePage() {
             {/* Taste chips — real "N films" count (vibe tags TBD: needs a taste-tags feature) */}
             {filmsCount > 0 && (
               <div className="mt-2.5 flex flex-wrap gap-2">
-                <span className="inline-flex h-7 items-center rounded-full border border-border bg-card px-3 font-mono text-[11px] tabular-nums text-foreground">
+                <span className="inline-flex h-8 items-center rounded-full border border-border bg-card px-3.5 font-mono text-[12px] tabular-nums text-foreground">
                   {filmsCount.toLocaleString()} films
                 </span>
               </div>
@@ -351,7 +351,7 @@ export default function MyProfilePage() {
                     <h2 className="mt-1 font-headline text-[22px] font-bold lowercase tracking-tight text-foreground">
                       top 5 films
                     </h2>
-                    <div className="mt-3 grid grid-cols-5 gap-2.5">
+                    <div className="mt-3 grid grid-cols-5 gap-2">
                       {[0, 1, 2, 3, 4].map((index) => {
                         const movie = favoriteMovies[index];
                         if (movie) {
@@ -366,10 +366,10 @@ export default function MyProfilePage() {
                                 alt={movie.title}
                                 width={120}
                                 height={180}
-                                className="w-full h-auto rounded-[10px] border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5"
+                                className="w-full h-auto rounded-[12px] border border-border shadow-lift transition-all duration-200 group-hover:shadow-photo group-hover:-translate-y-0.5"
                                 title={movie.title}
                               />
-                              <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity rounded-[10px] flex items-center justify-center">
+                              <div className="absolute inset-0 bg-black/45 opacity-0 group-hover:opacity-100 transition-opacity rounded-[12px] flex items-center justify-center">
                                 <Pencil className="h-4 w-4 text-white" />
                               </div>
                             </button>
@@ -379,9 +379,9 @@ export default function MyProfilePage() {
                           <button
                             key={index}
                             onClick={() => setIsFavoritePickerOpen(true)}
-                            className="aspect-[2/3] rounded-[10px] border border-dashed border-border bg-background flex items-center justify-center hover:border-foreground/40 transition-colors text-muted-foreground"
+                            className="aspect-[2/3] rounded-[12px] border border-dashed border-border bg-background flex items-center justify-center hover:border-foreground/40 transition-colors text-muted-foreground"
                           >
-                            <span className="text-xl">+</span>
+                            <span className="text-[28px] font-light leading-none">+</span>
                           </button>
                         );
                       })}

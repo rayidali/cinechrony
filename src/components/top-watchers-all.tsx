@@ -148,14 +148,14 @@ function Podium({
     <div className="mt-7 flex items-end justify-center gap-4">
       {order.map((e) => {
         const top = e.rank === 1;
-        const size = top ? 92 : 70;
+        const size = top ? 100 : 78;
         const accent = RANK_ACCENT[(e.rank - 1) % RANK_ACCENT.length];
         return (
           <button
             key={e.uid}
             onClick={() => onOpen(e.username)}
             className="flex flex-col items-center text-center transition-transform active:scale-95"
-            style={{ width: top ? 104 : 84 }}
+            style={{ width: top ? 116 : 96 }}
           >
             <div className="relative" style={{ width: size, height: size }}>
               <div
@@ -165,17 +165,17 @@ function Podium({
                 <Avatar entry={e} size={size} />
               </div>
               <span
-                className="absolute -left-1 -bottom-1 flex items-center justify-center rounded-full font-headline font-bold tabular-nums text-white border-[2.5px] border-background"
-                style={{ background: accent, width: 26, height: 26, fontSize: 12 }}
+                className="absolute -left-1 -bottom-1 flex items-center justify-center rounded-full font-headline font-bold tabular-nums text-white border-[3px] border-background"
+                style={{ background: accent, width: 28, height: 28, fontSize: 13 }}
               >
                 {e.rank}
               </span>
             </div>
-            <div className="mt-2.5 font-ui font-semibold text-[13px] text-foreground tracking-[-0.01em] truncate max-w-full">
+            <div className="mt-3 font-ui font-semibold text-[14.5px] text-foreground tracking-[-0.01em] truncate max-w-full">
               @{e.username || 'user'}
               {e.uid === meUid && <span className="text-primary"> · you</span>}
             </div>
-            <div className="font-mono text-[10px] text-muted-foreground tabular-nums">{e.films} films</div>
+            <div className="font-mono text-[11px] text-muted-foreground tabular-nums">{e.films} films</div>
           </button>
         );
       })}
@@ -199,22 +199,26 @@ function RankRow({
   return (
     <button
       onClick={onOpen}
-      className={`w-full flex items-center gap-3 px-3.5 py-3 text-left transition-colors active:bg-foreground/[0.04] ${
+      className={`w-full flex items-center gap-3.5 px-4 py-3.5 text-left transition-colors active:bg-foreground/[0.04] ${
         isMe ? 'bg-primary/[0.06]' : ''
       }`}
     >
-      <span className="w-5 flex-shrink-0 text-center font-headline font-bold text-[15px] tabular-nums text-muted-foreground">
+      <span className="w-6 flex-shrink-0 text-center font-headline font-bold text-[17px] tabular-nums text-muted-foreground">
         {entry.rank}
       </span>
-      <span className="h-9 w-9 flex-shrink-0 rounded-full overflow-hidden bg-muted">
-        <Avatar entry={entry} size={36} />
+      <span
+        className={`h-11 w-11 flex-shrink-0 rounded-full overflow-hidden bg-muted ${
+          isMe ? 'ring-2 ring-primary' : ''
+        }`}
+      >
+        <Avatar entry={entry} size={44} />
       </span>
       <div className="flex-1 min-w-0">
-        <div className="font-ui font-semibold text-[14px] text-foreground tracking-[-0.01em] truncate">
+        <div className="font-ui font-semibold text-[16px] text-foreground tracking-[-0.01em] truncate">
           @{entry.username || 'user'}
           {isMe && <span className="text-primary"> · you</span>}
         </div>
-        <div className="font-mono text-[11px] text-muted-foreground tabular-nums">
+        <div className="font-mono text-[12px] text-muted-foreground tabular-nums">
           {entry.films} films {unit}
         </div>
       </div>
@@ -226,20 +230,20 @@ function RankRow({
 /** Weekly rank movement: +up (sage) · −down (film red) · – same · new entrant. */
 function Movement({ movement, isNew }: { movement?: number | null; isNew?: boolean }) {
   if (isNew) {
-    return <span className="flex-shrink-0 font-mono text-[11px] font-bold text-success">new</span>;
+    return <span className="flex-shrink-0 font-mono text-[12px] font-bold text-success">new</span>;
   }
   if (movement == null || movement === 0) {
-    return <span className="flex-shrink-0 font-mono text-[12px] text-muted-foreground">–</span>;
+    return <span className="flex-shrink-0 font-mono text-[14px] text-muted-foreground">–</span>;
   }
   if (movement > 0) {
     return (
-      <span className="flex-shrink-0 font-mono text-[12px] font-bold tabular-nums text-success">
+      <span className="flex-shrink-0 font-mono text-[13px] font-bold tabular-nums text-success">
         +{movement}
       </span>
     );
   }
   return (
-    <span className="flex-shrink-0 font-mono text-[12px] font-bold tabular-nums text-primary">
+    <span className="flex-shrink-0 font-mono text-[13px] font-bold tabular-nums text-primary">
       {movement}
     </span>
   );

@@ -48,7 +48,7 @@ function shortMonthYear(value: unknown): string | null {
 // Filled tonal action pill — iOS-native (secondarySystemFill), matches the
 // design mock's filled pills.
 const GHOST_PILL =
-  'inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full bg-secondary text-foreground font-headline font-semibold text-[14px] lowercase tracking-tight transition-transform active:scale-[0.97]';
+  'inline-flex items-center justify-center gap-1.5 h-11 px-5 rounded-full bg-secondary text-foreground font-headline font-semibold text-[15px] lowercase tracking-tight transition-transform active:scale-[0.97]';
 
 export default function UserProfilePage() {
   const { user, isUserLoading } = useUser();
@@ -306,7 +306,7 @@ export default function UserProfilePage() {
                 </Link>
               ) : null}
               <button onClick={handleShare} className={GHOST_PILL}>
-                <Share2 className="h-3.5 w-3.5" strokeWidth={1.8} />
+                <Share2 className="h-4 w-4" strokeWidth={1.8} />
                 share
               </button>
             </div>
@@ -314,7 +314,7 @@ export default function UserProfilePage() {
             {/* Taste chip — real "N films" count across their public lists */}
             {filmsCount > 0 && (
               <div className="mt-2.5 flex flex-wrap gap-2">
-                <span className="inline-flex h-7 items-center rounded-full border border-border bg-card px-3 font-mono text-[11px] tabular-nums text-foreground">
+                <span className="inline-flex h-8 items-center rounded-full border border-border bg-card px-3.5 font-mono text-[12px] tabular-nums text-foreground">
                   {filmsCount.toLocaleString()} films
                 </span>
               </div>
@@ -348,7 +348,7 @@ export default function UserProfilePage() {
                       top 5 films
                     </h2>
                     {favoriteMovies.length > 0 ? (
-                      <div className="mt-3 grid grid-cols-5 gap-2.5">
+                      <div className="mt-3 grid grid-cols-5 gap-2">
                         {favoriteMovies.map((movie) => (
                           <div key={movie.tmdbId} className="relative">
                             <Image
@@ -356,7 +356,7 @@ export default function UserProfilePage() {
                               alt={movie.title}
                               width={120}
                               height={180}
-                              className="w-full h-auto rounded-[10px] border border-border shadow-lift"
+                              className="w-full h-auto rounded-[12px] border border-border shadow-lift"
                               title={movie.title}
                             />
                           </div>
