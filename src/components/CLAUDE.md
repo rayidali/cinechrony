@@ -623,3 +623,38 @@ video `controls`) → author + `FollowButton` → serif caption → tappable fil
 (→ movie drawer; closes the reel first) → segment progress bars (tap target
 padded to ~19px). Swipe moves between segments — **disabled over a `<video>`**
 so it doesn't fight the scrubber.
+
+---
+
+## v3 sizing standard (build to this by default)
+
+New v3 surfaces must match the **home search overlay's** confidence — not a
+smaller "webapp" feel. Defaults:
+
+- **Search bar**: `h-12 rounded-[14px] border border-hair bg-sunken px-3.5`,
+  icon `h-[18px]`, input `font-body text-[15px]`.
+- **Bottom sheet**: Vaul `z-[95] rounded-t-[22px] bg-card`; handle
+  `mx-auto mt-2.5 h-1 w-10`; header `px-5 py-2.5` = cancel / **title
+  `text-[19px] font-headline font-bold lowercase`** / done; content `px-5`.
+- **Section titles**: `text-[18px]–[19px]` (composer/sheets), `text-[22px]`
+  (home `Section`) — `font-headline font-bold lowercase tracking-[-0.02em]`.
+- **List rows**: `py-3`–`py-3.5`; leading = avatar `size="md"` (40px) OR
+  icon-circle `h-11 w-11` (icon `h-[22px]`) OR poster chip
+  `w-12 h-[72px] rounded-[10px]`; title `text-[16px]–[17px] font-headline bold
+  lowercase`; meta `font-mono text-[11px] text-muted-foreground`; trailing
+  `ChevronRight h-5`.
+- **Posters**: composer film cell `52×76 rounded-[11px]` (title `text-[20px]`);
+  reel rail `w-[108px] aspect-[2/3]`; media tiles `100×100 rounded-[14px]`.
+- **Circular actions**: `h-11 w-11` (send ↑, etc.).
+- **Rule of thumb**: unsure of a size → match `search-overlay.tsx`; bigger, not
+  timid.
+
+## Detail-page chrome (X-style)
+
+A detail page (e.g. `/post/[postId]`) shows **NO bottom nav** — only its sticky
+action bar (the reply composer), which rides above the iOS keyboard via a
+`visualViewport` inset (`bottom: kbInset`). Tapping the post **caption** opens
+the thread (PostCard `disableThreadNav` suppresses this on the detail page
+itself). The reel viewer (F22) is a forced-**dark** surface (`bg-black`,
+white text) on both themes; nav = tap left/right thirds + centre play/pause +
+swipe; every MediaGallery tile (hero AND thumbnails) opens it at its index.

@@ -10,7 +10,6 @@ import { apiCall, ApiClientError } from '@/lib/api-client';
 import { PostCard } from '@/components/post-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserProfile } from '@/contexts/user-profile-cache';
-import { BottomNav } from '@/components/bottom-nav';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
@@ -34,6 +33,9 @@ export default function PostPage() {
   // reply it's the tapped reply's author, while replyTo (→ parentId) stays the
   // root comment so threading remains 1-level.
   const [replyHandle, setReplyHandle] = useState<string | null>(null);
+  // How much the iOS keyboard obscures the bottom — the reply bar lifts above it
+  // (X-style), instead of hiding behind the keyboard.
+  const [kbInset, setKbInset] = useState(0);
   const [isPending, startTransition] = useTransition();
 
   const load = useCallback(async () => {
@@ -59,6 +61,17 @@ export default function PostPage() {
     if (isUserLoading) return;
     load();
   }, [isUserLoading, load]);
+
+  // Track the keyboard so the fixed reply bar rides above it on iOS.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setKbInset(Math.max(0, window.innerHeight - vv.height - vv.offsetTop));
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => { vv.removeEventListener('resize', update); vv.removeEventListener('scroll', update); };
+  }, []);
 
   const submitComment = () => {
     const text = draft.trim();
@@ -149,7 +162,7 @@ export default function PostPage() {
 
         {/* The post */}
         <div className="mt-4">
-          <PostCard post={post} currentUserId={user?.uid ?? null} onDeleted={() => router.push('/home')} />
+          <PostCard post={post} currentUserId={user?.uid ?? null} onDeleted={() => router.push('/home')} disableThreadNav />
         </div>
 
         {/* Replies */}
@@ -196,10 +209,11 @@ export default function PostPage() {
         )}
       </div>
 
-      {/* Sticky composer */}
+      {/* Sticky reply composer — no bottom nav on a detail page (X-style); the
+          bar rides above the keyboard via the visualViewport inset. */}
       <div
-        className="fixed bottom-0 left-0 right-0 z-40 bg-card/95 backdrop-blur border-t border-hair"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        className="fixed left-0 right-0 z-40 bg-card/95 backdrop-blur border-t border-hair"
+        style={{ bottom: kbInset, paddingBottom: kbInset > 0 ? '0.5rem' : 'calc(0.5rem + env(safe-area-inset-bottom))' }}
       >
         <div className="container mx-auto px-4 max-w-2xl py-2.5">
           {replyTo && (
@@ -246,8 +260,6 @@ export default function PostPage() {
           )}
         </div>
       </div>
-
-      <BottomNav />
     </main>
     </MovieModalProvider>
   );

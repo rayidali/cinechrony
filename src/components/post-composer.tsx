@@ -193,8 +193,10 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   // Autosave a single draft while there's content.
   useEffect(() => {
     if (!isOpen) return;
-    const hasContent = text.trim() || taggedMovie || rating !== null || taggedUsers.length > 0;
-    if (!hasContent) return;
+    // A draft needs a written take (text is the required field). A film/rating
+    // alone is NOT persisted — so picking a film then backing out doesn't leave
+    // it "stuck" in the next composer open.
+    if (!text.trim()) return;
     const t = setTimeout(() => {
       persistDraft({
         text, taggedMovie, rating, watchType,
@@ -316,6 +318,13 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     void hydrateFilmSubtitle(m);
   };
 
+  const removeFilm = () => {
+    haptic('light');
+    setTaggedMovie(null);
+    setFilmSubtitle(null);
+    setRating(null); // the rating belonged to the (now-removed) film
+  };
+
   // ── Close-friends management (reuses the friend picker) ──────────────────
   // ONE following read: seed the current selection AND hand the same list to the
   // sheet (seedFollowing) so it doesn't re-fetch.
@@ -422,7 +431,12 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
                 <div className="font-headline font-bold text-[20px] lowercase tracking-[-0.02em] truncate">{taggedMovie.title}</div>
                 <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-1">{filmSubtitle ?? taggedMovie.year}</div>
               </div>
-              <button onClick={() => setSheet('film')} className="flex-shrink-0 font-ui font-semibold text-[15px] text-primary active:opacity-60">change</button>
+              <div className="flex-shrink-0 flex items-center gap-1">
+                <button onClick={() => setSheet('film')} className="font-ui font-semibold text-[15px] text-primary active:opacity-60">change</button>
+                <button onClick={removeFilm} aria-label="Remove film" className="h-8 w-8 rounded-full flex items-center justify-center text-muted-foreground active:bg-foreground/5">
+                  <X className="h-[18px] w-[18px]" strokeWidth={2} />
+                </button>
+              </div>
             </div>
           ) : (
             <button
