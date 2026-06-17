@@ -22,6 +22,7 @@ import { callRoute } from './lib/route-call.ts';
 
 import { POST as watchPost, GET as watchGet } from '@/app/api/v1/watches/route';
 import { PATCH as watchPatch, DELETE as watchDelete } from '@/app/api/v1/watches/[watchId]/route';
+import { GET as watchRecent } from '@/app/api/v1/watches/recent/route';
 
 let viewer: TestUser, other: TestUser;
 
@@ -218,4 +219,30 @@ test('GET /watches is owner-scoped — a caller never sees another user’s watc
 
   const viewerSees = await getWatches(viewerToken);
   assert.equal(viewerSees.length, 1);
+});
+
+// ─── GET /watches/recent (film-picker rail) ─────────────────────────────────
+
+test('GET /watches/recent: distinct films, newest first, owner-scoped', async () => {
+  const viewerToken = await viewer.getIdToken();
+  // Two watches of The Matrix (603) + one of a different film (550), oldest→newest.
+  await callRoute(watchPost, 'POST', { token: viewerToken, body: { ...base, rating: 8, watchedAt: '2024-01-01T00:00:00.000Z' } });
+  await callRoute(watchPost, 'POST', { token: viewerToken, body: { tmdbId: 550, mediaType: 'movie', movieTitle: 'Fight Club', watchedAt: '2024-02-01T00:00:00.000Z' } });
+  await callRoute(watchPost, 'POST', { token: viewerToken, body: { ...base, rating: 9, watchedAt: '2024-03-01T00:00:00.000Z' } });
+
+  const res = await callRoute<{ films: { tmdbId: number; title: string }[] }>(watchRecent, 'GET', { token: viewerToken });
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  const films = res.body.data.films;
+  // Distinct by tmdbId (Matrix appears once), newest watch first → Matrix (Mar), Fight Club (Feb).
+  assert.deepEqual(films.map((f) => f.tmdbId), [603, 550]);
+
+  // Owner-scoped: another user sees none of viewer's recents.
+  const otherRes = await callRoute<{ films: unknown[] }>(watchRecent, 'GET', { token: await other.getIdToken() });
+  if (otherRes.body.ok !== true) return assert.fail('expected ok');
+  assert.equal(otherRes.body.data.films.length, 0);
+});
+
+test('GET /watches/recent: unauth → 401', async () => {
+  const res = await callRoute(watchRecent, 'GET', {});
+  assert.equal(res.status, 401);
 });

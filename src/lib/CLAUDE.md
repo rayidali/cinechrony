@@ -402,3 +402,47 @@ Edit `getRatingHSL()` in `utils.ts`:
 - `normalizedRating` maps 1-10 to 0-1
 - `hue` interpolates from 0 (red) to 120 (green)
 - `saturation` and `lightness` can be adjusted for theme
+
+---
+
+## Phase 0.7 — Wave 3: post visibility + watch-log + close-friends (2026-06-16)
+
+The server model behind F04 "create a post".
+
+**Post type** (`types.ts`) gained: `watchType?: 'first' | 'rewatch'`,
+`watchedOn?: Date | null`, `visibility?: PostVisibility` (`'everyone' |
+'friends' | 'close_friends' | 'only_me'`, default `'everyone'`), and
+`audienceUids?: string[]` — a WRITE-TIME snapshot of who may see a restricted
+post (excludes the author, who always can). New `PostVisibility` +
+`PostWatchType` types.
+
+**`posts-server.ts`**:
+- `parsePostFields()` — shared create/update validation (text, media, rating,
+  watchType, future-clamped watchedOn, visibility).
+- `resolveAudience(uid, visibility)` — `everyone` → no snapshot; `only_me` → `[]`;
+  `friends` → `getMutualIds`; `close_friends` → `getCloseFriendIds`.
+- **`canViewPost(post, viewerUid)` — the single audience guard**, applied in
+  EVERY post read path: `getHomeFeed`, `getPost`, `getSavedFeed`
+  (bookmarks-server), `getPostComments` + `createPostComment`
+  (post-comments-server), and `likePost`/`unlikePost`. Out-of-audience callers
+  get the same 404/empty as a missing post (no existence oracle).
+- `createPost` also: records a watch (`recordWatchEntry`, no dup review/rating),
+  and only sends tag/@-mention notifications to recipients who pass
+  `canViewPost` (a restricted post never leaks its preview to outsiders).
+- `getHomeFeed` paginates off the RAW scan (bounded rounds), NOT the
+  audience-filtered count, so a hidden post can't dead-end infinite scroll;
+  `nextCursor` resumes after the last RETURNED post. `MAX_POST_MEDIA = 10`.
+
+**`follows-server.ts`**: `getFollowerIds` (cached, mirror of `getFollowingIds`);
+`getMutualIds` (following ∩ followers, scans to `MAX_ID_LIMIT = 2000` so a big
+account's `friends` audience isn't capped at 200); `getCloseFriendIds` /
+`setCloseFriendIds` (server-only `/closeFriends/{uid}` doc, dedup/self-strip/cap
+150). Follow/unfollow now invalidate BOTH the follower and following id caches.
+
+**`watches-server.ts`**: `recordWatchEntry` (the lean core extracted from
+`logWatch` — writes the watch doc + ordinal, NO rating/review side-effects;
+`logWatch` now calls it then layers the rating upsert + review). `getRecentWatches`
+(distinct recently-watched films for the picker rail).
+
+**New endpoints**: `GET/PUT /api/v1/me/close-friends`, `GET /api/v1/watches/recent`.
+**firestore.rules**: `/closeFriends/{uid}` server-only.

@@ -326,3 +326,23 @@ RootLayout (layout.tsx)
   pins `Content-Type: application/json` on both via `headers()`.
 - Owner manual setup (Apple Developer, Firebase Console iOS/Android,
   APNs key, signing): `PHASE-B-HANDOFF.md` at repo root.
+
+---
+
+## Phase 0.7 — Wave 3: create-a-post (F04) (2026-06-16)
+
+- **Post visibility / audience** is enforced server-side in every read path via
+  `canViewPost` (see `src/lib/CLAUDE.md`) — posts are server-only, so there are
+  no client-side rules to add for audience. `firestore.rules` adds
+  `/closeFriends/{uid}` (server-only, the inner-circle list).
+- **New routes**:
+  - `GET/PUT /api/v1/me/close-friends` — the caller's close-friends list.
+  - `GET /api/v1/watches/recent` — recently-watched distinct films (the film
+    picker's "recently watched" rail).
+- `POST /api/v1/posts` + `PATCH /api/v1/posts/[id]` now accept
+  `{ watchType, watchedOn, visibility, taggedUserIds }` in addition to the
+  existing fields; create also logs a watch + snapshots the audience.
+- The `/post/[postId]` thread + the composer (`post-composer.tsx`, FAB
+  destination) were restyled — see `src/components/CLAUDE.md` Wave 3.
+- **Composer product rules**: a post requires **text** (a written take); a film
+  is **optional** (its watch/rating sections appear only when attached).

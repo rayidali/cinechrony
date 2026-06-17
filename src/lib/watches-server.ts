@@ -221,6 +221,32 @@ export async function getWatchesForMovie(
   return { watches };
 }
 
+/** The caller's recently-watched DISTINCT films, newest first — backs the
+ *  "recently watched" rail in the film picker. Scans the most recent watches
+ *  (single-field `watchedAt` index, no composite) and dedupes by tmdbId. */
+export async function getRecentWatches(
+  callerUid: string,
+  limit = 12,
+): Promise<{ films: { tmdbId: number; mediaType: 'movie' | 'tv'; title: string; posterUrl: string | null }[] }> {
+  const db = getDb();
+  const snap = await db
+    .collection('users').doc(callerUid)
+    .collection('watches')
+    .orderBy('watchedAt', 'desc')
+    .limit(Math.min(Math.max(limit, 1), 24) * 3) // over-scan to allow dedupe
+    .get();
+  const seen = new Set<number>();
+  const films: { tmdbId: number; mediaType: 'movie' | 'tv'; title: string; posterUrl: string | null }[] = [];
+  for (const d of snap.docs) {
+    const w = watchFromDoc(d);
+    if (seen.has(w.tmdbId)) continue;
+    seen.add(w.tmdbId);
+    films.push({ tmdbId: w.tmdbId, mediaType: w.mediaType, title: w.movieTitle, posterUrl: w.moviePosterUrl ?? null });
+    if (films.length >= limit) break;
+  }
+  return { films };
+}
+
 /** Owner-only edit of a single watch's rating + note (the per-watch log entry
  *  shown in "your history"). Does NOT touch the canonical /ratings or /reviews —
  *  those are edited via the drag-to-rate / comments. */

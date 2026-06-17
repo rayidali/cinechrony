@@ -568,3 +568,58 @@ runtime, not build — keep ALL hooks above the `if (!movie) return null` early
 return in `movie-drawer.tsx` (a `useMemo` below it blanked the app when opening
 a film from search). `next/image` also throws on empty `src` — poster/hero fall
 back to a placeholder.
+
+---
+
+## Phase 0.7 — Wave 3: create-a-post (F04) + thread + reel (2026-06-16)
+
+The post-creation cluster, rebuilt to the F04/F21/F22 designs.
+
+**Composer** — `post-composer.tsx` is now a scrollable **form** (was a
+Twitter-style textarea composer): a fixed `visualViewport`-pinned surface
+(z-[70], bone backdrop at z-[69], iOS file-picker scrim at z-[71]).
+Sections: film cell (**optional**, tap → film picker, shows `dir. <director> ·
+<year>` via the module-cached `getMovieOrTVDetails`) → **your take** (serif
+textarea, **required** — a post is a written take; `canPost` gates on
+`text.trim()`) → **your watch** + **your rating** (rendered only when a film is
+attached: first/rewatch `Segmented` + watched-on, then `DragToRate`) → **photos
+& clips** (N/10, the R2 presigned upload preserved; a **failed tile is
+tap-to-retry** — the `File` is kept on the `MediaItem` for exactly this) → tag
+friends → visible to. Drafts are a single auto-restored localStorage slot.
+
+**Pickers** (all open over the composer):
+- `v3/film-picker-sheet.tsx` (**F04 "pick a film"**) — Vaul bottom sheet:
+  h-12 search (browse-first, no autofocus), a "recently watched" poster rail
+  (`GET /api/v1/watches/recent`), and an "all films" list (now-playing by
+  default, `searchTmdbMulti` when typing). Poster fallback = `seededGradient`.
+- `v3/watched-on-sheet.tsx` — month-grid date picker; today/yesterday/earlier
+  chips; future dates disabled (date-fns).
+- `v3/tag-friends-sheet.tsx` — Vaul bottom sheet (search + following checklist +
+  removable pills + live count). `onDone` (commit) is distinct from `onClose`
+  (cancel); `seedFollowing` lets the close-friends manager reuse an already-
+  fetched following list (no double read).
+- `v3/visible-to-sheet.tsx` — audience radio (everyone / friends / close friends
+  / only me) + an "edit list" affordance that reuses the friend picker bound to
+  the close-friends list.
+
+> **iOS sheet rule (nuanced):** search/text inputs historically must NOT live in
+> a Vaul drawer (focus-trap) — but the shipped how-was-it-sheet proves a Vaul
+> text input works in this Vaul version, so the Wave-3 pickers ARE Vaul bottom
+> sheets, mitigated by **no autofocus on open** (browse-first; the keyboard only
+> appears when the user taps the field). `people-sheet`/`search-overlay` remain
+> fullscreen overlays for their autofocus-on-open search.
+
+**Thread** — `app/post/[postId]/client.tsx` (F21): centered header; "N replies"
+over hairlines; comment rows = mono @handle + compact relative time + serif body
++ "reply" (every row; nested replies thread under the root — the banner names
+the TAPPED reply's author via a separate `replyHandle`) + a right-side like
+column; sticky composer = viewer avatar + sunken pill + red circular send (↑).
+The post body still reuses the Wave-1 `PostCard`.
+
+**The reel** — `v3/reel-viewer.tsx` (F22): full-screen story viewer opened by
+tapping the `PostCard` `MediaGallery` hero (the old inline `VideoTile` is
+retired — the reel is the player). Header → "clip N/M" chip → media (native
+video `controls`) → author + `FollowButton` → serif caption → tappable film tag
+(→ movie drawer; closes the reel first) → segment progress bars (tap target
+padded to ~19px). Swipe moves between segments — **disabled over a `<video>`**
+so it doesn't fight the scrubber.

@@ -3,13 +3,13 @@
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react';
 import Image from 'next/image';
 import {
-  ChevronLeft, ChevronRight, Search, Loader2, X, Plus, Play, Film,
+  ChevronLeft, ChevronRight, Loader2, X, Plus, Play, Film, RotateCw,
   CalendarDays, Users, Globe, Star, Lock,
 } from 'lucide-react';
 import { useAuth, useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
-import { searchTmdbMulti } from '@/lib/tmdb-client';
 import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
+import { haptic } from '@/lib/haptics';
 import { compressImage } from '@/lib/image-compress';
 import { captureVideoPoster } from '@/lib/video-poster';
 import { invalidateCachedActionsByPrefix } from '@/lib/use-cached-action';
@@ -21,6 +21,7 @@ import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { WatchedOnSheet } from '@/components/v3/watched-on-sheet';
 import { TagFriendsSheet } from '@/components/v3/tag-friends-sheet';
 import { VisibleToSheet } from '@/components/v3/visible-to-sheet';
+import { FilmPickerSheet } from '@/components/v3/film-picker-sheet';
 import type {
   PostMedia, Post, SearchResult, TaggedUser, PostVisibility, PostWatchType, TMDBCrew, UserProfile,
 } from '@/lib/types';
@@ -39,6 +40,7 @@ type MediaItem = {
   status: 'uploading' | 'done' | 'error';
   progress: number;
   media?: PostMedia;
+  file: File; // kept so a failed upload can be retried
 };
 
 type TaggedMovie = NonNullable<Post['taggedMovie']>;
@@ -140,8 +142,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
 
   // Pickers
   const [sheet, setSheet] = useState<Sheet>(null);
-  const [filmQuery, setFilmQuery] = useState('');
-  const [filmResults, setFilmResults] = useState<SearchResult[]>([]);
 
   const [viewport, setViewport] = useState<{ top: number; height: string }>({ top: 0, height: '100dvh' });
 
@@ -205,15 +205,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     return () => clearTimeout(t);
   }, [isOpen, text, taggedMovie, rating, watchType, watchedOn, visibility, taggedUsers]);
 
-  // Debounced film search.
-  useEffect(() => {
-    if (sheet !== 'film') return;
-    const q = filmQuery.trim();
-    if (q.length < 2) { setFilmResults([]); return; }
-    const t = setTimeout(() => { searchTmdbMulti(q, 14).then(setFilmResults).catch(() => {}); }, 280);
-    return () => clearTimeout(t);
-  }, [filmQuery, sheet]);
-
   // ── Film subtitle (director · year), best-effort + module-cached ─────────
   const hydrateFilmSubtitle = useCallback(async (m: TaggedMovie) => {
     const fallback = [m.year || null, m.mediaType === 'tv' ? 'tv' : 'film'].filter(Boolean).join(' · ');
@@ -233,10 +224,49 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     setMedia((prev) => { prev.forEach((m) => URL.revokeObjectURL(m.localUrl)); return []; });
     setText(''); setTaggedMovie(null); setFilmSubtitle(null); setRating(null);
     setWatchType('first'); setWatchedOn(new Date()); setTaggedUsers([]); setVisibility('everyone');
-    setSheet(null); setFilmQuery(''); setFilmResults([]);
+    setSheet(null);
   }, []);
 
   // ── File upload ──────────────────────────────────────────────────────────
+  // One file's upload, reusable for the first attempt AND a tap-to-retry.
+  const uploadItem = useCallback(async (id: string, file: File, isVideo: boolean) => {
+    setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'uploading', progress: 0 } : m)));
+    try {
+      const uploadFile = isVideo ? file : await compressImage(file);
+      const res = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
+        fileName: uploadFile.name, contentType: uploadFile.type, fileSize: uploadFile.size,
+      });
+      await uploadToR2(res.uploadUrl, uploadFile, (pct) =>
+        setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, progress: pct } : m))));
+
+      let thumbnailUrl: string | undefined;
+      if (isVideo) {
+        try {
+          const posterBlob = await captureVideoPoster(file);
+          if (posterBlob) {
+            const posterFile = new File([posterBlob], `poster_${id}.jpg`, { type: 'image/jpeg' });
+            const posterRes = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
+              fileName: posterFile.name, contentType: posterFile.type, fileSize: posterFile.size,
+            });
+            if (posterRes.uploadUrl && posterRes.publicUrl) {
+              await uploadToR2(posterRes.uploadUrl, posterFile, () => {});
+              thumbnailUrl = posterRes.publicUrl;
+            }
+          }
+        } catch (err) { console.warn('[post-composer] poster capture failed:', err); }
+      }
+
+      setMedia((prev) => prev.map((m) => m.id === id ? {
+        ...m, status: 'done', progress: 100,
+        media: { type: isVideo ? 'video' : 'image', url: res.publicUrl!, ...(thumbnailUrl ? { thumbnailUrl } : {}) },
+      } : m));
+    } catch (err) {
+      console.error('[post-composer] upload failed:', err);
+      setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' } : m)));
+      toast({ variant: 'destructive', title: 'a file failed to upload — tap to retry.' });
+    }
+  }, [toast]);
+
   const handleFiles = (files: FileList | null) => {
     setPickerOpen(false);
     if (!files || !user) return;
@@ -245,46 +275,17 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     for (const file of picked) {
       const isVideo = file.type.startsWith('video/');
       const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      setMedia((prev) => [...prev, { id, kind: isVideo ? 'video' : 'image', localUrl: URL.createObjectURL(file), status: 'uploading', progress: 0 }]);
-
-      (async () => {
-        try {
-          const uploadFile = isVideo ? file : await compressImage(file);
-          const res = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
-            fileName: uploadFile.name, contentType: uploadFile.type, fileSize: uploadFile.size,
-          });
-          await uploadToR2(res.uploadUrl, uploadFile, (pct) =>
-            setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, progress: pct } : m))));
-
-          let thumbnailUrl: string | undefined;
-          if (isVideo) {
-            try {
-              const posterBlob = await captureVideoPoster(file);
-              if (posterBlob) {
-                const posterFile = new File([posterBlob], `poster_${id}.jpg`, { type: 'image/jpeg' });
-                const posterRes = await apiCall<{ uploadUrl: string; publicUrl: string }>('POST', '/api/v1/posts/media-upload-url', {
-                  fileName: posterFile.name, contentType: posterFile.type, fileSize: posterFile.size,
-                });
-                if (posterRes.uploadUrl && posterRes.publicUrl) {
-                  await uploadToR2(posterRes.uploadUrl, posterFile, () => {});
-                  thumbnailUrl = posterRes.publicUrl;
-                }
-              }
-            } catch (err) { console.warn('[post-composer] poster capture failed:', err); }
-          }
-
-          setMedia((prev) => prev.map((m) => m.id === id ? {
-            ...m, status: 'done', progress: 100,
-            media: { type: isVideo ? 'video' : 'image', url: res.publicUrl!, ...(thumbnailUrl ? { thumbnailUrl } : {}) },
-          } : m));
-        } catch (err) {
-          console.error('[post-composer] upload failed:', err);
-          setMedia((prev) => prev.map((m) => (m.id === id ? { ...m, status: 'error' } : m)));
-          toast({ variant: 'destructive', title: 'a file failed to upload.' });
-        }
-      })();
+      setMedia((prev) => [...prev, { id, kind: isVideo ? 'video' : 'image', localUrl: URL.createObjectURL(file), status: 'uploading', progress: 0, file }]);
+      void uploadItem(id, file, isVideo);
     }
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const retryMedia = (id: string) => {
+    const item = media.find((m) => m.id === id);
+    if (!item) return;
+    haptic('light');
+    void uploadItem(id, item.file, item.kind === 'video');
   };
 
   const removeMedia = (id: string) => {
@@ -312,8 +313,6 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
     };
     setTaggedMovie(m);
     setSheet(null);
-    setFilmQuery('');
-    setFilmResults([]);
     void hydrateFilmSubtitle(m);
   };
 
@@ -351,7 +350,8 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
   // ── Submit ───────────────────────────────────────────────────────────────
   const uploading = media.some((m) => m.status === 'uploading');
   const doneMedia = media.filter((m) => m.status === 'done' && m.media);
-  const canPost = !isPosting && !uploading && !!taggedMovie;
+  // A post is a written take — text is required; a film is optional enrichment.
+  const canPost = !isPosting && !uploading && text.trim().length > 0;
 
   const handlePost = () => {
     if (!canPost || !user) return;
@@ -411,167 +411,167 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           </button>
         </div>
 
-        {sheet === 'film' ? (
-          <FilmPicker
-            query={filmQuery}
-            results={filmResults}
-            onQuery={setFilmQuery}
-            onPick={pinFilm}
-            onBack={() => setSheet(null)}
-          />
-        ) : (
-          <div className="flex-1 overflow-y-auto px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+2rem)]">
-            {/* ── film cell ── */}
-            {taggedMovie ? (
-              <div className="flex items-center gap-3.5 rounded-2xl border border-hair bg-background p-3.5">
-                <div className="relative h-[68px] w-[46px] flex-shrink-0 rounded-[10px] overflow-hidden bg-sunken">
-                  {taggedMovie.posterUrl && <Image src={taggedMovie.posterUrl} alt="" fill className="object-cover" sizes="46px" />}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em] truncate">{taggedMovie.title}</div>
-                  <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">{filmSubtitle ?? taggedMovie.year}</div>
-                </div>
-                <button onClick={() => setSheet('film')} className="flex-shrink-0 font-ui font-semibold text-[14px] text-primary active:opacity-60">change</button>
+        <div className="flex-1 overflow-y-auto px-4 pt-4 pb-[calc(env(safe-area-inset-bottom)+2rem)]">
+          {/* ── film cell (optional) ── */}
+          {taggedMovie ? (
+            <div className="flex items-center gap-4 rounded-2xl border border-hair bg-background p-4">
+              <div className="relative h-[76px] w-[52px] flex-shrink-0 rounded-[11px] overflow-hidden bg-sunken">
+                {taggedMovie.posterUrl && <Image src={taggedMovie.posterUrl} alt="" fill className="object-cover" sizes="52px" />}
               </div>
-            ) : (
-              <button
-                onClick={() => setSheet('film')}
-                className="w-full flex items-center gap-3.5 rounded-2xl border border-dashed border-hair bg-background p-3.5 text-left active:opacity-70"
-              >
-                <div className="h-[68px] w-[46px] flex-shrink-0 rounded-[10px] border border-dashed border-hair bg-sunken flex items-center justify-center">
-                  <Film className="h-5 w-5 text-muted-foreground" strokeWidth={1.7} />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">choose a film</div>
-                  <div className="font-mono text-[11px] text-muted-foreground lowercase mt-0.5">what's this about?</div>
-                </div>
-                <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
-              </button>
+              <div className="min-w-0 flex-1">
+                <div className="font-headline font-bold text-[20px] lowercase tracking-[-0.02em] truncate">{taggedMovie.title}</div>
+                <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-1">{filmSubtitle ?? taggedMovie.year}</div>
+              </div>
+              <button onClick={() => setSheet('film')} className="flex-shrink-0 font-ui font-semibold text-[15px] text-primary active:opacity-60">change</button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setSheet('film')}
+              className="w-full flex items-center gap-4 rounded-2xl border border-dashed border-hair bg-background p-4 text-left active:opacity-70"
+            >
+              <div className="h-[76px] w-[52px] flex-shrink-0 rounded-[11px] border border-dashed border-hair bg-sunken flex items-center justify-center">
+                <Film className="h-6 w-6 text-muted-foreground" strokeWidth={1.7} />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-headline font-bold text-[20px] lowercase tracking-[-0.02em]">add a film</div>
+                <div className="font-mono text-[11px] text-muted-foreground lowercase mt-1">optional · what's this about?</div>
+              </div>
+              <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+            </button>
+          )}
+
+          {/* ── your take (required) ── */}
+          <SectionTitle className="mt-8">your take</SectionTitle>
+          <div className="mt-3 rounded-2xl border border-hair bg-background px-4 py-3.5">
+            <textarea
+              ref={takeRef}
+              value={text}
+              onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
+              rows={3}
+              placeholder="had to sit in the car for ten whole minutes after…"
+              className="w-full resize-none bg-transparent border-0 outline-none font-serif italic text-[17px] leading-relaxed text-foreground placeholder:text-muted-foreground/70"
+            />
+            {text.length > 0 && (
+              <div className={cn('text-right font-mono text-[10px] tabular-nums', text.length >= MAX_TEXT - 30 ? 'text-amber-600' : 'text-muted-foreground')}>
+                {text.length} / {MAX_TEXT}
+              </div>
             )}
+          </div>
 
-            {/* ── your watch ── */}
-            <SectionTitle className="mt-7">your watch</SectionTitle>
-            <div className="mt-3 rounded-2xl border border-hair bg-card p-3.5 shadow-press">
-              <Segmented
-                value={watchType}
-                onChange={(v) => setWatchType(v as PostWatchType)}
-                options={[{ id: 'first', label: 'first watch' }, { id: 'rewatch', label: 'rewatch' }]}
-              />
-              <div className="mt-3.5 pt-3.5 border-t border-hair flex items-center justify-between">
-                <span className="font-headline font-bold text-[15px] lowercase tracking-[-0.02em]">watched on</span>
-                <button
-                  onClick={() => setSheet('watchedOn')}
-                  className="inline-flex items-center gap-1.5 font-ui font-semibold text-[14px] text-primary active:opacity-60"
-                >
-                  <CalendarDays className="h-4 w-4" strokeWidth={2} />
-                  {dateChipLabel(watchedOn)}
-                </button>
-              </div>
-            </div>
-
-            {/* ── your rating ── */}
-            <div className="mt-7 mb-3 flex items-baseline justify-between">
-              <SectionTitle>your rating</SectionTitle>
-              {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
-            </div>
-            <DragToRate value={rating} onChangeComplete={(v) => setRating(Math.round(v * 10) / 10)} />
-
-            {/* ── your take ── */}
-            <SectionTitle className="mt-7">your take</SectionTitle>
-            <div className="mt-3 rounded-2xl border border-hair bg-background px-4 py-3">
-              <textarea
-                ref={takeRef}
-                value={text}
-                onChange={(e) => setText(e.target.value.slice(0, MAX_TEXT))}
-                rows={2}
-                placeholder="had to sit in the car for ten whole minutes after…"
-                className="w-full resize-none bg-transparent border-0 outline-none font-serif italic text-[16px] leading-relaxed text-foreground placeholder:text-muted-foreground/70"
-              />
-              {text.length > 0 && (
-                <div className={cn('text-right font-mono text-[10px] tabular-nums', text.length >= MAX_TEXT - 30 ? 'text-amber-600' : 'text-muted-foreground')}>
-                  {text.length} / {MAX_TEXT}
-                </div>
-              )}
-            </div>
-
-            {/* ── photos & clips ── */}
-            <div className="mt-7 mb-3 flex items-baseline justify-between">
-              <SectionTitle>photos &amp; clips</SectionTitle>
-              <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{media.length} / {MAX_MEDIA}</span>
-            </div>
-            <div className="flex gap-2.5 overflow-x-auto scrollbar-hide pb-1">
-              {media.map((m) => (
-                <div key={m.id} className="relative h-[92px] w-[92px] flex-shrink-0 rounded-[14px] overflow-hidden border border-hair bg-sunken">
-                  {m.kind === 'video' ? (
-                    <>
-                      <video src={m.localUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
-                      <div className="absolute bottom-1.5 left-1.5 h-5 w-5 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
-                        <Play className="h-3 w-3 text-white ml-0.5" fill="currentColor" strokeWidth={0} />
-                      </div>
-                    </>
-                  ) : (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
-                  )}
-                  {m.status === 'uploading' && (
-                    <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
-                      <span className="font-mono text-[11px] text-white tabular-nums">{m.progress}%</span>
-                    </div>
-                  )}
-                  {m.status === 'error' && (
-                    <div className="absolute inset-0 bg-black/65 flex items-center justify-center">
-                      <span className="font-mono text-[10px] text-white">failed</span>
-                    </div>
-                  )}
-                  <button onClick={() => removeMedia(m.id)} aria-label="Remove" className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center">
-                    <X className="h-3 w-3" strokeWidth={2.5} />
+          {/* ── your watch + your rating (film-dependent) ── */}
+          {taggedMovie && (
+            <>
+              <SectionTitle className="mt-8">your watch</SectionTitle>
+              <div className="mt-3 rounded-2xl border border-hair bg-card p-4 shadow-press">
+                <Segmented
+                  value={watchType}
+                  onChange={(v) => setWatchType(v as PostWatchType)}
+                  options={[{ id: 'first', label: 'first watch' }, { id: 'rewatch', label: 'rewatch' }]}
+                />
+                <div className="mt-4 pt-4 border-t border-hair flex items-center justify-between">
+                  <span className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">watched on</span>
+                  <button
+                    onClick={() => setSheet('watchedOn')}
+                    className="inline-flex items-center gap-1.5 font-ui font-semibold text-[15px] text-primary active:opacity-60"
+                  >
+                    <CalendarDays className="h-4 w-4" strokeWidth={2} />
+                    {dateChipLabel(watchedOn)}
                   </button>
                 </div>
-              ))}
-              {media.length < MAX_MEDIA && (
-                <button
-                  onClick={openImagePicker}
-                  aria-label="Add photo or clip"
-                  className="h-[92px] w-[92px] flex-shrink-0 rounded-[14px] border border-dashed border-hair bg-card flex flex-col items-center justify-center gap-1 text-muted-foreground active:opacity-70"
-                >
-                  <Plus className="h-6 w-6" strokeWidth={1.8} />
-                  <span className="font-mono text-[9px] uppercase tracking-[0.1em]">add</span>
-                </button>
-              )}
-            </div>
+              </div>
 
-            {/* ── tag friends ── */}
-            <button onClick={() => setSheet('tagFriends')} className="mt-7 w-full flex items-center gap-3.5 py-3 text-left active:opacity-60">
-              <span className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
-                <Users className="h-5 w-5" strokeWidth={1.9} />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">tag friends</span>
-                <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">
-                  {taggedUsers.length === 0 ? 'who watched with you?' : taggedUsers.map((u) => `@${u.username || 'user'}`).join(' · ')}
-                </span>
-              </span>
-              {taggedUsers.length > 0 && <span className="font-mono text-[12px] text-primary tabular-nums">{taggedUsers.length}</span>}
-              <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
-            </button>
-            <div className="h-px bg-rule" />
+              <div className="mt-8 mb-3 flex items-baseline justify-between">
+                <SectionTitle>your rating</SectionTitle>
+                {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
+              </div>
+              <DragToRate value={rating} onChangeComplete={(v) => setRating(Math.round(v * 10) / 10)} />
+            </>
+          )}
 
-            {/* ── visible to ── */}
-            <button onClick={() => setSheet('visibleTo')} className="w-full flex items-center gap-3.5 py-3 text-left active:opacity-60">
-              <span className="h-10 w-10 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
-                <VisibilityIcon v={visibility} />
-              </span>
-              <span className="flex-1 min-w-0">
-                <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">visible to</span>
-                <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">{visibilityLabel(visibility)}</span>
-              </span>
-              <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
-            </button>
+          {/* ── photos & clips ── */}
+          <div className="mt-8 mb-3 flex items-baseline justify-between">
+            <SectionTitle>photos &amp; clips</SectionTitle>
+            <span className="font-mono text-[11px] text-muted-foreground tabular-nums">{media.length} / {MAX_MEDIA}</span>
           </div>
-        )}
+          <div className="flex gap-3 overflow-x-auto scrollbar-hide pb-1">
+            {media.map((m) => (
+              <div key={m.id} className="relative h-[100px] w-[100px] flex-shrink-0 rounded-[14px] overflow-hidden border border-hair bg-sunken">
+                {m.kind === 'video' ? (
+                  <>
+                    <video src={m.localUrl} className="w-full h-full object-cover" muted playsInline preload="metadata" />
+                    <div className="absolute bottom-1.5 left-1.5 h-5 w-5 rounded-full bg-black/55 backdrop-blur-sm flex items-center justify-center pointer-events-none">
+                      <Play className="h-3 w-3 text-white ml-0.5" fill="currentColor" strokeWidth={0} />
+                    </div>
+                  </>
+                ) : (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={m.localUrl} alt="" className="w-full h-full object-cover" />
+                )}
+                {m.status === 'uploading' && (
+                  <div className="absolute inset-0 bg-black/55 flex items-center justify-center">
+                    <span className="font-mono text-[12px] text-white tabular-nums">{m.progress}%</span>
+                  </div>
+                )}
+                {m.status === 'error' && (
+                  // tap-to-retry — the file is kept in state for exactly this.
+                  <button onClick={() => retryMedia(m.id)} aria-label="Retry upload" className="absolute inset-0 bg-black/70 flex flex-col items-center justify-center gap-1 text-white active:bg-black/60">
+                    <RotateCw className="h-5 w-5" strokeWidth={2} />
+                    <span className="font-mono text-[9px] uppercase tracking-[0.1em]">retry</span>
+                  </button>
+                )}
+                <button onClick={() => removeMedia(m.id)} aria-label="Remove" className="absolute top-1 right-1 h-5 w-5 rounded-full bg-black/65 backdrop-blur-sm text-white flex items-center justify-center">
+                  <X className="h-3 w-3" strokeWidth={2.5} />
+                </button>
+              </div>
+            ))}
+            {media.length < MAX_MEDIA && (
+              <button
+                onClick={openImagePicker}
+                aria-label="Add photo or clip"
+                className="h-[100px] w-[100px] flex-shrink-0 rounded-[14px] border border-dashed border-hair bg-card flex flex-col items-center justify-center gap-1 text-muted-foreground active:opacity-70"
+              >
+                <Plus className="h-7 w-7" strokeWidth={1.8} />
+                <span className="font-mono text-[9px] uppercase tracking-[0.1em]">add</span>
+              </button>
+            )}
+          </div>
+
+          {/* ── tag friends ── */}
+          <button onClick={() => setSheet('tagFriends')} className="mt-8 w-full flex items-center gap-3.5 py-3.5 text-left active:opacity-60">
+            <span className="h-11 w-11 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
+              <Users className="h-[22px] w-[22px]" strokeWidth={1.9} />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-headline font-bold text-[17px] lowercase tracking-[-0.02em]">tag friends</span>
+              <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">
+                {taggedUsers.length === 0 ? 'who watched with you?' : taggedUsers.map((u) => `@${u.username || 'user'}`).join(' · ')}
+              </span>
+            </span>
+            {taggedUsers.length > 0 && <span className="font-mono text-[13px] text-primary tabular-nums">{taggedUsers.length}</span>}
+            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+          </button>
+          <div className="h-px bg-rule" />
+
+          {/* ── visible to ── */}
+          <button onClick={() => setSheet('visibleTo')} className="w-full flex items-center gap-3.5 py-3.5 text-left active:opacity-60">
+            <span className="h-11 w-11 flex-shrink-0 rounded-full bg-sunken flex items-center justify-center text-muted-foreground">
+              <VisibilityIcon v={visibility} />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block font-headline font-bold text-[17px] lowercase tracking-[-0.02em]">visible to</span>
+              <span className="block font-mono text-[11px] text-muted-foreground truncate mt-0.5">{visibilityLabel(visibility)}</span>
+            </span>
+            <ChevronRight className="h-5 w-5 text-muted-foreground flex-shrink-0" strokeWidth={2} />
+          </button>
+        </div>
       </div>
 
       {/* ── pickers (bottom sheets over the composer) ── */}
+      <FilmPickerSheet
+        isOpen={sheet === 'film'}
+        onClose={() => setSheet(null)}
+        onPick={pinFilm}
+      />
       <WatchedOnSheet
         isOpen={sheet === 'watchedOn'}
         value={watchedOn}
@@ -620,57 +620,8 @@ function SectionTitle({ children, className }: { children: React.ReactNode; clas
 
 function VisibilityIcon({ v }: { v: PostVisibility }) {
   const Icon = v === 'everyone' ? Globe : v === 'friends' ? Users : v === 'close_friends' ? Star : Lock;
-  return <Icon className="h-5 w-5" strokeWidth={1.9} />;
+  return <Icon className="h-[22px] w-[22px]" strokeWidth={1.9} />;
 }
 function visibilityLabel(v: PostVisibility): string {
   return v === 'everyone' ? 'everyone' : v === 'friends' ? 'friends' : v === 'close_friends' ? 'close friends' : 'only me';
-}
-
-function FilmPicker({
-  query, results, onQuery, onPick, onBack,
-}: {
-  query: string;
-  results: SearchResult[];
-  onQuery: (q: string) => void;
-  onPick: (r: SearchResult) => void;
-  onBack: () => void;
-}) {
-  return (
-    <div className="flex-1 flex flex-col min-h-0">
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-hair">
-        <button onClick={onBack} aria-label="Back" className="h-9 w-9 -ml-1 rounded-full flex items-center justify-center text-foreground active:bg-foreground/5">
-          <ChevronLeft className="h-5 w-5" strokeWidth={2} />
-        </button>
-        <div className="flex-1 flex items-center gap-2.5 h-11 px-3.5 rounded-[14px] border border-hair bg-sunken">
-          <Search className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} />
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            placeholder="search a film…"
-            className="flex-1 bg-transparent border-0 outline-none font-body text-[15px] text-foreground placeholder:text-muted-foreground"
-          />
-        </div>
-      </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        {results.map((r) => (
-          <button key={`${r.mediaType}_${r.id}`} onClick={() => onPick(r)} className="w-full flex items-center gap-3 py-2.5 text-left active:opacity-60">
-            <div className="relative w-10 h-[60px] rounded-[8px] overflow-hidden bg-sunken flex-shrink-0">
-              {r.posterUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={r.posterUrl} alt="" className="w-full h-full object-cover" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="font-headline font-bold text-[15.5px] lowercase tracking-[-0.02em] truncate">{r.title}</p>
-              {r.year !== 'N/A' && <p className="font-mono text-[10px] text-muted-foreground">{r.year} · {r.mediaType === 'tv' ? 'tv' : 'film'}</p>}
-            </div>
-          </button>
-        ))}
-        {query.trim().length >= 2 && results.length === 0 && (
-          <p className="font-serif italic text-[15px] text-muted-foreground py-6 text-center">no matches.</p>
-        )}
-      </div>
-    </div>
-  );
 }
