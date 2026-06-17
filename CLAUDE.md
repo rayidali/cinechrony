@@ -96,10 +96,13 @@
   helpful-double-tap desync (debounce + treat 409 as success) + a stale-snapshot
   overlay + long-press flag. **"add a still" on reviews is a tracked fast-follow.**
 - **Reconciled remaining UI/UX (see `PHASE-0.7-REDESIGN.md` § "Status snapshot"):**
-  core surfaces (home · search · lists + own list detail · profile · movie drawer ·
-  create-post/thread/reel · **reviews wall** · data rails) are **v3 done**. Still
-  on v2: the **public list detail** grid (partial) · the **Wave 7 outer cluster**
-  — onboarding · auth · settings · notifications · invite · add · list-settings.
+  core surfaces (home · search · lists + own list detail · **public list detail** ·
+  profile · movie drawer · create-post/thread/reel · **reviews wall** · data rails)
+  are **v3 done**. The editable + read-only lists now share ONE cell
+  (`movie-cell.tsx`) + `MovieList` (with a `publicReadOnly` mode) so they can't
+  drift again; the legacy "cards" view was retired. Still on v2: the **Wave 7
+  outer cluster** — onboarding · auth · settings · notifications · invite · add ·
+  list-settings.
   Plus native motion (push/pop transitions + app-wide swipe-back) and the
   story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
