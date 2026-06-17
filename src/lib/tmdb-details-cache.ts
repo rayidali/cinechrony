@@ -114,8 +114,11 @@ async function fetchAndCache(
   const promise = (async (): Promise<MediaDetails | null> => {
     try {
       const path = mediaType === 'tv' ? 'tv' : 'movie';
+      // `images` rides this same request (no extra TMDB call) → multiple stills
+      // for the cinematic drawer hero. `include_image_language=en,null` also
+      // returns the language-agnostic backdrops (the cleanest, text-free frames).
       const response = await fetch(
-        `${TMDB_API_BASE_URL}/${path}/${tmdbId}?append_to_response=credits,external_ids,watch/providers`,
+        `${TMDB_API_BASE_URL}/${path}/${tmdbId}?append_to_response=credits,external_ids,watch/providers,images&include_image_language=en,null`,
         {
           headers: {
             accept: 'application/json',

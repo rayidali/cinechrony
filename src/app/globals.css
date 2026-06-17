@@ -204,6 +204,11 @@
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
+/* slow cinematic drift for the movie-drawer hero stills (Ken Burns) */
+@keyframes cc-kenburns {
+  from { transform: scale(1.03); }
+  to { transform: scale(1.12) translateY(-1.5%); }
+}
 
 .animate-float {
   animation: float 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
@@ -224,6 +229,10 @@
 .animate-sheet-rise {
   animation: sheet-rise 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+.cc-kenburns {
+  animation: cc-kenburns 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
@@ -231,7 +240,8 @@
   .animate-rise,
   .animate-slide-up,
   .animate-fade-in,
-  .animate-sheet-rise {
+  .animate-sheet-rise,
+  .cc-kenburns {
     animation: none;
   }
 }

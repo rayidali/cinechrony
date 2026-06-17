@@ -299,7 +299,22 @@ export function MovieDrawer({
 
   const posterSrc = movie.posterUrl || POSTER_FALLBACK;
   const backdropPath = mediaDetails && 'backdrop_path' in mediaDetails ? mediaDetails.backdrop_path : null;
-  const heroSrc = backdropPath ? `https://image.tmdb.org/t/p/w780${backdropPath}` : posterSrc;
+  const imageBackdrops = mediaDetails && 'images' in mediaDetails
+    ? (mediaDetails as { images?: { backdrops?: { file_path?: string }[] } }).images?.backdrops ?? []
+    : [];
+  // Cinematic hero — real movie stills (the primary backdrop + up to two more),
+  // crossfaded with a slow Ken Burns. Falls back to the denormalized backdropUrl
+  // (instant, before details load), then a blurred-poster fill (HeroBackdrop).
+  const W780 = (p: string) => `https://image.tmdb.org/t/p/w780${p}`;
+  const heroStills: string[] = [];
+  if (backdropPath) heroStills.push(W780(backdropPath));
+  for (const b of imageBackdrops) {
+    if (!b?.file_path) continue;
+    const u = W780(b.file_path);
+    if (!heroStills.includes(u)) heroStills.push(u);
+    if (heroStills.length >= 3) break;
+  }
+  if (heroStills.length === 0 && movie.backdropUrl) heroStills.push(movie.backdropUrl);
 
   // "your history" — real watch docs, or (for films watched before the watch
   // log existed) a single synthesized "first watch" derived from the existing
@@ -564,7 +579,7 @@ export function MovieDrawer({
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
               {/* ── Hero — backdrop + green wash + glass controls ── */}
               <div className="relative w-full" style={{ height: 'clamp(180px, 30vh, 248px)' }}>
-                <Image src={heroSrc} alt="" fill priority className="object-cover" sizes="100vw" />
+                <HeroBackdrop stills={heroStills} posterUrl={posterSrc} />
                 {/* legibility + brand green tint */}
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0.55))' }} />
                 <div className="absolute inset-0 mix-blend-multiply" style={{ background: 'oklch(0.30 0.05 155 / 0.55)' }} />
@@ -1026,5 +1041,45 @@ function ReviewQuote({ review, onTap }: { review: Review; onTap: () => void }) {
       </div>
       <p className="mt-2 font-serif italic text-[14px] leading-snug text-foreground/90 line-clamp-3">“{review.text}”</p>
     </button>
+  );
+}
+
+/**
+ * HeroBackdrop — the cinematic drawer hero. Crossfades through real movie stills
+ * with a slow Ken Burns (a frame of the film, not a flat poster). 1 still →
+ * Ken Burns only; 0 → a blurred, scaled poster fill (still beats a sharp
+ * stretched poster). Plain `<img>` layers (images are `unoptimized` app-wide;
+ * `<img>` keeps the crossfade simple).
+ */
+function HeroBackdrop({ stills, posterUrl }: { stills: string[]; posterUrl: string }) {
+  const [idx, setIdx] = useState(0);
+  const n = stills.length;
+  useEffect(() => {
+    setIdx(0);
+    if (n < 2) return;
+    const t = setInterval(() => setIdx((i) => (i + 1) % n), 5500);
+    return () => clearInterval(t);
+  }, [n]);
+
+  if (n === 0) {
+    return (
+      <div className="absolute inset-0 overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={posterUrl} alt="" className="cc-kenburns h-full w-full scale-125 object-cover opacity-70 blur-2xl" />
+      </div>
+    );
+  }
+  return (
+    <div className="absolute inset-0 overflow-hidden">
+      {stills.map((src, i) => (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          key={src}
+          src={src}
+          alt=""
+          className={`cc-kenburns absolute inset-0 h-full w-full object-cover transition-opacity duration-[1200ms] ease-in-out ${i === idx ? 'opacity-100' : 'opacity-0'}`}
+        />
+      ))}
+    </div>
   );
 }

@@ -1,25 +1,24 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Drawer } from 'vaul';
+import { ChevronLeft } from 'lucide-react';
 import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
-import { useViewportHeight } from '@/hooks/use-viewport-height';
 
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
 
 /**
- * F03 — "how was it?" (Phase 0.7 Wave 2 / slice 3). The rate-review prompt when
- * a film flips to watched in the in-list drawer: a drag-to-rate + an optional
- * note that becomes the film's review. `save` writes the watch + rating + review
- * and moves it to watched; `skip` just logs the watch (no rating) + moves it;
- * swipe-down / scrim cancels (the film stays "to watch").
+ * F03 — "how was it?" The rate-review prompt shown when a film flips to watched.
  *
- * A Vaul bottom drawer (consistent with the app, portaled so it can't bleed
- * through a transformed ancestor, swipe-to-dismiss for cancel). The parent
- * movie drawer is closed while this is open, so there's no nested-Vaul trap.
- * Tall (≈90vh) so the note textarea sits above the keyboard.
+ * Was a Vaul bottom drawer with a textarea inside — which fought the iOS keyboard
+ * (the sheet jumped, the wall behind peeked through). Now a robust FULL-SCREEN,
+ * opaque, `visualViewport`-pinned surface (the same pattern as the review
+ * composer): header (cancel / save) → film cell → drag-to-rate → optional review
+ * (system-sans, consistent with the rest of the review UI) → "just mark watched".
+ *
+ * Three outcomes: `save` (watch + rating + review + watched) · `onSkip` (watch +
+ * watched, no rating) · `onCancel` (abandon — the film stays "to watch").
  */
 export function HowWasItSheet({
   isOpen,
@@ -42,82 +41,114 @@ export function HowWasItSheet({
 }) {
   const [rating, setRating] = useState<number | null>(initialRating && initialRating > 0 ? initialRating : 7.5);
   const [note, setNote] = useState('');
-  const height = useViewportHeight(90);
+  const [kbInset, setKbInset] = useState(0);
+  const textRef = useRef<HTMLTextAreaElement>(null);
 
-  // Fresh prompt each open.
   useEffect(() => {
     if (isOpen) {
       setRating(initialRating && initialRating > 0 ? initialRating : 7.5);
       setNote('');
+      setKbInset(0);
     }
   }, [isOpen, initialRating]);
 
-  const heightStyle = height > 0 ? `${height}px` : 'calc(90 * var(--dvh, 1vh))';
+  // Lock body scroll + track the keyboard inset (visualViewport) so the review
+  // textarea always clears the keyboard. No Vaul → no focus-trap jank.
+  useEffect(() => {
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv) setKbInset(Math.max(0, window.innerHeight - vv.height)); };
+    onResize();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', onResize);
+    return () => {
+      document.body.style.overflow = '';
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', onResize);
+    };
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   return (
-    <Drawer.Root open={isOpen} onOpenChange={(o) => { if (!o) onCancel(); }}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[88]" />
-        <Drawer.Content
-          className="fixed bottom-0 left-0 right-0 z-[88] flex flex-col rounded-t-[22px] bg-card outline-none overflow-hidden"
-          style={{ height: heightStyle, maxHeight: heightStyle }}
+    <div className="fixed inset-0 z-[88] flex flex-col bg-background" role="dialog" aria-label="how was it?">
+      {/* header — cancel · title · save */}
+      <header
+        className="flex flex-shrink-0 items-center justify-between border-b border-hair px-4 pb-3"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}
+      >
+        <button
+          onClick={() => { haptic('light'); onCancel(); }}
+          aria-label="Cancel"
+          className="flex h-9 w-9 -ml-1.5 items-center justify-center rounded-full text-primary transition-transform active:scale-90"
         >
-          <Drawer.Title className="sr-only">how was it?</Drawer.Title>
-          <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
+          <ChevronLeft className="h-6 w-6" strokeWidth={2.2} />
+        </button>
+        <span className="font-headline text-[18px] font-bold lowercase tracking-[-0.02em]">how was it?</span>
+        <button
+          onClick={() => { haptic('success'); onSave(rating, note); }}
+          className="font-ui text-[16px] font-bold text-primary transition-transform active:scale-95"
+        >
+          save
+        </button>
+      </header>
 
-          {/* header */}
-          <div className="flex items-center justify-between px-5 py-2.5">
-            <button onClick={() => { haptic('light'); onSkip(); }} className="font-ui font-semibold text-[15px] text-muted-foreground active:opacity-60">
-              skip
-            </button>
-            <span className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">how was it?</span>
-            <button onClick={() => { haptic('success'); onSave(rating, note); }} className="font-ui font-bold text-[15px] text-primary active:opacity-60">
-              save
-            </button>
+      <div className="flex-1 overflow-y-auto px-5 pt-4" style={{ paddingBottom: Math.max(24, kbInset + 24) }}>
+        {/* film cell */}
+        <div className="flex items-center gap-3.5">
+          <div className="relative h-[68px] w-[46px] flex-shrink-0 overflow-hidden rounded-[10px] bg-sunken shadow-photo">
+            <Image src={posterUrl || POSTER_FALLBACK} alt="" fill className="object-cover" sizes="46px" />
           </div>
-
-          <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-            {/* film cell */}
-            <div className="flex items-center gap-3 mt-1">
-              <div className="relative h-14 w-10 flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
-                <Image src={posterUrl || POSTER_FALLBACK} alt="" fill className="object-cover" sizes="40px" />
-              </div>
-              <div className="min-w-0">
-                <div className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em] truncate">{movieTitle}</div>
-                <div className="font-mono text-[10px] text-muted-foreground lowercase truncate">
-                  moving to watched{listName ? ` · in ${listName.toLowerCase()}` : ''}
-                </div>
-              </div>
+          <div className="min-w-0">
+            <div className="truncate font-headline text-[20px] font-bold lowercase tracking-tight">{movieTitle}</div>
+            <div className="mt-0.5 truncate font-mono text-[11px] text-muted-foreground lowercase">
+              moving to watched{listName ? ` · in ${listName.toLowerCase()}` : ''}
             </div>
-
-            {/* your rating — clear sits in the header, top-right of the box */}
-            <div className="mt-4 mb-2 flex items-center justify-between">
-              <div className="cc-eyebrow text-muted-foreground">your rating</div>
-              {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
-            </div>
-            <div className="rounded-2xl border border-hair bg-card p-4 shadow-press">
-              <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
-            </div>
-
-            {/* optional review */}
-            <div className="mt-4">
-              <div className="cc-eyebrow text-muted-foreground mb-2">add a review · optional</div>
-              <textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                maxLength={500}
-                rows={4}
-                placeholder="say a little about it…"
-                className="w-full resize-none rounded-2xl border border-hair bg-background/60 px-4 py-3 font-serif italic text-[15px] leading-relaxed text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/30 transition-colors"
-              />
-            </div>
-
-            <p className="mt-4 text-center font-mono text-[10px] text-muted-foreground lowercase leading-relaxed">
-              this becomes your review on <span className="font-bold">{movieTitle}</span> and moves it to watched
-            </p>
           </div>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+        </div>
+
+        {/* your rating */}
+        <div className="mt-5 mb-2 flex items-center justify-between">
+          <div className="cc-eyebrow text-muted-foreground">your rating</div>
+          {rating != null && <ClearRatingButton onClear={() => setRating(null)} />}
+        </div>
+        <div className="rounded-2xl border border-hair bg-card p-4 shadow-press">
+          <DragToRate value={rating} onChangeComplete={setRating} framed={false} />
+        </div>
+
+        {/* optional review — system-sans, matching the review composer */}
+        <div className="mt-5">
+          <div className="cc-eyebrow text-muted-foreground mb-2">add a review · optional</div>
+          <div className="rounded-2xl border border-hair bg-card p-4 shadow-press">
+            <textarea
+              ref={textRef}
+              value={note}
+              onChange={(e) => {
+                setNote(e.target.value);
+                e.target.style.height = 'auto';
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 260)}px`;
+              }}
+              maxLength={500}
+              rows={4}
+              placeholder="say a little about it…"
+              className="w-full resize-none bg-transparent font-ui text-[16.5px] leading-[1.5] text-foreground outline-none placeholder:text-muted-foreground/55 caret-primary"
+            />
+          </div>
+        </div>
+
+        <p className="mt-4 text-center font-mono text-[10.5px] leading-relaxed text-muted-foreground lowercase">
+          this becomes your review on <span className="font-bold text-foreground">{movieTitle}</span> and moves it to watched
+        </p>
+
+        {/* skip — mark watched without a rating */}
+        <button
+          onClick={() => { haptic('light'); onSkip(); }}
+          className="mt-5 w-full rounded-full border border-border bg-card py-3 font-ui text-[15px] font-semibold text-muted-foreground transition-transform active:scale-[0.98]"
+        >
+          just mark it watched
+        </button>
+      </div>
+    </div>
   );
 }

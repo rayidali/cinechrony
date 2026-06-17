@@ -558,10 +558,18 @@ list-name · comments · watch-status. Built on semantic tokens → dark
 
 - `v3/drag-to-rate.tsx` — the big rating-coloured number + 10-segment drag bar
   (replaces `RatingSlider` inside the drawer; same `onChangeComplete` contract).
-- `v3/how-was-it-sheet.tsx` (**F03**) — a **non-Vaul** top-anchored overlay
-  (a textarea inside a Vaul drawer fights the iOS focus trap), shown while the
-  parent drawer is closed. save logs a watch + rating + review + watched; skip
-  logs the watch + watched; scrim cancels.
+- `v3/how-was-it-sheet.tsx` (**F03**) — now a robust **full-screen page** (was a
+  Vaul drawer — a textarea inside Vaul fought the iOS keyboard: the sheet jumped
+  + the wall peeked through). A fixed, opaque, `visualViewport`-pinned surface
+  (the review-composer pattern): header (cancel · save) → film cell → drag-to-rate
+  → optional review (**system-sans `font-ui`**, consistent with the review UI) →
+  "just mark it watched". Three exits: save (watch+rating+review+watched), skip
+  (watch+watched, no rating), cancel (abandon — stays "to watch").
+- Drawer **hero** = `HeroBackdrop` (in `movie-drawer.tsx`): crossfades through real
+  TMDB **stills** (the primary backdrop + up to two more, fetched free via
+  `append_to_response=images`) with a slow Ken Burns (`cc-kenburns`). Falls back
+  to the denormalized `backdropUrl` (instant), then a blurred-poster fill. The
+  old static "ghost title" echo was removed.
 - Drawer sections: scores (IMDb/RT/Metacritic + awards), where to watch (TMDB
   JustWatch chips), cast & crew (incl. director), the conversation (review
   quotes), in-list list-notes, more like this, footer, `your history` (watch log).
