@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { ChevronLeft } from 'lucide-react';
 import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
@@ -11,14 +12,18 @@ const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
 /**
  * F03 — "how was it?" The rate-review prompt shown when a film flips to watched.
  *
- * Was a Vaul bottom drawer with a textarea inside — which fought the iOS keyboard
- * (the sheet jumped, the wall behind peeked through). Now a robust FULL-SCREEN,
- * opaque, `visualViewport`-pinned surface (the same pattern as the review
- * composer): header (cancel / save) → film cell → drag-to-rate → optional review
- * (system-sans, consistent with the rest of the review UI) → "just mark watched".
+ * Rendered through a PORTAL to `document.body` (z-[95]) — this is essential: it's
+ * mounted from inside the movie drawer, which the list page mounts inside
+ * `PullToRefresh`, whose `translateY` container is a transformed ancestor that
+ * (a) becomes the containing block for `position: fixed` and (b) creates a
+ * stacking context — so an inline `fixed inset-0` got trapped BELOW the list's
+ * viewport-fixed chrome (Hero, bottom-nav, FAB), which bled through. Portaling to
+ * the body root escapes both traps and covers everything. (See
+ * `project_drawer_route_roundtrip` — same class of bug as the Vaul seam.)
  *
- * Three outcomes: `save` (watch + rating + review + watched) · `onSkip` (watch +
- * watched, no rating) · `onCancel` (abandon — the film stays "to watch").
+ * A robust full-screen, opaque, `visualViewport`-pinned page (no Vaul → no
+ * keyboard focus-trap jank). Three exits: save (watch+rating+review+watched),
+ * skip (watch+watched, no rating), cancel (abandon — stays "to watch").
  */
 export function HowWasItSheet({
   isOpen,
@@ -42,7 +47,10 @@ export function HowWasItSheet({
   const [rating, setRating] = useState<number | null>(initialRating && initialRating > 0 ? initialRating : 7.5);
   const [note, setNote] = useState('');
   const [kbInset, setKbInset] = useState(0);
+  const [mounted, setMounted] = useState(false);
   const textRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (isOpen) {
@@ -53,7 +61,7 @@ export function HowWasItSheet({
   }, [isOpen, initialRating]);
 
   // Lock body scroll + track the keyboard inset (visualViewport) so the review
-  // textarea always clears the keyboard. No Vaul → no focus-trap jank.
+  // textarea always clears the keyboard.
   useEffect(() => {
     if (!isOpen) return;
     document.body.style.overflow = 'hidden';
@@ -69,10 +77,10 @@ export function HowWasItSheet({
     };
   }, [isOpen]);
 
-  if (!isOpen) return null;
+  if (!isOpen || !mounted) return null;
 
-  return (
-    <div className="fixed inset-0 z-[88] flex flex-col bg-background" role="dialog" aria-label="how was it?">
+  return createPortal(
+    <div className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="how was it?">
       {/* header — cancel · title · save */}
       <header
         className="flex flex-shrink-0 items-center justify-between border-b border-hair px-4 pb-3"
@@ -149,6 +157,7 @@ export function HowWasItSheet({
           just mark it watched
         </button>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
