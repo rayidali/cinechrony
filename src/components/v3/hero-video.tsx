@@ -44,33 +44,43 @@ function loadYouTubeApi(): Promise<void> {
   return apiPromise;
 }
 
-const REVEAL_DELAY_MS = 3200; // long enough for YouTube's start title-bar overlay to auto-hide
-const WINDOW_SEC = 18; // length of the looped middle window
+const LEAD_SEC = 3.2;   // playback after a (re)start before YouTube's overlay auto-hides
+const POLL_MS = 250;
+const FADE_MS = 500;    // must match the parent's opacity transition (so the seek lands hidden)
 
 /**
- * HeroVideoLayer — a muted, chrome-clean YouTube trailer that fills the movie-
- * drawer hero (Netflix-style ambient preview).
+ * HeroVideoLayer — a muted YouTube trailer that fills the drawer hero as a clean
+ * ambient preview, with NO YouTube chrome ever visible.
  *
- * The trick (so YouTube branding never shows): SEEK past the intro title card,
- * loop a middle window so we never reach the end screen, and `onReveal` only
- * fires AFTER the start overlay has auto-hidden — the parent keeps the cinematic
- * stills on top until then, so the user never sees YouTube's load chrome. Plus
- * `pointer-events-none` (no tap → no controls), a hard crop (corner logo off-
- * screen), `modestbranding`, and the `youtube-nocookie` host. Destroyed on
- * unmount. If autoplay is blocked, onReveal never fires → stills simply stay.
+ * YouTube only shows chrome at two moments: the START (title/transport overlay
+ * on load) and on a SEEK (the loop's loading flash). We hide BOTH the same way —
+ * by keeping the cinematic stills on top whenever chrome would show:
+ *   • Start hidden, playing. `onShownChange(true)` fires only once playback has
+ *     advanced ~LEAD seconds past the (re)start — i.e. after the overlay hid.
+ *   • At the loop point we `onShownChange(false)` FIRST (fade to stills), wait a
+ *     beat for the fade, THEN seekTo(start) — so the seek's loading flash happens
+ *     while the video is invisible. As playback re-advances past LEAD it re-shows.
+ * The window stops well before the end-screen. pointer-events-none · nocookie ·
+ * modestbranding · hard crop (corner logo off-screen) · destroyed on unmount.
  */
-export function HeroVideoLayer({ ytKey, onReveal }: { ytKey: string; onReveal: () => void }) {
+export function HeroVideoLayer({ ytKey, onShownChange }: { ytKey: string; onShownChange: (shown: boolean) => void }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<YTPlayer | null>(null);
-  const onRevealRef = useRef(onReveal);
-  onRevealRef.current = onReveal;
+  const cbRef = useRef(onShownChange);
+  cbRef.current = onShownChange;
 
   useEffect(() => {
     let cancelled = false;
-    let loopTimer: ReturnType<typeof setInterval> | null = null;
-    let revealTimer: ReturnType<typeof setTimeout> | null = null;
+    let poll: ReturnType<typeof setInterval> | null = null;
+    let seeking = false;
+    let lastShown = false;
     let start = 0;
+    let revealAt = LEAD_SEC;
     let loopEnd = 0;
+
+    const setShown = (s: boolean) => {
+      if (s !== lastShown) { lastShown = s; cbRef.current(s); }
+    };
 
     loadYouTubeApi().then(() => {
       if (cancelled || !hostRef.current) return;
@@ -90,33 +100,35 @@ export function HeroVideoLayer({ ytKey, onReveal }: { ytKey: string; onReveal: (
               const p = e.target;
               p.mute();
               const dur = p.getDuration() || 0;
-              // Skip the intro card; loop a window from ~20% in (clamped so we
-              // never hit the end screen). Short clips just play through.
-              if (dur > 32) {
-                start = Math.min(Math.max(dur * 0.2, 10), dur - WINDOW_SEC - 4);
-                loopEnd = start + WINDOW_SEC;
-              } else {
-                start = 0;
-                loopEnd = Math.max(0, dur - 1);
-              }
+              // Skip the intro, and loop well before the end-screen.
+              const skipIn = Math.min(Math.max(dur * 0.12, 5), 25);
+              const skipOut = Math.min(Math.max(dur * 0.12, 5), 15);
+              start = dur > 25 ? skipIn : 0;
+              loopEnd = dur > 25 ? Math.max(start + 8, dur - skipOut) : Math.max(2, dur - 2);
+              revealAt = start + LEAD_SEC;
               p.seekTo(start, true);
               p.playVideo();
             } catch { /* noop */ }
           },
           onStateChange: (e) => {
-            if (e.data === 1) { // PLAYING
-              if (!revealTimer) revealTimer = setTimeout(() => onRevealRef.current(), REVEAL_DELAY_MS);
-              if (!loopTimer) {
-                loopTimer = setInterval(() => {
-                  try {
-                    const p = playerRef.current;
-                    if (p && loopEnd > 0 && p.getCurrentTime() >= loopEnd) p.seekTo(start, true);
-                  } catch { /* noop */ }
-                }, 600);
-              }
-            }
-            if (e.data === 0) { // ENDED (safety) → loop from the window start
-              try { playerRef.current?.seekTo(start, true); playerRef.current?.playVideo(); } catch { /* noop */ }
+            if (e.data === 1 && !poll) { // PLAYING → drive reveal + loop
+              poll = setInterval(() => {
+                try {
+                  const p = playerRef.current;
+                  if (!p || seeking) return;
+                  const t = p.getCurrentTime();
+                  if (loopEnd > 0 && t >= loopEnd) {
+                    setShown(false);   // hide FIRST so the seek's flash is behind the stills
+                    seeking = true;
+                    setTimeout(() => {
+                      try { p.seekTo(start, true); } catch { /* noop */ }
+                      seeking = false;
+                    }, FADE_MS + 60);
+                    return;
+                  }
+                  setShown(t >= revealAt);
+                } catch { /* noop */ }
+              }, POLL_MS);
             }
           },
         },
@@ -125,8 +137,7 @@ export function HeroVideoLayer({ ytKey, onReveal }: { ytKey: string; onReveal: (
 
     return () => {
       cancelled = true;
-      if (loopTimer) clearInterval(loopTimer);
-      if (revealTimer) clearTimeout(revealTimer);
+      if (poll) clearInterval(poll);
       try { playerRef.current?.destroy(); } catch { /* noop */ }
       playerRef.current = null;
     };

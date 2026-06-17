@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
@@ -1068,7 +1068,7 @@ function ReviewQuote({ review, onTap }: { review: Review; onTap: () => void }) {
 function HeroBackdrop({ stills, posterUrl, videoKey }: { stills: string[]; posterUrl: string; videoKey?: string | null }) {
   const [idx, setIdx] = useState(0);
   const [showVideo, setShowVideo] = useState(false);
-  const [videoReady, setVideoReady] = useState(false);
+  const [videoShown, setVideoShown] = useState(false);
   const n = stills.length;
 
   useEffect(() => {
@@ -1078,24 +1078,22 @@ function HeroBackdrop({ stills, posterUrl, videoKey }: { stills: string[]; poste
     return () => clearInterval(t);
   }, [n]);
 
-  // Mount the trailer after a brief linger (quick open/close never loads it), but
-  // it stays hidden until HeroVideoLayer says the start overlay has cleared
-  // (onReveal) — so the user only ever sees clean mid-trailer footage, never
-  // YouTube's load chrome. Gated on a trailer existing + motion allowed.
+  // Mount + start the trailer almost immediately (warm it up hidden) so it's
+  // already past the chrome by the time it's revealed. HeroVideoLayer drives
+  // `videoShown`: true only while playing clean mid-trailer footage; false during
+  // the start overlay AND the loop-seek — so the stills cover every chrome moment.
   useEffect(() => {
     setShowVideo(false);
-    setVideoReady(false);
+    setVideoShown(false);
     if (!videoKey) return;
     if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const t = setTimeout(() => setShowVideo(true), 1200);
+    const t = setTimeout(() => setShowVideo(true), 200);
     return () => clearTimeout(t);
   }, [videoKey]);
 
-  const onReveal = useCallback(() => setVideoReady(true), []);
-
   return (
     <div className="absolute inset-0 overflow-hidden">
-      {/* stills base */}
+      {/* stills base — always on, covers every YouTube-chrome moment */}
       {n === 0 ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={posterUrl} alt="" className="cc-kenburns h-full w-full scale-125 object-cover opacity-70 blur-2xl" />
@@ -1110,10 +1108,11 @@ function HeroBackdrop({ stills, posterUrl, videoKey }: { stills: string[]; poste
           />
         ))
       )}
-      {/* ambient trailer — fades in only once the start overlay has cleared */}
+      {/* ambient trailer — opacity driven by HeroVideoLayer (clean footage only).
+          duration-500 matches FADE_MS so the loop-seek lands while it's hidden. */}
       {showVideo && videoKey && (
-        <div className={`absolute inset-0 transition-opacity duration-700 ${videoReady ? 'opacity-100' : 'opacity-0'}`}>
-          <HeroVideoLayer ytKey={videoKey} onReveal={onReveal} />
+        <div className={`absolute inset-0 transition-opacity duration-500 ${videoShown ? 'opacity-100' : 'opacity-0'}`}>
+          <HeroVideoLayer ytKey={videoKey} onShownChange={setVideoShown} />
         </div>
       )}
     </div>

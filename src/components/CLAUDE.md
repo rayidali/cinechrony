@@ -570,16 +570,17 @@ list-name · comments · watch-status. Built on semantic tokens → dark
   `append_to_response=images`) with a slow Ken Burns (`cc-kenburns`). Falls back
   to the denormalized `backdropUrl` (instant), then a blurred-poster fill. The
   old static "ghost title" echo was removed.
-- After a brief linger, an **ambient muted trailer** fades in over the stills:
-  `v3/hero-video.tsx` (`HeroVideoLayer`) plays the TMDB `videos` YouTube trailer
-  via the YT Iframe API but **loops a MIDDLE window** — it seeks past the intro
-  title card, never reaches the end screen, and reveals ONLY after YouTube's
-  start overlay auto-hides (`onReveal`, ~3.2s). So the user never sees YouTube's
-  load chrome (which only appears at the start/end). Muted · `pointer-events-
-  none` (no tap→controls) · `youtube-nocookie` · `modestbranding` · hard-cropped
-  (corner logo off-screen) · destroyed on unmount · prefers-reduced-motion-gated.
-  If autoplay is blocked, onReveal never fires → the stills just stay (no broken
-  state). Only residual is a faint corner logo. The R2-clip pipeline
+- An **ambient muted trailer** plays in the hero with **no YouTube chrome ever
+  shown**: `v3/hero-video.tsx` (`HeroVideoLayer`) warms the TMDB `videos` trailer
+  up immediately (hidden), then drives an `onShownChange(bool)` so the cinematic
+  stills cover EVERY chrome moment. YouTube only shows chrome at the START
+  (overlay) + on a SEEK (loop's loading flash), so: it reveals only ~3.2s after a
+  (re)start (overlay auto-hidden), and at the loop point it fades to stills
+  FIRST, waits a beat, THEN seeks (the flash lands behind the stills) — looping a
+  MIDDLE window that stops before the end-screen. Muted · `pointer-events-none` ·
+  `youtube-nocookie` · `modestbranding` · hard-cropped (corner logo off-screen) ·
+  destroyed on unmount · prefers-reduced-motion-gated · autoplay-blocked →
+  onShownChange(true) never fires → stills just stay. The R2-clip pipeline
   (yt-dlp→ffmpeg) was rejected: storage growth + generation latency + ToS.
 - Drawer sections: scores (IMDb/RT/Metacritic + awards), where to watch (TMDB
   JustWatch chips), cast & crew (incl. director), the conversation (review
