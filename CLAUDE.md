@@ -76,8 +76,17 @@
   (per-caller filtered for own/blocks; `softFallback: []`; empty hides it — real
   data only); `HotTakeCard` is interleaved into the reel (`activity-feed.tsx`,
   leads then every 8, for-you only, client block/mute/self filter). Tests:
-  `46-review-highlights`. **The home feed is now fully composed. Next: the
-  Lists-detail cluster restyle (still v2).**
+  `46-review-highlights`. **Home + feed are fully composed** (a 2026-06-17 sizing
+  pass took the search row to `h-12` and the post movie-cell poster to the
+  standard 48×72; leaderboard "view all" + profile top-5 also de-timidified).
+- **Reconciled remaining UI/UX (2026-06-17, workflow-audited — see
+  `PHASE-0.7-REDESIGN.md` § "Status snapshot"):** core surfaces (home · search ·
+  lists + own list detail · profile · movie drawer · create-post/thread/reel ·
+  data rails) are **v3 done**. Still on v2: **`/movie/[tmdbId]/comments`** (F07,
+  the other half of Wave 4) · the **public list detail** grid (partial) · the
+  **Wave 7 outer cluster** — onboarding · auth · settings · notifications ·
+  invite · add · list-settings. Plus native motion (push/pop transitions +
+  app-wide swipe-back) and the story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the

@@ -57,6 +57,36 @@ browser).
 
 ---
 
+## Status snapshot — 2026-06-17 (reconciled vs the codebase)
+
+The redesign is essentially done for the **core surfaces**; what remains is the
+"outer" screen cluster + native motion + the story-share feature.
+
+**✅ Done:** foundation primitives (0.7.1.1–0.7.1.3) · haptics (0.7.2.1) · instant
+tap states (0.7.2.3) · scroll-collapse chrome (0.7.2.5) · **home/feed** (0.7.3.1
+a–d) · **search** (0.7.3.6) · **lists** + **own list detail** (0.7.3.3/4) ·
+**profile** own+public (0.7.3.5) · **movie drawer** (Wave 2) · **create-a-post +
+post thread + reel** (Waves 3/5 + the F18 half of Wave 4) · **data rails** —
+leaderboard + weekly movement, dig-in/top-picks, featured, community, **hot-take
+card** (Wave 6 · 0.7.5.1–0.7.5.4).
+
+**⬜ Remaining UI/UX — the "what's next" list:**
+1. **`/movie/[tmdbId]/comments`** (F07, the other half of Wave 4) — still v2.
+2. **Public list detail** (`profile/[username]/lists/[listId]`) — partial (old
+   Tabs + `PublicMovieGrid`; wants Segmented + the v3 grid).
+3. **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
+   list-settings** (0.7.3.7) — all still v2 (Card/Input). Settings has only the
+   v3 theme Segmented so far.
+4. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
+   edge-swipe-back generalization (0.7.2.4 — today only on `/comments`).
+5. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card
+   renderer + `@capacitor/share`; not started (Phase-C-adjacent).
+6. **QA gates** (0.7.1.5 / 0.7.2.6 / 0.7.3.8) — automated parts run every PR
+   (typecheck · build · build:static · audit suite); a Simulator feel-pass is
+   still owner-side.
+
+---
+
 ## Phase order
 
 ### 0.7.0 — Branch base ✅ DONE 2026-06-13
@@ -66,14 +96,14 @@ browser).
 
 ### 0.7.1 — Foundation: tokens + native primitives (no new data)
 
-- [ ] **0.7.1.1** Extend `globals.css` + `tailwind.config.ts`: add `sunken`,
+- [x] **0.7.1.1** Extend `globals.css` + `tailwind.config.ts`: add `sunken`,
   `hair`, frosted `chrome` / `tabTint`, and the accent set (violet / blue /
   pink for leaderboard ranks + category dots). Keep all existing v2 tokens.
   Light + dark, values from `ios-kit.jsx::makeTokens`.
-- [ ] **0.7.1.2** Frosted-surface primitive (`<Frost>`) — `backdrop-filter:
+- [x] **0.7.1.2** Frosted-surface primitive (`<Frost>`) — `backdrop-filter:
   blur() saturate()` over the tint. Verify it renders in the Capacitor
   WKWebView (it does; confirm on Simulator). Used by top bar / tab bar / nav bar.
-- [ ] **0.7.1.3** Shared primitives to match the kit: `GlassBtn` (glass control
+- [x] **0.7.1.3** Shared primitives to match the kit: `GlassBtn` (glass control
   over imagery), `Segmented` (sliding-thumb iOS control), `Section` header
   (eyebrow → title → trailing), `NavBar` (large lowercase title, collapses on
   scroll). Replace the `Fab` with the `AddBtn` (red round +) per design.
@@ -93,7 +123,7 @@ browser).
 
 ### 0.7.2 — Native-feel motion layer (mostly visual-independent; can parallelize)
 
-- [ ] **0.7.2.1** Install **`@capacitor/haptics`**; fire light impact on
+- [x] **0.7.2.1** Install **`@capacitor/haptics`**; fire light impact on
   meaningful taps (like, save-to-list, add, tab switch, segmented switch,
   pull-to-refresh trigger) — no-op on web. (Closes the LAUNCH.md C.4.1 haptics
   item too.)
@@ -102,11 +132,11 @@ browser).
   Vaul-drawer seam** — see `project-drawer-route-roundtrip` memory:
   BodyStyleWatchdog + the 220ms drawer-close defer stay in force; any
   transition work is tested against the modal→/comments→back round-trip.
-- [ ] **0.7.2.3** Instant tap/press states on every interactive element; kill
+- [x] **0.7.2.3** Instant tap/press states on every interactive element; kill
   the gray iOS tap-highlight flash.
 - [ ] **0.7.2.4** App-wide edge-swipe-back (generalize the existing
   `SwipeBackContainer` beyond `/comments`).
-- [ ] **0.7.2.5** Scroll-collapse chrome (top bar / nav bar tint+blur+rule fade
+- [x] **0.7.2.5** Scroll-collapse chrome (top bar / nav bar tint+blur+rule fade
   in past the scroll threshold) — already modeled in the design's `scrolled`
   state.
 - [ ] **0.7.2.6 — Test:** real iPhone Simulator + ideally a device; feel-check
@@ -193,7 +223,7 @@ browser).
     - `TrendingStrip` retired from home (orphaned). **Deferred:** the F15/F16/F17
       "view all" **detail screens**; `friends`-tab rail variant. typecheck ✓ ·
       build ✓ · static ✓ · audit 403/403 ✓.
-  - [ ] **0.7.3.1d — Home test/polish pass**: scroll-collapse feel, both themes,
+  - [x] **0.7.3.1d — Home test/polish pass**: scroll-collapse feel, both themes,
     Simulator; audit + build green; `prefers-reduced-motion` gates.
 
 > **Heads-up — broad UI/UX revamp incoming (owner sent F01/F02/F15–F18 mocks
@@ -342,29 +372,37 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
     return null`) blanked the app when opening a film from search — the repo has
     NO ESLint, so it wasn't caught at build; keep hooks above the early return.
 
-- [ ] **Wave 3 — Create a post (F04).** Restyle `post-composer.tsx`: film cell +
+- [x] **Wave 3 — Create a post (F04).** Restyle `post-composer.tsx`: film cell +
   change · first-watch / rewatch + watched-on date · drag-to-rate · serif take ·
   photos & clips (N/10) · tag friends · visibility. **No "add to a list"** (it
   doesn't belong in a post). Optionally writes a watch-log entry too. **Test:**
   post lands in feed + reel; R2 media upload unchanged; audit green.
 
-- [ ] **Wave 4 — Threads (F18 post · thread · F07 comments).** Restyle
+- [~] **Wave 4 — Threads (F18 post · thread · F07 comments).** Restyle
   `/post/[postId]` (post body + movie cell → drawer + still + engagement bar +
   threaded replies + sticky composer) and `/movie/[tmdbId]/comments` (pinned
   original + threaded replies + sticky reply composer). Restyle only — threading
   logic preserved. **Test:** reply/like/thread invariants unchanged; swipe-back +
   modal back-nav hold; audit green.
+  - **Status (2026-06-17): PARTIAL.** `/post/[postId]` (F21/F18) ✅ done — the
+    post thread is fully v3. `/movie/[tmdbId]/comments` (F07) is **still v2** —
+    the remaining piece of Wave 4 (pending v3 header / Segmented sort / reply bar).
 
-- [ ] **Wave 5 — The reel · player (F19).** New full-screen viewer for a user's
+- [x] **Wave 5 — The reel · player (F19).** New full-screen viewer for a user's
   uploaded photos/clips: author + follow · serif caption · tappable film tag →
   drawer · segment progress (clip n/N) · swipe → next. Data: a user's
   posts-with-media (reuse, lazy). **Test:** swipe through media; film tag →
   drawer; follow toggle; no extra reads per swipe.
 
-- [ ] **Wave 6 — Data-rail finish.** Hot-take rail (`GET /api/v1/reviews/
+- [x] **Wave 6 — Data-rail finish.** Hot-take rail (`GET /api/v1/reviews/
   highlights` — short, high-rated reviews → the green quote card); leaderboard
   weekly-movement (cheap snapshot); dig-in "logged by N friends". All cached +
   soft-degraded. **Test:** each rail real-data + cached + hides empty.
+  - **Status (2026-06-17): DONE.** Hot-take rail ✅ (0.7.5.4); weekly movement ✅
+    (`home-snapshot-server.ts` `filmsPrior` → `leaderboard-server` movement,
+    rendered in `top-watchers-all.tsx`). The dig-in **"logged by N friends"**
+    social-proof stays **deliberately deferred** — no cheap per-item read on the
+    free tier (would be a per-poster N+1).
 
 - [ ] **Wave 7 — Onboarding · auth · settings · notifications** (folds the old
   0.7.3.7). **More onboarding screens incoming** (owner) — restyle to v3 +
@@ -570,9 +608,9 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   shares the same snapshot. `src/lib/home-snapshot-server.ts`; both rails fall back
   to a live scan if the snapshot is missing. Tests: `43-leaderboard-snapshot`
   (ranking, seen-signals-only, block-filter, follow-scope, week-window, fallback).
-- [ ] **0.7.5.2** Top-picks categories — define + query `new` (fresh logs),
+- [x] **0.7.5.2** Top-picks categories — define + query `new` (fresh logs),
   `trending` (exists), `popular` (all-time loved), `lowkey` (hidden gems).
-- [ ] **0.7.5.3** Featured carousel — lean on the Phase 0.5 loved-lists
+- [x] **0.7.5.3** Featured carousel — lean on the Phase 0.5 loved-lists
   showcase + a manual `staffPick` flag for editorial slots.
 - [x] **0.7.5.4** Hot-take cards (2026-06-17) — the design's green quote card on
   the home reel. `GET /api/v1/reviews/highlights` (`getReviewHighlights` in

@@ -57,7 +57,7 @@ export function RecommendationCard({ set }: { set: RecommendationSet }) {
         because you liked {set.basisTitle.toLowerCase()}
       </h3>
 
-      <div className="grid grid-cols-3 gap-2.5 mt-3.5">
+      <div className="grid grid-cols-3 gap-3 mt-3.5">
         {recs.map((rec) => {
           const rating = ratingOf(rec);
           const style = rating != null ? getRatingStyle(rating) : null;

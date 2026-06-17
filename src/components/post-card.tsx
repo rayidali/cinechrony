@@ -338,22 +338,22 @@ function MovieCell({
 }) {
   const meta = [movie.year, movie.mediaType === 'tv' ? 'tv' : 'film'].filter(Boolean).join(' · ');
   return (
-    <div className="w-full flex items-center gap-3 px-3 py-2.5 rounded-[14px] bg-background border-[0.5px] border-hair">
+    <div className="w-full flex items-center gap-3 px-3.5 py-3 rounded-[14px] bg-background border-[0.5px] border-hair">
       <button
         onClick={onOpen}
         className="flex items-center gap-3 flex-1 min-w-0 text-left transition-opacity active:opacity-70"
       >
-        <span className="relative w-10 h-[60px] rounded-[7px] overflow-hidden bg-muted flex-shrink-0">
+        <span className="relative w-12 h-[72px] rounded-[10px] overflow-hidden bg-muted flex-shrink-0">
           {movie.posterUrl && (
-            <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="40px" />
+            <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="48px" />
           )}
         </span>
         <span className="flex-1 min-w-0">
-          <span className="block font-headline font-bold text-[16px] lowercase tracking-[-0.025em] text-foreground truncate leading-tight">
+          <span className="block font-headline font-bold text-[17px] lowercase tracking-[-0.025em] text-foreground truncate leading-tight">
             {movie.title}
           </span>
           {meta && (
-            <span className="block font-mono text-[10px] text-muted-foreground mt-[3px] tabular-nums">
+            <span className="block font-mono text-[11px] text-muted-foreground mt-1 tabular-nums">
               {meta}
             </span>
           )}
@@ -420,7 +420,7 @@ function MediaGallery({ media, onOpenReel }: { media: Post['media']; onOpenReel:
               key={k}
               onClick={() => onOpenReel(k)}
               aria-label={`Open reel at ${k + 1}`}
-              className="relative flex-shrink-0 w-[58px] h-[58px] rounded-[10px] overflow-hidden border-[0.5px] border-hair active:opacity-70"
+              className="relative flex-shrink-0 w-16 h-16 rounded-[12px] overflow-hidden border-[0.5px] border-hair active:opacity-70"
             >
               {m.type === 'video' ? (
                 m.thumbnailUrl ? (

@@ -78,8 +78,13 @@ Test, same convention as AUDIT.md).
   index-free pool of short high-rated top-level reviews; per-caller own/block
   filter; `softFallback: []`; empty hides it) + `HotTakeCard` interleaved into
   the reel (leads, then every 8; for-you only). Tests: `46-review-highlights`.
-  The **home feed is now fully composed. Next up: the Lists-detail cluster
-  (still v2).**
+  The **home + feed are fully composed** (a 2026-06-17 sizing pass: search row
+  h-12, post movie-cell poster 48×72, leaderboard "view all" + profile top-5).
+- **Reconciled remaining UI/UX (2026-06-17, workflow-audited — see
+  `PHASE-0.7-REDESIGN.md` § "Status snapshot"):** core surfaces are v3 done.
+  Still v2: `/movie/[tmdbId]/comments` (F07), the public list-detail grid
+  (partial), and the **Wave 7 outer cluster** (onboarding · auth · settings ·
+  notifications · invite · add · list-settings). Plus native motion + story-share.
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green
