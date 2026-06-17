@@ -164,7 +164,7 @@ export function ReelViewer({
           )}
         </div>
 
-        {caption && <p className="mt-2.5 font-serif italic text-[15px] leading-relaxed text-white/90">{caption}</p>}
+        {caption && <p className="mt-2.5 font-headline text-[15px] leading-[1.5] tracking-[-0.01em] text-white/90">{caption}</p>}
 
         {film && (
           <button
