@@ -25,7 +25,8 @@ src/lib/
 ├── movies-server.ts          # addMovieToList, updateMovieStatus, …
 ├── invites-server.ts         # inviteToList, acceptInvite, revokeInvite, …
 ├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
-├── reviews-server.ts         # createReview, like/unlike, threading
+├── reviews-server.ts         # createReview, like/unlike, threading,
+│                              # getReviewHighlights (hot-takes, 0.7.5.4)
 ├── ratings-server.ts         # createOrUpdateRating, deleteRating
 ├── watches-server.ts         # logWatch (F03) + getWatchesForMovie (watch log)
 ├── activities-server.ts      # getActivityFeed, likeActivity, …

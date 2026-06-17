@@ -69,10 +69,15 @@
   reverted to its original. Profile activity rows (`RecentRow`) + the
   `EditProfileSheet` were brought up to the **v3 sizing standard** (see
   `src/components/CLAUDE.md`). next-themes is client-side only (default = light;
-  the 0.7.1.4 spec's "system-default" is a one-line flip if wanted). **The one
-  deferred home-feed element left is the green "hot-take" quote card** (0.7.5.4 —
-  needs a real `GET /api/v1/reviews/highlights` selection rule; not built to
-  avoid fake data). **Next: the Lists-detail cluster restyle (still v2).**
+  the 0.7.1.4 spec's "system-default" is a one-line flip if wanted).
+- **Hot-take card (0.7.5.4, 2026-06-17):** the design's green quote card is now
+  built — `GET /api/v1/reviews/highlights` (`getReviewHighlights`) serves a
+  GLOBAL, 30-min-cached, index-free pool of short high-rated top-level reviews
+  (per-caller filtered for own/blocks; `softFallback: []`; empty hides it — real
+  data only); `HotTakeCard` is interleaved into the reel (`activity-feed.tsx`,
+  leads then every 8, for-you only, client block/mute/self filter). Tests:
+  `46-review-highlights`. **The home feed is now fully composed. Next: the
+  Lists-detail cluster restyle (still v2).**
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the

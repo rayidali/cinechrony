@@ -534,10 +534,15 @@ the reel. New + changed components:
 - `activity-card.tsx` — matched to the diary language, borderless.
 - `recommendation-card.tsx` — borderless "because you liked X" poster row with
   punched rating stickers (`getRatingStyle`).
+- `hot-take-card.tsx` — the "hot take" **green quote card** (0.7.5.4): a
+  seeded-color, theme-independent pull-quote of a short, high-rated review →
+  tap opens the film drawer, avatar/handle → profile. Interleaved into the reel
+  by `activity-feed.tsx` (leads, then every 8; for-you only). Data: `GET
+  /api/v1/reviews/highlights` (`getReviewHighlights`; global cached pool).
 
 `trending-strip.tsx` is **retired from home** (orphaned; safe to delete later).
-Deferred (no fake data): hot-take cards (`/api/v1/reviews/highlights`, 0.7.5),
-the F15–F18 "view all" detail screens.
+Deferred (no fake data): the F15–F18 "view all" detail screens. (Hot-take cards
+shipped 2026-06-17 — see `hot-take-card.tsx` above.)
 
 ---
 

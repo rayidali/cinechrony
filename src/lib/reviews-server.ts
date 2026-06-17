@@ -31,6 +31,8 @@ import {
   createReplyNotification,
   createLikeNotification,
 } from '@/lib/notifications-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
+import { getMyBlockSet } from '@/lib/blocks-server';
 import type { Review } from '@/lib/types';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -476,4 +478,120 @@ export async function getUserReviewForMovie(
     .get();
   if (snap.empty) return null;
   return reviewFromDoc(snap.docs[0]);
+}
+
+// ─── Hot-takes (home "green quote card", 0.7.5.4) ──────────────────────────
+//
+// A "hot take" = a short, glowing, top-level review — surfaced as the green
+// quote card interleaved into the home reel. Real data only: an empty pool
+// hides the card (no fabrication), same contract as the discovery rails.
+//
+// Quota-first (free-tier Firestore is the binding constraint):
+//   - ONE GLOBAL pool, shared across all viewers, built from a single
+//     index-free `createdAt desc` scan (the automatic single-field index — no
+//     composite index to deploy) and held in a module TTL cache. On a warm
+//     Vercel (Fluid Compute) instance the scan runs at most once per TTL, so
+//     N home loads cost ~0 reads instead of N×scan.
+//   - Per-caller work is in-memory only: drop the caller's own takes + anyone
+//     in their block invisibility set (cached). The client additionally filters
+//     mutes/blocks, mirroring the main feed.
+//   - The long TTL is deliberate — great reviews are evergreen, and on the
+//     Spark plan a fresh-to-the-minute decorative card isn't worth the reads.
+//     If reviews ever grow huge, move the pool to the `/snapshots/home` doc
+//     (see `home-snapshot-server.ts`) like the leaderboard.
+
+export type HotTake = {
+  reviewId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  text: string;
+  rating: number | null;
+  author: {
+    uid: string;
+    username: string | null;
+    displayName: string | null;
+    photoURL: string | null;
+  };
+};
+
+const HOT_TAKE_MIN_TEXT = 12;   // longer than a one-word "great"
+const HOT_TAKE_MAX_TEXT = 240;  // a punchy take, not an essay
+const HOT_TAKE_MIN_RATING = 8;  // a genuine rave
+const HOT_TAKE_SCAN = 200;      // recent reviews to consider per rebuild (wide
+                                // enough that replies/low-rated don't starve the
+                                // pool as the app grows; still one cheap read)
+const HOT_TAKE_POOL = 24;       // candidates kept (one per film, varied)
+
+// 30-min TTL — caps rebuilds at ~48/day per warm instance × HOT_TAKE_SCAN reads.
+const hotTakeCache = createTtlCache<HotTake[]>({ ttlMs: 1_800_000, maxEntries: 2 });
+
+async function buildHotTakePool(): Promise<HotTake[]> {
+  const db = getDb();
+  // Index-free: single-field `createdAt desc` only (no composite index needed).
+  const snap = await db
+    .collection('reviews')
+    .orderBy('createdAt', 'desc')
+    .limit(HOT_TAKE_SCAN)
+    .get();
+
+  const seenMovies = new Set<number>();
+  const pool: HotTake[] = [];
+  for (const doc of snap.docs) {
+    const r = doc.data() as {
+      parentId?: string | null;
+      text?: unknown;
+      ratingAtTime?: unknown;
+      tmdbId?: unknown;
+      mediaType?: unknown;
+      movieTitle?: unknown;
+      moviePosterUrl?: unknown;
+      userId?: unknown;
+      username?: unknown;
+      userDisplayName?: unknown;
+      userPhotoUrl?: unknown;
+    };
+    if (r.parentId) continue; // top-level reviews only (skip replies)
+    if (typeof r.tmdbId !== 'number') continue;
+    if (typeof r.userId !== 'string' || !r.userId) continue;
+    const rating = typeof r.ratingAtTime === 'number' ? r.ratingAtTime : null;
+    if (rating == null || rating < HOT_TAKE_MIN_RATING) continue;
+    const text = typeof r.text === 'string' ? r.text.trim() : '';
+    if (text.length < HOT_TAKE_MIN_TEXT || text.length > HOT_TAKE_MAX_TEXT) continue;
+    if (seenMovies.has(r.tmdbId)) continue; // one take per film keeps it varied
+    seenMovies.add(r.tmdbId);
+    pool.push({
+      reviewId: doc.id,
+      tmdbId: r.tmdbId,
+      mediaType: r.mediaType === 'tv' ? 'tv' : 'movie',
+      movieTitle: typeof r.movieTitle === 'string' ? r.movieTitle : '',
+      moviePosterUrl: typeof r.moviePosterUrl === 'string' ? r.moviePosterUrl : null,
+      text,
+      rating,
+      author: {
+        uid: r.userId,
+        username: typeof r.username === 'string' ? r.username : null,
+        displayName: typeof r.userDisplayName === 'string' ? r.userDisplayName : null,
+        photoURL: typeof r.userPhotoUrl === 'string' ? r.userPhotoUrl : null,
+      },
+    });
+    if (pool.length >= HOT_TAKE_POOL) break;
+  }
+  return pool;
+}
+
+/**
+ * Recent hot-takes for the home reel, filtered for one caller. Returns up to
+ * `limit`, excluding the caller's own takes and anyone in their block set.
+ * The shared pool is cached; per-caller filtering is in-memory.
+ */
+export async function getReviewHighlights(callerUid: string, limit = 8): Promise<HotTake[]> {
+  const [pool, blocked] = await Promise.all([
+    cached(hotTakeCache, 'pool', buildHotTakePool),
+    getMyBlockSet(callerUid).catch(() => new Set<string>()),
+  ]);
+  return pool
+    .filter((t) => t.author.uid !== callerUid && !blocked.has(t.author.uid))
+    .slice(0, limit);
 }

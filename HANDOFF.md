@@ -73,9 +73,13 @@ Test, same convention as AUDIT.md).
   home/lists bars + profile hero) + Settings → Appearance + shared
   `DEFAULT_THEME`. `RecentRow` + `EditProfileSheet` brought up to the v3 sizing
   standard.
-- **The one deferred home-feed element left is the green "hot-take" quote card**
-  (0.7.5.4 — needs the real `GET /api/v1/reviews/highlights` selection rule; not
-  built to avoid fake data). **Next up: the Lists-detail cluster (still v2).**
+- **Hot-take card (0.7.5.4, 2026-06-17):** the green quote card is now built —
+  `GET /api/v1/reviews/highlights` (`getReviewHighlights`, a global 30-min-cached
+  index-free pool of short high-rated top-level reviews; per-caller own/block
+  filter; `softFallback: []`; empty hides it) + `HotTakeCard` interleaved into
+  the reel (leads, then every 8; for-you only). Tests: `46-review-highlights`.
+  The **home feed is now fully composed. Next up: the Lists-detail cluster
+  (still v2).**
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green

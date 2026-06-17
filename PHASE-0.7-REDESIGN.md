@@ -574,13 +574,20 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   `trending` (exists), `popular` (all-time loved), `lowkey` (hidden gems).
 - [ ] **0.7.5.3** Featured carousel — lean on the Phase 0.5 loved-lists
   showcase + a manual `staffPick` flag for editorial slots.
-- [ ] **0.7.5.4** Hot-take cards — **this is the design's green quote card on the
-  home feed** (e.g. "paddington 2 is the only correct serotonin…"). Still
-  deferred / not forgotten: it's the **one remaining unbuilt home-feed element**.
-  Needs a real `GET /api/v1/reviews/highlights` selection rule over short,
-  high-rated reviews (quota-safe: server-TTL-cached, soft-fallback to empty) +
-  a `HotTakeCard` component + feed interleave + a test. Deliberately not built
-  with fake data. Presence pill final wording from real activity.
+- [x] **0.7.5.4** Hot-take cards (2026-06-17) — the design's green quote card on
+  the home reel. `GET /api/v1/reviews/highlights` (`getReviewHighlights` in
+  `reviews-server.ts`): a GLOBAL pool of short (12–240ch), high-rated (≥8),
+  top-level reviews from an index-free `createdAt desc` scan held in a 30-min
+  module TTL cache; per-caller it drops own takes + the block set. `softFallback:
+  []`; an empty pool hides the card (real data only). `HotTakeCard`
+  (`hot-take-card.tsx`) = seeded-color, theme-independent pull-quote → tap opens
+  the film drawer, avatar/handle → profile. Interleaved in `activity-feed.tsx`
+  (leads the reel, then every 8; for-you only; client-filtered block/mute/self).
+  Tests: `46-review-highlights` (selection rule, replies/low-rated/length/unrated
+  exclusion, own + blocked exclusion, per-film dedupe, empty pool). Verified by a
+  2-agent adversarial review (quota / privacy / interleave / Capacitor). Scale
+  follow-up if reviews grow huge: move the pool into `/snapshots/home` like the
+  leaderboard. Presence-pill final wording from real activity still TODO.
 
 ### 0.7.6 — Story share: direct-to-Instagram (native fast-follow)
 

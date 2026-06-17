@@ -6,6 +6,7 @@ import Link from 'next/link';
 import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';
+import type { HotTake } from '@/lib/reviews-server';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import {
@@ -27,6 +28,7 @@ import { ActivityCard } from './activity-card';
 import { PostCard } from './post-card';
 import { RecommendationCard } from './recommendation-card';
 import { FriendsWatchingCard } from './friends-watching-card';
+import { HotTakeCard } from './hot-take-card';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 
 type ActivityFeedProps = {
@@ -148,15 +150,18 @@ export function ActivityFeed({
   const feedKey = currentUserId ? `home-feed:${currentUserId}:${feedFilter}` : null;
   const recKey = currentUserId ? `home-recs:${currentUserId}` : null;
   const fwKey = currentUserId ? `home-fw:${currentUserId}` : null;
+  const htKey = currentUserId ? `home-hot-takes:${currentUserId}` : null;
 
   type FeedSnapshot = { items: FeedItem[]; hasMore: boolean; cursor: string | null };
   const cachedFeed = feedKey ? readCachedAction<FeedSnapshot>(feedKey) : undefined;
   const cachedRecs = recKey ? readCachedAction<RecommendationSet[]>(recKey) : undefined;
   const cachedFw = fwKey ? readCachedAction<FWCard[]>(fwKey) : undefined;
+  const cachedHt = htKey ? readCachedAction<HotTake[]>(htKey) : undefined;
 
   const [items, setItems] = useState<FeedItem[]>(cachedFeed?.items ?? []);
   const [recSets, setRecSets] = useState<RecommendationSet[]>(cachedRecs ?? []);
   const [fwCards, setFwCards] = useState<FWCard[]>(cachedFw ?? []);
+  const [hotTakes, setHotTakes] = useState<HotTake[]>(cachedHt ?? []);
   const [isLoading, setIsLoading] = useState(cachedFeed === undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(cachedFeed?.hasMore ?? false);
@@ -271,23 +276,28 @@ export function ActivityFeed({
     let cancelled = false;
     const forced = lastRailsRefreshRef.current !== refreshKey;
     lastRailsRefreshRef.current = refreshKey;
-    // Fresh recs + friends-watching → skip both reads on a plain remount.
-    if (!forced && recKey && fwKey
+    // Fresh recs + friends-watching + hot-takes → skip all three reads on a
+    // plain remount.
+    if (!forced && recKey && fwKey && htKey
         && isCachedActionFresh(recKey, RAILS_STALE_MS)
         && isCachedActionFresh(fwKey, RAILS_STALE_MS)
+        && isCachedActionFresh(htKey, RAILS_STALE_MS)
         && readCachedAction(recKey) !== undefined
-        && readCachedAction(fwKey) !== undefined) {
+        && readCachedAction(fwKey) !== undefined
+        && readCachedAction(htKey) !== undefined) {
       return;
     }
     (async () => {
       try {
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (!idToken) return;
-        const [recs, fw] = await Promise.all([
+        const [recs, fw, ht] = await Promise.all([
           apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations')
             .catch(() => ({ sets: [] as RecommendationSet[] })),
           apiCall<{ cards: FWCard[] }>('GET', '/api/v1/friends-watching')
             .catch(() => ({ cards: [] as FWCard[] })),
+          apiCall<{ highlights: HotTake[] }>('GET', '/api/v1/reviews/highlights')
+            .catch(() => ({ highlights: [] as HotTake[] })),
         ]);
         if (cancelled) return;
         const sets = recs.sets ?? [];
@@ -296,6 +306,9 @@ export function ActivityFeed({
         const cards = fw.cards ?? [];
         setFwCards(cards);
         if (fwKey) setCachedAction(fwKey, cards);
+        const takes = ht.highlights ?? [];
+        setHotTakes(takes);
+        if (htKey) setCachedAction(htKey, takes);
       } catch {
         /* non-critical */
       }
@@ -303,7 +316,7 @@ export function ActivityFeed({
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshKey, recKey, fwKey]);
+  }, [auth, refreshKey, recKey, fwKey, htKey]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;
@@ -379,6 +392,19 @@ export function ActivityFeed({
     return list;
   }, [items, feedFilter, followingIds, isMuted, isBlocked]);
 
+  // Hot-takes are a GLOBAL pool — filter to the viewer (block + mute + not
+  // self), mirroring the feed's own filtering above.
+  const visibleHotTakes = useMemo(
+    () =>
+      hotTakes.filter(
+        (t) =>
+          t.author.uid !== currentUserId &&
+          !isBlocked(t.author.uid) &&
+          !isMuted(t.author.uid),
+      ),
+    [hotTakes, currentUserId, isBlocked, isMuted],
+  );
+
   // Interleave recommendations + friends-watching (only in the `all` view).
   // The first recommendation lands within the first scroll — by card 3, or at
   // the end of a short feed so sparse feeds still surface discovery; then
@@ -388,10 +414,20 @@ export function ActivityFeed({
     const nodes: ReactNode[] = [];
     let recIdx = 0;
     let fwIdx = 0;
+    let htIdx = 0;
     const total = visibleItems.length;
     const firstRecAt = Math.min(3, total);
     const firstFwAt = Math.min(6, total);
     visibleItems.forEach((item, i) => {
+      // Hot-take "green quote card" — leads the reel, then every 8 (for-you
+      // only). Pushed BEFORE the item so the first one heads the stream, per
+      // the design.
+      if (feedFilter === 'all' && htIdx < visibleHotTakes.length && i % 8 === 0) {
+        nodes.push(
+          <HotTakeCard key={`ht_${visibleHotTakes[htIdx].reviewId}`} take={visibleHotTakes[htIdx]} />,
+        );
+        htIdx++;
+      }
       if (item.kind === 'post') {
         nodes.push(
           <PostCard
@@ -435,7 +471,7 @@ export function ActivityFeed({
       }
     });
     return nodes;
-  }, [visibleItems, recSets, fwCards, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
+  }, [visibleItems, recSets, fwCards, visibleHotTakes, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
 
   return (
     <section>
