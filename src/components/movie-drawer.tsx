@@ -2,7 +2,7 @@
 
 import Image from 'next/image';
 import Link from 'next/link';
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
@@ -24,7 +24,6 @@ import { FullscreenTextInput } from './fullscreen-text-input';
 import { SimilarMoviesRow } from './similar-movies-row';
 import { AddToListSheet } from './add-to-list-sheet';
 import { HowWasItSheet } from '@/components/v3/how-was-it-sheet';
-import { HeroVideoLayer } from '@/components/v3/hero-video';
 import { WatchEditSheet } from '@/components/v3/watch-edit-sheet';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { useUser } from '@/firebase';
@@ -317,18 +316,6 @@ export function MovieDrawer({
   }
   if (heroStills.length === 0 && movie.backdropUrl) heroStills.push(movie.backdropUrl);
 
-  // Netflix-style preview — a muted YouTube trailer (TMDB `videos`). Prefer an
-  // official trailer, then any trailer/teaser, then the first YouTube clip.
-  const videoResults = mediaDetails && 'videos' in mediaDetails
-    ? (mediaDetails as { videos?: { results?: { key?: string; site?: string; type?: string; official?: boolean }[] } }).videos?.results ?? []
-    : [];
-  const ytVideos = videoResults.filter((v) => v.site === 'YouTube' && v.key);
-  const trailerKey =
-    (ytVideos.find((v) => v.type === 'Trailer' && v.official)
-      ?? ytVideos.find((v) => v.type === 'Trailer')
-      ?? ytVideos.find((v) => v.type === 'Teaser')
-      ?? ytVideos[0])?.key ?? null;
-
   // "your history" — real watch docs, or (for films watched before the watch
   // log existed) a single synthesized "first watch" derived from the existing
   // rating + the user's own review. Read-time only — no backfill writes, and no
@@ -592,7 +579,7 @@ export function MovieDrawer({
             <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
               {/* ── Hero — backdrop + green wash + glass controls ── */}
               <div className="relative w-full" style={{ height: 'clamp(180px, 30vh, 248px)' }}>
-                <HeroBackdrop stills={heroStills} posterUrl={posterSrc} videoKey={trailerKey} />
+                <HeroBackdrop stills={heroStills} posterUrl={posterSrc} />
                 {/* legibility + brand green tint */}
                 <div className="absolute inset-0" style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.35), rgba(0,0,0,0.55))' }} />
                 <div className="absolute inset-0 mix-blend-multiply" style={{ background: 'oklch(0.30 0.05 155 / 0.55)' }} />
@@ -1064,12 +1051,9 @@ function ReviewQuote({ review, onTap }: { review: Review; onTap: () => void }) {
  * stretched poster). Plain `<img>` layers (images are `unoptimized` app-wide;
  * `<img>` keeps the crossfade simple).
  */
-function HeroBackdrop({ stills, posterUrl, videoKey }: { stills: string[]; posterUrl: string; videoKey?: string | null }) {
+function HeroBackdrop({ stills, posterUrl }: { stills: string[]; posterUrl: string }) {
   const [idx, setIdx] = useState(0);
-  const [showVideo, setShowVideo] = useState(false);
-  const [videoPlaying, setVideoPlaying] = useState(false);
   const n = stills.length;
-
   useEffect(() => {
     setIdx(0);
     if (n < 2) return;
@@ -1077,44 +1061,25 @@ function HeroBackdrop({ stills, posterUrl, videoKey }: { stills: string[]; poste
     return () => clearInterval(t);
   }, [n]);
 
-  // Netflix-style preview: after a short linger, fade in a muted trailer over the
-  // stills — only if a trailer exists + motion is allowed. A quick open/close
-  // never loads it (saves data); the stills stay underneath so a blocked autoplay
-  // degrades to "nothing new", not a broken state.
-  useEffect(() => {
-    setShowVideo(false);
-    setVideoPlaying(false);
-    if (!videoKey) return;
-    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
-    const t = setTimeout(() => setShowVideo(true), 2500);
-    return () => clearTimeout(t);
-  }, [videoKey]);
-
-  const onPlaying = useCallback(() => setVideoPlaying(true), []);
-
+  if (n === 0) {
+    return (
+      <div className="absolute inset-0 overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={posterUrl} alt="" className="cc-kenburns h-full w-full scale-125 object-cover opacity-70 blur-2xl" />
+      </div>
+    );
+  }
   return (
     <div className="absolute inset-0 overflow-hidden">
-      {/* stills base */}
-      {n === 0 ? (
+      {stills.map((src, i) => (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={posterUrl} alt="" className="cc-kenburns h-full w-full scale-125 object-cover opacity-70 blur-2xl" />
-      ) : (
-        stills.map((src, i) => (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            key={src}
-            src={src}
-            alt=""
-            className={`cc-kenburns absolute inset-0 h-full w-full object-cover transition-opacity duration-[1200ms] ease-in-out ${i === idx ? 'opacity-100' : 'opacity-0'}`}
-          />
-        ))
-      )}
-      {/* muted trailer preview — fades in only once it's actually playing */}
-      {showVideo && videoKey && (
-        <div className={`absolute inset-0 transition-opacity duration-700 ${videoPlaying ? 'opacity-100' : 'opacity-0'}`}>
-          <HeroVideoLayer ytKey={videoKey} onPlaying={onPlaying} />
-        </div>
-      )}
+        <img
+          key={src}
+          src={src}
+          alt=""
+          className={`cc-kenburns absolute inset-0 h-full w-full object-cover transition-opacity duration-[1200ms] ease-in-out ${i === idx ? 'opacity-100' : 'opacity-0'}`}
+        />
+      ))}
     </div>
   );
 }
