@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 import { Frost } from '@/components/v3/frost';
 import { NotificationBell } from '@/components/notification-bell';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
 
 export type HomeFilter = 'all' | 'friends';
@@ -78,9 +79,10 @@ export function HomeTopBar({
           })}
         </div>
 
-        {/* Right cluster — bell (with unread dot) · avatar */}
+        {/* Right cluster — bell (with unread dot) · theme · avatar */}
         <div className="flex items-center gap-1.5">
           <NotificationBell />
+          <ThemeToggle />
           <UserAvatar />
         </div>
       </div>

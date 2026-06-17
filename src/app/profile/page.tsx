@@ -28,6 +28,7 @@ import { haptic } from '@/lib/haptics';
 import { TopFivePicker } from '@/components/v3/top-five-picker';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { Segmented } from '@/components/v3/segmented';
 import { EditProfileSheet } from '@/components/v3/edit-profile-sheet';
 import { PeopleSheet } from '@/components/v3/people-sheet';
@@ -266,6 +267,7 @@ export default function MyProfilePage() {
             height={360}
             topRight={
               <>
+                <ThemeToggle variant="glass" />
                 <GlassBtn icon={Settings} ariaLabel="Settings" onClick={() => router.push('/settings')} />
                 <GlassBtn icon={LogOut} ariaLabel="Sign out" onClick={() => auth.signOut()} />
               </>
