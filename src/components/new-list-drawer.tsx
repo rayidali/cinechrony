@@ -570,7 +570,7 @@ function FriendPicker({
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             placeholder="@username or name…"
-            className="flex-1 bg-transparent border-0 outline-none font-serif italic text-[15px] placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent border-0 outline-none font-body text-[15px] placeholder:text-muted-foreground"
           />
         </div>
       </div>
@@ -590,7 +590,7 @@ function FriendPicker({
                 size="md"
               />
               <div className="flex-1 min-w-0">
-                <p className="font-headline font-semibold text-[16px] tracking-tight truncate">
+                <p className="font-headline text-[15px] font-semibold lowercase tracking-tight truncate">
                   {u.displayName || u.username || 'user'}
                 </p>
                 <p className="cc-meta text-[11px] text-muted-foreground truncate">
@@ -599,7 +599,7 @@ function FriendPicker({
               </div>
               <span
                 className={cn(
-                  'cc-meta text-[10px] px-2 py-1 rounded-full',
+                  'cc-meta text-[11px] px-2 py-1 rounded-full',
                   tagged ? 'bg-success/15 text-success' : 'text-muted-foreground',
                 )}
               >
@@ -609,12 +609,12 @@ function FriendPicker({
           );
         })}
         {query.trim().length >= 1 && results.length === 0 && (
-          <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
+          <p className="font-serif text-[15px] italic text-muted-foreground py-6 text-center">
             nobody by that name.
           </p>
         )}
         {query.trim().length === 0 && (
-          <p className="font-serif italic text-sm text-muted-foreground py-6 text-center">
+          <p className="font-serif text-[15px] italic text-muted-foreground py-6 text-center">
             search for friends to collaborate on this list.
           </p>
         )}
