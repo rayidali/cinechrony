@@ -85,11 +85,28 @@ Test, same convention as AUDIT.md).
   reactions + composer + long-press actions + reply mode). New: `reactions` map +
   `POST/DELETE /api/v1/reviews/[id]/react`; `getReviewsWall` + `GET
   /api/v1/movies/[tmdbId]/reviews-wall`. Tests: `47-reviews-wall-react`.
+- **Public list-detail convergence (0.7.3.4b, 2026-06-17):** the read-only public
+  list (`/profile/[username]/lists/[listId]`) was a v2 fork; now it renders the
+  SAME `Hero` + `ListHeader` + `MovieList` as the owner list. One shared
+  **`movie-cell.tsx`** (grid + row) powers both — anon-safe, `canEdit`-gated,
+  viewer-rating, v3-sized; `MovieList` gained a **`publicReadOnly`** mode (standalone
+  drawer, notes hidden = collaborators-only). **Retired the legacy "cards" view**
+  (`movie-card.tsx`) and deleted the `movie-card-grid/list` + `public-movie-grid/
+  list-item` + `list-controls` forks (**net −1,144 lines**). Fixed a `canEdit`
+  affordance leak, PTR-under-drawer, ListHeader anon spinner, public double-fetch,
+  empty-poster crash, settings cover a11y, and owner-avatar duplication. Reviewed
+  by a 5-reader audit + 3-dimension adversarial workflow. audit 460/460.
+- **Drawer ambient hero (2026-06-17):** the movie-drawer hero now crossfades TMDB
+  stills (Ken Burns) into a **muted, looped YouTube trailer with no visible YT
+  chrome** (`v3/hero-video.tsx` — reveal after the start overlay clears, loop the
+  middle ~60s behind the stills). reduced-motion-gated.
 - **Reconciled remaining UI/UX (see `PHASE-0.7-REDESIGN.md` § "Status snapshot"):**
-  core surfaces (incl. the reviews wall) are v3 done. Still v2: the public
-  list-detail grid (partial), and the **Wave 7 outer cluster** (onboarding · auth ·
-  settings · notifications · invite · add · list-settings). Plus native motion +
-  story-share. (Tracked fast-follow: "add a still" on a review.)
+  ALL core surfaces are v3 done — home · search · lists (owner + **public**) ·
+  profile · movie drawer · create-post/thread/reel · reviews wall · data rails.
+  Remaining: the **Wave 7 outer cluster** (onboarding · auth · settings ·
+  notifications · invite · add · list-settings), native motion (push/pop + app-wide
+  swipe-back), and story-share. Fast-follows: "add a still" on a review · presence-
+  pill wording · editable handle · rich share/OG cards.
 
 **Verification (every 0.7 PR):** typecheck clean · `npm run build` (Vercel)
 clean · `npm run build:static` (Capacitor) clean · audit suite stays green
@@ -103,17 +120,17 @@ The upcoming screens (F01/F02 movie drawer, "how was it?", composer, F15/F17/F18
 mostly reuse existing routes; the genuinely new ones still ahead are the **dig-in
 category** query (F15 detail) and **`/api/v1/reviews/highlights`** (hot-takes).
 
-**Next in 0.7 — the F-screen interaction-surface waves** (full plan +
-screen catalog + tests in `PHASE-0.7-REDESIGN.md` § "0.7.3.2+ — Interaction
-surfaces"). Recommended order: **Wave 1** rail detail screens (F15 dig-in›all ·
-F16 top-watchers›all · F17 community›all) → **Wave 2** movie-drawer cluster
-(F01/F02 + F05 add-to-list + F03 "how was it?" + the new **watch-log** data
-model) → **Wave 3** create-a-post (F04) → **Wave 4** threads (F18 post·thread ·
-F07 comments) → **Wave 5** the reel·player (F19) → **Wave 6** data-rail finish
-(hot-take `reviews/highlights`, leaderboard movement, dig-in social proof) →
-**Wave 7** onboarding/auth/settings/notifications (more onboarding screens
-incoming). Then motion slice 2 (push/pop + swipe-back) → story share (0.7.4) →
-**Phase C — the iOS Share Extension**.
+**Next in 0.7 — Waves 1–6 are all DONE** (interaction surfaces: rail detail
+screens, movie-drawer cluster + watch-log, create-a-post, threads + reviews wall,
+reel·player, data-rail finish). **What's left in 0.7:**
+- **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
+  list-settings** (the only un-restyled cluster; more onboarding screens incoming).
+- **Native motion slice 2** — page push/pop transitions (0.7.2.2) + app-wide
+  edge-swipe-back (0.7.2.4; today only on `/comments`).
+- **Story-share** (0.7.4 card renderer + `@capacitor/share`) → **direct-to-IG**
+  (0.7.6, Meta App ID already created).
+Then → **Phase C — the iOS Share Extension** (the hero feature). Full plan +
+screen catalog + tests in `PHASE-0.7-REDESIGN.md` § "0.7.3.2+ — Interaction surfaces".
 
 **⚠ Free-tier Firestore is now a hard constraint (no Blaze — owner has no
 budget until there's revenue).** Locked decision 4 in the tracker: build
@@ -323,10 +340,12 @@ Three pieces make this work on every route:
 ## Open backlog (current priority order)
 
 **Phase 0.7 — v3 redesign (ACTIVE, before Phase C).** See
-`PHASE-0.7-REDESIGN.md`. Profile family done; remaining: Search (0.7.3.6),
-Home feed (0.7.3.1, the centerpiece), motion slice 2 (page transitions +
-app-wide swipe-back), story share (0.7.4 card renderer + share sheet), then
-the deferred data rails (0.7.5).
+`PHASE-0.7-REDESIGN.md`. All core surfaces done (home · search · lists owner +
+public · profile · movie drawer · create-post/thread/reel · reviews wall · data
+rails). Remaining: **Wave 7** (onboarding · auth · settings · notifications ·
+invite · add · list-settings), **motion slice 2** (page push/pop + app-wide
+swipe-back), and **story share** (0.7.4 card renderer + share sheet → 0.7.6
+direct-to-IG).
 
 **A.6 UX polish** (small, ½–1 day each):
 - `A.6.1` — @-mention autocomplete in composers (comments + posts)

@@ -62,28 +62,32 @@ browser).
 The redesign is essentially done for the **core surfaces**; what remains is the
 "outer" screen cluster + native motion + the story-share feature.
 
-**✅ Done:** foundation primitives (0.7.1.1–0.7.1.3) · haptics (0.7.2.1) · instant
-tap states (0.7.2.3) · scroll-collapse chrome (0.7.2.5) · **home/feed** (0.7.3.1
-a–d) · **search** (0.7.3.6) · **lists** + **own list detail** (0.7.3.3/4) ·
-**profile** own+public (0.7.3.5) · **movie drawer** (Wave 2) · **create-a-post +
-post thread + reel** (Waves 3/5 + the F18 half of Wave 4) · **data rails** —
-leaderboard + weekly movement, dig-in/top-picks, featured, community, **hot-take
-card** (Wave 6 · 0.7.5.1–0.7.5.4).
+**✅ Done:** foundation primitives (0.7.1.1–0.7.1.3) · theme toggle (0.7.1.4) ·
+haptics (0.7.2.1) · instant tap states (0.7.2.3) · scroll-collapse chrome
+(0.7.2.5) · **home/feed** (0.7.3.1 a–d) · **search** (0.7.3.6) · **lists** +
+**own list detail** + **public list detail** (0.7.3.3/4/4b — editable + read-only
+now share ONE `movie-cell.tsx` + `MovieList publicReadOnly`; legacy "cards" view
+retired) · **profile** own+public (0.7.3.5) · **movie drawer** (Wave 2, + ambient
+silent-trailer hero) · **create-a-post + post thread + reel** (Waves 3/5) ·
+**reviews wall** (Wave 4 — F12–F15, 2026-06-18) · **data rails** — leaderboard +
+weekly movement, dig-in/top-picks, featured, community, **hot-take card** (Wave 6
+· 0.7.5.1–0.7.5.4).
 
 **⬜ Remaining UI/UX — the "what's next" list:**
-1. ~~`/movie/[tmdbId]/comments` (F07)~~ — **✅ done 2026-06-18** (the F12–F15 reviews wall).
-2. **Public list detail** (`profile/[username]/lists/[listId]`) — partial (old
-   Tabs + `PublicMovieGrid`; wants Segmented + the v3 grid).
-3. **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
+1. **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
    list-settings** (0.7.3.7) — all still v2 (Card/Input). Settings has only the
    v3 theme Segmented so far.
-4. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
+2. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
    edge-swipe-back generalization (0.7.2.4 — today only on `/comments`).
-5. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card
+3. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card
    renderer + `@capacitor/share`; not started (Phase-C-adjacent).
-6. **QA gates** (0.7.1.5 / 0.7.2.6 / 0.7.3.8) — automated parts run every PR
+4. **QA gates** (0.7.1.5 / 0.7.2.6 / 0.7.3.8) — automated parts run every PR
    (typecheck · build · build:static · audit suite); a Simulator feel-pass is
    still owner-side.
+5. **Fast-follows (small, non-blocking):** "add a still" on a review · presence-
+   pill final wording from real activity · editable handle (backend feature) ·
+   rich per-user share/OG cards (lands with 0.7.4) · dig-in "logged by N friends"
+   (deferred — no cheap per-item read on the free tier).
 
 ---
 
@@ -434,6 +438,28 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   typecheck + build green. **Universal primitives now: Frost, Segmented,
   NavBar, AddBtn, ListTile, GlassBtn, Hero** + the existing MovieCardGrid is
   the canonical poster tile (kept, not duplicated → consistent card sizes).
+- [x] **0.7.3.4b** **Public list detail** (`/profile/[username]/lists/[listId]`)
+  — **converged onto the SAME Hero + ListHeader + MovieList as the owner list
+  (2026-06-17).** It had drifted to a v2 fork (no Hero, brutalist Tabs, hand-rolled
+  header, `PublicMovieGrid`, full-page spinner) because every v3 change only landed
+  on the editable side. Now ONE shared **`movie-cell.tsx`** (grid tile + list row)
+  powers both lists — anon-safe (renders logged-out), `canEdit`-gated, shows the
+  VIEWER's own rating, v3-sized (48×72 `rounded-[10px]` · 16px headline · 44px
+  actions); `MovieList` gained a **`publicReadOnly`** mode (standalone drawer,
+  notes view hidden — notes stay collaborators-only, who are redirected to the
+  editable page → **no server change, no privacy change**). **Retired the legacy
+  "cards" view** + its `movie-card.tsx`, which removed a `canEdit` affordance leak,
+  a duplicate client TMDB/OMDB fetch, and brutalist remnants in one move. Deleted
+  the divergent `movie-card-grid/list` + `public-movie-grid/list-item` +
+  `list-controls` forks (**net −1,144 lines**). `getPublicListMovies` now projects
+  `addedBy*`/`mediaType`/`coverMode` (already on the doc → no extra reads; notes
+  deliberately NOT projected). Bugs fixed along the way: PTR-live-under-open-drawer,
+  ListHeader infinite spinner for logged-out viewers, public page double-fetch
+  before auth settled, empty-`posterUrl` next/image crash, settings cover-picker
+  a11y, and the **owner-avatar duplication** on the public header (ListHeader
+  `hideOwnerInStack`). Reviewed by a 5-reader audit + a 3-dimension adversarial
+  workflow (editable flow confirmed unregressed). typecheck · build · static ·
+  audit **460/460** ✓.
 - [x] **0.7.3.5** **Own profile**: cinematic Hero (seeded gradient + avatar
   overlaid + name/@handle/since + serif tagline + glass settings/sign-out) →
   pull-up content sheet (editable bio, find-friends/share pills, stats

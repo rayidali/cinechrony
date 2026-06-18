@@ -22,13 +22,13 @@
   all real loved-lists/TMDB data); and the **borderless reel** (`DiaryEntry` +
   `MovieCell`+`MediaGallery` + inline "because you liked X" poster rows). v3
   primitives in `src/components/v3/*`. The home **feed is now posts-only**
-  (rated/reviewed dropped); captions are Bricolage. **Next: the F-screen
-  interaction-surface waves** — full plan + screen catalog in
-  `PHASE-0.7-REDESIGN.md` § "0.7.3.2+ — Interaction surfaces". Wave 1 rail detail
-  screens (F15/F16/F17) → Wave 2 movie-drawer cluster (F01/F02 + F05 + F03 "how
-  was it?" + new **watch-log** model) → Wave 3 create-a-post (F04) → Wave 4
-  threads (F18/F07) → Wave 5 reel·player (F19) → Wave 6 data rails → Wave 7
-  onboarding/auth/settings.
+  (rated/reviewed dropped); captions are Bricolage. **The F-screen
+  interaction-surface Waves 1–6 are all DONE** (rail detail screens → movie-drawer
+  cluster + watch-log → create-a-post → threads + reviews wall → reel·player →
+  data-rail finish); see `PHASE-0.7-REDESIGN.md` § "0.7.3.2+". **What's left in
+  0.7: Wave 7** (onboarding · auth · settings · notifications · invite · add ·
+  list-settings) → **native motion slice 2** (push/pop transitions + app-wide
+  swipe-back) → **story share** (0.7.4 card renderer → 0.7.6 direct-to-IG).
 - **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
   quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
   `softFallback` · lazy detail reads · no per-item N+1). **Deep read-reduction
