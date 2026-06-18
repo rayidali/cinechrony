@@ -157,6 +157,10 @@ export type Movie = {
   notes?: Record<string, string>;
   // Denormalized note author info (populated when saving notes)
   noteAuthors?: Record<string, { username: string | null; displayName: string | null; photoURL: string | null }>;
+  // Per-note last-updated server timestamp (keyed by author userId). Added with
+  // the notes board so it can order + show relative times. Client SDK reads it
+  // as a Firestore Timestamp; notes saved before this exist without it.
+  noteUpdatedAt?: Record<string, unknown>;
   // Denormalized user data (populated at write time to avoid N+1 fetches)
   addedByDisplayName?: string | null;
   addedByPhotoURL?: string | null;

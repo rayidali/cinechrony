@@ -3,10 +3,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { Movie } from '@/lib/types';
+import { useUser } from '@/firebase';
 import { MovieCellGrid, MovieCellRow } from './movie-cell';
-import { MovieCardAnnotated } from './movie-card-annotated';
 import { MovieDetailsModal } from './movie-details-modal';
 import { PublicMovieDetailsModal } from './public-movie-details-modal';
+import { NotesBoard } from './v3/notes-board';
+import { NoteSheet } from './v3/note-sheet';
 import { GridViewHint } from './grid-view-hint';
 import { Segmented } from '@/components/v3/segmented';
 import {
@@ -21,9 +23,12 @@ import {
 import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import { cn } from '@/lib/utils';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
 import { arrangeListMovies, LIST_SORTS, type ListSort } from '@/lib/list-sort';
 
-type ViewMode = 'grid' | 'list' | 'annotated';
+type ViewMode = 'grid' | 'list';
+type Tab = 'To Watch' | 'Watched' | 'notes';
 
 type MovieListProps = {
   initialMovies: Movie[];
@@ -35,9 +40,8 @@ type MovieListProps = {
   /**
    * Read-only public list context (`/profile/[username]/lists/[listId]`). Opens
    * the standalone drawer instead of the in-list one, persists its own view
-   * mode, and hides editing-only view options. Notes (annotated) mode stays
-   * owner/collaborator-only — and they're redirected to the editable page — so
-   * a public viewer never sees it.
+   * mode, and hides the notes tab (notes are owner/collaborator-only — and they
+   * are redirected to the editable page — so a public viewer never sees it).
    */
   publicReadOnly?: boolean;
   /** Return path for the standalone drawer's comments round-trip (public). */
@@ -59,29 +63,46 @@ export function MovieList({
 }: MovieListProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
+  const { user } = useUser();
+  const { toast } = useToast();
+  const [filter, setFilter] = useState<Tab>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
+  // Notes-tab composer/editor state.
+  const [noteSheet, setNoteSheet] = useState<{ open: boolean; movie: Movie | null; text: string }>(
+    { open: false, movie: null, text: '' },
+  );
+  const [savingNote, setSavingNote] = useState(false);
 
-  // The "notes"/annotated reading mode surfaces collaborator notes — owner /
-  // collaborator only. The public read-only page never has edit rights.
+  // The collaborator-notes board is a first-class tab — owner/collaborator only.
   const canViewNotes = canEdit && !publicReadOnly;
   // Distinct persistence key per surface so the public grid/list choice can't
-  // collide with the editable view (which can be 'annotated').
+  // collide with the editable view.
   const viewModeKey = publicReadOnly ? 'cinechrony-public-view-mode' : 'cinechrony-view-mode';
+
+  const noteCount = useMemo(
+    () => initialMovies.reduce(
+      (n, m) => n + (m.notes ? Object.values(m.notes).filter(Boolean).length : 0),
+      0,
+    ),
+    [initialMovies],
+  );
 
   // Load view mode from localStorage on mount
   useEffect(() => {
-    const allowed: ViewMode[] = canViewNotes ? ['grid', 'list', 'annotated'] : ['grid', 'list'];
     const saved = localStorage.getItem(viewModeKey);
-    if (saved && (allowed as string[]).includes(saved)) {
-      setViewMode(saved as ViewMode);
-    }
-  }, [viewModeKey, canViewNotes]);
+    if (saved === 'grid' || saved === 'list') setViewMode(saved);
+  }, [viewModeKey]);
+
+  // If notes access is lost mid-session (e.g. removed as a collaborator), bounce
+  // off the now-gone notes tab back to a visible film segment.
+  useEffect(() => {
+    if (filter === 'notes' && !canViewNotes) setFilter('To Watch');
+  }, [filter, canViewNotes]);
 
   // Handle openMovie query param - reopen modal when returning from comments page
   useEffect(() => {
@@ -120,10 +141,31 @@ export function MovieList({
     onDrawerOpenChange?.(false);
   }, [onDrawerOpenChange]);
 
-  // status tab + search + sort. A search query searches the whole list.
+  const saveNote = useCallback(async (movieId: string, text: string) => {
+    if (!listId || !listOwnerId) return;
+    setSavingNote(true);
+    try {
+      await apiCall('PATCH', `/api/v1/lists/${listOwnerId}/${listId}/movies/${movieId}`, { note: text });
+      toast({ title: text.trim() ? 'note saved' : 'note removed' });
+      setNoteSheet({ open: false, movie: null, text: '' });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to save note.',
+      });
+    } finally {
+      setSavingNote(false);
+    }
+  }, [listId, listOwnerId, toast]);
+
+  // status tab + search + sort. A search query searches the whole list. (Notes
+  // tab doesn't use this — the board flattens all movies itself.)
   const filteredMovies = useMemo(
-    () => arrangeListMovies(initialMovies, { query: search, status: filter, sort }),
-    [initialMovies, search, filter, sort]
+    () => (filter === 'notes'
+      ? []
+      : arrangeListMovies(initialMovies, { query: search, status: filter, sort })),
+    [initialMovies, search, filter, sort],
   );
 
   // Render grid view skeleton
@@ -158,7 +200,7 @@ export function MovieList({
         <p className="text-muted-foreground mt-2">
           {searching
             ? `no films in this list match "${search.trim()}".`
-            : `no films in the '${filter.toLowerCase()}' list.`}
+            : `no films in the '${(filter as string).toLowerCase()}' list.`}
         </p>
       </div>
     );
@@ -195,31 +237,25 @@ export function MovieList({
     </div>
   );
 
-  // Render annotated view (the reading mode — collaborator notes per movie)
-  const renderAnnotatedView = () => (
-    <div className="bg-card border border-hair rounded-[20px] shadow-lift px-4">
-      {filteredMovies.map((movie) => (
-        <MovieCardAnnotated
-          key={`${movie.id}-${movie.addedBy}`}
-          movie={movie}
-          onOpenDetails={handleOpenDetails}
-        />
-      ))}
-    </div>
-  );
+  const isNotes = filter === 'notes' && canViewNotes;
 
   return (
     <div className="w-full">
-      {/* Toolbar — segmented + search toggle + view/sort menu (all features,
-          collapsed into two tidy affordances). */}
+      {/* Toolbar — segmented (+ notes tab) + search toggle + view/sort menu */}
       <div className="mb-4 flex items-center gap-2">
         <div className="flex-1">
           <Segmented
             value={filter}
-            onChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
+            onChange={(value) => {
+              // Don't bleed a film search into the notes board (or vice-versa).
+              setFilter(value as Tab);
+              setSearch('');
+              setShowSearch(false);
+            }}
             options={[
               { id: 'To Watch', label: 'to watch' },
               { id: 'Watched', label: 'watched' },
+              ...(canViewNotes ? [{ id: 'notes', label: `notes · ${noteCount}` }] : []),
             ]}
           />
         </div>
@@ -237,37 +273,39 @@ export function MovieList({
           <Search className="h-[18px] w-[18px]" strokeWidth={1.9} />
         </button>
 
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              aria-label="View and sort options"
-              className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-rule text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <SlidersHorizontal className="h-[18px] w-[18px]" strokeWidth={1.9} />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel className="cc-eyebrow">view</DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={viewMode}
-              onValueChange={(v) => handleViewModeChange(v as ViewMode)}
-            >
-              <DropdownMenuRadioItem value="grid">grid</DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="list">list</DropdownMenuRadioItem>
-              {canViewNotes && <DropdownMenuRadioItem value="annotated">notes</DropdownMenuRadioItem>}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel className="cc-eyebrow">sort</DropdownMenuLabel>
-            <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as ListSort)}>
-              {LIST_SORTS.map((o) => (
-                <DropdownMenuRadioItem key={o.id} value={o.id}>
-                  {o.label}
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        {/* view/sort menu — films only (notes have no grid/list/sort) */}
+        {!isNotes && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="View and sort options"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-rule text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <SlidersHorizontal className="h-[18px] w-[18px]" strokeWidth={1.9} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel className="cc-eyebrow">view</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={viewMode}
+                onValueChange={(v) => handleViewModeChange(v as ViewMode)}
+              >
+                <DropdownMenuRadioItem value="grid">grid</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="list">list</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="cc-eyebrow">sort</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as ListSort)}>
+                {LIST_SORTS.map((o) => (
+                  <DropdownMenuRadioItem key={o.id} value={o.id}>
+                    {o.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
       {/* Inline search — revealed by the search toggle (v3 search standard) */}
@@ -277,7 +315,7 @@ export function MovieList({
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="search this list…"
+            placeholder={isNotes ? 'search notes…' : 'search this list…'}
             autoFocus
             autoComplete="off"
             autoCorrect="off"
@@ -297,34 +335,33 @@ export function MovieList({
         </div>
       )}
 
-      {/* Movie count */}
-      <p className="cc-meta text-xs text-muted-foreground mb-4">
-        {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
-        {search.trim() ? ` matching “${search.trim()}”` : ''}
-      </p>
+      {/* Film count — films tabs only */}
+      {!isNotes && (
+        <p className="cc-meta text-xs text-muted-foreground mb-4">
+          {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
+          {search.trim() ? ` matching “${search.trim()}”` : ''}
+        </p>
+      )}
 
-      {/* Movie display */}
-      {isLoading ? (
+      {/* Content */}
+      {isNotes ? (
+        <NotesBoard
+          movies={initialMovies}
+          query={search}
+          onOpenFilm={handleOpenDetails}
+          onAddNote={() => setNoteSheet({ open: true, movie: null, text: '' })}
+          onEditNote={(movie, text) => setNoteSheet({ open: true, movie, text })}
+        />
+      ) : isLoading ? (
         viewMode === 'grid' ? renderGridSkeleton() : renderListSkeleton()
       ) : filteredMovies.length > 0 ? (
-        viewMode === 'grid' ? renderGridView() :
-        viewMode === 'annotated' ? renderAnnotatedView() :
-        renderListView()
+        viewMode === 'grid' ? renderGridView() : renderListView()
       ) : (
         renderEmptyState()
       )}
 
-      {/* Movie details drawer.
-       *
-       * `key` is bound to the selected movie's ID so the drawer is a FRESH
-       * instance every time it opens — without this, the `/lists/[id]` →
-       * `/movie/[id]/comments` → back round-trip can revive stale internal
-       * state and the details never load. Tying the lifecycle to the movie id
-       * makes every open a clean mount.
-       *
-       * Public read-only lists use the STANDALONE drawer (no disabled in-list
-       * controls / empty notes section for a stranger); editable lists use the
-       * in-list drawer with watch-status + list notes. */}
+      {/* Movie details drawer (see the round-trip comment above). Public
+       *  read-only lists use the STANDALONE drawer; editable lists the in-list one. */}
       {publicReadOnly ? (
         <PublicMovieDetailsModal
           key={selectedMovie?.id ?? 'no-movie-open'}
@@ -348,8 +385,23 @@ export function MovieList({
         />
       )}
 
+      {/* Notes composer/editor (owner/collaborator) */}
+      {canViewNotes && (
+        <NoteSheet
+          isOpen={noteSheet.open}
+          films={initialMovies}
+          movie={noteSheet.movie}
+          initialText={noteSheet.text}
+          listName={listName}
+          currentUserId={user?.uid}
+          saving={savingNote}
+          onSave={saveNote}
+          onClose={() => setNoteSheet({ open: false, movie: null, text: '' })}
+        />
+      )}
+
       {/* One-time hint for grid view on mobile */}
-      {viewMode === 'grid' && <GridViewHint />}
+      {!isNotes && viewMode === 'grid' && <GridViewHint />}
     </div>
   );
 }

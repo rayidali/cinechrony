@@ -12,10 +12,15 @@ src/components/
 │   │                           #   list. Anon-safe, capability-flagged (canEdit),
 │   │                           #   v3-sized. The one source of truth (replaced the
 │   │                           #   old movie-card-grid/list + public-movie-* forks).
-│   ├── movie-card-annotated.tsx# "notes" reading-mode row (owner/collaborator only)
-│   ├── movie-list.tsx          # Container: toolbar + view switch + drawer. Has a
-│   │                           #   `publicReadOnly` mode (standalone drawer, no
-│   │                           #   notes view) reused by the public list page.
+│   ├── v3/notes-board.tsx      # the "notes · N" TAB — chronological board of every
+│   │                           #   collaborator note (author·time·text·film chip),
+│   │                           #   owner/collaborator only. Flattens loaded movies
+│   │                           #   (zero extra reads). + v3/note-sheet.tsx = the
+│   │                           #   "note on this film" editor (picker → write).
+│   ├── movie-list.tsx          # Container: 3-way segmented (to watch · watched ·
+│   │                           #   notes·N) + view switch + drawer. `publicReadOnly`
+│   │                           #   mode (standalone drawer, no notes tab) reused by
+│   │                           #   the public list page.
 │   └── movie-details-modal.tsx # in-list adapter over MovieDrawer (public-…-modal
 │                               #   is the standalone adapter)
 │
@@ -288,7 +293,7 @@ className="transition-all duration-200
 ```
 movie-list.tsx
 ├── movie-cell.tsx (MovieCellGrid grid view + MovieCellRow list view — shared)
-├── movie-card-annotated.tsx (notes view — editable only)
+├── v3/notes-board.tsx (notes·N tab — owner/collab) + v3/note-sheet.tsx (note editor)
 ├── movie-details-modal.tsx (in-list drawer) / public-movie-details-modal.tsx (standalone, publicReadOnly)
 │   ├── video-embed.tsx
 │   ├── reviews-list.tsx

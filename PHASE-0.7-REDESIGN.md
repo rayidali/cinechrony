@@ -460,6 +460,26 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   `hideOwnerInStack`). Reviewed by a 5-reader audit + a 3-dimension adversarial
   workflow (editable flow confirmed unregressed). typecheck · build · static ·
   audit **460/460** ✓.
+- [x] **0.7.3.4c** **List notes → a first-class tab** (2026-06-17, owner-proposed).
+  Promoted collaborator notes from a buried view-mode (`movie-card-annotated`,
+  now deleted) + drawer section into a **`notes · N` tab** on the in-list
+  segmented (owner/collaborator only — `canViewNotes = canEdit && !publicReadOnly`,
+  so the public read-only list never shows it). New **`v3/notes-board.tsx`** = a
+  chronological board of every note across the list (author · relative time ·
+  text · film chip → that film's drawer; "your note" highlighted + edit), which
+  **flattens the already-loaded movies → ZERO extra reads**. New
+  **`v3/note-sheet.tsx`** = the "note on this film" editor (full-screen portal,
+  keyboard-safe like `how-was-it-sheet`); the bottom composer opens a film-picker
+  step first (the list's films, your existing note prefilled), "edit"/the drawer
+  jump straight in. Data model: added a backward-compatible **`noteUpdatedAt[uid]`**
+  server timestamp on the movie doc (written in `movies-server.ts` alongside the
+  existing `notes`/`noteAuthors`; old notes predate it → no relative time, sorted
+  oldest). Reuses the existing authorized `PATCH …/movies/[id] {note}` route — no
+  new endpoint. Notes stay collaborators-only (NOT projected to the public
+  payload). Reviewed by a 2-dimension adversarial workflow (6 low-severity polish
+  fixes applied: pending-timestamp ordering, tab-switch search reset, save-race
+  guards, textarea auto-grow, lost-access bounce). typecheck · build · static ·
+  audit **460/460** ✓.
 - [x] **0.7.3.5** **Own profile**: cinematic Hero (seeded gradient + avatar
   overlaid + name/@handle/since + serif tagline + glass settings/sign-out) →
   pull-up content sheet (editable bio, find-friends/share pills, stats
