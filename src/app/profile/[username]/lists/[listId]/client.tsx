@@ -159,7 +159,7 @@ export default function PublicListPage() {
                     photoURL={owner.photoURL}
                     displayName={owner.displayName}
                     username={owner.username}
-                    size="sm"
+                    size="md"
                   />
                 </Link>
                 <div className="min-w-0 flex-1">
@@ -177,7 +177,7 @@ export default function PublicListPage() {
               </div>
             ) : (
               <div className="flex items-center gap-3" aria-label="Loading owner">
-                <div className="h-9 w-9 rounded-full bg-muted animate-pulse" />
+                <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
                 <div className="h-4 w-32 rounded bg-muted animate-pulse" />
               </div>
             )}
@@ -192,6 +192,7 @@ export default function PublicListPage() {
                   isOwner={false}
                   isCollaborator={false}
                   movieCount={movies.length}
+                  hideOwnerInStack
                 />
               </div>
             ) : (

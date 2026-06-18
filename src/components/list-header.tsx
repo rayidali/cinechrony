@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Loader2, Settings2 } from 'lucide-react';
+import { Settings2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useUser } from '@/firebase';
@@ -18,6 +18,12 @@ interface ListHeaderProps {
   isCollaborator?: boolean;
   /** Film count shown in the collaborators row ("N collaborators · N films"). */
   movieCount?: number;
+  /**
+   * Drop the owner from the avatar stack — the public list page already shows
+   * the owner in its own attribution row above this, so including them here is
+   * a redundant duplicate avatar one below the other.
+   */
+  hideOwnerInStack?: boolean;
 }
 
 export function ListHeader({
@@ -27,6 +33,7 @@ export function ListHeader({
   isOwner,
   isCollaborator,
   movieCount,
+  hideOwnerInStack = false,
 }: ListHeaderProps) {
   // Build settings URL with owner param for collaborators
   const settingsUrl = isOwner
@@ -96,6 +103,12 @@ export function ListHeader({
     return 0;
   });
 
+  // The avatar stack. On the public page the owner is already shown above, so
+  // drop them here (otherwise the same avatar appears twice, one below the other).
+  const stackMembers = hideOwnerInStack
+    ? sortedMembers.filter((m) => m.role !== 'owner')
+    : sortedMembers;
+
   const memberCountLabel = `${members.length > 1 ? `${members.length} collaborators · ` : ''}${movieCount ?? 0} films`;
 
   return (
@@ -109,16 +122,14 @@ export function ListHeader({
 
       {/* Collaborators row — avatar stack + count + manage */}
       <div className={`flex items-center gap-3 ${listData?.description ? 'mt-4' : ''}`}>
-        {isLoadingMembers ? (
-          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-        ) : (
+        {!isLoadingMembers && stackMembers.length > 0 && (
           <div className="flex -space-x-2">
-            {sortedMembers.slice(0, 3).map((member, index) =>
+            {stackMembers.slice(0, 3).map((member, index) =>
               isOwner || isCollaborator ? (
                 <div
                   key={member.uid}
                   className="relative"
-                  style={{ zIndex: sortedMembers.length - index }}
+                  style={{ zIndex: stackMembers.length - index }}
                 >
                   <ProfileAvatar
                     photoURL={member.photoURL}
@@ -133,7 +144,7 @@ export function ListHeader({
                   key={member.uid}
                   href={`/profile/${member.username}`}
                   className="relative transition-opacity hover:opacity-80"
-                  style={{ zIndex: sortedMembers.length - index }}
+                  style={{ zIndex: stackMembers.length - index }}
                 >
                   <ProfileAvatar
                     photoURL={member.photoURL}
