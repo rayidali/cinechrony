@@ -59,7 +59,7 @@ type ScrapedRow = {
  * (a film with no resolvable title) rather than emit garbage.
  */
 export const LETTERBOXD_PAGE_FUNCTION = `async function pageFunction(context) {
-  const { $, request } = context;
+  const { $, request, enqueueLinks } = context;
   const url = request.url || '';
   const rows = [];
 
@@ -107,19 +107,39 @@ export const LETTERBOXD_PAGE_FUNCTION = `async function pageFunction(context) {
   };
 
   if (isProfile) {
-    // favourites (British spelling) — up to 4–5 posters on the profile
-    $('#favourites .poster-container, section.favourites .poster-container, .favourites-list .poster-container').each(function () {
+    // favourites (British spelling) — up to 5 posters on the profile
+    $('#favourites li.griditem, section.favourites li.griditem, .favourites-list li.griditem, #favourites .poster-container, section.favourites .poster-container').each(function () {
       const r = extractFromContainer(this, 'favorite');
       if (r) rows.push(r);
     });
     return rows;
   }
 
+  // Letterboxd's current grid is li.griditem (React); keep the old
+  // poster-container selectors as fallbacks across markup versions.
   const kind = isWatchlist ? 'watchlist' : 'film';
-  $('li.poster-container, .poster-container').each(function () {
+  $('li.griditem, li.poster-container, .poster-container').each(function () {
     const r = extractFromContainer(this, kind);
     if (r) rows.push(r);
   });
+
+  // On page 1, enqueue ALL remaining pages explicitly. Letterboxd windows the
+  // pagination for large libraries ("1 2 3 … 26"), so following only the
+  // visible links misses the middle — read the max page number and add them all.
+  if (!url.includes('/page/')) {
+    let maxPage = 1;
+    $('.paginate-pages a').each(function () {
+      const href = $(this).attr('href') || '';
+      const mm = href.match(/\\/page\\/(\\d+)\\//);
+      if (mm) { const n = parseInt(mm[1], 10); if (n > maxPage) maxPage = n; }
+    });
+    if (maxPage > 1 && typeof enqueueLinks === 'function') {
+      const base = url.endsWith('/') ? url : url + '/';
+      const pageUrls = [];
+      for (let p = 2; p <= maxPage; p++) pageUrls.push(base + 'page/' + p + '/');
+      await enqueueLinks({ urls: pageUrls });
+    }
+  }
   return rows;
 }`;
 
@@ -133,7 +153,7 @@ export function normalizeUsername(raw: string): string {
 }
 
 /** Build the cheerio-scraper actor input for one user's library. */
-export function buildCheerioInput(username: string, maxRequests = 200) {
+export function buildCheerioInput(username: string, maxRequests = 400) {
   const u = normalizeUsername(username);
   return {
     startUrls: [
@@ -141,44 +161,59 @@ export function buildCheerioInput(username: string, maxRequests = 200) {
       { url: `https://letterboxd.com/${u}/watchlist/` },
       { url: `https://letterboxd.com/${u}/` },
     ],
-    // auto-follow pagination only (constrained by globs), via the page links
-    linkSelector: '.paginate-pages a',
-    globs: [
-      { glob: `https://letterboxd.com/${u}/films/page/*` },
-      { glob: `https://letterboxd.com/${u}/watchlist/page/*` },
-    ],
+    // Pagination is enqueued explicitly inside the pageFunction (it reads the
+    // last page number off page 1), so no linkSelector/globs are needed.
     pageFunction: LETTERBOXD_PAGE_FUNCTION,
     proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] },
-    maxConcurrency: 8,
+    // A fresh residential IP per request + gentle concurrency: Letterboxd
+    // rate-limits a burst from one IP, so spreading pages across many IPs keeps
+    // deep pagination (20+ pages) from getting 403'd partway.
+    proxyRotation: 'RECOMMENDED',
+    sessionPoolOptions: { maxPoolSize: 200 },
+    maxConcurrency: 4,
     maxRequestsPerCrawl: maxRequests,
-    // small politeness so we stay well under Letterboxd's rate limits
-    maxRequestRetries: 3,
+    maxRequestRetries: 6,
   };
 }
 
 /**
- * Run cheerio-scraper synchronously and return the dataset items. Uses the
- * run-sync-get-dataset-items endpoint (waits up to ~300s) — fine for the test
- * harness and small/medium libraries. PRODUCTION (heavy users) should switch
- * to async run + webhook to dodge the caller's request timeout; the input,
- * pageFunction, and mapping are identical either way.
+ * Run cheerio-scraper ASYNCHRONOUSLY: start the run, poll until it finishes,
+ * then fetch the dataset. No 300s cap (unlike run-sync), so a big library that
+ * takes minutes to crawl politely completes in full. In PRODUCTION the route
+ * starts the run + registers a webhook instead of polling — same start call,
+ * same dataset fetch, just no in-process poll.
  */
-async function runCheerioScraperSync(input: unknown, token: string): Promise<ScrapedRow[]> {
-  const res = await fetch(
-    `${APIFY_BASE}/acts/${APIFY_ACTOR}/run-sync-get-dataset-items?token=${encodeURIComponent(token)}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(input),
-    },
-  );
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Apify run failed (${res.status}): ${body.slice(0, 300)}`);
+async function runCheerioScraper(
+  input: unknown,
+  token: string,
+  pollMs = 540_000,
+): Promise<ScrapedRow[]> {
+  const t = encodeURIComponent(token);
+  const startRes = await fetch(`${APIFY_BASE}/acts/${APIFY_ACTOR}/runs?token=${t}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  const startJson = (await startRes.json()) as { data?: { id: string; defaultDatasetId: string; status: string } };
+  if (!startRes.ok || !startJson.data) {
+    throw new Error(`Apify run start failed (${startRes.status}): ${JSON.stringify(startJson).slice(0, 300)}`);
   }
-  const items = (await res.json()) as unknown;
-  // pageFunction returns arrays → actor flattens to one item per row, but guard
-  // against either shape.
+  const { id: runId, defaultDatasetId: datasetId } = startJson.data;
+  let status = startJson.data.status;
+
+  const terminal = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
+  const deadline = Date.now() + pollMs;
+  while (!terminal.has(status) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 4000));
+    const r = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${t}`);
+    const j = (await r.json()) as { data?: { status: string } };
+    status = j.data?.status ?? status;
+  }
+
+  const itemsRes = await fetch(
+    `${APIFY_BASE}/datasets/${datasetId}/items?token=${t}&clean=1&format=json&limit=200000`,
+  );
+  const items = (await itemsRes.json()) as unknown;
   const flat: ScrapedRow[] = [];
   for (const it of Array.isArray(items) ? items : []) {
     if (Array.isArray(it)) flat.push(...(it as ScrapedRow[]));
@@ -207,7 +242,7 @@ export async function scrapeLetterboxdLibrary(
   const u = normalizeUsername(username);
   if (!opts.token) throw new LetterboxdUsernameError('Missing Apify token.');
 
-  const rows = await runCheerioScraperSync(buildCheerioInput(u, opts.maxRequests), opts.token);
+  const rows = await runCheerioScraper(buildCheerioInput(u, opts.maxRequests), opts.token);
 
   // Dedupe films by slug (keep the first, which carries the rating if present).
   const filmsBySlug = new Map<string, ScrapedRow>();
