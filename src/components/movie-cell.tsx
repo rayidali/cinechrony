@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { memo, useMemo, useTransition } from 'react';
 import {
-  EyeOff, Eye, Check, Maximize2, Instagram, Youtube, Tv, Bookmark, Loader2, Trash2,
+  EyeOff, Eye, Check, Maximize2, Instagram, Youtube, Tv, Loader2, Trash2,
 } from 'lucide-react';
 
 import type { Movie } from '@/lib/types';
@@ -29,8 +29,9 @@ import { getRatingStyle } from '@/lib/utils';
  *   • `canEdit` gates every mutating affordance (none render for non-editors).
  *   • Rating shown is the VIEWER'S OWN score (from the ratings cache), labelled
  *     "your rating" — consistent on both surfaces, never an ambiguous number.
- *   • Optional data (notes, added-by, social link, TV badge) renders only when
- *     present in the payload, so the read-only twin is never strictly poorer.
+ *   • Optional data (added-by, social link, TV badge) renders only when present
+ *     in the payload, so the read-only twin is never strictly poorer. (Notes
+ *     live on the dedicated `notes` tab — see v3/notes-board.tsx — not here.)
  *   • Real button semantics + keyboard activation on the tap target.
  */
 
@@ -90,11 +91,6 @@ export const MovieCellGrid = memo(function MovieCellGrid({
   const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
   const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
 
-  const notesEntries = useMemo(
-    () => (movie.notes ? Object.entries(movie.notes) : []),
-    [movie.notes],
-  );
-
   // Live profile cache override of the add-time denormalized snapshot.
   const isAddedByCurrentUser = !!user && movie.addedBy === user.uid;
   const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
@@ -104,23 +100,19 @@ export const MovieCellGrid = memo(function MovieCellGrid({
   }, [isAddedByCurrentUser, liveAdder?.displayName, movie.addedByDisplayName, movie.addedByUsername]);
   const addedByInitial = addedByName ? addedByName.charAt(0).toUpperCase() : null;
 
-  const noteCount = notesEntries.length;
-  const ownNote = user?.uid ? movie.notes?.[user.uid] : undefined;
-
   const handleClick = () => onOpenDetails?.(movie);
 
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
   const posterSrc = movie.posterUrl || POSTER_FALLBACK;
 
-  // The visual badges (rating / status / TV / notes) are title-only, which
-  // screen readers don't announce — fold their state into the tap target's name.
+  // The visual badges (rating / status / TV) are title-only, which screen
+  // readers don't announce — fold their state into the tap target's name.
   const ariaLabel = [
     movie.title,
     movie.mediaType === 'tv' ? 'TV show' : null,
     userRating !== null ? `your rating ${userRating.toFixed(1)} out of 10` : null,
     movie.status === 'Watched' ? 'watched' : 'to watch',
-    noteCount > 0 ? `${noteCount} ${noteCount === 1 ? 'note' : 'notes'}` : null,
     hasSocialLink ? 'has video link' : null,
   ].filter(Boolean).join(', ');
 
@@ -169,7 +161,7 @@ export const MovieCellGrid = memo(function MovieCellGrid({
           )}
         </div>
 
-        {/* Bottom row: added-by + note count · status — decorative */}
+        {/* Bottom row: added-by · status — decorative */}
         <div aria-hidden className="absolute bottom-1 left-1 right-1 flex justify-between items-end">
           <div className="flex items-center gap-1">
             {addedByInitial && listOwnerId && (
@@ -178,15 +170,6 @@ export const MovieCellGrid = memo(function MovieCellGrid({
                 title={`Added by ${addedByName}`}
               >
                 {addedByInitial}
-              </div>
-            )}
-            {noteCount > 0 && (
-              <div
-                className="flex items-center gap-0.5 px-1.5 h-5 rounded-full bg-black/55 backdrop-blur-sm text-white cc-meta text-[9px]"
-                title={`${noteCount} ${noteCount === 1 ? 'note' : 'notes'}`}
-              >
-                <Bookmark className="h-2.5 w-2.5" strokeWidth={2} />
-                {noteCount}
               </div>
             )}
           </div>
@@ -216,17 +199,12 @@ export const MovieCellGrid = memo(function MovieCellGrid({
         </div>
       </div>
 
-      {/* Title + year + own note */}
+      {/* Title + year (notes live on the dedicated notes tab now) */}
       <div className="mt-1.5 px-0.5">
         <p className="text-[13px] font-headline font-semibold lowercase tracking-tight truncate leading-tight" title={movie.title}>
           {movie.title}
         </p>
         <p className="cc-meta text-[11px] text-muted-foreground">{movie.year}</p>
-        {ownNote && (
-          <p className="mt-1.5 pl-1.5 border-l border-border font-serif italic text-[11px] leading-snug text-foreground/80 line-clamp-2 break-words">
-            {ownNote}
-          </p>
-        )}
       </div>
     </div>
   );
@@ -250,34 +228,12 @@ export const MovieCellRow = memo(function MovieCellRow({
   const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
   const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
 
-  const notesEntries = useMemo(
-    () => (movie.notes ? Object.entries(movie.notes) : []),
-    [movie.notes],
-  );
-
   const isAddedByCurrentUser = !!user && movie.addedBy === user.uid;
   const liveAdder = useUserProfile(isAddedByCurrentUser ? null : movie.addedBy);
   const addedByName = useMemo(() => {
     if (isAddedByCurrentUser) return user?.displayName || user?.email?.split('@')[0] || 'You';
     return liveAdder?.displayName || movie.addedByDisplayName || movie.addedByUsername || null;
   }, [isAddedByCurrentUser, user?.displayName, user?.email, liveAdder?.displayName, movie.addedByDisplayName, movie.addedByUsername]);
-
-  const noteAuthorNames = useMemo(() => {
-    const authors: Record<string, string> = {};
-    notesEntries.forEach(([uid]) => {
-      if (uid === user?.uid) {
-        authors[uid] = user?.displayName || user?.email?.split('@')[0] || 'you';
-      } else if (movie.noteAuthors?.[uid]) {
-        const author = movie.noteAuthors[uid];
-        authors[uid] = author.username || author.displayName || 'user';
-      } else if (uid === movie.addedBy && movie.addedByUsername) {
-        authors[uid] = movie.addedByUsername;
-      } else {
-        authors[uid] = 'user';
-      }
-    });
-    return authors;
-  }, [notesEntries, user?.uid, user?.displayName, user?.email, movie.noteAuthors, movie.addedBy, movie.addedByUsername]);
 
   const effectiveOwnerId = listOwnerId || user?.uid;
 
@@ -416,20 +372,6 @@ export const MovieCellRow = memo(function MovieCellRow({
           )}
         </div>
       </div>
-
-      {/* Notes — collaborator annotations (editable lists only; absent on the
-          public payload, so this section simply doesn't render there). */}
-      {notesEntries.length > 0 && (
-        <div className="px-3 pb-3 pt-1 border-t border-hair/60 space-y-1.5">
-          {notesEntries.map(([uid, note]) => (
-            <div key={uid} className="text-sm leading-relaxed">
-              <span className="font-semibold text-primary">@{noteAuthorNames[uid] || '...'}</span>
-              <span className="text-muted-foreground/50 mx-1.5">·</span>
-              <span className="text-muted-foreground line-clamp-2 break-words">{note}</span>
-            </div>
-          ))}
-        </div>
-      )}
     </div>
   );
 });
