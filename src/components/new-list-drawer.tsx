@@ -271,7 +271,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
     >
       {/* ── Header — cancel · create ─────────────────────────────────── */}
       <div
-        className="flex-shrink-0 flex items-center justify-between px-4 border-b border-border"
+        className="flex-shrink-0 flex items-center justify-between px-4 border-b border-hair"
         style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
       >
         <button
@@ -351,7 +351,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
               onChange={(e) => setDescription(e.target.value.slice(0, 280))}
               placeholder="what's this list about?"
               rows={3}
-              className="w-full bg-transparent border-0 outline-none resize-none font-serif italic font-light text-[15px] leading-[1.4] placeholder:text-muted-foreground placeholder:italic min-h-[40px]"
+              className="w-full bg-transparent border-0 outline-none resize-none font-serif italic text-[15px] leading-[1.4] placeholder:text-muted-foreground placeholder:italic min-h-[40px]"
             />
           </Field>
 
@@ -389,18 +389,18 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
                   <button
                     onClick={() => removeInvite(i.uid)}
                     aria-label={`Remove ${i.username || 'friend'}`}
-                    className="absolute -top-1 -right-1 h-4 w-4 rounded-full bg-foreground text-background flex items-center justify-center"
+                    className="absolute -top-1 -right-1 h-5 w-5 rounded-full bg-foreground text-background flex items-center justify-center"
                   >
-                    <X className="h-2.5 w-2.5" strokeWidth={2.5} />
+                    <X className="h-3 w-3" strokeWidth={2.6} />
                   </button>
                 </div>
               ))}
               {invites.length < MAX_COLLABORATORS && (
                 <button
                   onClick={() => setStep('invite-friends')}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-dashed border-border bg-transparent cc-meta text-[11px] text-muted-foreground active:opacity-60"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-full border border-dashed border-rule bg-transparent cc-meta text-[11px] text-muted-foreground active:opacity-60"
                 >
-                  <Plus className="h-3 w-3" strokeWidth={1.8} />
+                  <Plus className="h-3.5 w-3.5" strokeWidth={1.8} />
                   {invites.length === 0 ? 'invite friends' : 'add more'}
                 </button>
               )}
@@ -414,11 +414,13 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
 
 // ─── Sub-components ─────────────────────────────────────────────────────
 
+// Eyebrow label over whitespace — the canonical v3 editor idiom
+// (edit-profile-sheet). The old per-field drawn rule read heavy/dated and no
+// sibling sheet uses one.
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="mt-5">
-      <div className="cc-eyebrow">{label}</div>
-      <div className="h-px bg-border mt-1.5 mb-2" />
+    <div className="mt-7">
+      <div className="cc-eyebrow mb-2.5">{label}</div>
       {children}
     </div>
   );
@@ -441,19 +443,19 @@ function VisibilityCard({
     <button
       onClick={onClick}
       className={cn(
-        'flex-1 px-3 py-2.5 rounded-xl border text-left transition-colors',
+        'flex-1 p-3.5 rounded-xl border text-left transition-colors',
         active
           ? 'border-foreground bg-foreground text-background'
-          : 'border-border bg-transparent',
+          : 'border-hair bg-transparent',
       )}
     >
-      <div className="flex items-center gap-1.5 font-headline font-bold text-[13px] lowercase tracking-tight">
-        <Icon className="h-3.5 w-3.5" strokeWidth={1.8} />
+      <div className="flex items-center gap-1.5 font-headline font-bold text-[16px] lowercase tracking-[-0.02em]">
+        <Icon className="h-[18px] w-[18px]" strokeWidth={1.8} />
         {label}
       </div>
       <div
         className={cn(
-          'cc-meta text-[10px] mt-1',
+          'cc-meta text-[11px] mt-1',
           active ? 'text-background/60' : 'text-muted-foreground',
         )}
       >
@@ -498,16 +500,16 @@ function CoverHero({
   return (
     <button
       onClick={onUpload}
-      className="relative aspect-[16/9] w-full rounded-[14px] border border-dashed border-border bg-background flex flex-col items-center justify-center gap-2.5 active:opacity-70"
+      className="relative aspect-[16/9] w-full rounded-[14px] border border-dashed border-hair bg-background flex flex-col items-center justify-center gap-2.5 active:opacity-70"
     >
-      <div className="flex items-center justify-center h-11 w-11 rounded-full bg-card border border-border text-foreground">
+      <div className="flex items-center justify-center h-11 w-11 rounded-full bg-card border border-hair text-foreground">
         <ImageIcon className="h-5 w-5" strokeWidth={1.6} />
       </div>
       <div className="text-center px-6">
-        <p className="font-headline font-bold text-[15px] lowercase tracking-tight text-foreground">
+        <p className="font-headline font-bold text-[16px] lowercase tracking-[-0.02em] text-foreground">
           upload a cover image
         </p>
-        <p className="font-serif italic text-[12px] text-muted-foreground mt-0.5">
+        <p className="font-serif italic text-[13px] text-muted-foreground mt-0.5">
           or skip — we&apos;ll mosaic your first 3 films
         </p>
       </div>
@@ -533,14 +535,14 @@ function GlassPill({
         onClick();
       }}
       className={cn(
-        'h-7 px-2.5 rounded-full inline-flex items-center gap-1 backdrop-blur-md border cc-meta text-[10px]',
+        'h-9 px-3.5 rounded-full inline-flex items-center gap-1.5 backdrop-blur-md border',
         dark
           ? 'bg-foreground/85 border-foreground/0 text-background'
           : 'bg-white/25 border-white/30 text-white',
       )}
     >
-      <Icon className="h-3 w-3" strokeWidth={1.8} />
-      {label}
+      <Icon className="h-4 w-4" strokeWidth={1.8} />
+      <span className="font-headline text-[13px] font-semibold lowercase tracking-tight">{label}</span>
     </button>
   );
 }
@@ -560,7 +562,7 @@ function FriendPicker({
 }) {
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
-      <div className="px-3 pt-3 pb-2 border-b border-border">
+      <div className="px-3 pt-3 pb-2 border-b border-hair">
         <div className="flex items-center gap-2.5 h-12 px-3.5 rounded-[14px] border border-hair bg-sunken">
           <Search className="h-[18px] w-[18px] text-muted-foreground shrink-0" strokeWidth={1.8} />
           <input
