@@ -28,7 +28,10 @@ export function GlassBtn({ icon: Icon, onClick, label, ariaLabel, size = 38, cla
       onClick={onClick ? () => { haptic('light'); onClick(); } : undefined}
       aria-label={ariaLabel ?? label}
       className={cn(
-        'inline-flex items-center justify-center gap-1.5 rounded-full border border-white/20 text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] transition-transform active:scale-95',
+        'relative inline-flex items-center justify-center gap-1.5 rounded-full border border-white/20 text-white shadow-[0_2px_10px_rgba(0,0,0,0.18)] transition-transform active:scale-95',
+        // Keep the 38px glass visual but pad the tap area to the 44px iOS min
+        // via a transparent centered hit-slop (no layout/visual change).
+        'before:absolute before:left-1/2 before:top-1/2 before:h-11 before:w-11 before:-translate-x-1/2 before:-translate-y-1/2 before:content-[\'\']',
         className
       )}
       style={{

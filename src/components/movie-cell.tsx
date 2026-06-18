@@ -64,8 +64,9 @@ type MovieCellProps = {
 };
 
 // Shared keyboard handler so a non-<button> tap target still activates on
-// Enter/Space (and Space doesn't scroll the page).
-function tapKeyDown(handler: () => void) {
+// Enter/Space (and Space doesn't scroll the page). Exported so analogous
+// clickable rows elsewhere (e.g. people-sheet) stay in sync.
+export function tapKeyDown(handler: () => void) {
   return (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -177,7 +178,7 @@ export const MovieCellGrid = memo(function MovieCellGrid({
           <div
             className={`w-5 h-5 rounded-full flex items-center justify-center ring-1 ring-white/70 ${
               movie.status === 'Watched'
-                ? 'bg-[oklch(0.52_0.11_150)]'
+                ? 'bg-success'
                 : 'bg-black/50 backdrop-blur-sm'
             }`}
             title={movie.status}

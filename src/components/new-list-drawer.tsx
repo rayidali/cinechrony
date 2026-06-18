@@ -276,11 +276,11 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
       >
         <button
           onClick={step === 'invite-friends' ? () => setStep('create') : handleCancel}
-          className="cc-meta text-[12px] text-muted-foreground active:text-foreground transition-colors"
+          className="-ml-1.5 px-1.5 py-1.5 font-ui text-[16px] text-muted-foreground active:text-foreground transition-colors"
         >
           {step === 'invite-friends' ? 'back' : 'cancel'}
         </button>
-        <span className="font-headline font-bold text-[13px] lowercase tracking-tight text-foreground">
+        <span className="font-headline font-bold text-[19px] lowercase tracking-[-0.02em] text-foreground">
           {step === 'invite-friends' ? 'invite friends' : 'new list'}
         </span>
         {step === 'create' ? (
@@ -288,7 +288,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
             onClick={handleCreate}
             disabled={!canSubmit}
             className={cn(
-              'h-9 px-5 rounded-full font-headline font-bold text-[12px] lowercase tracking-tight transition-all',
+              'h-9 px-5 rounded-full font-headline font-bold text-[15px] lowercase tracking-tight transition-all',
               canSubmit
                 ? 'bg-primary text-white shadow-fab active:scale-[0.97]'
                 : 'bg-muted text-muted-foreground/55 cursor-not-allowed',
@@ -299,7 +299,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
         ) : (
           <button
             onClick={() => setStep('create')}
-            className="h-9 px-5 rounded-full font-headline font-bold text-[12px] lowercase tracking-tight bg-primary text-white shadow-fab active:scale-[0.97]"
+            className="h-9 px-5 rounded-full font-headline font-bold text-[15px] lowercase tracking-tight bg-primary text-white shadow-fab active:scale-[0.97]"
           >
             done ({invites.length})
           </button>
@@ -561,14 +561,14 @@ function FriendPicker({
   return (
     <div className="flex-1 overflow-y-auto flex flex-col">
       <div className="px-3 pt-3 pb-2 border-b border-border">
-        <div className="flex items-center gap-2 h-10 px-3 rounded-full border border-border bg-background">
-          <Search className="h-4 w-4 text-muted-foreground" strokeWidth={1.8} />
+        <div className="flex items-center gap-2.5 h-12 px-3.5 rounded-[14px] border border-hair bg-sunken">
+          <Search className="h-[18px] w-[18px] text-muted-foreground shrink-0" strokeWidth={1.8} />
           <input
             autoFocus
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             placeholder="@username or name…"
-            className="flex-1 bg-transparent border-0 outline-none font-serif italic text-sm placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent border-0 outline-none font-serif italic text-[15px] placeholder:text-muted-foreground"
           />
         </div>
       </div>
@@ -588,10 +588,10 @@ function FriendPicker({
                 size="md"
               />
               <div className="flex-1 min-w-0">
-                <p className="font-headline font-semibold text-sm tracking-tight truncate">
+                <p className="font-headline font-semibold text-[16px] tracking-tight truncate">
                   {u.displayName || u.username || 'user'}
                 </p>
-                <p className="cc-meta text-[10px] text-muted-foreground truncate">
+                <p className="cc-meta text-[11px] text-muted-foreground truncate">
                   @{u.username}
                 </p>
               </div>

@@ -110,10 +110,12 @@ export default function UserProfilePage() {
       }
     }
 
-    if (username) {
+    // Gate on auth settling: running before `user` resolves can double-fire
+    // and (worse) flash this page before the own-profile redirect fires.
+    if (!isUserLoading && username) {
       loadProfile();
     }
-  }, [username, user, router]);
+  }, [username, user, isUserLoading, router]);
 
   // The viewed user's activity stream (world-readable). One-shot getDocs with
   // a local try/catch so a not-yet-built composite index degrades to an empty

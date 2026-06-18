@@ -326,7 +326,7 @@ export function SearchOverlay({ isOpen, onClose }: SearchOverlayProps) {
           <button
             onClick={handleClose}
             aria-label="Close search"
-            className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-transform active:scale-90"
+            className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-transform active:scale-90"
           >
             <X className="h-[19px] w-[19px]" strokeWidth={2.2} />
           </button>
@@ -480,7 +480,7 @@ function DiscoverView({
             <button
               key={vibe.id}
               onClick={() => onVibe(vibe)}
-              className="rounded-full border border-border bg-card px-4 py-2 font-serif italic text-[14px] text-foreground shadow-press transition-transform active:scale-95"
+              className="rounded-full border border-hair bg-card px-4 py-2 font-serif italic text-[14px] text-foreground transition-transform active:scale-95"
             >
               {vibe.label}
             </button>

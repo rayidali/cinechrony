@@ -45,12 +45,14 @@ const feedItemAuthor = (item: FeedItem) =>
 const feedItemId = (item: FeedItem) =>
   item.kind === 'activity' ? `a_${item.activity.id}` : `p_${item.post.id}`;
 
-// Skeleton loader for the initial load.
+// Skeleton loader for the initial load — mirrors the borderless diary reel
+// (divide-y rows, 48×72 poster chip) so there's no card→stream layout jump on
+// hydration.
 function FeedSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="divide-y divide-hair">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-card rounded-2xl border border-border p-4 shadow-lift">
+        <div key={i} className="py-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
             <div className="flex-1">
@@ -59,7 +61,7 @@ function FeedSkeleton() {
             </div>
           </div>
           <div className="flex gap-3">
-            <div className="w-16 aspect-[2/3] rounded-lg bg-muted animate-pulse" />
+            <div className="w-12 h-[72px] rounded-[10px] bg-muted animate-pulse" />
             <div className="flex-1">
               <div className="h-5 bg-muted rounded animate-pulse w-3/4 mb-2" />
               <div className="h-3 bg-muted rounded animate-pulse w-1/4" />
@@ -482,8 +484,14 @@ export function ActivityFeed({
       ) : visibleItems.length === 0 ? (
         <>
           <EmptyState feedFilter={feedFilter} />
-          {/* An empty feed but the viewer has loved films → still offer
-              discovery, the moment it matters most. */}
+          {/* An empty feed → still offer discovery the moment it matters most:
+              the global hot-take pool, then loved-film recommendations. Both
+              are for-you-only and already block/mute/self-filtered. */}
+          {feedFilter === 'all' && visibleHotTakes.length > 0 && (
+            <div className="mt-2">
+              <HotTakeCard take={visibleHotTakes[0]} />
+            </div>
+          )}
           {feedFilter === 'all' && recSets.length > 0 && (
             <div className="space-y-4 mt-2">
               {recSets.map((set) => (

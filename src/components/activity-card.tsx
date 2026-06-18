@@ -103,7 +103,7 @@ export const ActivityCard = memo(function ActivityCard({
     <div className="py-5">
       {/* Row 1 — who · what · when */}
       <div className="flex items-center gap-[11px]">
-        <Link href={profileUrl} className="flex-shrink-0">
+        <Link href={profileUrl} aria-label={handle} className="flex-shrink-0">
           {livePhotoURL ? (
             <Image
               src={livePhotoURL}
@@ -161,7 +161,7 @@ export const ActivityCard = memo(function ActivityCard({
       {/* Row 2 — the movie */}
       <button onClick={handleMovieClick} className="w-full text-left group mt-3">
         <div className="flex gap-3 items-start">
-          <div className="flex-shrink-0 w-12 aspect-[2/3] rounded-lg overflow-hidden border border-border relative">
+          <div className="relative w-12 h-[72px] rounded-[10px] overflow-hidden bg-muted flex-shrink-0">
             <Image
               src={posterUrl}
               alt={activity.movieTitle}
@@ -196,10 +196,11 @@ export const ActivityCard = memo(function ActivityCard({
         </div>
       </button>
 
-      {/* Footer — like + save on the left, reply on the right. Touch targets
-          sized for thumbs: 40×40 with negative outer margin to keep visual
-          spacing compact. Icons bumped to 18px for legibility. */}
-      <div className="flex items-center justify-between mt-2.5 pt-3 border-t border-hair">
+      {/* Footer — like + save on the left, reply on the right. Borderless to
+          match the PostCard footer: the reel's own divide-y draws the only
+          rule between entries (no internal border-t). Touch targets sized for
+          thumbs; icons 18px for legibility. */}
+      <div className="flex items-center justify-between mt-3.5">
         <div className="flex items-center gap-1 -my-1">
           <button
             onClick={handleLike}

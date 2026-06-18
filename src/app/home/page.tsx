@@ -113,7 +113,7 @@ export default function HomePage() {
             <HomeTopBar filter={feedFilter} onSelect={setFeedFilter} scrolled={scrolled} />
 
             {/* Search + scan — one rounded unit, scan is the Phase C hook */}
-            <div className="mt-1.5 flex items-center h-12 rounded-[14px] border-[0.5px] border-hair bg-sunken overflow-hidden">
+            <div className="mt-1.5 flex items-center h-12 rounded-[14px] border border-hair bg-sunken overflow-hidden">
               <button
                 onClick={() => setSearchOpen(true)}
                 className="flex-1 h-full flex items-center gap-2.5 px-[13px] text-left transition-colors active:bg-foreground/[0.03]"

@@ -177,7 +177,7 @@ export const PostCard = memo(function PostCard({
       <article className="py-5">
         {/* Byline */}
         <div className="flex items-center gap-[11px]">
-          <Link href={profileUrl} className="flex-shrink-0">
+          <Link href={profileUrl} aria-label={handle} className="flex-shrink-0">
             <span className="h-10 w-10 rounded-full overflow-hidden bg-muted inline-flex items-center justify-center">
               {post.authorPhotoURL ? (
                 // eslint-disable-next-line @next/next/no-img-element
@@ -362,9 +362,12 @@ function MovieCell({
       <button
         onClick={onAdd}
         aria-label="add to a list"
-        className="w-[34px] h-[34px] rounded-full bg-primary text-primary-foreground inline-flex items-center justify-center flex-shrink-0 transition-transform active:scale-90"
+        className="w-11 h-11 inline-flex items-center justify-center flex-shrink-0 transition-transform active:scale-90"
       >
-        <Plus className="h-[18px] w-[18px]" strokeWidth={2.6} />
+        {/* 34px disc kept for visual weight; hit area padded to the 44px min. */}
+        <span className="w-[34px] h-[34px] rounded-full bg-primary text-primary-foreground inline-flex items-center justify-center">
+          <Plus className="h-[18px] w-[18px]" strokeWidth={2.6} />
+        </span>
       </button>
     </div>
   );

@@ -22,7 +22,9 @@ const GRADIENTS: [string, string][] = [
   ['#4a3a72', '#1f163d'],
 ];
 
-function gradientFromSeed(seed?: string): string {
+/** Deterministic per-seed cover gradient — shared so previews (e.g. the
+ *  edit-profile sheet) match the live Hero exactly. */
+export function gradientFromSeed(seed?: string): string {
   const s = seed && seed.length ? seed : 'cinechrony';
   const i = s.charCodeAt(0) + s.length;
   const [a, b] = GRADIENTS[i % GRADIENTS.length];

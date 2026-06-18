@@ -416,11 +416,11 @@ export default function ListsPage() {
                           className={`flex items-center justify-between gap-3 px-4 py-3.5 ${i < pendingInvites.length - 1 ? 'border-b border-rule' : ''}`}
                         >
                           <div className="flex min-w-0 items-center gap-3">
-                            <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background">
-                              <Users className="h-4 w-4" strokeWidth={1.8} />
+                            <div className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-foreground text-background">
+                              <Users className="h-[22px] w-[22px]" strokeWidth={1.8} />
                             </div>
                             <div className="min-w-0">
-                              <p className="truncate font-headline text-sm font-semibold lowercase tracking-tight">
+                              <p className="truncate font-headline text-[16px] font-semibold lowercase tracking-tight">
                                 {invite.listName}
                               </p>
                               <p className="cc-meta text-[11px] text-muted-foreground">

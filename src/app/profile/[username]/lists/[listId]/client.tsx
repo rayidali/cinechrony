@@ -110,12 +110,13 @@ export default function PublicListPage() {
     return (
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
-          <div className="flex flex-col items-center justify-center min-h-[60vh]">
+          <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
             <Lock className="h-16 w-16 text-muted-foreground mb-4" />
-            <h1 className="font-headline text-2xl font-bold lowercase mb-2">
+            <div className="cc-eyebrow">{error === 'This list is private.' ? 'private' : 'not found'}</div>
+            <h1 className="font-headline text-2xl font-bold lowercase tracking-tight mt-3 mb-2">
               {error === 'This list is private.' ? 'private list' : 'list not found'}
             </h1>
-            <p className="text-muted-foreground mb-4">{error}</p>
+            <p className="cc-lead text-muted-foreground mb-4 max-w-md">{error}</p>
             <Button onClick={() => router.back()}>go back</Button>
           </div>
         </div>
@@ -177,8 +178,8 @@ export default function PublicListPage() {
               </div>
             ) : (
               <div className="flex items-center gap-3" aria-label="Loading owner">
-                <div className="h-10 w-10 rounded-full bg-muted animate-pulse" />
-                <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+                <div className="h-10 w-10 rounded-full bg-secondary animate-pulse" />
+                <div className="h-4 w-32 rounded bg-secondary animate-pulse" />
               </div>
             )}
 
@@ -197,8 +198,8 @@ export default function PublicListPage() {
               </div>
             ) : (
               <div className="mt-5 space-y-3" aria-label="Loading list header">
-                <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
-                <div className="h-8 w-1/3 rounded-full bg-muted animate-pulse" />
+                <div className="h-4 w-1/2 rounded bg-secondary animate-pulse" />
+                <div className="h-8 w-1/3 rounded-full bg-secondary animate-pulse" />
               </div>
             )}
 

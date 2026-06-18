@@ -39,12 +39,9 @@ export function TopWatchers({ onViewAll }: { onViewAll?: () => void }) {
         className="mb-3.5"
       />
       <div className="flex gap-4 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">
-        {entries.map((e) => (
-          <Link
-            key={e.uid}
-            href={e.username ? `/profile/${e.username}` : '#'}
-            className="flex-shrink-0 w-[76px] text-center"
-          >
+        {entries.map((e) => {
+          const inner = (
+            <>
             <div className="relative w-[76px] h-[76px] mx-auto">
               <div className="w-[76px] h-[76px] rounded-[26px] overflow-hidden bg-muted">
                 {e.photoURL ? (
@@ -70,8 +67,21 @@ export function TopWatchers({ onViewAll }: { onViewAll?: () => void }) {
               @{e.username || 'user'}
             </div>
             <div className="font-mono text-[9.5px] text-muted-foreground tabular-nums">{e.films} films</div>
-          </Link>
-        ))}
+            </>
+          );
+          // A username-less entry must not render a dead `#` anchor (focusable,
+          // scrolls to top, dirties the URL) — fall back to a plain div, like
+          // TopWatchersAll's null-guard. Keep the entry so ranks don't shift.
+          return e.username ? (
+            <Link key={e.uid} href={`/profile/${e.username}`} className="flex-shrink-0 w-[76px] text-center">
+              {inner}
+            </Link>
+          ) : (
+            <div key={e.uid} className="flex-shrink-0 w-[76px] text-center">
+              {inner}
+            </div>
+          );
+        })}
       </div>
     </section>
   );

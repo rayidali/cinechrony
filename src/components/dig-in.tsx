@@ -49,7 +49,7 @@ export function DigIn({ onViewAll }: { onViewAll?: (cat?: DigInCategory) => void
         eyebrow="top picks"
         title="dig in"
         trailing={<ViewAll onTap={onViewAll ? () => onViewAll() : undefined} />}
-        className="mb-3"
+        className="mb-3.5"
       />
       <div className="flex gap-3 overflow-x-auto scrollbar-hide -mx-[18px] px-[18px] pb-1">
         {cats.map((c) => (
@@ -61,7 +61,7 @@ export function DigIn({ onViewAll }: { onViewAll?: (cat?: DigInCategory) => void
             <div className="relative aspect-[3/4] rounded-[15px] bg-sunken overflow-hidden">
               <PosterFan posters={c.films.slice(0, 3).map((f) => f.posterUrl)} />
               {c.films.length > 0 && (
-                <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-sm font-mono text-[9px] font-bold text-white tabular-nums">
+                <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-sm font-mono text-[10px] font-bold text-white tabular-nums">
                   {c.films.length} films
                 </span>
               )}

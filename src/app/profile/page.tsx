@@ -40,6 +40,10 @@ import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/type
 // Shared lists + invites live on the Lists tab, not here.
 type ProfileTab = 'films' | 'lists' | 'activity';
 
+// next/image throws on an empty src — guard the top-5 posters like the rest of
+// the app (movie-cell / movie-drawer / note-sheet).
+const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
+
 /** Format a Firestore date-ish value as a tabular MM.YY. */
 function shortMonthYear(value: unknown): string | null {
   if (!value) return null;
@@ -362,7 +366,7 @@ export default function MyProfilePage() {
                               onClick={() => setIsFavoritePickerOpen(true)}
                             >
                               <Image
-                                src={movie.posterUrl}
+                                src={movie.posterUrl || POSTER_FALLBACK}
                                 alt={movie.title}
                                 width={120}
                                 height={180}

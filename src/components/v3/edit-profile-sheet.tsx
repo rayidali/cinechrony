@@ -7,6 +7,7 @@ import { compressAvatar } from '@/lib/avatar-image';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
+import { gradientFromSeed } from '@/components/v3/hero';
 
 /**
  * EditProfileSheet — the v3 "edit profile" surface (design mock 13). A
@@ -172,7 +173,9 @@ export function EditProfileSheet({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={draftPhoto} alt="" className="absolute inset-0 h-full w-full object-cover" />
               ) : (
-                <div className="absolute inset-0 bg-gradient-to-br from-[#3a3a85] to-[#1b1b46]" />
+                // Match the live profile Hero's seeded gradient (same seed +
+                // helper) so the preview equals what the user actually has.
+                <div className="absolute inset-0" style={{ background: gradientFromSeed(displayName || username || 'profile') }} />
               )}
               <div
                 aria-hidden

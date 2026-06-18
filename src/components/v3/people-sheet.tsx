@@ -8,6 +8,7 @@ import { apiCall } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { FollowButton } from '@/components/follow-button';
 import { Segmented } from '@/components/v3/segmented';
+import { tapKeyDown } from '@/components/movie-cell';
 import type { UserProfile } from '@/lib/types';
 
 /**
@@ -127,7 +128,7 @@ export function PeopleSheet({
     <div className="fixed inset-0 z-[60] flex flex-col bg-background">
       {/* grabber */}
       <div className="flex justify-center pt-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}>
-        <div className="h-1 w-9 rounded-full bg-muted-foreground/30" />
+        <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
       </div>
 
       {/* header */}
@@ -203,7 +204,11 @@ export function PeopleSheet({
             {filtered.map((person, i) => (
               <div
                 key={person.uid}
+                role="button"
+                tabIndex={0}
                 onClick={() => openProfile(person.username)}
+                onKeyDown={tapKeyDown(() => openProfile(person.username))}
+                aria-label={`View ${person.displayName || person.username}'s profile`}
                 className="relative flex cursor-pointer items-center gap-3 py-3 transition-colors active:bg-foreground/[0.03]"
               >
                 <ProfileAvatar

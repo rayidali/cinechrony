@@ -193,7 +193,7 @@ export function MovieList({
     const searching = search.trim().length > 0;
     return (
       <div className="text-center py-16 border border-dashed border-hair rounded-[20px] bg-secondary">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="" className="h-12 w-12 mx-auto opacity-50 mb-4" />
         <h3 className="font-headline text-2xl font-bold lowercase">
           {searching ? 'nothing matches' : 'all clear'}
         </h3>

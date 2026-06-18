@@ -15,6 +15,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { useToast } from '@/hooks/use-toast';
+import { seededGradient } from '@/lib/seeded-gradient';
 
 type CoverPickerProps = {
   isOpen: boolean;
@@ -221,7 +222,7 @@ export function CoverPicker({
                 sizes="300px"
               />
             ) : (
-              <div className="w-full h-full flex flex-col items-center justify-center bg-gradient-to-br from-violet-400 via-purple-400 to-fuchsia-400">
+              <div className="w-full h-full flex flex-col items-center justify-center" style={{ background: seededGradient(listName) }}>
                 <ImageIcon className="h-12 w-12 text-white/50" />
                 <p className="text-white/70 text-sm mt-2">No cover image</p>
               </div>
@@ -264,7 +265,7 @@ export function CoverPicker({
             )}
           </label>
           <p className="text-xs text-muted-foreground text-center">
-            JPG, PNG or GIF. Max 5MB.
+            JPG, PNG or GIF. Max 15MB.
           </p>
 
           {/* Action buttons */}

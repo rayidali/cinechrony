@@ -265,12 +265,12 @@ export default function ListDetailPage() {
             <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border border-border">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
-            <h1 className="text-2xl font-headline font-bold mb-2">Access Denied</h1>
-            <p className="text-muted-foreground mb-4 text-center max-w-md">
-              You don&apos;t have permission to view this list. Ask the list owner to invite you as a collaborator.
+            <h1 className="text-2xl font-headline font-bold lowercase tracking-tight mb-2">access denied</h1>
+            <p className="cc-lead text-muted-foreground mb-4 text-center max-w-md">
+              you don&apos;t have permission to view this list. ask the owner to invite you as a collaborator.
             </p>
             <Link href="/lists">
-              <Button>Go to My Lists</Button>
+              <Button>go to my lists</Button>
             </Link>
           </div>
         </div>

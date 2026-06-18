@@ -37,10 +37,12 @@ export function PostFab({ onPosted }: { onPosted?: () => void }) {
 
       <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen}>
         <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none">
-            <Drawer.Title className="sr-only">Create</Drawer.Title>
-            <div className="mx-auto mt-3 mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
+          <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[95]" />
+          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none">
+            <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
+            <Drawer.Title className="px-5 pt-3 pb-1 font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">
+              create
+            </Drawer.Title>
             <div className="px-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               <SheetRow
                 icon={PencilLine}
@@ -109,12 +111,16 @@ function SheetRow({
     <button
       onClick={onSelect}
       className={cn(
-        'w-full flex items-center gap-3 px-2 py-3 rounded-lg text-left',
-        'text-foreground transition-colors hover:bg-muted',
+        'w-full flex items-center gap-3.5 px-2 py-3 rounded-2xl text-left',
+        'transition-colors active:bg-foreground/[0.03]',
       )}
     >
-      <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
-      <span className="font-serif text-[15px] lowercase">{label}</span>
+      <span className="flex-shrink-0 h-11 w-11 rounded-full bg-sunken text-muted-foreground flex items-center justify-center">
+        <Icon className="h-5 w-5" strokeWidth={1.9} />
+      </span>
+      <span className="flex-1 font-headline font-bold text-[16px] lowercase tracking-[-0.02em] text-foreground">
+        {label}
+      </span>
     </button>
   );
 }

@@ -210,7 +210,7 @@ export function TopFivePicker({ isOpen, onClose, currentFavorites, onUpdate }: T
           className="flex items-center gap-3 px-4 pb-3"
           style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
         >
-          <div className="flex h-11 flex-1 items-center gap-2.5 rounded-[13px] border border-hair bg-sunken px-3.5">
+          <div className="flex h-12 flex-1 items-center gap-2.5 rounded-[14px] border border-hair bg-sunken px-3.5">
             <Search className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} />
             <input
               autoFocus
