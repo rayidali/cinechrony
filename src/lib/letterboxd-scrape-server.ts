@@ -26,7 +26,8 @@
 
 import type { LetterboxdData } from './letterboxd-server';
 
-const APIFY_ACTOR = 'apify~cheerio-scraper';
+const CHEERIO_ACTOR = 'apify~cheerio-scraper';
+const BROWSER_ACTOR = 'apify~web-scraper';
 const APIFY_BASE = 'https://api.apify.com/v2';
 
 export class LetterboxdUsernameError extends Error {
@@ -175,6 +176,46 @@ export const LETTERBOXD_PAGE_FUNCTION = `async function pageFunction(context) {
   return rows;
 }`;
 
+/**
+ * REVIEWS pageFunction — runs INSIDE apify/web-scraper (a real Chromium with
+ * injected jQuery), so it executes Letterboxd's Cloudflare JS challenge instead
+ * of relying on the IP lottery that made cheerio's review capture flaky. Parses
+ * the same review entries (article.production-viewing → .js-review-body) and
+ * enqueues the remaining review pages.
+ */
+export const REVIEWS_BROWSER_PAGE_FUNCTION = `async function pageFunction(context) {
+  const { request, jQuery, enqueueRequest, log } = context;
+  const $ = jQuery;
+  const url = request.url || '';
+  const rows = [];
+  const parseNY = (raw) => {
+    const m = String(raw || '').match(/^(.*)\\s+\\((\\d{4})\\)\\s*$/);
+    return m ? { name: m[1].trim(), year: m[2] } : { name: String(raw || '').trim(), year: '' };
+  };
+  $('article.production-viewing, article[data-object-name="review"], .js-production-viewing').each(function () {
+    const $el = $(this);
+    const text = ($el.find('.js-review-body, .body-text').first().text() || '').trim();
+    if (!text) return;
+    const poster = $el.find('[data-item-slug],[data-item-link],[data-target-link]').first();
+    const node = poster.length ? poster : $el;
+    const ny = parseNY(node.attr('data-item-name') || node.attr('data-film-name'));
+    if (!ny.name) return;
+    rows.push({ kind: 'review', name: ny.name, year: ny.year, slug: node.attr('data-item-slug') || '', review: text });
+  });
+  if (url.indexOf('/page/') < 0 && typeof enqueueRequest === 'function') {
+    let maxPage = 1;
+    $('.paginate-pages a').each(function () {
+      const h = $(this).attr('href') || '';
+      const mm = h.match(/\\/page\\/(\\d+)\\//);
+      if (mm) { const n = parseInt(mm[1], 10); if (n > maxPage) maxPage = n; }
+    });
+    const base = url.endsWith('/') ? url : url + '/';
+    for (let p = 2; p <= maxPage; p++) { await enqueueRequest({ url: base + 'page/' + p + '/' }); }
+  }
+  if (log && rows.length === 0) log.info('no reviews parsed on ' + url);
+  return rows;
+}`;
+
 /** Validate + normalize a Letterboxd handle (URL-safety + actor-input safety). */
 export function normalizeUsername(raw: string): string {
   const u = (raw || '').trim().replace(/^@/, '').toLowerCase();
@@ -184,29 +225,43 @@ export function normalizeUsername(raw: string): string {
   return u;
 }
 
-/** Build the cheerio-scraper actor input for one user's full library. */
+/** cheerio-scraper input for films + watchlist + lists + favourites (reviews
+ *  go through the browser actor below). */
 export function buildCheerioInput(username: string, maxRequests = 500) {
   const u = normalizeUsername(username);
   return {
     startUrls: [
       { url: `https://letterboxd.com/${u}/films/` },
       { url: `https://letterboxd.com/${u}/watchlist/` },
-      { url: `https://letterboxd.com/${u}/films/reviews/` },
       { url: `https://letterboxd.com/${u}/lists/` },
       { url: `https://letterboxd.com/${u}/` },
     ],
     // Pagination + per-list crawling are enqueued inside the pageFunction.
     pageFunction: LETTERBOXD_PAGE_FUNCTION,
     proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] },
-    // A FRESH residential IP per request: the reviews path 403s a chunk of IPs,
-    // so each retry must hop to a new one. (Mildly worse for deep films
-    // pagination on huge libraries — but that's the ZIP-fallback case anyway,
-    // and reviews reliability matters more.)
-    proxyRotation: 'PER_REQUEST',
-    sessionPoolOptions: { maxPoolSize: 300 },
-    maxConcurrency: 6,
+    proxyRotation: 'RECOMMENDED',
+    sessionPoolOptions: { maxPoolSize: 200 },
+    maxConcurrency: 4,
     maxRequestsPerCrawl: maxRequests,
-    maxRequestRetries: 12,
+    maxRequestRetries: 8,
+  };
+}
+
+/** web-scraper (real browser) input for the REVIEWS crawl — the JS-executing
+ *  actor reliably clears Cloudflare where cheerio's IP-lottery wobbled. */
+export function buildWebScraperReviewsInput(username: string, maxRequests = 120) {
+  const u = normalizeUsername(username);
+  return {
+    startUrls: [{ url: `https://letterboxd.com/${u}/films/reviews/` }],
+    pageFunction: REVIEWS_BROWSER_PAGE_FUNCTION,
+    proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] },
+    injectJQuery: true,
+    // Gentle concurrency + many retries so no review page drops mid-run (a
+    // dropped page = ~12 lost reviews). One clean run then captures all of them.
+    maxConcurrency: 2,
+    maxRequestRetries: 10,
+    maxRequestsPerCrawl: maxRequests,
+    pageLoadTimeoutSecs: 60,
   };
 }
 
@@ -216,9 +271,9 @@ export function buildCheerioInput(username: string, maxRequests = 500) {
  * route starts the run + registers a webhook instead of polling — same start
  * call, same dataset fetch.
  */
-async function runCheerioScraper(input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
+async function runActor(actorSlug: string, input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
   const t = encodeURIComponent(token);
-  const startRes = await fetch(`${APIFY_BASE}/acts/${APIFY_ACTOR}/runs?token=${t}`, {
+  const startRes = await fetch(`${APIFY_BASE}/acts/${actorSlug}/runs?token=${t}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -251,6 +306,26 @@ async function runCheerioScraper(input: unknown, token: string, pollMs = 540_000
   return flat;
 }
 
+/**
+ * Reviews are the one flaky surface: a single browser run usually gets them
+ * all, but a review page occasionally drops mid-run (-12 reviews). Run it a few
+ * times and keep the best; stop early once two runs AGREE on the top count —
+ * that agreement is our "we got them all" signal (no separate oracle needed).
+ */
+async function runReviewsBest(username: string, token: string, maxAttempts = 3): Promise<ScrapedRow[]> {
+  let best: ScrapedRow[] = [];
+  let topCount = -1;
+  let topSeen = 0;
+  for (let i = 0; i < maxAttempts; i++) {
+    const rows = await runActor(BROWSER_ACTOR, buildWebScraperReviewsInput(username), token).catch(() => []);
+    if (rows.length > best.length) best = rows;
+    if (rows.length === topCount) topSeen++;
+    else if (rows.length > topCount) { topCount = rows.length; topSeen = 1; }
+    if (topSeen >= 2 && topCount > 0) break; // two runs agree on the max → complete
+  }
+  return best;
+}
+
 export type ScrapeSummary = {
   username: string;
   watched: number;
@@ -273,7 +348,21 @@ export async function scrapeLetterboxdLibrary(
   const u = normalizeUsername(username);
   if (!opts.token) throw new LetterboxdUsernameError('Missing Apify token.');
 
-  const rows = await runCheerioScraper(buildCheerioInput(u, opts.maxRequests), opts.token);
+  // Two runs in parallel: cheerio for the bulk (films/watchlist/lists/favs),
+  // a real-browser actor for reviews (reliably clears Cloudflare). Reviews are
+  // best-effort — if that run fails, the rest of the import still lands.
+  const [cheerioRes, reviewRes] = await Promise.allSettled([
+    runActor(CHEERIO_ACTOR, buildCheerioInput(u, opts.maxRequests), opts.token),
+    runReviewsBest(u, opts.token),
+  ]);
+  if (cheerioRes.status === 'rejected') throw cheerioRes.reason;
+  const rows = [
+    ...cheerioRes.value,
+    ...(reviewRes.status === 'fulfilled' ? reviewRes.value : []),
+  ];
+  if (reviewRes.status === 'rejected') {
+    console.error('[letterboxd-scrape] reviews run failed:', reviewRes.reason?.message || reviewRes.reason);
+  }
 
   const filmsBySlug = new Map<string, ScrapedRow>();
   const watchlist: ScrapedRow[] = [];
