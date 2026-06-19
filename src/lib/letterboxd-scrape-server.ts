@@ -1,31 +1,27 @@
 /**
  * Letterboxd USERNAME import — the scrape engine (Phase 0.7 fast-follow).
  *
- * Instead of the ZIP-export flow, a user types their public Letterboxd
- * username and we scrape their library. This module ONLY produces the
- * normalized rows; the existing `importLetterboxdMovies` (letterboxd-server.ts)
- * does the TMDB matching + Firestore writes UNCHANGED.
+ * A user types their public Letterboxd username and we scrape their library.
+ * This module ONLY produces the normalized rows; the existing
+ * `importLetterboxdMovies` (letterboxd-server.ts) does the TMDB matching +
+ * Firestore writes UNCHANGED.
  *
  *   scrapeLetterboxdLibrary(username)  → LetterboxdData   (pure, no DB)
  *   importLetterboxdFromUsername(uid)  → scrape + import  (lazy-loads the
  *                                        DB importer so the pure path stays
  *                                        firebase-free and unit-testable)
  *
- * HOW THE SCRAPE RUNS: we drive Apify's ready-made `apify/cheerio-scraper`
- * actor (no custom actor to publish). It fetches the public pages through
- * Apify RESIDENTIAL proxies + browser-like TLS (got-scraping under the hood),
- * which is what gets past Letterboxd's Cloudflare WAF. The page-parsing logic
- * is OURS — passed to the actor as `pageFunction`.
+ * Drives Apify's ready-made `apify/cheerio-scraper` actor (no custom actor to
+ * publish) over RESIDENTIAL proxies + browser-like TLS — what clears
+ * Letterboxd's Cloudflare. The page-parsing logic is OURS (the pageFunction).
  *
- * v1 SCOPE: watched + ratings + watchlist + favorites. Reviews are PHASE 2 —
- * the `/{user}/films/reviews/` path returns 403 to a plain request and likely
- * needs a browser actor; don't let it block the confirmed 90%.
- *
- * Verified against live HTML (2026-06): `/films/` + `/watchlist/` return 200;
- * each poster carries the slug (`data-target-link` / `data-item-slug`), the
- * title (`data-item-name="Title (Year)"` when present, else `img[alt]`), and
- * the viewer's rating as `span.rating.rated-N` (N = 0–10, i.e. N/2 stars);
- * pagination is `.paginate-pages a`.
+ * FULL PARITY with the ZIP export — six data types, all live-validated
+ * (2026-06): watched + ratings (li.griditem · data-item-name="Title (Year)" ·
+ * span.rating.rated-N), watchlist, favourites (profile #favourites), REVIEWS
+ * (article.production-viewing · .js-review-body), and custom LISTS (the
+ * /{user}/lists/ index → each /{user}/list/{slug}/ page). The reviews path is
+ * more aggressively rate-limited (some residential IPs 403 it), so the run
+ * uses high retries + rotation; it lands within a retry or two.
  */
 
 import type { LetterboxdData } from './letterboxd-server';
@@ -40,93 +36,54 @@ export class LetterboxdUsernameError extends Error {
   }
 }
 
-/** A flat row emitted by the actor's pageFunction (one per poster). */
 type ScrapedRow = {
-  kind: 'film' | 'watchlist' | 'favorite';
-  name: string;
-  year: string;
-  slug: string;
-  rating: number | null; // 0.5–5 stars (Letterboxd scale), or null if unrated
+  kind: 'film' | 'watchlist' | 'favorite' | 'review' | 'list-meta' | 'list-film';
+  name?: string;
+  year?: string;
+  slug?: string;
+  rating?: number | null; // 0.5–5 stars, films only
+  review?: string;
+  listSlug?: string;
+  listName?: string;
+  listDescription?: string;
 };
 
 /**
- * The actor pageFunction — runs INSIDE apify/cheerio-scraper (Cheerio context).
- * Returns an array of ScrapedRow; the actor pushes each element as its own
- * dataset item. Kept as a string because cheerio-scraper takes it as input.
- *
- * Defensive by design: Letterboxd's grid markup is mid-migration, so we try
- * several attribute/selector fallbacks and skip anything we can't identify
- * (a film with no resolvable title) rather than emit garbage.
+ * The actor pageFunction — runs INSIDE apify/cheerio-scraper. Handles every
+ * page type (films · watchlist · reviews · lists index · list page · profile),
+ * returns an array of ScrapedRow, and enqueues remaining pages itself (reads
+ * the max page number off page 1, since Letterboxd windows the pagination).
+ * Kept as a string because cheerio-scraper takes it as input.
  */
 export const LETTERBOXD_PAGE_FUNCTION = `async function pageFunction(context) {
   const { $, request, enqueueLinks } = context;
   const url = request.url || '';
   const rows = [];
 
-  const isWatchlist = url.includes('/watchlist/');
-  // profile root: letterboxd.com/<user>/ or /<user> with nothing after
-  const isProfile = /letterboxd\\.com\\/[^/]+\\/?($|\\?)/.test(url) &&
-    !url.includes('/films') && !isWatchlist;
-
   const parseNameYear = (raw) => {
     if (!raw) return { name: '', year: '' };
     const m = String(raw).match(/^(.*)\\s+\\((\\d{4})\\)\\s*$/);
     return m ? { name: m[1].trim(), year: m[2] } : { name: String(raw).trim(), year: '' };
   };
-
-  const extractFromContainer = (el, kind) => {
-    const $el = $(el);
-    const poster = $el.find('[data-item-slug],[data-film-slug],[data-target-link]').first();
-    const node = poster.length ? poster : $el;
-
-    // slug
+  const posterOf = ($el) => {
+    const p = $el.find('[data-item-slug],[data-film-slug],[data-target-link],[data-item-link]').first();
+    return p.length ? p : $el;
+  };
+  const nameYearSlug = (node, $el) => {
     let slug = node.attr('data-item-slug') || node.attr('data-film-slug') || '';
     if (!slug) {
-      const link = node.attr('data-target-link') || $el.find('a[href*="/film/"]').attr('href') || '';
-      const lm = link.match(/\\/film\\/([^/]+)\\//);
+      const link = node.attr('data-item-link') || node.attr('data-target-link') || $el.find('a[href*="/film/"]').attr('href') || '';
+      const lm = link.match(/\\/film\\/([^\\/]+)\\//);
       if (lm) slug = lm[1];
     }
-
-    // name + year — prefer data-item-name "Title (Year)", else img alt, else slug
-    let { name, year } = parseNameYear(node.attr('data-item-name') || node.attr('data-film-name'));
+    const ny = parseNameYear(node.attr('data-item-name') || node.attr('data-film-name'));
+    let name = ny.name, year = ny.year;
     if (!name) name = ($el.find('img[alt]').attr('alt') || '').trim();
-    if (!year && slug) {
-      const sm = slug.match(/-(\\d{4})$/);
-      if (sm) year = sm[1];
-    }
-    if (!name) return null;
-
-    // rating (films pages only; watchlist has none) — class "rated-N", N is 0–10
-    let rating = null;
-    if (kind === 'film') {
-      const cls = $el.find('span.rating').attr('class') || '';
-      const rm = cls.match(/rated-(\\d+)/);
-      if (rm) rating = parseInt(rm[1], 10) / 2;
-    }
-    return { kind, name, year, slug, rating };
+    if (!year && slug) { const sm = slug.match(/-(\\d{4})$/); if (sm) year = sm[1]; }
+    return { name: name, year: year, slug: slug };
   };
-
-  if (isProfile) {
-    // favourites (British spelling) — up to 5 posters on the profile
-    $('#favourites li.griditem, section.favourites li.griditem, .favourites-list li.griditem, #favourites .poster-container, section.favourites .poster-container').each(function () {
-      const r = extractFromContainer(this, 'favorite');
-      if (r) rows.push(r);
-    });
-    return rows;
-  }
-
-  // Letterboxd's current grid is li.griditem (React); keep the old
-  // poster-container selectors as fallbacks across markup versions.
-  const kind = isWatchlist ? 'watchlist' : 'film';
-  $('li.griditem, li.poster-container, .poster-container').each(function () {
-    const r = extractFromContainer(this, kind);
-    if (r) rows.push(r);
-  });
-
-  // On page 1, enqueue ALL remaining pages explicitly. Letterboxd windows the
-  // pagination for large libraries ("1 2 3 … 26"), so following only the
-  // visible links misses the middle — read the max page number and add them all.
-  if (!url.includes('/page/')) {
+  const enqueuePages = async () => {
+    if (url.indexOf('/page/') > -1) return;
     let maxPage = 1;
     $('.paginate-pages a').each(function () {
       const href = $(this).attr('href') || '';
@@ -135,11 +92,86 @@ export const LETTERBOXD_PAGE_FUNCTION = `async function pageFunction(context) {
     });
     if (maxPage > 1 && typeof enqueueLinks === 'function') {
       const base = url.endsWith('/') ? url : url + '/';
-      const pageUrls = [];
-      for (let p = 2; p <= maxPage; p++) pageUrls.push(base + 'page/' + p + '/');
-      await enqueueLinks({ urls: pageUrls });
+      const u = [];
+      for (let p = 2; p <= maxPage; p++) u.push(base + 'page/' + p + '/');
+      await enqueueLinks({ urls: u });
     }
+  };
+
+  const isReviews = url.indexOf('/reviews/') > -1 && url.indexOf('/film/') < 0;
+  const isWatchlist = url.indexOf('/watchlist/') > -1;
+  const isListsIndex = url.indexOf('/lists/') > -1;
+  const isListPage = !isListsIndex && url.indexOf('/list/') > -1;
+  const isFilms = !isReviews && url.indexOf('/films/') > -1;
+  const isProfile = !isReviews && !isWatchlist && !isFilms && !isListsIndex && !isListPage;
+
+  // ── reviews ──
+  if (isReviews) {
+    $('article.production-viewing, article[data-object-name="review"], .js-production-viewing').each(function () {
+      const $el = $(this);
+      const text = ($el.find('.js-review-body, .body-text').first().text() || '').trim();
+      if (!text) return;
+      const info = nameYearSlug(posterOf($el), $el);
+      if (info.name) rows.push({ kind: 'review', name: info.name, year: info.year, slug: info.slug, review: text });
+    });
+    await enqueuePages();
+    return rows;
   }
+
+  // ── lists index: enqueue each owned list page ──
+  if (isListsIndex) {
+    const seen = {};
+    const urls = [];
+    $('a[href*="/list/"]').each(function () {
+      const href = $(this).attr('href') || '';
+      const m = href.match(/^(\\/[^\\/]+\\/list\\/[^\\/]+\\/)$/);
+      if (m && !seen[m[1]]) { seen[m[1]] = 1; urls.push('https://letterboxd.com' + m[1]); }
+    });
+    if (urls.length && typeof enqueueLinks === 'function') await enqueueLinks({ urls: urls });
+    return rows;
+  }
+
+  // ── a single custom list page ──
+  if (isListPage) {
+    const sm = url.match(/\\/list\\/([^\\/]+)\\//);
+    const listSlug = sm ? sm[1] : url;
+    const title = ($('title').first().text() || '').split(/\\s*,\\s*a list of films by/i)[0].replace(/[\\u200e\\u200f\\u202a-\\u202e]/g, '').trim();
+    const desc = ($('.list-description, .body-text').first().text() || '').trim();
+    rows.push({ kind: 'list-meta', listSlug: listSlug, listName: title, listDescription: desc });
+    $('[data-item-slug]').each(function () {
+      const $el = $(this);
+      const info = nameYearSlug($el, $el);
+      if (info.name) rows.push({ kind: 'list-film', listSlug: listSlug, name: info.name, year: info.year, slug: info.slug });
+    });
+    await enqueuePages();
+    return rows;
+  }
+
+  // ── profile favourites ──
+  if (isProfile) {
+    $('#favourites li.griditem, section.favourites li.griditem, .favourites-list li.griditem, #favourites .poster-container, section.favourites .poster-container').each(function () {
+      const $el = $(this);
+      const info = nameYearSlug(posterOf($el), $el);
+      if (info.name) rows.push({ kind: 'favorite', name: info.name, year: info.year, slug: info.slug });
+    });
+    return rows;
+  }
+
+  // ── films / watchlist grid ──
+  const kind = isWatchlist ? 'watchlist' : 'film';
+  $('li.griditem, li.poster-container').each(function () {
+    const $el = $(this);
+    const info = nameYearSlug(posterOf($el), $el);
+    if (!info.name) return;
+    let rating = null;
+    if (kind === 'film') {
+      const cls = $el.find('span.rating').attr('class') || '';
+      const rm = cls.match(/rated-(\\d+)/);
+      if (rm) rating = parseInt(rm[1], 10) / 2;
+    }
+    rows.push({ kind: kind, name: info.name, year: info.year, slug: info.slug, rating: rating });
+  });
+  await enqueuePages();
   return rows;
 }`;
 
@@ -152,42 +184,39 @@ export function normalizeUsername(raw: string): string {
   return u;
 }
 
-/** Build the cheerio-scraper actor input for one user's library. */
-export function buildCheerioInput(username: string, maxRequests = 400) {
+/** Build the cheerio-scraper actor input for one user's full library. */
+export function buildCheerioInput(username: string, maxRequests = 500) {
   const u = normalizeUsername(username);
   return {
     startUrls: [
       { url: `https://letterboxd.com/${u}/films/` },
       { url: `https://letterboxd.com/${u}/watchlist/` },
+      { url: `https://letterboxd.com/${u}/films/reviews/` },
+      { url: `https://letterboxd.com/${u}/lists/` },
       { url: `https://letterboxd.com/${u}/` },
     ],
-    // Pagination is enqueued explicitly inside the pageFunction (it reads the
-    // last page number off page 1), so no linkSelector/globs are needed.
+    // Pagination + per-list crawling are enqueued inside the pageFunction.
     pageFunction: LETTERBOXD_PAGE_FUNCTION,
     proxyConfiguration: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] },
-    // A fresh residential IP per request + gentle concurrency: Letterboxd
-    // rate-limits a burst from one IP, so spreading pages across many IPs keeps
-    // deep pagination (20+ pages) from getting 403'd partway.
-    proxyRotation: 'RECOMMENDED',
-    sessionPoolOptions: { maxPoolSize: 200 },
-    maxConcurrency: 4,
+    // A FRESH residential IP per request: the reviews path 403s a chunk of IPs,
+    // so each retry must hop to a new one. (Mildly worse for deep films
+    // pagination on huge libraries — but that's the ZIP-fallback case anyway,
+    // and reviews reliability matters more.)
+    proxyRotation: 'PER_REQUEST',
+    sessionPoolOptions: { maxPoolSize: 300 },
+    maxConcurrency: 6,
     maxRequestsPerCrawl: maxRequests,
-    maxRequestRetries: 6,
+    maxRequestRetries: 12,
   };
 }
 
 /**
  * Run cheerio-scraper ASYNCHRONOUSLY: start the run, poll until it finishes,
- * then fetch the dataset. No 300s cap (unlike run-sync), so a big library that
- * takes minutes to crawl politely completes in full. In PRODUCTION the route
- * starts the run + registers a webhook instead of polling — same start call,
- * same dataset fetch, just no in-process poll.
+ * then fetch the dataset. No 300s cap (unlike run-sync). In PRODUCTION the
+ * route starts the run + registers a webhook instead of polling — same start
+ * call, same dataset fetch.
  */
-async function runCheerioScraper(
-  input: unknown,
-  token: string,
-  pollMs = 540_000,
-): Promise<ScrapedRow[]> {
+async function runCheerioScraper(input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
   const t = encodeURIComponent(token);
   const startRes = await fetch(`${APIFY_BASE}/acts/${APIFY_ACTOR}/runs?token=${t}`, {
     method: 'POST',
@@ -228,7 +257,9 @@ export type ScrapeSummary = {
   ratings: number;
   watchlist: number;
   favorites: number;
-  missingYear: number; // films we couldn't resolve a year for (matched by title only)
+  reviews: number;
+  lists: number;
+  missingYear: number;
 };
 
 /**
@@ -244,15 +275,26 @@ export async function scrapeLetterboxdLibrary(
 
   const rows = await runCheerioScraper(buildCheerioInput(u, opts.maxRequests), opts.token);
 
-  // Dedupe films by slug (keep the first, which carries the rating if present).
   const filmsBySlug = new Map<string, ScrapedRow>();
   const watchlist: ScrapedRow[] = [];
   const favorites: ScrapedRow[] = [];
+  const reviewsBySlug = new Map<string, ScrapedRow>();
+  const listMeta = new Map<string, { name: string; description: string }>();
+  const listFilms = new Map<string, Array<{ Name: string; Year: string }>>();
+
   for (const r of rows) {
-    if (!r || !r.name) continue;
-    if (r.kind === 'watchlist') watchlist.push(r);
-    else if (r.kind === 'favorite') favorites.push(r);
-    else {
+    if (!r) continue;
+    if (r.kind === 'watchlist' && r.name) watchlist.push(r);
+    else if (r.kind === 'favorite' && r.name) favorites.push(r);
+    else if (r.kind === 'review' && r.name && r.review) {
+      const key = r.slug || `${r.name}_${r.year}`;
+      if (!reviewsBySlug.has(key)) reviewsBySlug.set(key, r);
+    } else if (r.kind === 'list-meta' && r.listSlug) {
+      listMeta.set(r.listSlug, { name: r.listName || r.listSlug, description: r.listDescription || '' });
+    } else if (r.kind === 'list-film' && r.listSlug && r.name) {
+      if (!listFilms.has(r.listSlug)) listFilms.set(r.listSlug, []);
+      listFilms.get(r.listSlug)!.push({ Name: r.name, Year: r.year || '' });
+    } else if (r.kind === 'film' && r.name) {
       const key = r.slug || `${r.name}_${r.year}`;
       const existing = filmsBySlug.get(key);
       if (!existing || (existing.rating == null && r.rating != null)) filmsBySlug.set(key, r);
@@ -260,18 +302,25 @@ export async function scrapeLetterboxdLibrary(
   }
 
   const films = [...filmsBySlug.values()];
-  const toRow = (r: ScrapedRow) => ({ Name: r.name, Year: r.year });
+  const toRow = (r: ScrapedRow) => ({ Name: r.name!, Year: r.year || '' });
+
+  const lists = [...new Set([...listMeta.keys(), ...listFilms.keys()])]
+    .map((slug) => ({
+      name: listMeta.get(slug)?.name || slug,
+      description: listMeta.get(slug)?.description || undefined,
+      movies: listFilms.get(slug) || [],
+    }))
+    .filter((l) => l.movies.length > 0);
 
   const data: LetterboxdData = {
     watched: films.map(toRow),
-    // ratings carry the 0.5–5 star value; importLetterboxdMovies does ×2.
     ratings: films
       .filter((r) => r.rating != null)
-      .map((r) => ({ Name: r.name, Year: r.year, Rating: String(r.rating) })),
+      .map((r) => ({ Name: r.name!, Year: r.year || '', Rating: String(r.rating) })),
     watchlist: watchlist.map(toRow),
-    reviews: [], // phase 2
+    reviews: [...reviewsBySlug.values()].map((r) => ({ Name: r.name!, Year: r.year || '', Review: r.review })),
     favorites: favorites.slice(0, 5).map(toRow),
-    lists: [], // phase 2
+    lists,
   };
 
   const summary: ScrapeSummary = {
@@ -280,6 +329,8 @@ export async function scrapeLetterboxdLibrary(
     ratings: data.ratings.length,
     watchlist: data.watchlist.length,
     favorites: data.favorites.length,
+    reviews: data.reviews.length,
+    lists: data.lists.length,
     missingYear: films.filter((r) => !r.year).length,
   };
 
@@ -302,8 +353,8 @@ export async function importLetterboxdFromUsername(
     importWatched: true,
     importRatings: true,
     importWatchlist: true,
-    importReviews: false, // phase 2
-    importLists: false, // phase 2
+    importReviews: true,
+    importLists: true,
   });
   return { summary, ...result };
 }

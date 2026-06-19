@@ -51,6 +51,8 @@ async function main() {
   console.log(`  watched    : ${summary.watched}`);
   console.log(`  ratings    : ${summary.ratings}`);
   console.log(`  watchlist  : ${summary.watchlist}`);
+  console.log(`  reviews    : ${summary.reviews}`);
+  console.log(`  lists      : ${summary.lists}`);
   console.log(`  favorites  : ${summary.favorites}`);
   console.log(`  missingYear: ${summary.missingYear}  (matched by title only if >0)`);
   console.log('────────────────────────────────────────\n');
@@ -63,7 +65,11 @@ async function main() {
   };
   sample('watched', data.watched);
   sample('ratings', data.ratings);
-  sample('watchlist', data.watchlist);
+  sample('reviews', data.reviews as Array<Record<string, unknown>>);
+  console.log('  lists:');
+  data.lists.forEach((l) => console.log(`     "${l.name}" — ${l.movies.length} films`));
+  if (data.lists.length === 0) console.log('     (none)');
+  console.log('');
   sample('favorites', data.favorites);
 
   if (summary.watched === 0) {
