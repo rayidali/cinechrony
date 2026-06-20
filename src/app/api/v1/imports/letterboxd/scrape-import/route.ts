@@ -53,7 +53,11 @@ export const POST = apiRoute(async (req, { auth }): Promise<Result> => {
   }
 
   try {
-    const result = await importLetterboxdFromUsername(auth.uid, username, { token });
+    // skipReviews: the reviews browser-actor is minutes-slow (sequential Chromium
+    // passes clearing Cloudflare) and would blow the serverless time budget.
+    // Onboarding pulls films/ratings/watchlist/lists/favourites (fast cheerio run);
+    // reviews can be back-filled later via the ZIP importer.
+    const result = await importLetterboxdFromUsername(auth.uid, username, { token, skipReviews: true });
     return {
       available: true,
       importedCount: result.importedCount ?? 0,

@@ -343,7 +343,7 @@ export type ScrapeSummary = {
  */
 export async function scrapeLetterboxdLibrary(
   username: string,
-  opts: { token: string; maxRequests?: number },
+  opts: { token: string; maxRequests?: number; skipReviews?: boolean },
 ): Promise<{ data: LetterboxdData; summary: ScrapeSummary }> {
   const u = normalizeUsername(username);
   if (!opts.token) throw new LetterboxdUsernameError('Missing Apify token.');
@@ -351,9 +351,15 @@ export async function scrapeLetterboxdLibrary(
   // Two runs in parallel: cheerio for the bulk (films/watchlist/lists/favs),
   // a real-browser actor for reviews (reliably clears Cloudflare). Reviews are
   // best-effort — if that run fails, the rest of the import still lands.
+  //
+  // `skipReviews` drops the browser-actor run entirely. That actor is the slow
+  // part (up to 3 sequential Chromium passes clearing Cloudflare — minutes), so
+  // the ONBOARDING import skips it to fit inside a serverless function's time
+  // budget. The cheerio run (films/ratings/watchlist/lists/favourites) is fast
+  // and parallel. Reviews can still be back-filled later via the ZIP importer.
   const [cheerioRes, reviewRes] = await Promise.allSettled([
     runActor(CHEERIO_ACTOR, buildCheerioInput(u, opts.maxRequests), opts.token),
-    runReviewsBest(u, opts.token),
+    opts.skipReviews ? Promise.resolve([] as ScrapedRow[]) : runReviewsBest(u, opts.token),
   ]);
   if (cheerioRes.status === 'rejected') throw cheerioRes.reason;
   const rows = [
@@ -434,7 +440,7 @@ export async function scrapeLetterboxdLibrary(
 export async function importLetterboxdFromUsername(
   callerUid: string,
   username: string,
-  opts: { token: string; maxRequests?: number },
+  opts: { token: string; maxRequests?: number; skipReviews?: boolean },
 ) {
   const { data, summary } = await scrapeLetterboxdLibrary(username, opts);
   const { importLetterboxdMovies } = await import('./letterboxd-server');
@@ -442,7 +448,7 @@ export async function importLetterboxdFromUsername(
     importWatched: true,
     importRatings: true,
     importWatchlist: true,
-    importReviews: true,
+    importReviews: !opts.skipReviews,
     importLists: true,
   });
   return { summary, ...result };

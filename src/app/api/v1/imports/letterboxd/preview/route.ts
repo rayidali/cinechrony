@@ -32,8 +32,14 @@ type Preview = {
 };
 
 function parseStat(html: string, label: string): number | null {
-  // <span class="value">2,431</span> <span class="definition">Films</span>
-  const re = new RegExp(`value"[^>]*>([\\d,]+)<\\/span>\\s*<span[^>]*class="definition"[^>]*>${label}`, 'i');
+  // Real markup (2026): the definition span carries extra classes, e.g.
+  //   <span class="value">3,397</span><span class="definition title-all-caps -small">Films</span>
+  // so the class match must allow trailing classes (an exact class="definition"
+  // never matched — the original bug).
+  const re = new RegExp(
+    `class="value"[^>]*>([\\d,]+)</span>\\s*<span[^>]*class="definition[^"]*"[^>]*>${label}\\b`,
+    'i',
+  );
   const m = html.match(re);
   return m ? parseInt(m[1].replace(/,/g, ''), 10) : null;
 }
