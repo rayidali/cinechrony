@@ -28,6 +28,7 @@ type Body = {
   films?: unknown;
   list?: unknown;
   favorites?: unknown;
+  username?: unknown;
 };
 
 export const POST = apiRoute(async (req, { auth }) => {
@@ -51,7 +52,10 @@ export const POST = apiRoute(async (req, { auth }) => {
           Array.isArray(body.favorites) ? (body.favorites as Array<{ name: string; year: string }>) : [],
         );
       case 'finalize':
-        return await finalizeDefaultList(auth.uid);
+        return await finalizeDefaultList(auth.uid, {
+          username: typeof body.username === 'string' ? body.username : undefined,
+          token: process.env.APIFY_TOKEN?.trim(),
+        });
       default:
         throw new BadRequestError('Unknown phase.');
     }

@@ -431,10 +431,14 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   account/importing). **Letterboxd username import** wired to the new scrape engine:
   cheap Apify-free `/preview` "found" state → an **async, chunked pipeline** after
   the account exists (`scrape/start` → poll `scrape/status` → `scrape/import` in
-  ~120-film chunks with concurrent TMDB matching + live progress bar), so a
-  thousands-film library never exceeds the serverless time budget. Reviews are
-  skipped (the browser actor is minutes-slow); graceful skip when `APIFY_TOKEN` is
-  unset. **Username login** via secure `/api/v1/auth/login` (custom
+  ~120-film chunks with concurrent TMDB matching + a **lovable progress UI** — a
+  real poster wall builds as chunks land, counters tick (`useCountUp`), then a
+  stat reveal), so a thousands-film library never exceeds the serverless time
+  budget. **Reviews import in the BACKGROUND** after onboarding (the browser actor
+  is minutes-slow): `finalize` kicks the reviews run, `<PendingImportSync/>` (root
+  layout, gated by a device flag) polls `/reviews/sync` and quietly toasts.
+  Graceful skip when `APIFY_TOKEN` is unset. **Username login** via secure
+  `/api/v1/auth/login` (custom
   token; email stays private). **Still v2:** settings · invite · add · list-settings.
   **Test:** per-screen light/dark walk; `audit:test` green.
 

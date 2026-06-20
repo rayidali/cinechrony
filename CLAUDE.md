@@ -36,10 +36,12 @@
   `onboarding/components/*`. The **letterboxd username scrape** is wired in
   (cheap `/preview` "found" state → an **async, chunked import**:
   `scrape/start` → poll `scrape/status` → `scrape/import` films-in-120-chunks
-  with concurrent TMDB matching + a live progress bar, so a thousands-film
-  library never blows the serverless time budget; reviews are skipped — the
-  browser actor is minutes-slow — and it degrades gracefully when `APIFY_TOKEN`
-  is unset); **username login** via secure
+  with concurrent TMDB matching + a **lovable progress UI** (a real poster wall
+  builds, counters tick, stat reveal), so a thousands-film library never blows
+  the serverless time budget; **reviews import in the BACKGROUND** after
+  onboarding via `<PendingImportSync/>` + `/reviews/sync` — the browser actor is
+  minutes-slow so it's never part of the wait — and it degrades gracefully when
+  `APIFY_TOKEN` is unset); **username login** via secure
   `/api/v1/auth/login` (custom token, email stays private). **What's left in
   0.7: Wave 7 remainder** (settings · invite · add · list-settings) → **native
   motion slice 2** (push/pop transitions + app-wide swipe-back) → **story share**

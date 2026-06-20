@@ -26,7 +26,9 @@ import {
   normalizeRows,
   normalizeUsername,
   buildCheerioInput,
+  buildWebScraperReviewsInput,
   CHEERIO_ACTOR,
+  BROWSER_ACTOR,
   APIFY_TERMINAL,
   LetterboxdUsernameError,
 } from './letterboxd-scrape-server';
@@ -183,15 +185,18 @@ function posterUrl(p?: string | null): string | null {
 export async function importFilmChunk(
   uid: string,
   items: ImportFilm[],
-): Promise<{ imported: number }> {
+): Promise<{ imported: number; posters: string[] }> {
   if (!TMDB_ACCESS_TOKEN) throw new TmdbNotConfiguredError();
-  if (!items.length) return { imported: 0 };
+  if (!items.length) return { imported: 0, posters: [] };
 
   const db = getDb();
   const listId = await getDefaultListId(db, uid);
   const userData = (await db.collection('users').doc(uid).get()).data();
 
   const matched = await mapPool(items, 8, async (it) => ({ it, m: await tmdbMatch(it.name, it.year) }));
+
+  // A few real posters per chunk → the import screen builds a live poster wall.
+  const posters: string[] = [];
 
   let batch = db.batch();
   let ops = 0;
@@ -206,6 +211,7 @@ export async function importFilmChunk(
 
   for (const { it, m } of matched) {
     if (!m) continue;
+    if (m.poster_path && posters.length < 12) posters.push(`https://image.tmdb.org/t/p/w342${m.poster_path}`);
     const docId = `movie_${m.id}`;
     const movieRef = db.collection('users').doc(uid).collection('lists').doc(listId).collection('movies').doc(docId);
     batch.set(
@@ -277,7 +283,7 @@ export async function importFilmChunk(
     if (ops >= 450) await flush();
   }
   await flush();
-  return { imported };
+  return { imported, posters };
 }
 
 // ── one custom list ──────────────────────────────────────────────────────────
@@ -372,14 +378,136 @@ export async function setUserFavorites(
 
 // ── finalize (recount the default list) ──────────────────────────────────────
 
-export async function finalizeDefaultList(uid: string): Promise<{ movieCount: number }> {
+export async function finalizeDefaultList(
+  uid: string,
+  opts: { username?: string; token?: string } = {},
+): Promise<{ movieCount: number }> {
   const db = getDb();
   const listId = await getDefaultListId(db, uid);
   const listRef = db.collection('users').doc(uid).collection('lists').doc(listId);
   const countSnap = await listRef.collection('movies').count().get();
   const movieCount = countSnap.data().count;
   await listRef.update({ movieCount, updatedAt: FieldValue.serverTimestamp() });
+
+  // Kick the slow reviews scrape NOW (only for users who actually committed an
+  // import) and stash the run on the user doc; `syncPendingReviews` finishes it
+  // in the background after onboarding — reviews are never part of the wait.
+  if (opts.username && opts.token) {
+    try {
+      const { runId, datasetId } = await startReviewsRun(opts.username, opts.token);
+      // users_private (owner-only) so the opaque run ids never sit on the public profile.
+      await db.collection('users_private').doc(uid).set(
+        { pendingReviews: { runId, datasetId, createdAt: FieldValue.serverTimestamp() } },
+        { merge: true },
+      );
+    } catch {
+      /* best-effort — a failed reviews kick must not fail the import */
+    }
+  }
   return { movieCount };
+}
+
+// ── reviews: background sync ──────────────────────────────────────────────────
+
+/** Start the (slow) reviews browser-actor run; returns its ids for later polling. */
+export async function startReviewsRun(
+  username: string,
+  token: string,
+): Promise<{ runId: string; datasetId: string }> {
+  const u = normalizeUsername(username);
+  const { runId, datasetId } = await startRun(BROWSER_ACTOR, buildWebScraperReviewsInput(u), token);
+  return { runId, datasetId };
+}
+
+const REVIEW_SYNC_CAP = 400; // bound a single sync to fit the function budget
+const REVIEW_PENDING_TTL_MS = 40 * 60 * 1000;
+
+async function writeReviews(
+  uid: string,
+  reviews: Array<{ Name: string; Year: string; Review?: string }>,
+): Promise<number> {
+  if (!TMDB_ACCESS_TOKEN || !reviews.length) return 0;
+  const db = getDb();
+  const userData = (await db.collection('users').doc(uid).get()).data();
+  const slice = reviews.filter((r) => r.Review && r.Review.trim()).slice(0, REVIEW_SYNC_CAP);
+
+  const matched = await mapPool(slice, 8, async (r) => ({ r, m: await tmdbMatch(r.Name, r.Year) }));
+
+  let batch = db.batch();
+  let ops = 0;
+  let written = 0;
+  for (const { r, m } of matched) {
+    if (!m) continue;
+    // Deterministic id → re-running the sync is idempotent (no duplicate reviews).
+    const reviewRef = db.collection('reviews').doc(`lb_${uid}_${m.id}`);
+    batch.set(reviewRef, {
+      id: `lb_${uid}_${m.id}`,
+      tmdbId: m.id,
+      mediaType: 'movie',
+      movieTitle: m.title,
+      moviePosterUrl: posterUrl(m.poster_path),
+      userId: uid,
+      username: userData?.username || null,
+      userDisplayName: userData?.displayName || null,
+      userPhotoUrl: userData?.photoURL || null,
+      text: r.Review!.trim(),
+      ratingAtTime: null,
+      likes: 0,
+      likedBy: [],
+      createdAt: FieldValue.serverTimestamp(),
+      updatedAt: FieldValue.serverTimestamp(),
+    }, { merge: true });
+    ops++;
+    written++;
+    if (ops >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) await batch.commit();
+  return written;
+}
+
+/**
+ * Finish the background reviews import. Reads the pending run off the user doc,
+ * polls it, and on completion fetches + imports the reviews, then clears the
+ * flag. Returns quickly while the run is still going (the client retries). Clears
+ * a stale/failed run so it can't get stuck pending forever.
+ */
+export async function syncPendingReviews(
+  uid: string,
+  token: string,
+): Promise<{ status: 'none' | 'running' | 'done' | 'failed'; reviewsImported?: number }> {
+  const db = getDb();
+  const privRef = db.collection('users_private').doc(uid);
+  const snap = await privRef.get();
+  const pending = snap.data()?.pendingReviews as
+    | { runId?: string; datasetId?: string; createdAt?: { toMillis?: () => number } }
+    | undefined;
+  if (!pending?.runId || !pending?.datasetId) return { status: 'none' };
+
+  const createdMs = pending.createdAt?.toMillis?.() ?? 0;
+  const stale = createdMs > 0 && Date.now() - createdMs > REVIEW_PENDING_TTL_MS;
+
+  const { status } = await getRunStatus(pending.runId, token);
+  if (!APIFY_TERMINAL.has(status)) {
+    if (stale) {
+      await privRef.update({ pendingReviews: FieldValue.delete() });
+      return { status: 'failed' };
+    }
+    return { status: 'running' };
+  }
+  if (status !== 'SUCCEEDED') {
+    await privRef.update({ pendingReviews: FieldValue.delete() });
+    return { status: 'failed' };
+  }
+
+  const rows = await fetchDatasetItems(pending.datasetId, token);
+  const data = normalizeRows(rows);
+  const reviewsImported = await writeReviews(uid, data.reviews);
+  await privRef.update({ pendingReviews: FieldValue.delete() });
+  return { status: 'done', reviewsImported };
 }
 
 export { LetterboxdUsernameError };

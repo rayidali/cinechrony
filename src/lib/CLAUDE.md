@@ -57,9 +57,14 @@ src/lib/
 ├── letterboxd-username-import-server.ts # ASYNC + CHUNKED onboarding import:
 │                              # startLibraryScrape / pollLibraryScrape (→ deduped
 │                              # ImportLibrary) + importFilmChunk (concurrent TMDB
-│                              # match, ~120/req) / importUserList / setUserFavorites
-│                              # / finalizeDefaultList. Wired by
-│                              # /imports/letterboxd/scrape/{start,status,import}
+│                              # match, ~120/req, returns posters) / importUserList /
+│                              # setUserFavorites / finalizeDefaultList (recount +
+│                              # kick background reviews run). REVIEWS BACKGROUND:
+│                              # startReviewsRun + syncPendingReviews (poll + import
+│                              # to deterministic lb_{uid}_{tmdbId} review docs;
+│                              # pendingReviews on users_private). Wired by
+│                              # /imports/letterboxd/scrape/{start,status,import} +
+│                              # /imports/letterboxd/reviews/sync
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

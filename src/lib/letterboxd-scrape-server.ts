@@ -27,7 +27,7 @@
 import type { LetterboxdData } from './letterboxd-server';
 
 export const CHEERIO_ACTOR = 'apify~cheerio-scraper';
-const BROWSER_ACTOR = 'apify~web-scraper';
+export const BROWSER_ACTOR = 'apify~web-scraper';
 const APIFY_BASE = 'https://api.apify.com/v2';
 
 export class LetterboxdUsernameError extends Error {

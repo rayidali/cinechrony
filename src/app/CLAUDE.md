@@ -281,12 +281,23 @@ All four are no-ops on web.
     library? }` (client polls ~4s; on SUCCEEDED returns the normalized+deduped
     `{ films, lists, favorites }`).
   - `POST /imports/letterboxd/scrape/import { phase }` → `films` (a ~120-film
-    chunk, **concurrent** TMDB match) · `list` · `favorites` · `finalize`. The
-    client loops chunks with a live progress bar.
+    chunk, **concurrent** TMDB match, returns sample posters for the wall) ·
+    `list` · `favorites` · `finalize` (recount + **kick the background reviews
+    run**). The client loops chunks with a live progress bar.
+  - **Reviews import in the BACKGROUND** (the reviews browser-actor is
+    minutes-slow — never part of the wait): `finalize` starts the reviews run +
+    stashes `{ runId, datasetId }` on `users_private/{uid}.pendingReviews`; the
+    importing screen sets a `cc-pending-reviews` device flag; the mount-once
+    `<PendingImportSync/>` (root layout) polls `POST /imports/letterboxd/reviews/sync`
+    until it lands, imports the reviews (deterministic `lb_{uid}_{tmdbId}` ids →
+    idempotent), clears the flag, and quietly toasts. Zero network unless the flag
+    is set.
   Helpers in `src/lib/letterboxd-username-import-server.ts` (over the decoupled
   Apify run helpers + `normalizeRows` in `letterboxd-scrape-server.ts`). Graceful
   skip when `APIFY_TOKEN` is unset. (Distinct from `/imports/letterboxd/import`,
-  the paste importer.) The old ZIP-upload screens
+  the paste importer.) The **importing screen** (`importing-step.tsx`) is the
+  "lovable wait": a real poster wall builds as chunks land, counters tick up
+  (`useCountUp`), then a stat reveal. The old ZIP-upload screens
   (`import-letterboxd-*`, `import-paste-*`, `signup-screen`, `username-screen`,
   `splash-screen`, `import-options-screen`) are **orphaned** (safe to delete
   later; the ZIP `/parse` + `/full` routes still back the settings importer).

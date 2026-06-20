@@ -196,12 +196,13 @@ actually finishes onboarding (account-last).
 **Import design (time-safe):** the import is async + chunked so it never blows a
 function's time budget. The client starts the scrape (`scrape/start`), polls
 (`scrape/status`, showing "N found"), then imports films in ~120-film chunks
-(`scrape/import`, concurrent TMDB matching) behind a live progress bar. **Reviews
-are intentionally skipped** during onboarding — the reviews browser-actor is
-minutes-slow (a capped run didn't finish in 4.5 min); films/ratings/watchlist/
-lists/favourites all come from the fast cheerio run. A user can back-fill reviews
-later via the settings ZIP importer. No special Vercel plan/`maxDuration` is
-required because every request is short.
+(`scrape/import`, concurrent TMDB matching) behind a live progress bar (a real
+poster wall builds as it goes). Films/ratings/watchlist/lists/favourites come from
+the fast cheerio run. **Reviews import in the BACKGROUND** — the reviews
+browser-actor is minutes-slow (a capped run didn't finish in 4.5 min), so it's
+never part of the wait: `finalize` kicks the reviews run, and `<PendingImportSync/>`
+finishes it after onboarding (polls `/reviews/sync`, imports, toasts). No special
+Vercel plan/`maxDuration` is required because every request is short.
 
 ---
 

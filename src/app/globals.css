@@ -219,6 +219,22 @@
   from { transform: scale(1.18) rotate(-4deg) translateY(-4%); }
   to { transform: scale(1.18) rotate(-4deg) translateY(-10%); }
 }
+/* import: a real poster springing into the building wall */
+@keyframes cc-poster-pop {
+  from { opacity: 0; transform: scale(0.82) translateY(7px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+/* import: skeleton shimmer for not-yet-filled poster slots */
+@keyframes cc-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+/* import: a stat counting up gently nudges as it lands */
+@keyframes cc-tick {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
 
 .animate-float {
   animation: float 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
@@ -251,6 +267,22 @@
   animation: cc-posterwall 28s ease-in-out infinite alternate;
   will-change: transform;
 }
+.cc-poster-pop {
+  animation: cc-poster-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.cc-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    oklch(var(--muted) / 0) 30%,
+    oklch(var(--foreground) / 0.06) 50%,
+    oklch(var(--muted) / 0) 70%
+  );
+  background-size: 200% 100%;
+  animation: cc-shimmer 1.5s ease-in-out infinite;
+}
+.cc-tick {
+  animation: cc-tick 0.4s ease-out;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
@@ -261,7 +293,10 @@
   .animate-sheet-rise,
   .cc-kenburns,
   .cc-pulse-ring,
-  .cc-posterwall {
+  .cc-posterwall,
+  .cc-poster-pop,
+  .cc-shimmer,
+  .cc-tick {
     animation: none;
   }
 }
