@@ -1,0 +1,385 @@
+/**
+ * Letterboxd USERNAME import — the async, chunked pipeline (Phase 0.7 Wave 7).
+ *
+ * Why this exists: a public library can be thousands of films, and BOTH long
+ * poles — the Apify scrape (minutes) and the TMDB match+write (~50ms/film) —
+ * blow a single serverless request's time budget. So the import is decoupled
+ * into SHORT requests the client orchestrates with live progress:
+ *
+ *   1. startLibraryScrape(username)      → { runId, datasetId }   (Apify run, no wait)
+ *   2. pollLibraryScrape(runId, ds)      → { status, itemCount, library? }
+ *      (when SUCCEEDED, returns the normalized + deduped import items)
+ *   3. importFilmChunk(uid, items[])     → matches a CHUNK concurrently + writes
+ *      (the client loops ~120 films/call, showing imported/total)
+ *   4. importUserList / setFavorites / finalizeDefaultList — the tail.
+ *
+ * Reviews are intentionally NOT scraped here (the browser actor is minutes-slow);
+ * the import items still carry any review text the cheerio pass happened to see.
+ */
+
+import { FieldValue } from 'firebase-admin/firestore';
+import { getDb } from '@/firebase/admin';
+import {
+  startRun,
+  getRunStatus,
+  fetchDatasetItems,
+  normalizeRows,
+  normalizeUsername,
+  buildCheerioInput,
+  CHEERIO_ACTOR,
+  APIFY_TERMINAL,
+  LetterboxdUsernameError,
+} from './letterboxd-scrape-server';
+import { TmdbNotConfiguredError, type LetterboxdData } from './letterboxd-server';
+
+const TMDB_ACCESS_TOKEN = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
+
+export type ImportFilm = {
+  name: string;
+  year: string;
+  status: 'Watched' | 'To Watch';
+  rating: number | null; // 1–10 (already ×2 from Letterboxd's 0.5–5 stars)
+  review: string | null;
+};
+
+export type ImportLibrary = {
+  films: ImportFilm[];
+  lists: Array<{ name: string; description?: string; movies: Array<{ name: string; year: string }> }>;
+  favorites: Array<{ name: string; year: string }>;
+  summary: { films: number; lists: number; ratings: number };
+};
+
+// ── scrape lifecycle (decoupled) ─────────────────────────────────────────────
+
+export async function startLibraryScrape(
+  username: string,
+  token: string,
+): Promise<{ runId: string; datasetId: string }> {
+  const u = normalizeUsername(username);
+  const { runId, datasetId } = await startRun(CHEERIO_ACTOR, buildCheerioInput(u), token);
+  return { runId, datasetId };
+}
+
+export async function pollLibraryScrape(
+  runId: string,
+  datasetId: string,
+  token: string,
+): Promise<{ status: 'running' | 'ready' | 'failed'; itemCount: number; library?: ImportLibrary }> {
+  const { status, itemCount } = await getRunStatus(runId, token);
+  if (!APIFY_TERMINAL.has(status)) return { status: 'running', itemCount };
+  if (status !== 'SUCCEEDED') return { status: 'failed', itemCount };
+
+  const rows = await fetchDatasetItems(datasetId, token);
+  const data = normalizeRows(rows);
+  return { status: 'ready', itemCount, library: buildImportItems(data) };
+}
+
+/** Fold a normalized library into the flat, deduped import items the client chunks. */
+export function buildImportItems(data: LetterboxdData): ImportLibrary {
+  const ratingsMap = new Map<string, number>();
+  for (const r of data.ratings) {
+    if (r.Rating) ratingsMap.set(`${r.Name.toLowerCase()}_${r.Year}`, parseFloat(r.Rating) * 2);
+  }
+  const reviewsMap = new Map<string, string>();
+  for (const r of data.reviews) {
+    if (r.Review && r.Review.trim()) reviewsMap.set(`${r.Name.toLowerCase()}_${r.Year}`, r.Review.trim());
+  }
+
+  const films: ImportFilm[] = [];
+  const seen = new Set<string>();
+  const push = (name: string, year: string, status: 'Watched' | 'To Watch') => {
+    const key = `${name.toLowerCase()}_${year}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    films.push({ name, year, status, rating: ratingsMap.get(key) ?? null, review: reviewsMap.get(key) ?? null });
+  };
+  for (const w of data.watched) push(w.Name, w.Year, 'Watched');
+  for (const w of data.watchlist) push(w.Name, w.Year, 'To Watch');
+
+  return {
+    films,
+    lists: data.lists.map((l) => ({
+      name: l.name,
+      description: l.description,
+      movies: l.movies.map((m) => ({ name: m.Name, year: m.Year })),
+    })),
+    favorites: data.favorites.map((f) => ({ name: f.Name, year: f.Year })),
+    summary: { films: films.length, lists: data.lists.length, ratings: ratingsMap.size },
+  };
+}
+
+// ── TMDB matching (concurrent) ───────────────────────────────────────────────
+
+type TmdbHit = {
+  id: number;
+  title: string;
+  release_date?: string;
+  poster_path?: string | null;
+  backdrop_path?: string | null;
+  overview?: string;
+  vote_average?: number;
+};
+
+async function tmdbMatch(name: string, year: string): Promise<TmdbHit | null> {
+  try {
+    const url = `https://api.themoviedb.org/3/search/movie?query=${encodeURIComponent(
+      name,
+    )}&year=${encodeURIComponent(year)}&language=en-US&page=1`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${TMDB_ACCESS_TOKEN}` } });
+    if (!res.ok) return null;
+    const j = (await res.json()) as { results?: TmdbHit[] };
+    const results = j.results || [];
+    if (!results.length) return null;
+    return results.find((r) => r.release_date?.startsWith(year)) || results[0];
+  } catch {
+    return null;
+  }
+}
+
+/** Bounded-concurrency map — keeps TMDB ~40 req/s (safe under its limit) while
+ *  collapsing the sequential 50ms-per-film wall-clock. */
+async function mapPool<T, R>(items: T[], concurrency: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let cursor = 0;
+  const worker = async () => {
+    while (cursor < items.length) {
+      const i = cursor++;
+      out[i] = await fn(items[i]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length || 1) }, worker));
+  return out;
+}
+
+// ── default-list helper ──────────────────────────────────────────────────────
+
+async function getDefaultListId(db: FirebaseFirestore.Firestore, uid: string): Promise<string> {
+  const userRef = db.collection('users').doc(uid);
+  const def = await userRef.collection('lists').where('isDefault', '==', true).limit(1).get();
+  if (!def.empty) return def.docs[0].id;
+  const any = await userRef.collection('lists').limit(1).get();
+  if (!any.empty) return any.docs[0].id;
+  const ref = userRef.collection('lists').doc();
+  await ref.set({
+    id: ref.id,
+    name: 'My Watchlist',
+    isDefault: true,
+    isPublic: false,
+    ownerId: uid,
+    collaboratorIds: [],
+    movieCount: 0,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return ref.id;
+}
+
+function posterUrl(p?: string | null): string | null {
+  return p ? `https://image.tmdb.org/t/p/w500${p}` : null;
+}
+
+// ── chunk import (films + ratings + reviews) ─────────────────────────────────
+
+export async function importFilmChunk(
+  uid: string,
+  items: ImportFilm[],
+): Promise<{ imported: number }> {
+  if (!TMDB_ACCESS_TOKEN) throw new TmdbNotConfiguredError();
+  if (!items.length) return { imported: 0 };
+
+  const db = getDb();
+  const listId = await getDefaultListId(db, uid);
+  const userData = (await db.collection('users').doc(uid).get()).data();
+
+  const matched = await mapPool(items, 8, async (it) => ({ it, m: await tmdbMatch(it.name, it.year) }));
+
+  let batch = db.batch();
+  let ops = 0;
+  let imported = 0;
+  const flush = async () => {
+    if (ops > 0) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  };
+
+  for (const { it, m } of matched) {
+    if (!m) continue;
+    const docId = `movie_${m.id}`;
+    const movieRef = db.collection('users').doc(uid).collection('lists').doc(listId).collection('movies').doc(docId);
+    batch.set(
+      movieRef,
+      {
+        id: docId,
+        title: m.title,
+        year: m.release_date?.slice(0, 4) || it.year,
+        posterUrl: posterUrl(m.poster_path),
+        posterHint: m.title,
+        addedBy: uid,
+        status: it.status,
+        createdAt: FieldValue.serverTimestamp(),
+        mediaType: 'movie',
+        tmdbId: m.id,
+        overview: m.overview || null,
+        rating: m.vote_average || null,
+        backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : null,
+        addedByDisplayName: userData?.displayName || null,
+        addedByUsername: userData?.username || null,
+        addedByPhotoURL: userData?.photoURL || null,
+      },
+      { merge: true },
+    );
+    ops++;
+    imported++;
+
+    if (it.rating != null) {
+      const ratingRef = db.collection('ratings').doc(`${uid}_${m.id}`);
+      batch.set(
+        ratingRef,
+        {
+          userId: uid,
+          tmdbId: m.id,
+          mediaType: 'movie',
+          movieTitle: m.title,
+          moviePosterUrl: posterUrl(m.poster_path),
+          rating: it.rating,
+          createdAt: FieldValue.serverTimestamp(),
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true },
+      );
+      ops++;
+    }
+
+    if (it.review) {
+      const reviewRef = db.collection('reviews').doc();
+      batch.set(reviewRef, {
+        id: reviewRef.id,
+        tmdbId: m.id,
+        mediaType: 'movie',
+        movieTitle: m.title,
+        moviePosterUrl: posterUrl(m.poster_path),
+        userId: uid,
+        username: userData?.username || null,
+        userDisplayName: userData?.displayName || null,
+        userPhotoUrl: userData?.photoURL || null,
+        text: it.review,
+        ratingAtTime: it.rating ?? null,
+        likes: 0,
+        likedBy: [],
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      });
+      ops++;
+    }
+
+    if (ops >= 450) await flush();
+  }
+  await flush();
+  return { imported };
+}
+
+// ── one custom list ──────────────────────────────────────────────────────────
+
+export async function importUserList(
+  uid: string,
+  list: { name: string; description?: string; movies: Array<{ name: string; year: string }> },
+): Promise<{ imported: number }> {
+  if (!TMDB_ACCESS_TOKEN) throw new TmdbNotConfiguredError();
+  if (!list.movies?.length) return { imported: 0 };
+
+  const db = getDb();
+  const listRef = db.collection('users').doc(uid).collection('lists').doc();
+  await listRef.set({
+    id: listRef.id,
+    name: list.name || 'Imported list',
+    description: list.description || null,
+    isDefault: false,
+    isPublic: false,
+    ownerId: uid,
+    collaboratorIds: [],
+    movieCount: 0,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  const userData = (await db.collection('users').doc(uid).get()).data();
+
+  const matched = await mapPool(list.movies, 8, async (mv) => await tmdbMatch(mv.name, mv.year));
+
+  let batch = db.batch();
+  let ops = 0;
+  let imported = 0;
+  for (const m of matched) {
+    if (!m) continue;
+    const docId = `movie_${m.id}`;
+    batch.set(
+      listRef.collection('movies').doc(docId),
+      {
+        id: docId,
+        title: m.title,
+        year: m.release_date?.slice(0, 4) || '',
+        posterUrl: posterUrl(m.poster_path),
+        posterHint: m.title,
+        addedBy: uid,
+        status: 'To Watch',
+        createdAt: FieldValue.serverTimestamp(),
+        mediaType: 'movie',
+        tmdbId: m.id,
+        overview: m.overview || null,
+        rating: m.vote_average || null,
+        backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : null,
+        addedByDisplayName: userData?.displayName || null,
+        addedByUsername: userData?.username || null,
+        addedByPhotoURL: userData?.photoURL || null,
+      },
+      { merge: true },
+    );
+    ops++;
+    imported++;
+    if (ops >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+  if (ops > 0) await batch.commit();
+  await listRef.update({ movieCount: imported, updatedAt: FieldValue.serverTimestamp() });
+  return { imported };
+}
+
+// ── favourites (top 5 → profile) ─────────────────────────────────────────────
+
+export async function setUserFavorites(
+  uid: string,
+  favorites: Array<{ name: string; year: string }>,
+): Promise<{ set: number }> {
+  if (!TMDB_ACCESS_TOKEN || !favorites?.length) return { set: 0 };
+  const db = getDb();
+  const matched = await mapPool(favorites.slice(0, 5), 5, async (f) => await tmdbMatch(f.name, f.year));
+  const favoriteMovies = matched
+    .filter((m): m is TmdbHit => !!m)
+    .map((m) => ({
+      id: `movie_${m.id}`,
+      title: m.title,
+      posterUrl: posterUrl(m.poster_path) || '',
+      tmdbId: m.id,
+    }));
+  if (!favoriteMovies.length) return { set: 0 };
+  await db.collection('users').doc(uid).update({ favoriteMovies });
+  return { set: favoriteMovies.length };
+}
+
+// ── finalize (recount the default list) ──────────────────────────────────────
+
+export async function finalizeDefaultList(uid: string): Promise<{ movieCount: number }> {
+  const db = getDb();
+  const listId = await getDefaultListId(db, uid);
+  const listRef = db.collection('users').doc(uid).collection('lists').doc(listId);
+  const countSnap = await listRef.collection('movies').count().get();
+  const movieCount = countSnap.data().count;
+  await listRef.update({ movieCount, updatedAt: FieldValue.serverTimestamp() });
+  return { movieCount };
+}
+
+export { LetterboxdUsernameError };

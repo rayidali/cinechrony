@@ -26,7 +26,7 @@
 
 import type { LetterboxdData } from './letterboxd-server';
 
-const CHEERIO_ACTOR = 'apify~cheerio-scraper';
+export const CHEERIO_ACTOR = 'apify~cheerio-scraper';
 const BROWSER_ACTOR = 'apify~web-scraper';
 const APIFY_BASE = 'https://api.apify.com/v2';
 
@@ -271,7 +271,15 @@ export function buildWebScraperReviewsInput(username: string, maxRequests = 120)
  * route starts the run + registers a webhook instead of polling — same start
  * call, same dataset fetch.
  */
-async function runActor(actorSlug: string, input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
+export const APIFY_TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
+
+/** Start an Apify actor run; returns the run + dataset ids immediately (no wait).
+ *  The decoupled building block for the async, client-polled onboarding import. */
+export async function startRun(
+  actorSlug: string,
+  input: unknown,
+  token: string,
+): Promise<{ runId: string; datasetId: string; status: string }> {
   const t = encodeURIComponent(token);
   const startRes = await fetch(`${APIFY_BASE}/acts/${actorSlug}/runs?token=${t}`, {
     method: 'POST',
@@ -282,18 +290,23 @@ async function runActor(actorSlug: string, input: unknown, token: string, pollMs
   if (!startRes.ok || !startJson.data) {
     throw new Error(`Apify run start failed (${startRes.status}): ${JSON.stringify(startJson).slice(0, 300)}`);
   }
-  const { id: runId, defaultDatasetId: datasetId } = startJson.data;
-  let status = startJson.data.status;
+  return { runId: startJson.data.id, datasetId: startJson.data.defaultDatasetId, status: startJson.data.status };
+}
 
-  const terminal = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
-  const deadline = Date.now() + pollMs;
-  while (!terminal.has(status) && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 4000));
-    const r = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${t}`);
-    const j = (await r.json()) as { data?: { status: string } };
-    status = j.data?.status ?? status;
-  }
+/** Quick status poll for a run (+ how many items it's produced so far). */
+export async function getRunStatus(
+  runId: string,
+  token: string,
+): Promise<{ status: string; itemCount: number }> {
+  const t = encodeURIComponent(token);
+  const r = await fetch(`${APIFY_BASE}/actor-runs/${runId}?token=${t}`);
+  const j = (await r.json()) as { data?: { status: string; stats?: { itemCount?: number } } };
+  return { status: j.data?.status ?? 'UNKNOWN', itemCount: j.data?.stats?.itemCount ?? 0 };
+}
 
+/** Fetch + flatten a finished run's dataset into ScrapedRow[]. */
+export async function fetchDatasetItems(datasetId: string, token: string): Promise<ScrapedRow[]> {
+  const t = encodeURIComponent(token);
   const itemsRes = await fetch(
     `${APIFY_BASE}/datasets/${datasetId}/items?token=${t}&clean=1&format=json&limit=200000`,
   );
@@ -304,6 +317,23 @@ async function runActor(actorSlug: string, input: unknown, token: string, pollMs
     else if (it && typeof it === 'object' && 'kind' in it) flat.push(it as ScrapedRow);
   }
   return flat;
+}
+
+/**
+ * Run cheerio-scraper ASYNCHRONOUSLY: start, poll until finished, fetch dataset.
+ * (Composed from the exported building blocks above.) Used by the synchronous
+ * `scrapeLetterboxdLibrary` + the dry-run script; the onboarding flow instead
+ * drives start/poll/fetch from separate short HTTP requests.
+ */
+async function runActor(actorSlug: string, input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
+  const { runId, datasetId, status: initial } = await startRun(actorSlug, input, token);
+  let status = initial;
+  const deadline = Date.now() + pollMs;
+  while (!APIFY_TERMINAL.has(status) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 4000));
+    status = (await getRunStatus(runId, token)).status;
+  }
+  return fetchDatasetItems(datasetId, token);
 }
 
 /**
@@ -370,6 +400,15 @@ export async function scrapeLetterboxdLibrary(
     console.error('[letterboxd-scrape] reviews run failed:', reviewRes.reason?.message || reviewRes.reason);
   }
 
+  const data = normalizeRows(rows);
+  const summary: ScrapeSummary = { username: u, ...summarize(data) };
+  return { data, summary };
+}
+
+/** Fold raw ScrapedRow[] into the canonical LetterboxdData — dedup films by slug
+ *  (prefer the rated copy), collect watchlist/reviews/lists/favourites. PURE, so
+ *  the async onboarding path can normalize a fetched dataset without re-running. */
+export function normalizeRows(rows: ScrapedRow[]): LetterboxdData {
   const filmsBySlug = new Map<string, ScrapedRow>();
   const watchlist: ScrapedRow[] = [];
   const favorites: ScrapedRow[] = [];
@@ -407,7 +446,7 @@ export async function scrapeLetterboxdLibrary(
     }))
     .filter((l) => l.movies.length > 0);
 
-  const data: LetterboxdData = {
+  return {
     watched: films.map(toRow),
     ratings: films
       .filter((r) => r.rating != null)
@@ -417,19 +456,19 @@ export async function scrapeLetterboxdLibrary(
     favorites: favorites.slice(0, 5).map(toRow),
     lists,
   };
+}
 
-  const summary: ScrapeSummary = {
-    username: u,
+/** Counts for a normalized library (the ScrapeSummary minus the username). */
+export function summarize(data: LetterboxdData): Omit<ScrapeSummary, 'username'> {
+  return {
     watched: data.watched.length,
     ratings: data.ratings.length,
     watchlist: data.watchlist.length,
     favorites: data.favorites.length,
     reviews: data.reviews.length,
     lists: data.lists.length,
-    missingYear: films.filter((r) => !r.year).length,
+    missingYear: data.watched.filter((w) => !w.Year).length,
   };
-
-  return { data, summary };
 }
 
 /**

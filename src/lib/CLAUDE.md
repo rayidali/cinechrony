@@ -50,9 +50,16 @@ src/lib/
 ├── leaderboard-server.ts     # Weekly "top watchers" (follow-graph aggregate)
 ├── letterboxd-server.ts      # ZIP parse + TMDB match + import
 ├── letterboxd-scrape-server.ts # USERNAME scrape engine (Apify cheerio+browser
-│                              # actors) → scrapeLetterboxdLibrary (pure) +
-│                              # importLetterboxdFromUsername (scrape→import).
-│                              # Wired by /imports/letterboxd/{preview,scrape-import}
+│                              # actors). Decoupled run helpers: startRun /
+│                              # getRunStatus / fetchDatasetItems + normalizeRows
+│                              # (pure). scrapeLetterboxdLibrary (sync, dry-run) +
+│                              # importLetterboxdFromUsername. /preview route.
+├── letterboxd-username-import-server.ts # ASYNC + CHUNKED onboarding import:
+│                              # startLibraryScrape / pollLibraryScrape (→ deduped
+│                              # ImportLibrary) + importFilmChunk (concurrent TMDB
+│                              # match, ~120/req) / importUserList / setUserFavorites
+│                              # / finalizeDefaultList. Wired by
+│                              # /imports/letterboxd/scrape/{start,status,import}
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

@@ -429,9 +429,12 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
   OrDivider · AuthTopBar · IconTile), `v3/poster-wall.tsx`, `v3/social-auth-row.tsx`;
   step components under `onboarding/components/*` (welcome/name/letterboxd/handle/
   account/importing). **Letterboxd username import** wired to the new scrape engine:
-  cheap Apify-free `/preview` "found" state → real `/scrape-import` on a progress
-  screen after the account exists (graceful skip when `APIFY_TOKEN` unset or
-  Cloudflare-blocked). **Username login** via secure `/api/v1/auth/login` (custom
+  cheap Apify-free `/preview` "found" state → an **async, chunked pipeline** after
+  the account exists (`scrape/start` → poll `scrape/status` → `scrape/import` in
+  ~120-film chunks with concurrent TMDB matching + live progress bar), so a
+  thousands-film library never exceeds the serverless time budget. Reviews are
+  skipped (the browser actor is minutes-slow); graceful skip when `APIFY_TOKEN` is
+  unset. **Username login** via secure `/api/v1/auth/login` (custom
   token; email stays private). **Still v2:** settings · invite · add · list-settings.
   **Test:** per-screen light/dark walk; `audit:test` green.
 

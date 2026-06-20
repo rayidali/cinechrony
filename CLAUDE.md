@@ -34,8 +34,12 @@
   reserves the handle, and fires the import. New v3 kit: `v3/onboarding-kit.tsx` ·
   `v3/poster-wall.tsx` · `v3/social-auth-row.tsx` + step components under
   `onboarding/components/*`. The **letterboxd username scrape** is wired in
-  (cheap `/preview` "found" state → real `/scrape-import` on a progress screen,
-  graceful when `APIFY_TOKEN` is unset); **username login** via secure
+  (cheap `/preview` "found" state → an **async, chunked import**:
+  `scrape/start` → poll `scrape/status` → `scrape/import` films-in-120-chunks
+  with concurrent TMDB matching + a live progress bar, so a thousands-film
+  library never blows the serverless time budget; reviews are skipped — the
+  browser actor is minutes-slow — and it degrades gracefully when `APIFY_TOKEN`
+  is unset); **username login** via secure
   `/api/v1/auth/login` (custom token, email stays private). **What's left in
   0.7: Wave 7 remainder** (settings · invite · add · list-settings) → **native
   motion slice 2** (push/pop transitions + app-wide swipe-back) → **story share**

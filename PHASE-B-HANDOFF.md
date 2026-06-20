@@ -185,13 +185,23 @@ APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
 Get it from apify.com → Settings → Integrations → API token. The token drives the
-ready-made `apify/cheerio-scraper` + `apify/web-scraper` actors (RESIDENTIAL
-proxies clear Letterboxd's Cloudflare). **Until it's set, onboarding still works
-fully** — the letterboxd step's `/preview` falls back to an optimistic "ready"
-state and `/scrape-import` returns `{ available: false }`, so the import is
-skipped cleanly (no crash). Add the token to light the feature up; no redeploy of
-the app binary needed (it's a Vercel-side route). Cost is only incurred when a
-user who reaches the step actually finishes onboarding (account-last).
+ready-made `apify/cheerio-scraper` actor (RESIDENTIAL proxies clear Letterboxd's
+Cloudflare). **Until it's set, onboarding still works fully** — the letterboxd
+step's `/preview` falls back to an optimistic "ready" state and `scrape/start`
+returns `{ available: false }`, so the import is skipped cleanly (no crash). Add
+the token to light the feature up; no redeploy of the app binary needed (it's a
+Vercel-side route). Cost is only incurred when a user who reaches the step
+actually finishes onboarding (account-last).
+
+**Import design (time-safe):** the import is async + chunked so it never blows a
+function's time budget. The client starts the scrape (`scrape/start`), polls
+(`scrape/status`, showing "N found"), then imports films in ~120-film chunks
+(`scrape/import`, concurrent TMDB matching) behind a live progress bar. **Reviews
+are intentionally skipped** during onboarding — the reviews browser-actor is
+minutes-slow (a capped run didn't finish in 4.5 min); films/ratings/watchlist/
+lists/favourites all come from the fast cheerio run. A user can back-fill reviews
+later via the settings ZIP importer. No special Vercel plan/`maxDuration` is
+required because every request is short.
 
 ---
 

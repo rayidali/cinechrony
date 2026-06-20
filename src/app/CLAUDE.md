@@ -272,9 +272,21 @@ All four are no-ops on web.
   (provisions profile + reserves handle; a 409 bounces back to the handle step).
 - **Letterboxd USERNAME import** (not the ZIP guide): the letterboxd step calls
   `POST /api/v1/imports/letterboxd/preview` (cheap, Apify-free, public) for the
-  "found" state; the real scrape+import runs after the account exists via
-  `POST /api/v1/imports/letterboxd/scrape-import` on the importing screen
-  (graceful skip when `APIFY_TOKEN` is unset). The old ZIP-upload screens
+  "found" state. The real import runs after the account exists as an **async,
+  chunked pipeline** the importing screen drives (no single request can hold a
+  thousands-film scrape + TMDB match):
+  - `POST /imports/letterboxd/scrape/start { username }` → `{ runId, datasetId }`
+    (Apify cheerio run, **reviews skipped** — the browser actor is minutes-slow).
+  - `GET /imports/letterboxd/scrape/status?runId&datasetId` → `{ status, itemCount,
+    library? }` (client polls ~4s; on SUCCEEDED returns the normalized+deduped
+    `{ films, lists, favorites }`).
+  - `POST /imports/letterboxd/scrape/import { phase }` → `films` (a ~120-film
+    chunk, **concurrent** TMDB match) · `list` · `favorites` · `finalize`. The
+    client loops chunks with a live progress bar.
+  Helpers in `src/lib/letterboxd-username-import-server.ts` (over the decoupled
+  Apify run helpers + `normalizeRows` in `letterboxd-scrape-server.ts`). Graceful
+  skip when `APIFY_TOKEN` is unset. (Distinct from `/imports/letterboxd/import`,
+  the paste importer.) The old ZIP-upload screens
   (`import-letterboxd-*`, `import-paste-*`, `signup-screen`, `username-screen`,
   `splash-screen`, `import-options-screen`) are **orphaned** (safe to delete
   later; the ZIP `/parse` + `/full` routes still back the settings importer).
