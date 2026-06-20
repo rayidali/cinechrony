@@ -209,6 +209,16 @@
   from { transform: scale(1.03); }
   to { transform: scale(1.12) translateY(-1.5%); }
 }
+/* onboarding: pulsing ring behind the splash / import mark */
+@keyframes cc-pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  70%, 100% { transform: scale(1.55); opacity: 0; }
+}
+/* onboarding: slow drift for the welcome / login poster wall */
+@keyframes cc-posterwall {
+  from { transform: scale(1.18) rotate(-4deg) translateY(-4%); }
+  to { transform: scale(1.18) rotate(-4deg) translateY(-10%); }
+}
 
 .animate-float {
   animation: float 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
@@ -233,6 +243,14 @@
   animation: cc-kenburns 16s ease-in-out infinite alternate;
   will-change: transform;
 }
+.cc-pulse-ring {
+  animation: cc-pulse-ring 2.4s ease-out infinite;
+  will-change: transform, opacity;
+}
+.cc-posterwall {
+  animation: cc-posterwall 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
@@ -241,7 +259,9 @@
   .animate-slide-up,
   .animate-fade-in,
   .animate-sheet-rise,
-  .cc-kenburns {
+  .cc-kenburns,
+  .cc-pulse-ring,
+  .cc-posterwall {
     animation: none;
   }
 }

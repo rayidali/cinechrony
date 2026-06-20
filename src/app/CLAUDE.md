@@ -60,7 +60,8 @@ src/app/
     │   ├── leaderboard                    # Weekly top watchers (follow graph)
     │   ├── bookmarks/…  mutes/…  blocks/… reports/…
     │   ├── friends-watching               # Friends activity hero card
-    │   ├── imports/letterboxd/…           # Letterboxd parse/import
+    │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
+    │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph
     │   └── admin/…                        # adminRoute-wrapped backfills
     └── cron/weekly-digest                 # Vercel cron (web-push)
@@ -262,10 +263,33 @@ All four are no-ops on web.
 - Pull-to-refresh support
 - Notifications auto-deleted when invite is accepted/declined
 
-### `/onboarding` Flow
-- Multi-step onboarding for new users
-- Letterboxd import with 5-step screenshot guide
-- File upload for ZIP export from Letterboxd
+### `/onboarding` Flow (v3, Wave 7 — 2026-06-20)
+- **Account-LAST** state machine in `onboarding/page.tsx`: welcome → name →
+  letterboxd → handle → email(create account) → importing → find-friends →
+  complete → `/home`. Name / letterboxd-handle / @handle are **local state**;
+  nothing hits Firestore until the email step runs
+  `createUserWithEmailAndPassword` (or apple/google) then `POST /api/v1/me/profile`
+  (provisions profile + reserves handle; a 409 bounces back to the handle step).
+- **Letterboxd USERNAME import** (not the ZIP guide): the letterboxd step calls
+  `POST /api/v1/imports/letterboxd/preview` (cheap, Apify-free, public) for the
+  "found" state; the real scrape+import runs after the account exists via
+  `POST /api/v1/imports/letterboxd/scrape-import` on the importing screen
+  (graceful skip when `APIFY_TOKEN` is unset). The old ZIP-upload screens
+  (`import-letterboxd-*`, `import-paste-*`, `signup-screen`, `username-screen`,
+  `splash-screen`, `import-options-screen`) are **orphaned** (safe to delete
+  later; the ZIP `/parse` + `/full` routes still back the settings importer).
+- Step components live in `onboarding/components/*` (welcome · name · letterboxd ·
+  handle · account · importing) over the `v3/onboarding-kit.tsx` chrome.
+
+### `(auth)` — v3 (Wave 7 — 2026-06-20)
+- `login` (006): poster-wall hero + email-OR-@username + password + apple/google.
+  Email logs in via the Web SDK; **@username** routes through
+  `POST /api/v1/auth/login` (returns a Firebase **custom token** the client
+  exchanges — email stays private; all failures collapse to a generic 401).
+- `forgot-password` (007) + its "check your email" success state (008) in one
+  page; AUDIT 2.10 non-disclosure preserved. `reset-password` (010): `?oobCode`
+  verify → live requirement chips → `confirmPasswordReset` + auto-login → `/home`.
+- `signup` still redirects to `/onboarding?skip_splash=true` (jumps to the name step).
 
 ### `/invite/[code]` Page
 - Validates invite code

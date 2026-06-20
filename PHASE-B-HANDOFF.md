@@ -175,6 +175,24 @@ npx cap sync ios
 
 Without this, the bundled JS will call `/api/v1/*` as a relative path → fails inside the WebView (the WebView's origin is `capacitor://localhost`, which has no `/api`).
 
+### 9b. `APIFY_TOKEN` — the onboarding Letterboxd username import (optional)
+
+The onboarding "bring your films" step scrapes a public Letterboxd library via
+Apify. Set a **server-side** (NOT `NEXT_PUBLIC_`) env var in Vercel prod:
+
+```
+APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Get it from apify.com → Settings → Integrations → API token. The token drives the
+ready-made `apify/cheerio-scraper` + `apify/web-scraper` actors (RESIDENTIAL
+proxies clear Letterboxd's Cloudflare). **Until it's set, onboarding still works
+fully** — the letterboxd step's `/preview` falls back to an optimistic "ready"
+state and `/scrape-import` returns `{ available: false }`, so the import is
+skipped cleanly (no crash). Add the token to light the feature up; no redeploy of
+the app binary needed (it's a Vercel-side route). Cost is only incurred when a
+user who reaches the step actually finishes onboarding (account-last).
+
 ---
 
 ## 10. Verify

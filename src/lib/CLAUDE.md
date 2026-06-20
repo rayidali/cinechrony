@@ -15,6 +15,9 @@ src/lib/
 ├── admin-handler.ts          # adminRoute wrapper (ADMIN_SECRET const-time compare)
 ├── api-client.ts             # apiCall<T>(method, path, body?) for the client
 ├── auth-server.ts            # verifyCaller(req) — Bearer token → UID
+├── auth-login-server.ts      # loginWithIdentifier (email-or-@username → custom
+│                              # token; resolves handle→email server-side, verifies
+│                              # password via Identity Toolkit REST; Wave 7)
 ├── rate-limit.ts             # checkRateLimit(uid, bucket) — review/like/follow/…
 │
 ├─── Server-side domain helpers (consumed by /api/v1/* routes) ──────
@@ -46,6 +49,10 @@ src/lib/
 ├── friends-watching-server.ts# Aggregated "your circle is watching"
 ├── leaderboard-server.ts     # Weekly "top watchers" (follow-graph aggregate)
 ├── letterboxd-server.ts      # ZIP parse + TMDB match + import
+├── letterboxd-scrape-server.ts # USERNAME scrape engine (Apify cheerio+browser
+│                              # actors) → scrapeLetterboxdLibrary (pure) +
+│                              # importLetterboxdFromUsername (scrape→import).
+│                              # Wired by /imports/letterboxd/{preview,scrape-import}
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

@@ -658,6 +658,31 @@ so it doesn't fight the scrubber.
 
 ---
 
+## Phase 0.7 — Wave 7: onboarding + auth kit (2026-06-20)
+
+The v3 onboarding/auth screens (welcome · 4-step signup · login · forgot ·
+check-email · reset) share three new primitives in `src/components/v3/`:
+
+- **`onboarding-kit.tsx`** — the shared chrome: `StepShell` (progress · back ·
+  skip · sticky CTA), `StepHeader` (film-red eyebrow → lowercase Bricolage title →
+  serif sub), `FieldCard` (mono uppercase label + big editorial value), `CtaButton`
+  (full-width film-red pill, `shadow-fab`, `haptic('medium')`), `OrDivider`,
+  `AuthTopBar` (back chevron + centered eyebrow), `IconTile` (the rounded key /
+  mail-check tile), `OnboardingProgress`, and `filmRedCaret` (the film-red text
+  caret). Built to the v3 sizing standard.
+- **`poster-wall.tsx`** — the welcome/login filmic backdrop: a slowly drifting
+  (`cc-posterwall`) grid of `seededGradient` poster tiles under a `--background`
+  scrim. Network-FREE + quota-safe (no TMDB call on the first screen).
+- **`social-auth-row.tsx`** — the compact `apple · google` pills, reusing
+  `native-auth` (Capacitor plugin / web popup). Apple shows only in a native
+  runtime (else Google spans).
+
+The step components are under `app/onboarding/components/*` (welcome · name ·
+letterboxd · handle · account · importing); the account-LAST flow lives in
+`app/onboarding/page.tsx`. The old ZIP-import onboarding components are orphaned
+(safe to delete later). The legacy `auth/social-sign-in-buttons.tsx` (vertical
+"Continue with Google") stays for any v2 caller but the v3 screens use the new row.
+
 ## v3 sizing standard (build to this by default)
 
 New v3 surfaces must match the **home search overlay's** confidence — not a

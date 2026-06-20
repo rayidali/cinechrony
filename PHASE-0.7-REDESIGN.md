@@ -71,12 +71,14 @@ retired) · **profile** own+public (0.7.3.5) · **movie drawer** (Wave 2, + ambi
 silent-trailer hero) · **create-a-post + post thread + reel** (Waves 3/5) ·
 **reviews wall** (Wave 4 — F12–F15, 2026-06-18) · **data rails** — leaderboard +
 weekly movement, dig-in/top-picks, featured, community, **hot-take card** (Wave 6
-· 0.7.5.1–0.7.5.4).
+· 0.7.5.1–0.7.5.4) · **notifications** (Wave 7 · 2026-06-19) · **onboarding + auth**
+(Wave 7 · 2026-06-20 — welcome · 4-step **account-last** signup · letterboxd
+**username** import · login · forgot/check-email/reset).
 
 **⬜ Remaining UI/UX — the "what's next" list:**
-1. **Wave 7 — onboarding · auth · settings · notifications · invite · add ·
-   list-settings** (0.7.3.7) — all still v2 (Card/Input). Settings has only the
-   v3 theme Segmented so far.
+1. **Wave 7 (remainder) — settings · invite · add · list-settings** — still v2
+   (Card/Input). Settings has only the v3 theme Segmented so far. (notifications +
+   onboarding + auth are now v3 ✅.)
 2. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
    edge-swipe-back generalization (0.7.2.4 — today only on `/comments`).
 3. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card
@@ -416,9 +418,22 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
     social-proof stays **deliberately deferred** — no cheap per-item read on the
     free tier (would be a per-poster N+1).
 
-- [ ] **Wave 7 — Onboarding · auth · settings · notifications** (folds the old
-  0.7.3.7). **More onboarding screens incoming** (owner) — restyle to v3 +
-  coordinate with Phase C try-before-signup. **Test:** per-screen light/dark walk.
+- [~] **Wave 7 — Onboarding · auth · settings · notifications** (folds the old
+  0.7.3.7). **Notifications** ✅ (2026-06-19). **Onboarding + auth** ✅ (2026-06-20):
+  the 9 design screens (001 welcome → 002 name → 003 letterboxd → 004 handle →
+  005 email → importing → find-your-people; 006 login · 007 forgot · 008 check-
+  email · 010 reset). Reordered to **account-LAST** (name/letterboxd/handle are
+  local state until the email step creates the Firebase account, which then
+  provisions the profile + reserves the handle + fires the import). New v3 kit:
+  `v3/onboarding-kit.tsx` (StepShell · StepHeader · FieldCard · CtaButton ·
+  OrDivider · AuthTopBar · IconTile), `v3/poster-wall.tsx`, `v3/social-auth-row.tsx`;
+  step components under `onboarding/components/*` (welcome/name/letterboxd/handle/
+  account/importing). **Letterboxd username import** wired to the new scrape engine:
+  cheap Apify-free `/preview` "found" state → real `/scrape-import` on a progress
+  screen after the account exists (graceful skip when `APIFY_TOKEN` unset or
+  Cloudflare-blocked). **Username login** via secure `/api/v1/auth/login` (custom
+  token; email stays private). **Still v2:** settings · invite · add · list-settings.
+  **Test:** per-screen light/dark walk; `audit:test` green.
 
 > After the waves: **motion slice 2** (push/pop transitions + app-wide
 > swipe-back — the F-screens are designed as pushed screens, so build them

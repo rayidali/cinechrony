@@ -25,10 +25,21 @@
   (rated/reviewed dropped); captions are Bricolage. **The F-screen
   interaction-surface Waves 1–6 are all DONE** (rail detail screens → movie-drawer
   cluster + watch-log → create-a-post → threads + reviews wall → reel·player →
-  data-rail finish); see `PHASE-0.7-REDESIGN.md` § "0.7.3.2+". **What's left in
-  0.7: Wave 7** (onboarding · auth · settings · notifications · invite · add ·
-  list-settings) → **native motion slice 2** (push/pop transitions + app-wide
-  swipe-back) → **story share** (0.7.4 card renderer → 0.7.6 direct-to-IG).
+  data-rail finish); see `PHASE-0.7-REDESIGN.md` § "0.7.3.2+". **Wave 7 so far:
+  notifications (2026-06-19) + onboarding & auth (2026-06-20) are v3.** The
+  onboarding flow was **reordered account-LAST** (welcome → name → letterboxd →
+  handle → email[create account] → importing → find-your-people; + login · forgot ·
+  check-email · reset). Name/letterboxd-handle/@handle are LOCAL state until the
+  email step creates the Firebase account, which then provisions the profile,
+  reserves the handle, and fires the import. New v3 kit: `v3/onboarding-kit.tsx` ·
+  `v3/poster-wall.tsx` · `v3/social-auth-row.tsx` + step components under
+  `onboarding/components/*`. The **letterboxd username scrape** is wired in
+  (cheap `/preview` "found" state → real `/scrape-import` on a progress screen,
+  graceful when `APIFY_TOKEN` is unset); **username login** via secure
+  `/api/v1/auth/login` (custom token, email stays private). **What's left in
+  0.7: Wave 7 remainder** (settings · invite · add · list-settings) → **native
+  motion slice 2** (push/pop transitions + app-wide swipe-back) → **story share**
+  (0.7.4 card renderer → 0.7.6 direct-to-IG).
 - **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
   quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
   `softFallback` · lazy detail reads · no per-item N+1). **Deep read-reduction
@@ -100,16 +111,19 @@
   profile · movie drawer · create-post/thread/reel · **reviews wall** · data rails)
   are **v3 done**. The editable + read-only lists now share ONE cell
   (`movie-cell.tsx`) + `MovieList` (with a `publicReadOnly` mode) so they can't
-  drift again; the legacy "cards" view was retired. Still on v2: the **Wave 7
-  outer cluster** — onboarding · auth · settings · notifications · invite · add ·
-  list-settings.
+  drift again; the legacy "cards" view was retired. **Wave 7 now v3:**
+  notifications · **onboarding · auth**. Still on v2: **settings · invite · add ·
+  list-settings**.
   Plus native motion (push/pop transitions + app-wide swipe-back) and the
   story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the
   new `/users/{uid}/watches` owner-read rule — non-blocking, the route uses Admin
-  SDK); `npx cap sync` (picks up `@capacitor/haptics`).
+  SDK); `npx cap sync` (picks up `@capacitor/haptics`); **set `APIFY_TOKEN` in
+  Vercel prod env** (lights up the onboarding letterboxd **username** import —
+  `/api/v1/imports/letterboxd/scrape-import`; until set, that step degrades
+  gracefully to skip). See `PHASE-B-HANDOFF.md` §9.
 - **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
   Spec in `LAUNCH.md` §C.
 
