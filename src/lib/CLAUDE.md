@@ -71,7 +71,13 @@ src/lib/
 ├── import-store.ts           # CLIENT singleton (useImportStore) owning the import
 │                              # lifecycle so it survives navigation: scrape→poll→
 │                              # chunks→finalize, ETA, foreground flag, localStorage
-│                              # resume-on-kill. Views: importing-step + import pill.
+│                              # resume-on-kill (+ resume on app foreground). Views:
+│                              # importing-step + import pill. importFilmChunk keeps
+│                              # the default-list movieCount live (increment/chunk,
+│                              # finalize SETs authoritative). importUserList writes
+│                              # films THEN creates the list doc w/ final count (no
+│                              # 0→N flicker) + strips LB share-blurb descriptions +
+│                              # skips empty lists.
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

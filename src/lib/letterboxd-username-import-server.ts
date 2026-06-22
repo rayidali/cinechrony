@@ -185,6 +185,20 @@ function posterUrl(p?: string | null): string | null {
   return p ? `https://image.tmdb.org/t/p/w500${p}` : null;
 }
 
+/**
+ * A scraped Letterboxd list often yields the site's generic share boilerplate
+ * ("<user> is using Letterboxd to share film reviews and lists with friends.
+ * Join here.") instead of a real description. Drop that — an imported list with a
+ * junk description reads as broken.
+ */
+function cleanListDescription(desc?: string | null): string | null {
+  const d = (desc || '').trim();
+  if (!d) return null;
+  if (/using letterboxd to share film reviews/i.test(d)) return null;
+  if (/^join here\.?$/i.test(d)) return null;
+  return d.slice(0, 500);
+}
+
 // ── chunk import (films + ratings + reviews) ─────────────────────────────────
 
 export async function importFilmChunk(
@@ -263,31 +277,27 @@ export async function importFilmChunk(
       ops++;
     }
 
-    if (it.review) {
-      const reviewRef = db.collection('reviews').doc();
-      batch.set(reviewRef, {
-        id: reviewRef.id,
-        tmdbId: m.id,
-        mediaType: 'movie',
-        movieTitle: m.title,
-        moviePosterUrl: posterUrl(m.poster_path),
-        userId: uid,
-        username: userData?.username || null,
-        userDisplayName: userData?.displayName || null,
-        userPhotoUrl: userData?.photoURL || null,
-        text: it.review,
-        ratingAtTime: it.rating ?? null,
-        likes: 0,
-        likedBy: [],
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      ops++;
-    }
+    // NOTE: reviews are NOT written here. They come exclusively from the
+    // background reviews sync (writeReviews), which writes the canonical,
+    // idempotent shape (parentId:null, deterministic lb_{uid}_{tmdbId} id). The
+    // cheerio scrape that feeds this chunk carries no reviews anyway.
 
     if (ops >= 450) await flush();
   }
   await flush();
+
+  // Keep the default list's denormalized count live as chunks land (so "my
+  // watchlist" grows during import instead of jumping at the end). finalize does
+  // the authoritative recount-and-SET, correcting any increment drift.
+  if (imported > 0) {
+    await db
+      .collection('users')
+      .doc(uid)
+      .collection('lists')
+      .doc(listId)
+      .update({ movieCount: FieldValue.increment(imported), updatedAt: FieldValue.serverTimestamp() })
+      .catch(() => {});
+  }
   return { imported, posters };
 }
 
@@ -301,19 +311,10 @@ export async function importUserList(
   if (!list.movies?.length) return { imported: 0 };
 
   const db = getDb();
+  // Get an id WITHOUT creating the list doc yet — we write the films first, then
+  // create the list doc once with the FINAL movieCount, so the lists grid never
+  // shows a "0 films" flicker before the count catches up (the reported bug).
   const listRef = db.collection('users').doc(uid).collection('lists').doc();
-  await listRef.set({
-    id: listRef.id,
-    name: list.name || 'Imported list',
-    description: list.description || null,
-    isDefault: false,
-    isPublic: false,
-    ownerId: uid,
-    collaboratorIds: [],
-    movieCount: 0,
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
-  });
   const userData = (await db.collection('users').doc(uid).get()).data();
 
   const matched = await mapPool(list.movies, 8, async (mv) => await tmdbMatch(mv.name, mv.year));
@@ -355,7 +356,24 @@ export async function importUserList(
     }
   }
   if (ops > 0) await batch.commit();
-  await listRef.update({ movieCount: imported, updatedAt: FieldValue.serverTimestamp() });
+
+  // Nothing matched → don't leave an empty ghost list cluttering the grid.
+  if (imported === 0) return { imported: 0 };
+
+  // Create the list doc LAST, already carrying the right count + a cleaned
+  // description (no Letterboxd share boilerplate).
+  await listRef.set({
+    id: listRef.id,
+    name: list.name || 'Imported list',
+    description: cleanListDescription(list.description),
+    isDefault: false,
+    isPublic: false,
+    ownerId: uid,
+    collaboratorIds: [],
+    movieCount: imported,
+    createdAt: FieldValue.serverTimestamp(),
+    updatedAt: FieldValue.serverTimestamp(),
+  });
   return { imported };
 }
 

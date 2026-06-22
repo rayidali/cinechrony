@@ -6,36 +6,40 @@ import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 
 const FLAG = 'cc-pending-reviews';
-const RETRY_MS = 30_000;
-const MAX_TRIES = 12; // ~6 min of polling per app session; flag persists across sessions
+const POLL_MS = 20_000;
+const MAX_WINDOW_MS = 22 * 60 * 1000; // reviews can take many minutes for big libraries
 
 /**
  * Finishes the BACKGROUND Letterboxd reviews import after onboarding (Phase 0.7
  * Wave 7). The reviews browser-actor run is minutes-slow, so it's never part of
- * the onboarding wait — the importing screen sets a device flag, and this
+ * the onboarding wait — the import flags `cc-pending-reviews`, and this
  * mount-once component polls `/imports/letterboxd/reviews/sync` until the run
- * lands, then quietly toasts. No-op (and zero network) unless the flag is set, so
- * it costs nothing for everyone else. Mounted in the root layout.
+ * lands, then quietly toasts. Robust on iOS: Capacitor suspends JS timers in the
+ * background, so we also re-kick polling whenever the app returns to the
+ * foreground (Capacitor `resume` + `visibilitychange`). Zero network unless the
+ * flag is set. Mounted in the root layout.
+ *
+ * Reviews are PER-USER (`lb_{uid}_{tmdbId}` docs), so re-importing the same
+ * Letterboxd account into the same account is idempotent (no dupes), and a
+ * different account imports its own copy — there is no cross-account dedup.
  */
 export function PendingImportSync() {
   const { user } = useUser();
   const { toast } = useToast();
-  const startedRef = useRef(false);
+  const polling = useRef(false);
+  const deadline = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   useEffect(() => {
-    if (!user || startedRef.current) return;
-    let flag: string | null = null;
-    try {
-      flag = localStorage.getItem(FLAG);
-    } catch {
-      /* storage blocked */
-    }
-    if (flag !== '1') return;
-    startedRef.current = true;
+    if (!user) return;
 
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-    let tries = 0;
+    const hasFlag = () => {
+      try {
+        return localStorage.getItem(FLAG) === '1';
+      } catch {
+        return false;
+      }
+    };
     const clearFlag = () => {
       try {
         localStorage.removeItem(FLAG);
@@ -44,34 +48,65 @@ export function PendingImportSync() {
       }
     };
 
-    const poll = async () => {
-      if (cancelled) return;
-      tries++;
+    const tick = async () => {
+      if (polling.current || !hasFlag()) return;
+      if (Date.now() > deadline.current) return; // out of window; a foreground event re-opens it
+      polling.current = true;
       try {
         const r = await apiCall<{ status: string; reviewsImported?: number }>(
           'POST',
           '/api/v1/imports/letterboxd/reviews/sync',
         );
         if (r.status === 'running') {
-          if (tries < MAX_TRIES) timer = setTimeout(poll, RETRY_MS); // else leave flag for next session
-          return;
-        }
-        clearFlag();
-        if (r.status === 'done' && (r.reviewsImported ?? 0) > 0) {
-          toast({
-            title: 'your letterboxd reviews are in',
-            description: `imported ${r.reviewsImported!.toLocaleString('en-US')} reviews.`,
-          });
+          timer.current = setTimeout(tick, POLL_MS);
+        } else {
+          clearFlag();
+          if (r.status === 'done' && (r.reviewsImported ?? 0) > 0) {
+            toast({
+              title: 'your letterboxd reviews are in',
+              description: `imported ${r.reviewsImported!.toLocaleString('en-US')} reviews.`,
+            });
+          }
         }
       } catch {
-        if (tries < 3) timer = setTimeout(poll, RETRY_MS); // transient — a couple of retries
+        // transient — retry within the window
+        timer.current = setTimeout(tick, POLL_MS);
+      } finally {
+        polling.current = false;
       }
     };
 
-    timer = setTimeout(poll, 4000); // let first paint settle
+    const kick = () => {
+      if (!hasFlag()) return;
+      // (Re)open the polling window — a fresh foreground gives reviews more time.
+      deadline.current = Date.now() + MAX_WINDOW_MS;
+      clearTimeout(timer.current);
+      timer.current = setTimeout(tick, 3000);
+    };
+
+    kick();
+
+    const onVis = () => {
+      if (document.visibilityState === 'visible') kick();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    let removeNative: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { Capacitor } = await import('@capacitor/core');
+        if (!Capacitor.isNativePlatform()) return;
+        const { App } = await import('@capacitor/app');
+        const handle = await App.addListener('resume', kick);
+        removeNative = () => void handle.remove();
+      } catch {
+        /* web — visibilitychange covers it */
+      }
+    })();
+
     return () => {
-      cancelled = true;
-      clearTimeout(timer);
+      clearTimeout(timer.current);
+      document.removeEventListener('visibilitychange', onVis);
+      removeNative?.();
     };
   }, [user, toast]);
 
