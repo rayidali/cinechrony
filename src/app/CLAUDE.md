@@ -295,9 +295,19 @@ All four are no-ops on web.
   Helpers in `src/lib/letterboxd-username-import-server.ts` (over the decoupled
   Apify run helpers + `normalizeRows` in `letterboxd-scrape-server.ts`). Graceful
   skip when `APIFY_TOKEN` is unset. (Distinct from `/imports/letterboxd/import`,
-  the paste importer.) The **importing screen** (`importing-step.tsx`) is the
-  "lovable wait": a real poster wall builds as chunks land, counters tick up
-  (`useCountUp`), then a stat reveal. The old ZIP-upload screens
+  the paste importer.)
+  - **The import runs in a store, not the screen** — `src/lib/import-store.ts` is
+    a module singleton that owns the whole lifecycle, so it SURVIVES navigation.
+    The importing screen (`importing-step.tsx`) is a VIEW: a building poster wall
+    (chunks return sample posters), `useCountUp` counters, an **accurate ETA**
+    (from elapsed/done rate), then a stat reveal. After ~9s a **"continue in the
+    app"** button hands off to a global progress **pill** (`import-progress-pill.tsx`,
+    root layout) that finishes in the background + toasts. The store also
+    **resumes** an import interrupted by an app kill (re-fetches the finished
+    Apify dataset, idempotent writes — persisted run in `localStorage cc-import-run`).
+  - **Smart status**: any film with a rating or review imports as **Watched**
+    (never left in "to watch"); reviewed films are upserted Watched on review sync.
+  The old ZIP-upload screens
   (`import-letterboxd-*`, `import-paste-*`, `signup-screen`, `username-screen`,
   `splash-screen`, `import-options-screen`) are **orphaned** (safe to delete
   later; the ZIP `/parse` + `/full` routes still back the settings importer).

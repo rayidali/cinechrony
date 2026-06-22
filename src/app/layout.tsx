@@ -15,6 +15,7 @@ import { NativePushRegistration } from '@/components/native-push-registration';
 import { DeepLinkHandler } from '@/components/deep-link-handler';
 import { NativeShellInit } from '@/components/native-shell-init';
 import { PendingImportSync } from '@/components/pending-import-sync';
+import { ImportProgressPill } from '@/components/import-progress-pill';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -105,6 +106,7 @@ export default function RootLayout({
                         <NativePushRegistration />
                         <DeepLinkHandler />
                         <PendingImportSync />
+                        <ImportProgressPill />
                         {children}
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>

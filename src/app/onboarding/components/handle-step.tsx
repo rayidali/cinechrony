@@ -38,15 +38,6 @@ export function HandleStep({
 }) {
   const [status, setStatus] = useState<Status>('idle');
 
-  // Seed the handle from the name the first time we land here.
-  useEffect(() => {
-    if (!handle && name) {
-      const seed = sanitize(name.split(/\s+/)[0] || '');
-      if (seed.length >= 3) setHandle(seed);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   const suggestions = useMemo(() => {
     const parts = name.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const first = sanitize(parts[0] || handle || 'cinephile');
@@ -86,11 +77,22 @@ export function HandleStep({
     runCheck(v);
   };
 
-  // Re-validate a seeded handle on mount.
+  // On mount: seed the handle from the name (if empty), then immediately check
+  // it — so an available prefill greenlights Continue without the user typing.
+  // (One effect: seeding + checking in the same pass avoids the state-update race
+  // that left a seeded handle unchecked.)
   useEffect(() => {
-    if (handle && HANDLE_RE.test(handle)) {
+    let seed = handle;
+    if (!seed && name) {
+      const s = sanitize(name.split(/\s+/)[0] || '');
+      if (s.length >= 3) {
+        seed = s;
+        setHandle(s);
+      }
+    }
+    if (seed && HANDLE_RE.test(seed)) {
       setStatus('checking');
-      runCheck(handle);
+      runCheck(seed);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

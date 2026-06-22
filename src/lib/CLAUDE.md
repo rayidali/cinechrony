@@ -56,15 +56,22 @@ src/lib/
 │                              # importLetterboxdFromUsername. /preview route.
 ├── letterboxd-username-import-server.ts # ASYNC + CHUNKED onboarding import:
 │                              # startLibraryScrape / pollLibraryScrape (→ deduped
-│                              # ImportLibrary) + importFilmChunk (concurrent TMDB
-│                              # match, ~120/req, returns posters) / importUserList /
-│                              # setUserFavorites / finalizeDefaultList (recount +
-│                              # kick background reviews run). REVIEWS BACKGROUND:
-│                              # startReviewsRun + syncPendingReviews (poll + import
-│                              # to deterministic lb_{uid}_{tmdbId} review docs;
-│                              # pendingReviews on users_private). Wired by
+│                              # ImportLibrary; buildImportItems forces Watched for
+│                              # any rated/reviewed film) + importFilmChunk (concurrent
+│                              # TMDB match, ~120/req, returns posters) / importUserList
+│                              # / setUserFavorites / finalizeDefaultList (recount +
+│                              # record importedLetterboxd + kick reviews run). REVIEWS
+│                              # BACKGROUND: startReviewsRun + syncPendingReviews —
+│                              # writes CANONICAL review docs (parentId:null etc. so
+│                              # they show in the wall), ratingAtTime from /ratings,
+│                              # upserts the film Watched; deterministic lb_{uid}_{tmdbId}
+│                              # ids; pendingReviews on users_private. Wired by
 │                              # /imports/letterboxd/scrape/{start,status,import} +
 │                              # /imports/letterboxd/reviews/sync
+├── import-store.ts           # CLIENT singleton (useImportStore) owning the import
+│                              # lifecycle so it survives navigation: scrape→poll→
+│                              # chunks→finalize, ETA, foreground flag, localStorage
+│                              # resume-on-kill. Views: importing-step + import pill.
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

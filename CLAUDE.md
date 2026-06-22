@@ -37,11 +37,15 @@
   (cheap `/preview` "found" state → an **async, chunked import**:
   `scrape/start` → poll `scrape/status` → `scrape/import` films-in-120-chunks
   with concurrent TMDB matching + a **lovable progress UI** (a real poster wall
-  builds, counters tick, stat reveal), so a thousands-film library never blows
-  the serverless time budget; **reviews import in the BACKGROUND** after
-  onboarding via `<PendingImportSync/>` + `/reviews/sync` — the browser actor is
-  minutes-slow so it's never part of the wait — and it degrades gracefully when
-  `APIFY_TOKEN` is unset); **username login** via secure
+  builds, counters tick, ETA, stat reveal), so a thousands-film library never
+  blows the serverless time budget. The import lives in a **store**
+  (`import-store.ts`) that survives navigation, so "continue in the app" hands off
+  to a background **progress pill** (+ resume-on-kill); rated/reviewed films import
+  as **Watched**. **Reviews import in the BACKGROUND** after onboarding via
+  `<PendingImportSync/>` + `/reviews/sync` (canonical `parentId:null` docs so they
+  show in the wall) — the browser actor is minutes-slow so it's never part of the
+  wait — and it degrades gracefully when `APIFY_TOKEN` is unset; **username login**
+  via secure
   `/api/v1/auth/login` (custom token, email stays private). **What's left in
   0.7: Wave 7 remainder** (settings · invite · add · list-settings) → **native
   motion slice 2** (push/pop transitions + app-wide swipe-back) → **story share**

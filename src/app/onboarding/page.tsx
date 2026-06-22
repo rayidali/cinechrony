@@ -111,7 +111,7 @@ function OnboardingContent() {
       return (
         <ImportingStep
           lbUsername={lbUsername}
-          onDone={(count) => {
+          onProceed={(count) => {
             setImportedCount(count);
             setStep('find-friends');
           }}

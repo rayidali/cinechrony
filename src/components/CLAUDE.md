@@ -681,8 +681,12 @@ The step components are under `app/onboarding/components/*` (welcome · name ·
 letterboxd · handle · account · importing); the account-LAST flow lives in
 `app/onboarding/page.tsx`. The **`importing-step.tsx`** is the "lovable wait": a
 real poster wall builds as import chunks land (`cc-poster-pop`/`cc-shimmer`),
-counters tick up (`useCountUp`), milestones, then a stat reveal. Reviews are NOT
-in the wait — `pending-import-sync.tsx` (mounted in the root layout, gated by a
+`useCountUp` counters, an accurate ETA, then a stat reveal — but it's only a VIEW
+of `src/lib/import-store.ts` (the import lives in that singleton so it survives
+navigation). After ~9s "continue in the app" hands off to **`import-progress-pill.tsx`**
+(root layout): a slim bottom pill that finishes the import in the background and
+toasts. The pill also RESUMES an import interrupted by an app kill. Reviews are
+NOT in the wait — `pending-import-sync.tsx` (root layout, gated by a
 `cc-pending-reviews` device flag → zero network otherwise) finishes the slow
 reviews import in the background after onboarding and quietly toasts. The old ZIP-import onboarding components are orphaned
 (safe to delete later). The legacy `auth/social-sign-in-buttons.tsx` (vertical

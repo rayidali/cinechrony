@@ -93,7 +93,12 @@ export function buildImportItems(data: LetterboxdData): ImportLibrary {
     const key = `${name.toLowerCase()}_${year}`;
     if (seen.has(key)) return;
     seen.add(key);
-    films.push({ name, year, status, rating: ratingsMap.get(key) ?? null, review: reviewsMap.get(key) ?? null });
+    const rating = ratingsMap.get(key) ?? null;
+    const review = reviewsMap.get(key) ?? null;
+    // A rating or a review implies the film was watched — never leave it in
+    // "to watch" even if it somehow arrived via the watchlist.
+    const effectiveStatus = rating != null || review ? 'Watched' : status;
+    films.push({ name, year, status: effectiveStatus, rating, review });
   };
   for (const w of data.watched) push(w.Name, w.Year, 'Watched');
   for (const w of data.watchlist) push(w.Name, w.Year, 'To Watch');
@@ -389,13 +394,28 @@ export async function finalizeDefaultList(
   const movieCount = countSnap.data().count;
   await listRef.update({ movieCount, updatedAt: FieldValue.serverTimestamp() });
 
+  // Record which Letterboxd handle was imported (owner-only) — the hook for a
+  // future "re-sync" affordance + light idempotency. We deliberately do NOT
+  // hard-lock a Letterboxd account to one Cinechrony user: the diary is already
+  // public, two real people might share, and someone may re-import after the
+  // original abandons — locking is all downside. Imports are idempotent instead.
+  if (opts.username) {
+    try {
+      await db.collection('users_private').doc(uid).set(
+        { importedLetterboxd: { username: opts.username, at: FieldValue.serverTimestamp() } },
+        { merge: true },
+      );
+    } catch {
+      /* non-critical */
+    }
+  }
+
   // Kick the slow reviews scrape NOW (only for users who actually committed an
-  // import) and stash the run on the user doc; `syncPendingReviews` finishes it
+  // import) and stash the run on users_private; `syncPendingReviews` finishes it
   // in the background after onboarding — reviews are never part of the wait.
   if (opts.username && opts.token) {
     try {
       const { runId, datasetId } = await startReviewsRun(opts.username, opts.token);
-      // users_private (owner-only) so the opaque run ids never sit on the public profile.
       await db.collection('users_private').doc(uid).set(
         { pendingReviews: { runId, datasetId, createdAt: FieldValue.serverTimestamp() } },
         { merge: true },
@@ -429,43 +449,103 @@ async function writeReviews(
   if (!TMDB_ACCESS_TOKEN || !reviews.length) return 0;
   const db = getDb();
   const userData = (await db.collection('users').doc(uid).get()).data();
+  const listId = await getDefaultListId(db, uid);
   const slice = reviews.filter((r) => r.Review && r.Review.trim()).slice(0, REVIEW_SYNC_CAP);
 
-  const matched = await mapPool(slice, 8, async (r) => ({ r, m: await tmdbMatch(r.Name, r.Year) }));
+  const matched = (await mapPool(slice, 8, async (r) => ({ r, m: await tmdbMatch(r.Name, r.Year) }))).filter(
+    (x): x is { r: { Name: string; Year: string; Review?: string }; m: TmdbHit } => !!x.m,
+  );
+
+  // Pull the user's ratings for these films in one batched read → the imported
+  // review carries its score (shows as a scored review, not a bare note).
+  const ratingRefs = matched.map(({ m }) => db.collection('ratings').doc(`${uid}_${m.id}`));
+  const ratingDocs = ratingRefs.length ? await db.getAll(...ratingRefs) : [];
+  const ratingByTmdb = new Map<number, number>();
+  ratingDocs.forEach((d, i) => {
+    const v = d.data()?.rating;
+    if (typeof v === 'number') ratingByTmdb.set(matched[i].m.id, v);
+  });
 
   let batch = db.batch();
   let ops = 0;
   let written = 0;
-  for (const { r, m } of matched) {
-    if (!m) continue;
-    // Deterministic id → re-running the sync is idempotent (no duplicate reviews).
-    const reviewRef = db.collection('reviews').doc(`lb_${uid}_${m.id}`);
-    batch.set(reviewRef, {
-      id: `lb_${uid}_${m.id}`,
-      tmdbId: m.id,
-      mediaType: 'movie',
-      movieTitle: m.title,
-      moviePosterUrl: posterUrl(m.poster_path),
-      userId: uid,
-      username: userData?.username || null,
-      userDisplayName: userData?.displayName || null,
-      userPhotoUrl: userData?.photoURL || null,
-      text: r.Review!.trim(),
-      ratingAtTime: null,
-      likes: 0,
-      likedBy: [],
-      createdAt: FieldValue.serverTimestamp(),
-      updatedAt: FieldValue.serverTimestamp(),
-    }, { merge: true });
-    ops++;
-    written++;
-    if (ops >= 450) {
+  const flush = async () => {
+    if (ops > 0) {
       await batch.commit();
       batch = db.batch();
       ops = 0;
     }
+  };
+
+  for (const { r, m } of matched) {
+    // Deterministic id → re-running the sync is idempotent (no duplicate reviews).
+    const reviewRef = db.collection('reviews').doc(`lb_${uid}_${m.id}`);
+    batch.set(
+      reviewRef,
+      {
+        id: `lb_${uid}_${m.id}`,
+        tmdbId: m.id,
+        mediaType: 'movie',
+        movieTitle: m.title,
+        moviePosterUrl: posterUrl(m.poster_path),
+        userId: uid,
+        username: userData?.username || null,
+        userDisplayName: userData?.displayName || null,
+        userPhotoUrl: userData?.photoURL || null,
+        text: r.Review!.trim(),
+        ratingAtTime: ratingByTmdb.get(m.id) ?? null,
+        likes: 0,
+        likedBy: [],
+        // Canonical review shape — the reviews wall filters where(parentId==null),
+        // so a missing parentId makes an imported review INVISIBLE (the bug).
+        parentId: null,
+        replyCount: 0,
+        hasSpoiler: false,
+        reactions: {},
+        createdAt: FieldValue.serverTimestamp(),
+        updatedAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    ops++;
+    written++;
+
+    // A reviewed film has been watched — make sure it's in the default list as
+    // Watched (it usually already is from the films grid; this covers the case
+    // where the grid missed it). merge → never clobbers an existing entry's data.
+    const movieRef = db.collection('users').doc(uid).collection('lists').doc(listId).collection('movies').doc(`movie_${m.id}`);
+    batch.set(
+      movieRef,
+      {
+        id: `movie_${m.id}`,
+        title: m.title,
+        year: m.release_date?.slice(0, 4) || '',
+        posterUrl: posterUrl(m.poster_path),
+        posterHint: m.title,
+        addedBy: uid,
+        status: 'Watched',
+        mediaType: 'movie',
+        tmdbId: m.id,
+        overview: m.overview || null,
+        rating: m.vote_average || null,
+        backdropUrl: m.backdrop_path ? `https://image.tmdb.org/t/p/w1280${m.backdrop_path}` : null,
+        addedByDisplayName: userData?.displayName || null,
+        addedByUsername: userData?.username || null,
+        addedByPhotoURL: userData?.photoURL || null,
+        createdAt: FieldValue.serverTimestamp(),
+      },
+      { merge: true },
+    );
+    ops++;
+
+    if (ops >= 440) await flush();
   }
-  if (ops > 0) await batch.commit();
+  await flush();
+  if (written > 0) {
+    const listRef = db.collection('users').doc(uid).collection('lists').doc(listId);
+    const countSnap = await listRef.collection('movies').count().get();
+    await listRef.update({ movieCount: countSnap.data().count, updatedAt: FieldValue.serverTimestamp() });
+  }
   return written;
 }
 
