@@ -124,13 +124,26 @@
   drift again; the legacy "cards" view was retired. **Wave 7 is fully v3:**
   notifications · onboarding · auth · **settings · invite · add · list-settings**
   (2026-06-22) — the entire app is now v3, no v2 surfaces left.
+- **Native motion slice 2 (2026-06-23):** app-wide iOS-native page transitions +
+  edge-swipe-back via `<NativeTransitions>` (root layout, wraps `{children}`):
+  push → slide-in-from-right, pop → slide-in-from-left + parallax dim, tab↔tab →
+  instant, plus an interactive left-edge swipe-back everywhere. Direct-DOM
+  transforms CLEARED when idle (never leaves a transform on the tree → no
+  `fixed`/sticky breakage, the BodyStyleWatchdog class of bug); direction from a
+  pathname stack + popstate; gated to native/coarse-pointer + reduced-motion;
+  swipe suppressed on tab roots, `/movie/…/comments` (owns its `SwipeBackContainer`),
+  and under any covering fixed overlay (detected by walking up from the touch
+  target — no overlay opts in). **iOS native project synced** (`npx cap sync ios`):
+  `@capacitor/haptics` now registered in `CapApp-SPM/Package.swift` (was missing —
+  haptics now fire on a real build) + latest web bundle copied in.
   Plus native motion (push/pop transitions + app-wide swipe-back) and the
   story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes
   --project studio-2541484065-75c27` (activities index for profile
   recent/activity); **`firebase deploy --only firestore:rules`** (publishes the
   new `/users/{uid}/watches` owner-read rule — non-blocking, the route uses Admin
-  SDK); `npx cap sync` (picks up `@capacitor/haptics`); **set `APIFY_TOKEN` in
+  SDK); ~~`npx cap sync`~~ (DONE 2026-06-23 — haptics now in `Package.swift`);
+  **set `APIFY_TOKEN` in
   Vercel prod env** (lights up the onboarding letterboxd **username** import —
   `/api/v1/imports/letterboxd/scrape-import`; until set, that step degrades
   gracefully to skip). See `PHASE-B-HANDOFF.md` §9.

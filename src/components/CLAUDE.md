@@ -698,6 +698,25 @@ account, independent across accounts (no cross-account dedup). The old ZIP-impor
 (safe to delete later). The legacy `auth/social-sign-in-buttons.tsx` (vertical
 "Continue with Google") stays for any v2 caller but the v3 screens use the new row.
 
+## Phase 0.7 — Native motion slice 2 (2026-06-23)
+
+**`native-transitions.tsx`** (`<NativeTransitions>`, root layout, wraps `{children}`)
+gives the whole app iOS-native navigation: push → slide-in-from-right, pop →
+slide-in-from-left + parallax dim, tab↔tab → instant, + an interactive left-edge
+swipe-back everywhere. Implementation rules that keep it from destabilizing the
+app: it writes the wrapper transform via **direct DOM** (never React state, so a
+drag never re-renders the page tree) and **clears the transform to none when
+idle** (a lingering transform makes descendant `position: fixed` — the bottom
+nav, FABs — transform-contained; that's the BodyStyleWatchdog class of bug).
+Direction is inferred from a pathname stack + a popstate flag; gated to
+native/coarse-pointer and off under `prefers-reduced-motion`. Swipe-back is
+suppressed on tab roots (nothing to pop), on `/movie/…/comments` (which keeps its
+own `SwipeBackContainer`), and whenever a covering `fixed` overlay sits over the
+page — detected by walking up from the touch target, so no overlay needs to opt
+in. The bespoke `swipe-back-container.tsx` stays for the `fixed inset-0`
+`/comments` page; the two compose (comments slides its own content off while the
+revealed page slides in via the global pop).
+
 ## Phase 0.7 — Wave 7 stragglers now v3 (2026-06-22)
 
 The last v2 screens were restyled to v3 (logic untouched, haptics added):

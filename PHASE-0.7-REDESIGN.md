@@ -84,8 +84,14 @@ weekly movement, dig-in/top-picks, featured, community, **hot-take card** (Wave 
    CtaButton save; shadcn AlertDialogs kept), add (v3 search row + 48×72 result rows
    + restyled Select + v3 add form), invite (poster-wall hero + IconTile + CtaButton).
    All logic preserved; haptics added.
-2. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
-   edge-swipe-back generalization (0.7.2.4 — today only on `/comments`).
+2. ✅ **Native motion slice 2 — DONE (2026-06-23).** App-wide iOS-native page
+   transitions (0.7.2.2) + edge-swipe-back generalized off `/comments` (0.7.2.4)
+   via `<NativeTransitions>` in the root layout: push slide-in-right · pop
+   slide-in-left+parallax · tab↔tab instant · interactive left-edge swipe-back
+   everywhere. Direct-DOM transforms cleared when idle (no `fixed`/sticky leak);
+   gated to native/coarse-pointer + reduced-motion; swipe suppressed on tab roots,
+   `/movie/…/comments`, and under any covering fixed overlay. **iOS native project
+   synced** (`npx cap sync ios` — `@capacitor/haptics` now in `Package.swift`).
 3. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card
    renderer + `@capacitor/share`; not started (Phase-C-adjacent).
 4. **QA gates** (0.7.1.5 / 0.7.2.6 / 0.7.3.8) — automated parts run every PR
