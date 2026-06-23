@@ -101,6 +101,13 @@ src/lib/
 │                              # shareStory() (image → IG Stories) + sendToFriend() (image +
 │                              # deep link → iMessage/etc.) via @capacitor/share+filesystem /
 │                              # navigator.share / download (web)
+├── verified-server.ts        # Official/verified-account system: getVerifiedUids
+│                              # (tiny public set, TTL-cached; users/{uid}.verified,
+│                              # auto-indexed single-field) + setVerified (Admin SDK:
+│                              # flag + {verified,admin} custom claim). Granted by
+│                              # scripts/grant-verified.ts; badge = <VerifiedBadge>
+│                              # over UserVerifiedCacheProvider (O(1) isVerified(uid)).
+│                              # firestore.rules blocks client self-verification.
 ├── og-shared.ts              # SERVER-only render infra shared by both image routes
 │                              # (/share/story + /share/og): loadBrandFonts() (public/fonts
 │                              # TTFs), fetchImageDataUri (timeout → null), clapper SVG, shade,
