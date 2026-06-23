@@ -35,6 +35,22 @@ export function loadBrandFonts(): LoadedFont[] {
   return _fonts;
 }
 
+// The real cinechrony app icon (transparent PNG), bundled in public/brand and
+// force-traced into the function (see next.config outputFileTracingIncludes).
+// Synchronous + memoized so renderers can drop it straight into JSX. Returns null
+// if missing → the renderer falls back to the drawn clapper mark.
+let _logo: string | null | undefined;
+export function logoDataUri(): string | null {
+  if (_logo !== undefined) return _logo;
+  try {
+    const buf = readFileSync(join(process.cwd(), 'public', 'brand', 'cinechrony-logo.png'));
+    _logo = `data:image/png;base64,${buf.toString('base64')}`;
+  } catch {
+    _logo = null;
+  }
+  return _logo;
+}
+
 /** Font-family identifiers for Satori inline styles. */
 export const DISPLAY = '"Bricolage Grotesque"';
 export const MONO = '"Space Mono"';

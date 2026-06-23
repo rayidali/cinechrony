@@ -3,6 +3,7 @@ import { ImageResponse } from 'next/og';
 import { ratingHex, formatRating, placeholderColor } from '@/lib/story-card';
 import {
   loadBrandFonts,
+  logoDataUri,
   fetchImageDataUri,
   shade,
   DISPLAY,
@@ -59,6 +60,7 @@ export async function GET(req: Request): Promise<Response> {
   const m = parse(new URL(req.url).searchParams);
   try {
     const fonts = loadBrandFonts();
+    const logo = logoDataUri();
     const image = await fetchImageDataUri(m.image);
     const IW = m.round ? 360 : 300;
     const IH = m.round ? 360 : 450;
@@ -79,11 +81,13 @@ export async function GET(req: Request): Promise<Response> {
                   justifyContent: 'center',
                   width: 54,
                   height: 54,
-                  borderRadius: 15,
-                  backgroundColor: FILM_RED,
+                  borderRadius: 14,
+                  backgroundColor: logo ? '#ffffff' : FILM_RED,
+                  border: logo ? '1px solid rgba(0,0,0,0.06)' : 'none',
+                  padding: logo ? 6 : 0,
                 }}
               >
-                <img src={CLAPPER_SVG} width={30} height={30} />
+                <img src={logo || CLAPPER_SVG} width={logo ? 42 : 30} height={logo ? 42 : 30} />
               </div>
               <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 36, letterSpacing: -1.2, color: '#fff' }}>cinechrony</div>
             </div>

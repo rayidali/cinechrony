@@ -43,11 +43,12 @@ const nextConfig: NextConfig = {
             bodySizeLimit: '15mb', // Allow large iPhone photos
           },
         },
-        // The story-card renderer (`/api/v1/share/story`) reads brand TTFs from
-        // public/fonts at runtime via fs. Vercel's file tracer won't include them
-        // for a dynamic fs path, so force them into that function's bundle.
+        // The card renderers (`/api/v1/share/story` + `/share/og`) read brand
+        // TTFs + the logo PNG from public/ at runtime via fs. Vercel's file tracer
+        // won't include them for a dynamic fs path, so force them into the bundles.
         outputFileTracingIncludes: {
-          '/api/v1/share/story': ['./public/fonts/**'],
+          '/api/v1/share/story': ['./public/fonts/**', './public/brand/**'],
+          '/api/v1/share/og': ['./public/fonts/**', './public/brand/**'],
         },
         // Universal Links + App Links require specific MIME types on the
         // verification files Apple and Google fetch from our domain.

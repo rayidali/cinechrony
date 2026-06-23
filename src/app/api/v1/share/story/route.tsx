@@ -11,6 +11,7 @@ import {
 } from '@/lib/story-card';
 import {
   loadBrandFonts,
+  logoDataUri,
   fetchImageDataUri as fetchDataUri,
   shade,
   DISPLAY,
@@ -41,6 +42,7 @@ const loadFonts = loadBrandFonts;
 // ── shared atoms ────────────────────────────────────────────────────────────
 
 function Wordmark({ dark }: { dark: boolean }) {
+  const logo = logoDataUri();
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
       <div
@@ -50,12 +52,14 @@ function Wordmark({ dark }: { dark: boolean }) {
           justifyContent: 'center',
           width: 64,
           height: 64,
-          borderRadius: 18,
-          backgroundColor: FILM_RED,
-          boxShadow: '0 8px 22px rgba(232,84,58,0.35)',
+          borderRadius: 16,
+          backgroundColor: logo ? '#ffffff' : FILM_RED,
+          border: logo ? '1px solid rgba(0,0,0,0.06)' : 'none',
+          boxShadow: logo ? '0 8px 22px rgba(0,0,0,0.18)' : '0 8px 22px rgba(232,84,58,0.35)',
+          padding: logo ? 7 : 0,
         }}
       >
-        <img src={CLAPPER_SVG} width={36} height={36} />
+        <img src={logo || CLAPPER_SVG} width={logo ? 50 : 36} height={logo ? 50 : 36} />
       </div>
       <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 44, letterSpacing: -1.5, color: dark ? '#ffffff' : '#1a1714' }}>
         cinechrony
