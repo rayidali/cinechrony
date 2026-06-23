@@ -490,9 +490,9 @@ export default function ListSettingsPage() {
               onClick={() => { haptic('selection'); setIsPublic((v) => !v); }}
               role="switch"
               aria-checked={isPublic}
-              className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full transition-colors', isPublic ? 'bg-primary' : 'bg-foreground/15')}
+              className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full border-0 p-0 transition-colors', isPublic ? 'bg-primary' : 'bg-foreground/15')}
             >
-              <span className={cn('absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200', isPublic ? 'translate-x-[23px]' : 'translate-x-[3px]')} />
+              <span className={cn('absolute top-[3px] left-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200', isPublic ? 'translate-x-[20px]' : 'translate-x-0')} />
             </button>
           </div>
         )}

@@ -555,12 +555,14 @@ function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
       onClick={onToggle}
       role="switch"
       aria-checked={on}
-      className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full transition-colors', on ? 'bg-primary' : 'bg-foreground/15')}
+      className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full border-0 p-0 transition-colors', on ? 'bg-primary' : 'bg-foreground/15')}
     >
+      {/* Knob is pinned with explicit top/left (not the button's static position,
+          which UA button padding shifts → the knob used to overflow the track). */}
       <span
         className={cn(
-          'absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200',
-          on ? 'translate-x-[23px]' : 'translate-x-[3px]',
+          'absolute top-[3px] left-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200',
+          on ? 'translate-x-[20px]' : 'translate-x-0',
         )}
       />
     </button>
