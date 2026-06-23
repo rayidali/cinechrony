@@ -1,15 +1,15 @@
 'use client';
 
-import { useState, useEffect, useTransition } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { Drawer } from 'vaul';
-import { Loader2, ListPlus } from 'lucide-react';
+import { Loader2, Check, Film } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
-import type { ListSummary } from '@/lib/lists-server';
+import type { ListForMovie } from '@/lib/lists-server';
 import { useToast } from '@/hooks/use-toast';
+import { seededGradient } from '@/lib/seeded-gradient';
+import { haptic } from '@/lib/haptics';
 import type { SearchResult } from '@/lib/types';
-
-type ListRow = { id: string; name: string; movieCount: number };
 
 type AddToListSheetProps = {
   movie: SearchResult | null;
@@ -18,105 +18,165 @@ type AddToListSheetProps = {
 };
 
 /**
- * "which list?" — the bottom sheet behind every explicit `+ to a list`
- * affordance (recommendation cards, friends-watching). Adds the film to one of
- * the viewer's lists via the existing addMovieToList FormData action.
+ * F05 — "add to list". A membership toggle (not a one-shot add): each of the
+ * caller's lists shows whether it already holds this film, and tapping toggles
+ * it on/off (add ↔ remove) immediately. The in-list movie doc id is
+ * deterministic (`${mediaType}_${tmdbId}`), so membership + toggling are exact.
  */
 export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) {
   const { user } = useUser();
   const { toast } = useToast();
-  const [lists, setLists] = useState<ListRow[]>([]);
+  const [lists, setLists] = useState<ListForMovie[]>([]);
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [busy, setBusy] = useState<Record<string, boolean>>({});
   const [isLoading, setIsLoading] = useState(false);
-  const [addingId, setAddingId] = useState<string | null>(null);
-  const [, startTransition] = useTransition();
+
+  // Canonical identifiers (strip any `movie_`/`tv_` prefix from the id so the
+  // add's doc id matches the membership doc id).
+  const { tmdbId, mediaType, movieDocId } = useMemo(() => {
+    const mt = movie?.mediaType === 'tv' ? 'tv' : 'movie';
+    const id = movie?.tmdbId
+      ?? (movie ? parseInt(String(movie.id).replace(/^(?:movie|tv)_/, ''), 10) : 0);
+    return { tmdbId: id || 0, mediaType: mt, movieDocId: `${mt}_${id || 0}` };
+  }, [movie]);
 
   useEffect(() => {
-    if (!isOpen || !user) return;
+    if (!isOpen || !user || !tmdbId) return;
     let cancelled = false;
     setIsLoading(true);
-    apiCall<{ lists: ListSummary[] }>('GET', `/api/v1/users/${user.uid}/lists`)
+    setBusy({});
+    apiCall<{ lists: ListForMovie[] }>(
+      'GET', `/api/v1/movies/${tmdbId}/list-membership?mediaType=${mediaType}`,
+    )
       .then((res) => {
         if (cancelled) return;
-        setLists(
-          (res.lists ?? []).map((l) => ({
-            id: l.id,
-            name: l.name,
-            movieCount: l.movieCount ?? 0,
-          })),
-        );
+        const ls = res.lists ?? [];
+        setLists(ls);
+        setChecked(Object.fromEntries(ls.map((l) => [l.id, l.contains])));
       })
-      .finally(() => {
-        if (!cancelled) setIsLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, user]);
+      .finally(() => { if (!cancelled) setIsLoading(false); });
+    return () => { cancelled = true; };
+  }, [isOpen, user, tmdbId, mediaType]);
 
-  const handleAdd = (listId: string, listName: string) => {
-    if (!user || !movie || addingId) return;
-    setAddingId(listId);
-    startTransition(async () => {
-      try {
-        await apiCall('POST', `/api/v1/lists/${user.uid}/${listId}/movies`, {
-          movieData: movie,
+  const toggle = async (list: ListForMovie) => {
+    if (!user || !movie || !tmdbId || busy[list.id]) return;
+    const next = !checked[list.id];
+    haptic(next ? 'light' : 'selection');
+    setChecked((c) => ({ ...c, [list.id]: next }));
+    setBusy((b) => ({ ...b, [list.id]: true }));
+    try {
+      if (next) {
+        await apiCall('POST', `/api/v1/lists/${user.uid}/${list.id}/movies`, {
+          movieData: { ...movie, id: String(tmdbId) },
           status: 'To Watch',
         });
-        toast({ title: 'added.', description: `${movie.title} → ${listName}` });
-        onClose();
-      } catch {
-        toast({ variant: 'destructive', title: 'Error', description: 'Failed to add.' });
-      } finally {
-        setAddingId(null);
+      } else {
+        await apiCall('DELETE', `/api/v1/lists/${user.uid}/${list.id}/movies/${movieDocId}`);
       }
-    });
+    } catch {
+      setChecked((c) => ({ ...c, [list.id]: !next })); // roll back
+      toast({ variant: 'destructive', title: 'Error', description: `Couldn't update "${list.name}".` });
+    } finally {
+      setBusy((b) => ({ ...b, [list.id]: false }));
+    }
   };
+
+  const mediaLabel = mediaType === 'tv' ? 'tv' : 'film';
 
   return (
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none max-h-[70vh]">
+        <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[90]" />
+        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[90] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[82vh]">
           <Drawer.Title className="sr-only">Add {movie?.title ?? 'movie'} to a list</Drawer.Title>
-          <div className="mx-auto mt-3 mb-1 h-1 w-10 rounded-full bg-muted-foreground/30" />
-          <div className="px-5 pt-2 pb-[calc(1.5rem+env(safe-area-inset-bottom))] overflow-y-auto">
-            <div className="cc-eyebrow">which list?</div>
-            <div className="h-px bg-border mt-2.5 mb-1" />
+          <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
+
+          {/* header */}
+          <div className="flex items-center justify-between px-5 py-2.5">
+            <button onClick={() => { haptic('light'); onClose(); }} className="font-ui font-semibold text-[15px] text-muted-foreground active:opacity-60">
+              cancel
+            </button>
+            <span className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">add to list</span>
+            <button onClick={() => { haptic('light'); onClose(); }} className="font-ui font-bold text-[15px] text-primary active:opacity-60">
+              done
+            </button>
+          </div>
+
+          {/* film cell */}
+          {movie && (
+            <div className="flex items-center gap-3.5 px-5 pb-3.5">
+              <div className="relative h-14 w-[38px] flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
+                {movie.posterUrl ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={movie.posterUrl} alt="" className="w-full h-full object-cover" />
+                ) : null}
+              </div>
+              <div className="min-w-0">
+                <div className="font-headline font-bold text-[17px] lowercase tracking-[-0.02em] truncate">
+                  adding · {movie.title.toLowerCase()}
+                </div>
+                <div className="font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">
+                  {[movie.year && movie.year !== 'N/A' ? movie.year : null, mediaLabel].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] overflow-y-auto">
             {isLoading ? (
               <div className="flex justify-center py-10">
                 <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
               </div>
             ) : lists.length === 0 ? (
-              <p className="font-serif italic text-sm text-muted-foreground py-8 text-center">
+              <p className="font-serif italic text-[15px] text-muted-foreground py-8 text-center">
                 nothing on the shelves yet — make a list first.
               </p>
             ) : (
-              <ul>
-                {lists.map((list) => (
-                  <li key={list.id}>
+              <div className="rounded-2xl border border-hair bg-card divide-y divide-hair overflow-hidden">
+                {lists.map((list) => {
+                  const on = !!checked[list.id];
+                  const cover = list.coverImageUrl && list.coverMode !== 'auto' ? list.coverImageUrl : null;
+                  return (
                     <button
-                      onClick={() => handleAdd(list.id, list.name)}
-                      disabled={!!addingId}
-                      className="w-full flex items-center gap-3 py-3 text-left active:opacity-60 disabled:opacity-50 transition-opacity"
+                      key={list.id}
+                      onClick={() => toggle(list)}
+                      disabled={!!busy[list.id]}
+                      className="w-full flex items-center gap-3.5 p-3.5 text-left active:bg-foreground/5 transition-colors"
                     >
-                      <div className="h-10 w-10 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
-                        <ListPlus className="h-4 w-4 text-muted-foreground" strokeWidth={1.6} />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-headline font-semibold text-sm lowercase tracking-tight truncate">
+                      <span
+                        className="relative h-[52px] w-[52px] flex-shrink-0 rounded-[14px] overflow-hidden flex items-center justify-center"
+                        style={!cover ? { background: seededGradient(list.name) } : undefined}
+                      >
+                        {cover ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={cover} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          <Film className="h-5 w-5 text-white/80" strokeWidth={1.8} />
+                        )}
+                      </span>
+                      <span className="flex-1 min-w-0">
+                        <span className="block font-headline font-bold text-[16.5px] lowercase tracking-[-0.02em] truncate">
                           {list.name}
-                        </p>
-                        <p className="cc-meta text-[11px] text-muted-foreground">
+                        </span>
+                        <span className="block font-mono text-[11px] text-muted-foreground tabular-nums mt-0.5">
                           {list.movieCount} {list.movieCount === 1 ? 'film' : 'films'}
-                        </p>
-                      </div>
-                      {addingId === list.id && (
-                        <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
-                      )}
+                        </span>
+                      </span>
+                      <span
+                        className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center transition-colors ${
+                          on ? 'bg-primary text-white' : 'border-2 border-hair'
+                        }`}
+                      >
+                        {busy[list.id] ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                        ) : on ? (
+                          <Check className="h-4 w-4" strokeWidth={3} />
+                        ) : null}
+                      </span>
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  );
+                })}
+              </div>
             )}
           </div>
         </Drawer.Content>

@@ -251,6 +251,16 @@ service cloud.firestore {
         allow read: if isOwner(userId);
         allow write: if false;
       }
+
+      /**
+       * @path /users/{userId}/watches/{watchId}
+       * The owner's watch log (the drawer's "your history"). Owner-read only;
+       * writes go through logWatch (Admin SDK).
+       */
+      match /watches/{watchId} {
+        allow read: if isOwner(userId);
+        allow write: if false;
+      }
     }
 
     // ------------------------------------------------------------------------
@@ -341,6 +351,11 @@ service cloud.firestore {
     match /ratings/{ratingId} {
       allow read, write: if false;
     }
+    // Precomputed home-rail snapshot (leaderboard + friends-watching). Built +
+    // read server-side only; clients reach it via the cached API rails.
+    match /snapshots/{snapshotId} {
+      allow read, write: if false;
+    }
     match /notifications/{notificationId} {
       allow read, write: if false;
     }
@@ -365,6 +380,12 @@ service cloud.firestore {
     }
     // AUDIT.md (App Store §1.2): content reports — server-only.
     match /reports/{reportId} {
+      allow read, write: if false;
+    }
+    // F04 "visible to": a user's close-friends inner circle — server-only so it
+    // never leaks through a profile read. Read/written via Admin SDK only
+    // (getCloseFriendIds / setCloseFriendIds + /api/v1/me/close-friends).
+    match /closeFriends/{uid} {
       allow read, write: if false;
     }
   }

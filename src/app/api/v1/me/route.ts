@@ -42,6 +42,7 @@ type FavoriteMovie = {
 type PatchMeBody = {
   bio?: string;
   photoURL?: string;
+  displayName?: string;
   favoriteMovies?: FavoriteMovie[];
 };
 
@@ -86,6 +87,21 @@ export const PATCH = apiRoute(async (req, { auth }) => {
     }
     updates.photoURL = body.photoURL;
     responseFields.photoURL = body.photoURL;
+  }
+
+  if (body.displayName !== undefined) {
+    if (typeof body.displayName !== 'string') {
+      throw new BadRequestError('displayName must be a string.');
+    }
+    const trimmed = body.displayName.trim().slice(0, 50);
+    if (!trimmed) throw new BadRequestError('displayName cannot be empty.');
+    // Keep displayNameLower in sync — it backs case-insensitive people search.
+    // NOTE: displayName is denormalized onto activities/reviews/notifications;
+    // the live profile cache resolves the current value in the feed, while
+    // historical denormalized copies stay as-was (eventual consistency).
+    updates.displayName = trimmed;
+    updates.displayNameLower = trimmed.toLowerCase();
+    responseFields.displayName = trimmed;
   }
 
   if (body.favoriteMovies !== undefined) {

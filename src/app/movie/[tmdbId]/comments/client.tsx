@@ -1,744 +1,595 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import Image from 'next/image';
 import Link from 'next/link';
-import { Loader2, X, ChevronDown, ChevronUp, ChevronLeft, ArrowUp, EyeOff, MoreHorizontal } from 'lucide-react';
-import { ReviewCard } from '@/components/review-card';
+import { ChevronLeft, Loader2, ArrowUp, X, Star } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { SwipeBackContainer } from '@/components/swipe-back-container';
+import { ReviewsSummaryCard } from '@/components/v3/reviews-summary-card';
+import { ReviewWallCard } from '@/components/v3/review-wall-card';
+import { ReviewComposerSheet, type ComposerFilm } from '@/components/v3/review-composer-sheet';
+import { ReviewReactOverlay } from '@/components/v3/review-react-overlay';
+import { useStoryShare } from '@/components/story-share-provider';
 import { useUser, useFirestore } from '@/firebase';
-import { apiCall, ApiClientError } from '@/lib/api-client';
 import { doc, getDoc } from 'firebase/firestore';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
-import { getRatingStyle, cn } from '@/lib/utils';
-import type { Review } from '@/lib/types';
+import { haptic } from '@/lib/haptics';
+import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
+import { verdictForRating } from '@/lib/review-verdict';
+import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
+import type { ReactionType, ReactionCounts } from '@/lib/review-reactions';
+import type { WallReview, ReviewsWall } from '@/lib/reviews-server';
+import type { Review, TMDBCrew } from '@/lib/types';
+
+type Sort = 'helpful' | 'recent' | 'highest';
+
+// SWR window: a re-open within this paints from cache instantly + skips the
+// refetch. Own-action mutations write the cache in lockstep, so it's never
+// stale after the viewer's own post/react/reply.
+const WALL_STALE_MS = 30_000;
+
+/** Map a freshly-created server Review → the wall shape (no reactions/helpful yet). */
+function reviewToWall(r: Review): WallReview {
+  const createdAt =
+    r.createdAt instanceof Date
+      ? r.createdAt.toISOString()
+      : typeof r.createdAt === 'string'
+        ? r.createdAt
+        : new Date().toISOString();
+  return {
+    id: r.id,
+    tmdbId: r.tmdbId,
+    mediaType: r.mediaType,
+    movieTitle: r.movieTitle,
+    moviePosterUrl: r.moviePosterUrl ?? null,
+    userId: r.userId,
+    username: r.username,
+    userDisplayName: r.userDisplayName,
+    userPhotoUrl: r.userPhotoUrl,
+    text: r.text,
+    ratingAtTime: r.ratingAtTime,
+    verdict: verdictForRating(r.ratingAtTime),
+    hasSpoiler: !!r.hasSpoiler,
+    parentId: r.parentId,
+    replyCount: r.replyCount ?? 0,
+    helpful: r.likes ?? 0,
+    myHelpful: false,
+    reactionCounts: {},
+    myReaction: null,
+    createdAt,
+  };
+}
+
+/** Optimistic reaction math (one-per-user): apply `newType` (null = remove). */
+function applyReactionLocally(r: WallReview, newType: ReactionType | null) {
+  const counts: Record<string, number> = { ...(r.reactionCounts as Record<string, number>) };
+  if (r.myReaction) counts[r.myReaction] = Math.max(0, (counts[r.myReaction] ?? 1) - 1);
+  if (newType) counts[newType] = (counts[newType] ?? 0) + 1;
+  for (const k of Object.keys(counts)) if (!counts[k]) delete counts[k];
+  return { counts: counts as ReactionCounts, myReaction: newType };
+}
+
+const SORTS: { id: Sort; label: string }[] = [
+  { id: 'helpful', label: 'helpful' },
+  { id: 'recent', label: 'recent' },
+  { id: 'highest', label: 'highest' },
+];
+
+/**
+ * SortTabs — the F12 sort control: a compact, content-sized track with a
+ * HIGH-CONTRAST active pill (black-in-light / white-in-dark, per the design).
+ * Deliberately not the shared full-width `Segmented` (its flex-1 cells collapse
+ * + overlap when dropped into a content-width slot, and its thumb is the wrong,
+ * low-contrast colour for this surface).
+ */
+function SortTabs({ value, onChange }: { value: Sort; onChange: (s: Sort) => void }) {
+  return (
+    <div className="inline-flex flex-shrink-0 items-center rounded-full bg-sunken p-0.5">
+      {SORTS.map((s) => {
+        const active = value === s.id;
+        return (
+          <button
+            key={s.id}
+            type="button"
+            aria-pressed={active}
+            onClick={() => { if (!active) haptic('selection'); onChange(s.id); }}
+            className={`h-8 rounded-full px-2.5 font-ui text-[12.5px] font-semibold lowercase tracking-tight transition-colors ${
+              active ? 'bg-foreground text-background' : 'text-muted-foreground active:text-foreground'
+            }`}
+          >
+            {s.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function CommentsPageContent() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
+  const { getRating } = useUserRatingsCache();
+  const story = useStoryShare();
 
-  // Get movie info from URL params
   const tmdbId = Number(params.tmdbId);
-  const movieTitle = searchParams.get('title') || 'Movie';
+  const movieTitle = searchParams.get('title') || 'this film';
   const moviePoster = searchParams.get('poster') || '';
   const mediaType = (searchParams.get('type') || 'movie') as 'movie' | 'tv';
 
-  // Return context for proper back navigation
-  // SECURITY: returnPath takes precedence - it preserves the original route context
-  // (e.g., /profile/username/lists/listId for public profile views)
-  // This prevents redirecting to /lists/{id} which could expose edit controls
   const returnPath = searchParams.get('returnPath');
   const returnListId = searchParams.get('returnListId');
   const returnListOwnerId = searchParams.get('returnListOwnerId');
   const returnMovieId = searchParams.get('returnMovieId');
 
-  // State
-  const [reviews, setReviews] = useState<Review[]>([]);
+  // Per-caller, per-film cache key (the wall payload carries the viewer's own
+  // reaction/helpful state + friends-seen, so it can't be shared across users).
+  const wallKey = `reviews-wall:${user?.uid ?? 'anon'}:${tmdbId}`;
+
+  const [wall, setWall] = useState<ReviewsWall | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [sortBy, setSortBy] = useState<'recent' | 'likes'>('recent');
-  const [commentText, setCommentText] = useState('');
-  const [commentHasSpoiler, setCommentHasSpoiler] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sort, setSort] = useState<Sort>('helpful');
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [userProfile, setUserProfile] = useState<{ photoURL?: string; displayName?: string; username?: string } | null>(null);
+  const [filmMeta, setFilmMeta] = useState<{ year: string | null; director: string | null }>({ year: null, director: null });
 
-  // Reply state - track both the root parent and who we're directly replying to
-  const [replyingTo, setReplyingTo] = useState<Review | null>(null);
-  const [rootParentId, setRootParentId] = useState<string | null>(null); // Always the top-level comment ID
-  // AUDIT.md 2.6: tracks which review we're editing. When set, handleSubmit
-  // calls updateReview instead of createReview (the old code posted a new
-  // duplicate comment instead of editing the original).
-  const [editingReview, setEditingReview] = useState<Review | null>(null);
-  const [expandedReplies, setExpandedReplies] = useState<Record<string, Review[]>>({});
-  const [loadingReplies, setLoadingReplies] = useState<Record<string, boolean>>({});
+  // composer (F13)
+  const [composer, setComposer] = useState<{ open: boolean; mode: 'rate' | 'write' }>({ open: false, mode: 'write' });
+  // long-press react/action overlay (F14)
+  const [reactTarget, setReactTarget] = useState<{ review: WallReview; top: number } | null>(null);
+  // reply mode (F15)
+  const [replyingTo, setReplyingTo] = useState<WallReview | null>(null);
+  const [replyText, setReplyText] = useState('');
+  const [replySending, setReplySending] = useState(false);
+  const replyInputRef = useRef<HTMLInputElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // Per-review guard: debounce overlapping helpful toggles (a fast double-tap
+  // must not fire two /like POSTs and desync the UI from the server).
+  const helpfulInFlight = useRef<Set<string>>(new Set());
 
-  // Refs
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-  const scrollContainerRef = useRef<HTMLDivElement>(null);
-
-  // Handle back navigation - return to movie modal if context available
-  // SECURITY: Use returnPath if available to preserve original route context
-  // This ensures we return to public profile views correctly instead of /lists/{id}
+  // ── Back navigation (preserves the original route context — security) ─────
   const handleBack = useCallback(() => {
     if (returnPath && returnMovieId) {
-      // Use the explicit return path (preserves public profile context)
-      const params = new URLSearchParams({ openMovie: returnMovieId });
-      router.replace(`${returnPath}?${params.toString()}`);
+      router.replace(`${returnPath}?${new URLSearchParams({ openMovie: returnMovieId }).toString()}`);
     } else if (returnListId && returnMovieId) {
-      // Fallback to legacy behavior for backwards compatibility
-      const params = new URLSearchParams({ openMovie: returnMovieId });
-      if (returnListOwnerId) params.set('owner', returnListOwnerId);
-      router.replace(`/lists/${returnListId}?${params.toString()}`);
+      const p = new URLSearchParams({ openMovie: returnMovieId });
+      if (returnListOwnerId) p.set('owner', returnListOwnerId);
+      router.replace(`/lists/${returnListId}?${p.toString()}`);
     } else {
       router.back();
     }
   }, [returnPath, returnListId, returnMovieId, returnListOwnerId, router]);
 
-  // Intercept browser back navigation (swipe gesture on iOS) to redirect properly
-  // SECURITY: Use returnPath if available to preserve original route context
   useEffect(() => {
-    // Need either returnPath or returnListId to handle back navigation
     if ((!returnPath && !returnListId) || !returnMovieId) return;
-
-    // Push a state so we can intercept the back navigation
     window.history.pushState({ commentsPage: true }, '');
-
-    const handlePopState = (e: PopStateEvent) => {
-      // User swiped back or pressed browser back - redirect to correct page with modal open
-      e.preventDefault();
-      const params = new URLSearchParams({ openMovie: returnMovieId });
-
-      if (returnPath) {
-        // Use explicit return path (preserves public profile context)
-        router.replace(`${returnPath}?${params.toString()}`);
-      } else if (returnListId) {
-        // Fallback to legacy behavior
-        if (returnListOwnerId) params.set('owner', returnListOwnerId);
-        router.replace(`/lists/${returnListId}?${params.toString()}`);
+    const onPop = () => {
+      const p = new URLSearchParams({ openMovie: returnMovieId });
+      if (returnPath) router.replace(`${returnPath}?${p.toString()}`);
+      else if (returnListId) {
+        if (returnListOwnerId) p.set('owner', returnListOwnerId);
+        router.replace(`/lists/${returnListId}?${p.toString()}`);
       }
     };
-
-    window.addEventListener('popstate', handlePopState);
-    return () => window.removeEventListener('popstate', handlePopState);
+    window.addEventListener('popstate', onPop);
+    return () => window.removeEventListener('popstate', onPop);
   }, [returnPath, returnListId, returnMovieId, returnListOwnerId, router]);
 
-  // Fetch reviews
-  useEffect(() => {
-    async function fetchReviews() {
-      setIsLoading(true);
-      try {
-        const result = await apiCall<{ reviews: Review[]; hasMore: boolean; nextCursor?: string }>(
-          'GET',
-          `/api/v1/reviews?tmdbId=${tmdbId}&sort=${sortBy}`,
-        );
-        setReviews(result.reviews);
-      } catch (error) {
-        console.error('Failed to fetch reviews:', error);
-      } finally {
-        setIsLoading(false);
-      }
+  // ── Load the wall (one read; sort happens client-side) ────────────────────
+  const loadWall = useCallback(async () => {
+    try {
+      const result = await apiCall<ReviewsWall>('GET', `/api/v1/movies/${tmdbId}/reviews-wall`);
+      setWall(result);
+      setCachedAction(wallKey, result);
+    } catch (err) {
+      console.error('Failed to load reviews wall:', err);
+    } finally {
+      setIsLoading(false);
     }
-    fetchReviews();
-  }, [tmdbId, sortBy]);
+  }, [tmdbId, wallKey]);
 
-  // Fetch user profile for avatar
+  // SWR: paint the cached wall instantly on (re)open, then refresh in the
+  // background only if it's stale. Gated on auth resolving so the key + the
+  // per-caller my-state are correct (no anon→uid double-fetch).
   useEffect(() => {
-    async function fetchUserProfile() {
-      if (!user || !firestore) return;
-      try {
-        const userDoc = await getDoc(doc(firestore, 'users', user.uid));
-        if (userDoc.exists()) {
-          const data = userDoc.data();
-          setUserProfile({
-            photoURL: data?.photoURL,
-            displayName: data?.displayName,
-            username: data?.username,
-          });
-        }
-      } catch (err) {
-        console.error('Failed to fetch user profile:', err);
-      }
+    if (isUserLoading) return;
+    const cached = readCachedAction<ReviewsWall>(wallKey);
+    if (cached) {
+      setWall(cached);
+      setIsLoading(false);
     }
-    fetchUserProfile();
+    if (!cached || !isCachedActionFresh(wallKey, WALL_STALE_MS)) {
+      if (!cached) setIsLoading(true);
+      loadWall();
+    }
+  }, [isUserLoading, wallKey, loadWall]);
+
+  // Viewer avatar (freshest from Firestore) for the bottom bar.
+  useEffect(() => {
+    if (!user || !firestore) return;
+    let cancelled = false;
+    getDoc(doc(firestore, 'users', user.uid)).then((d) => {
+      if (cancelled || !d.exists()) return;
+      const data = d.data();
+      setUserProfile({ photoURL: data?.photoURL, displayName: data?.displayName, username: data?.username });
+    }).catch(() => {});
+    return () => { cancelled = true; };
   }, [user, firestore]);
 
-  // Handle iOS keyboard with visualViewport API
+  // Film subtitle (year · director) for the composer header — module-cached.
   useEffect(() => {
-    const viewport = window.visualViewport;
-    if (!viewport) return;
+    if (!Number.isFinite(tmdbId)) return;
+    let cancelled = false;
+    getMovieOrTVDetails(mediaType, tmdbId).then((d) => {
+      if (cancelled || !d) return;
+      const raw = (d as { release_date?: string; first_air_date?: string }).release_date
+        || (d as { first_air_date?: string }).first_air_date || '';
+      const crew = (d?.credits?.crew ?? []) as TMDBCrew[];
+      setFilmMeta({ year: raw ? raw.slice(0, 4) : null, director: crew.find((c) => c.job === 'Director')?.name ?? null });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [mediaType, tmdbId]);
 
-    const handleResize = () => {
-      // Calculate keyboard height as difference between window and viewport
-      const kbHeight = window.innerHeight - viewport.height;
-      setKeyboardHeight(kbHeight > 0 ? kbHeight : 0);
-
-      // Scroll to bottom when keyboard opens
-      if (kbHeight > 0 && scrollContainerRef.current) {
-        setTimeout(() => {
-          scrollContainerRef.current?.scrollTo({
-            top: scrollContainerRef.current.scrollHeight,
-            behavior: 'smooth',
-          });
-        }, 100);
-      }
-    };
-
-    viewport.addEventListener('resize', handleResize);
-    viewport.addEventListener('scroll', handleResize);
-
-    return () => {
-      viewport.removeEventListener('resize', handleResize);
-      viewport.removeEventListener('scroll', handleResize);
-    };
+  // iOS keyboard inset for the bottom bar (mirrors the proven pattern).
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setKeyboardHeight(Math.max(0, window.innerHeight - vv.height));
+    onResize();
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onResize);
+    return () => { vv.removeEventListener('resize', onResize); vv.removeEventListener('scroll', onResize); };
   }, []);
 
-  // Handle comment submission
-  const handleSubmitComment = async () => {
-    if (!user || !commentText.trim() || isSubmitting) return;
-
-    setIsSubmitting(true);
-
-    // AUDIT.md 2.6: edit path — patches the existing review in place instead
-    // of creating a duplicate. Replies/parent logic is irrelevant when editing
-    // (we're updating an existing doc, not posting a new one).
-    if (editingReview) {
-      try {
-        const newText = commentText.trim();
-        await apiCall('PATCH', `/api/v1/reviews/${editingReview.id}`, {
-          text: newText,
-          hasSpoiler: commentHasSpoiler,
-        });
-
-        // Patch local state so the UI updates without a refetch. Top-level
-        // reviews live in `reviews`; replies live under their root in
-        // `expandedReplies`. Update whichever holds this review.
-        if (editingReview.parentId) {
-          const root = editingReview.parentId;
-          setExpandedReplies(prev => {
-            const list = prev[root];
-            if (!list) return prev;
-            return {
-              ...prev,
-              [root]: list.map(r => (r.id === editingReview.id ? { ...r, text: newText, hasSpoiler: commentHasSpoiler, updatedAt: new Date() } : r)),
-            };
-          });
-        } else {
-          setReviews(prev => prev.map(r => (r.id === editingReview.id ? { ...r, text: newText, hasSpoiler: commentHasSpoiler, updatedAt: new Date() } : r)));
+  // ── Tree mutators ─────────────────────────────────────────────────────────
+  const patchReview = useCallback((reviewId: string, patch: Partial<WallReview>) => {
+    setWall((w) => {
+      if (!w) return w;
+      const reviews = w.reviews.map((r) => {
+        if (r.id === reviewId) return { ...r, ...patch };
+        if (r.replies?.some((rep) => rep.id === reviewId)) {
+          return { ...r, replies: r.replies.map((rep) => (rep.id === reviewId ? { ...rep, ...patch } : rep)) };
         }
-
-        setEditingReview(null);
-        setCommentText('');
-        setCommentHasSpoiler(false);
-        inputRef.current?.blur();
-        toast({ title: 'Comment updated' });
-      } catch (error: unknown) {
-        toast({
-          variant: 'destructive',
-          title: 'Failed to update comment',
-          description: error instanceof ApiClientError ? error.message : 'Please try again.',
-        });
-      } finally {
-        setIsSubmitting(false);
-      }
-      return;
-    }
-
-    // Use rootParentId for replies (Instagram/TikTok style - all replies under root)
-    const parentId = rootParentId || null;
-
-    try {
-      const result = await apiCall<{ review: Review }>(
-        'POST',
-        '/api/v1/reviews',
-        {
-          tmdbId,
-          mediaType,
-          movieTitle,
-          moviePosterUrl: moviePoster || undefined,
-          text: commentText.trim(),
-          parentId, // null = top-level, string = reply
-          hasSpoiler: commentHasSpoiler,
-        },
-      );
-
-      if (result.review) {
-        if (parentId) {
-          // Add reply to expanded replies if parent is expanded
-          if (expandedReplies[parentId]) {
-            setExpandedReplies(prev => ({
-              ...prev,
-              [parentId]: [...prev[parentId], result.review as Review],
-            }));
-          }
-          // Update root parent's reply count
-          setReviews(prev => prev.map(r =>
-            r.id === rootParentId ? { ...r, replyCount: (r.replyCount || 0) + 1 } : r
-          ));
-          // Clear replying state
-          setReplyingTo(null);
-          setRootParentId(null);
-        } else {
-          // Add top-level comment to list
-          setReviews(prev => [result.review as Review, ...prev]);
-        }
-
-        setCommentText('');
-        setCommentHasSpoiler(false);
-
-        // Blur input to dismiss keyboard
-        inputRef.current?.blur();
-
-        toast({
-          title: parentId ? 'Reply posted' : 'Comment posted',
-          description: parentId ? 'Your reply has been added.' : 'Your comment has been added.',
-        });
-      }
-    } catch (error: unknown) {
-      toast({
-        variant: 'destructive',
-        title: 'Failed to post comment',
-        description: error instanceof ApiClientError ? error.message : 'Please try again.',
+        return r;
       });
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  // Handle review deletion
-  const handleDeleteReview = useCallback((reviewId: string) => {
-    setReviews(prev => prev.filter(r => r.id !== reviewId));
-    // Also remove from expanded replies if it was a reply
-    setExpandedReplies(prev => {
-      const updated = { ...prev };
-      for (const parentId in updated) {
-        updated[parentId] = updated[parentId].filter(r => r.id !== reviewId);
-      }
-      return updated;
+      const next = { ...w, reviews };
+      // Keep the SWR cache in lockstep so a re-open never shows a state older
+      // than the viewer's own just-made react/helpful.
+      setCachedAction(wallKey, next);
+      return next;
     });
-  }, []);
+  }, [wallKey]);
 
-  // Handle starting a reply - Instagram/TikTok style: all replies go under root parent
-  const handleStartReply = useCallback((review: Review, parentIdOverride?: string) => {
-    // Replying overrides any in-progress edit (mutually exclusive composer modes).
-    setEditingReview(null);
-    setReplyingTo(review);
-    // If this review is already a reply, use its parentId as root. Otherwise, use this review's id.
-    const rootId = review.parentId || review.id;
-    setRootParentId(parentIdOverride || rootId);
-    setCommentText(`@${review.username || review.userDisplayName || 'user'} `);
-    inputRef.current?.focus();
-  }, []);
-
-  // Cancel replying
-  const handleCancelReply = useCallback(() => {
-    setReplyingTo(null);
-    setRootParentId(null);
-    setCommentText('');
-    setCommentHasSpoiler(false);
-  }, []);
-
-  // Toggle showing replies for a review
-  const handleToggleReplies = useCallback(async (review: Review) => {
-    const parentId = review.id;
-
-    // If already expanded, collapse
-    if (expandedReplies[parentId]) {
-      setExpandedReplies(prev => {
-        const updated = { ...prev };
-        delete updated[parentId];
-        return updated;
-      });
-      return;
+  const findReview = useCallback((reviewId: string): WallReview | undefined => {
+    for (const r of wall?.reviews ?? []) {
+      if (r.id === reviewId) return r;
+      const rep = r.replies?.find((x) => x.id === reviewId);
+      if (rep) return rep;
     }
+    return undefined;
+  }, [wall]);
 
-    // Fetch replies
-    setLoadingReplies(prev => ({ ...prev, [parentId]: true }));
+  // ── React / helpful (optimistic, reconciled with the server response) ─────
+  const handleReact = useCallback(async (reviewId: string, type: ReactionType | null) => {
+    if (!user) { toast({ title: 'sign in to react' }); return; }
+    const r = findReview(reviewId);
+    if (!r) { loadWall(); return; } // target fell out of state (capped/stale) — reconcile
+    const optimistic = applyReactionLocally(r, type);
+    patchReview(reviewId, { reactionCounts: optimistic.counts, myReaction: optimistic.myReaction });
     try {
-      const result = await apiCall<{ replies: Review[]; hasMore: boolean; nextCursor?: string }>(
-        'GET',
-        `/api/v1/reviews/${parentId}/replies`,
-      );
-      setExpandedReplies(prev => ({
-        ...prev,
-        [parentId]: result.replies,
-      }));
-    } catch (error) {
-      console.error('Failed to fetch replies:', error);
-      toast({
-        variant: 'destructive',
-        title: 'Failed to load replies',
-      });
-    } finally {
-      setLoadingReplies(prev => ({ ...prev, [parentId]: false }));
+      const res = type
+        ? await apiCall<{ counts: ReactionCounts; myReaction: ReactionType }>('POST', `/api/v1/reviews/${reviewId}/react`, { type })
+        : await apiCall<{ counts: ReactionCounts; myReaction: null }>('DELETE', `/api/v1/reviews/${reviewId}/react`);
+      patchReview(reviewId, { reactionCounts: res.counts, myReaction: res.myReaction });
+    } catch {
+      patchReview(reviewId, { reactionCounts: r.reactionCounts, myReaction: r.myReaction });
+      toast({ variant: 'destructive', title: 'reaction failed' });
     }
-  }, [expandedReplies, toast]);
+  }, [user, findReview, patchReview, toast, loadWall]);
 
-  // AUDIT.md 2.6: real edit (was a pre-fill that posted a duplicate on save).
-  const handleEditReview = useCallback((review: Review) => {
-    setEditingReview(review);
-    setCommentText(review.text);
-    setCommentHasSpoiler(!!review.hasSpoiler);
-    // Editing precludes replying.
-    setReplyingTo(null);
-    setRootParentId(null);
-    inputRef.current?.focus();
+  const handleHelpful = useCallback(async (reviewId: string, next: boolean) => {
+    if (!user) { toast({ title: 'sign in to mark helpful' }); return; }
+    if (helpfulInFlight.current.has(reviewId)) return; // debounce overlapping toggles
+    const r = findReview(reviewId);
+    if (!r) { loadWall(); return; } // target fell out of state — reconcile
+    helpfulInFlight.current.add(reviewId);
+    patchReview(reviewId, { myHelpful: next, helpful: Math.max(0, r.helpful + (next ? 1 : -1)) });
+    try {
+      const res = next
+        ? await apiCall<{ likes: number }>('POST', `/api/v1/reviews/${reviewId}/like`)
+        : await apiCall<{ likes: number }>('DELETE', `/api/v1/reviews/${reviewId}/like`);
+      patchReview(reviewId, { helpful: res.likes, myHelpful: next });
+    } catch (err) {
+      // 409 = the server is already in the desired state (a racing duplicate
+      // toggle) — keep the optimistic state rather than reverting into a desync.
+      if (err instanceof ApiClientError && err.status === 409) {
+        patchReview(reviewId, { myHelpful: next });
+      } else {
+        patchReview(reviewId, { myHelpful: r.myHelpful, helpful: r.helpful });
+      }
+    } finally {
+      helpfulInFlight.current.delete(reviewId);
+    }
+  }, [user, findReview, patchReview, toast, loadWall]);
+
+  // ── Reply (F15) ───────────────────────────────────────────────────────────
+  const startReply = useCallback((review: WallReview) => {
+    setReplyingTo(review);
+    setReplyText('');
+    setTimeout(() => replyInputRef.current?.focus(), 60);
   }, []);
 
-  const cancelEdit = useCallback(() => {
-    setEditingReview(null);
-    setCommentText('');
-    setCommentHasSpoiler(false);
-  }, []);
+  const sendReply = useCallback(async () => {
+    if (!replyingTo || !replyText.trim() || replySending) return;
+    const root = replyingTo.parentId || replyingTo.id;
+    setReplySending(true);
+    try {
+      const { review } = await apiCall<{ review: Review }>('POST', '/api/v1/reviews', {
+        tmdbId, mediaType, movieTitle, moviePosterUrl: moviePoster || undefined,
+        text: replyText.trim(), parentId: root,
+      });
+      const wr = reviewToWall(review);
+      setWall((w) => {
+        if (!w) return w;
+        const next = {
+          ...w,
+          reviews: w.reviews.map((r) =>
+            r.id === root ? { ...r, replyCount: r.replyCount + 1, replies: [...(r.replies ?? []), wr] } : r,
+          ),
+        };
+        setCachedAction(wallKey, next);
+        return next;
+      });
+      setReplyText('');
+      setReplyingTo(null);
+      replyInputRef.current?.blur();
+    } catch (err) {
+      toast({ variant: 'destructive', title: 'reply failed', description: err instanceof ApiClientError ? err.message : undefined });
+    } finally {
+      setReplySending(false);
+    }
+  }, [replyingTo, replyText, replySending, tmdbId, mediaType, movieTitle, moviePoster, toast, wallKey]);
 
-  // Auto-resize textarea
-  const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setCommentText(e.target.value);
-    // Reset height to auto to get the correct scrollHeight
-    e.target.style.height = 'auto';
-    // Set height to scrollHeight, max 120px
-    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+  // ── Overlay actions ───────────────────────────────────────────────────────
+  const handleCopy = useCallback((text: string) => {
+    navigator.clipboard?.writeText(text).then(() => toast({ title: 'copied' })).catch(() => {});
+  }, [toast]);
+
+  const handleReportOrDelete = useCallback(async (review: WallReview) => {
+    const own = !!user && user.uid === review.userId;
+    if (own) {
+      try {
+        await apiCall('DELETE', `/api/v1/reviews/${review.id}`);
+        haptic('success');
+        await loadWall();
+        toast({ title: 'deleted' });
+      } catch {
+        toast({ variant: 'destructive', title: 'delete failed' });
+      }
+    } else {
+      try {
+        await apiCall('POST', '/api/v1/reports', { contentType: 'review', targetId: review.id, reason: `Reported review ${review.id}` });
+        toast({ title: 'reported', description: 'thanks — we’ll take a look.' });
+      } catch {
+        toast({ variant: 'destructive', title: 'report failed' });
+      }
+    }
+  }, [user, loadWall, toast]);
+
+  // ── Derived: client-side sort + featured most-helpful ─────────────────────
+  const sorted = useMemo(() => {
+    const list = [...(wall?.reviews ?? [])];
+    const t = (r: WallReview) => Date.parse(r.createdAt) || 0;
+    if (sort === 'helpful') list.sort((a, b) => b.helpful - a.helpful || t(b) - t(a));
+    else if (sort === 'highest') list.sort((a, b) => (b.ratingAtTime ?? -1) - (a.ratingAtTime ?? -1) || t(b) - t(a));
+    else list.sort((a, b) => t(b) - t(a));
+    return list;
+  }, [wall, sort]);
+
+  const featured = sort === 'helpful' && sorted[0] && sorted[0].helpful > 0 ? sorted[0] : null;
+  const rest = featured ? sorted.slice(1) : sorted;
+
+  const composerFilm: ComposerFilm = {
+    tmdbId, mediaType, title: movieTitle, year: filmMeta.year, director: filmMeta.director,
+    posterUrl: moviePoster || null,
   };
 
-  // Featured = the most-liked review, lifted out as a magazine pull-quote.
-  const featured = (() => {
-    if (reviews.length < 2) return null;
-    const top = [...reviews].sort((a, b) => (b.likes || 0) - (a.likes || 0))[0];
-    return top && (top.likes || 0) > 0 ? top : null;
-  })();
-  const restReviews = featured ? reviews.filter((r) => r.id !== featured.id) : reviews;
-  const threadCount = reviews.filter((r) => (r.replyCount || 0) > 0).length;
+  const summary = wall?.summary;
+  const hasReviews = (wall?.reviews.length ?? 0) > 0;
+  // Resolve the long-pressed review against LIVE state each render, so the
+  // overlay's label / active-reaction / helpful direction never act on a stale
+  // snapshot captured at press time.
+  const liveReactReview = reactTarget ? findReview(reactTarget.review.id) ?? reactTarget.review : null;
+
+  const cardHandlers = {
+    onReact: handleReact,
+    onHelpful: handleHelpful,
+    onReply: startReply,
+    onLongPress: (review: WallReview, top: number) => { haptic('medium'); setReactTarget({ review, top }); },
+  };
 
   return (
-    <SwipeBackContainer
-      onBack={handleBack}
-      // Disable the gesture while the iOS keyboard is up — the textarea sits
-      // near the bottom-left and we don't want to fight thumb scrolling /
-      // selection while the user is composing.
-      disabled={keyboardHeight > 0}
-      className="bg-background flex flex-col"
-    >
-      {/* Slim Instagram-style header — back · centered "reviews · N" · ⋯ */}
-      <header className="flex-shrink-0 border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 z-10">
-        <div className="flex items-center gap-1 px-2 py-1.5">
-          <button
-            onClick={handleBack}
-            className="h-11 w-11 -ml-1 rounded-full flex items-center justify-center text-foreground/85 hover:bg-secondary active:bg-secondary active:scale-95 transition-all"
-            aria-label="Back"
-          >
-            <ChevronLeft className="h-[22px] w-[22px]" strokeWidth={2} />
+    <SwipeBackContainer onBack={handleBack} disabled={keyboardHeight > 0 || composer.open || !!reactTarget} className="bg-background flex flex-col">
+      {/* header */}
+      <header
+        className="z-10 flex-shrink-0 border-b border-hair/70 bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/75"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.5rem)' }}
+      >
+        <div className="flex items-center px-3 pb-2.5">
+          <button onClick={handleBack} aria-label="Back" className="-ml-1.5 flex h-10 w-10 items-center justify-center text-primary transition-transform active:scale-90">
+            <ChevronLeft className="h-6 w-6" strokeWidth={2.4} />
           </button>
-          <h1 className="flex-1 text-center font-headline font-bold text-[14px] lowercase tracking-[-0.02em]">
-            reviews
-            <span className="cc-meta text-[11px] text-muted-foreground font-normal ml-1.5">
-              · {reviews.length}
-            </span>
-          </h1>
-          <button
-            className="h-11 w-11 -mr-1 rounded-full flex items-center justify-center text-foreground/70 hover:bg-secondary active:bg-secondary active:scale-95 transition-all"
-            aria-label="More"
-          >
-            <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={2} />
-          </button>
+          <h1 className="flex-1 text-center font-headline text-[18px] font-bold lowercase tracking-tight">reviews</h1>
+          <div className="-mr-1.5 h-10 w-10" aria-hidden />
         </div>
       </header>
 
-      {/* Scrollable Comments List */}
-      <div
-        ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-4"
-        style={{ paddingBottom: keyboardHeight > 0 ? 0 : undefined }}
-      >
-        {/* Movie context strip — poster + lowercase title + mono meta + hairline */}
-        {(moviePoster || movieTitle) && (
-          <div className="flex items-center gap-2.5 pt-3.5 pb-3 border-b border-border">
-            {moviePoster ? (
-              <Image
-                src={moviePoster}
-                alt={movieTitle}
-                width={32}
-                height={48}
-                className="rounded-[4px] border border-border object-cover flex-shrink-0"
-              />
-            ) : (
-              <div className="w-8 h-12 rounded-[4px] bg-muted flex-shrink-0" />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="font-headline font-bold text-[14px] lowercase tracking-[-0.02em] truncate leading-[1.1]">
-                {movieTitle}
-              </p>
-              <p className="cc-meta text-[10px] text-muted-foreground mt-0.5">
-                {mediaType === 'tv' ? 'tv' : 'film'}
-                {threadCount > 0 ? ` · ${threadCount} ${threadCount === 1 ? 'thread' : 'threads'}` : ''}
-              </p>
+      {/* scroll body */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto">
+        <div className="mx-auto max-w-2xl px-4 pb-6 pt-4">
+          {isLoading ? (
+            <div className="flex justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+          ) : !hasReviews ? (
+            <div className="py-20 text-center">
+              <div className="cc-eyebrow">reviews</div>
+              <p className="mt-3 font-serif text-[17px] italic text-muted-foreground">no reviews yet. be the first to write one.</p>
             </div>
-          </div>
-        )}
+          ) : (
+            <>
+              {summary && <ReviewsSummaryCard title={movieTitle} posterUrl={moviePoster || null} summary={summary} />}
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        ) : reviews.length === 0 ? (
-          <div className="py-16 text-center">
-            <div className="cc-eyebrow">reviews</div>
-            <p className="font-serif italic text-[17px] text-muted-foreground mt-3">
-              no reviews yet. be the first to write something.
-            </p>
+              {/* friends-seen rail */}
+              {summary && summary.friendsSeenCount > 0 && (
+                <div className="mt-4 flex items-center gap-3">
+                  <div className="flex -space-x-2.5">
+                    {summary.friendsSeen.map((f) => (
+                      <span key={f.uid} className="ring-2 ring-background rounded-full">
+                        <ProfileAvatar photoURL={f.photoURL} displayName={f.displayName} username={f.username} size="sm" />
+                      </span>
+                    ))}
+                  </div>
+                  <span className="font-ui text-[14px] text-muted-foreground">
+                    {summary.friendsSeenCount} {summary.friendsSeenCount === 1 ? 'friend' : 'friends'} reviewed this
+                  </span>
+                </div>
+              )}
+
+              {/* the reviews + sort */}
+              <div className="mt-7 flex items-center justify-between gap-2">
+                <h2 className="min-w-0 truncate font-headline text-[22px] font-bold lowercase tracking-tight text-foreground">the reviews</h2>
+                <SortTabs value={sort} onChange={setSort} />
+              </div>
+
+              <div className="mt-4 space-y-4">
+                {featured && (
+                  <ReviewWallCard key={featured.id} review={featured} currentUserId={user?.uid ?? null} featured {...cardHandlers} />
+                )}
+                {rest.map((review) => (
+                  <ReviewWallCard key={review.id} review={review} currentUserId={user?.uid ?? null} {...cardHandlers} />
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* bottom bar — write-a-review / rate, or reply mode (F15) */}
+      <div
+        className="flex-shrink-0 border-t border-hair bg-background"
+        style={{ paddingBottom: keyboardHeight > 0 ? Math.max(12, keyboardHeight - 20) : undefined, transition: 'padding-bottom 0.12s ease-out' }}
+      >
+        {!replyingTo ? (
+          <div className="flex items-center gap-2.5 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3">
+            <ProfileAvatar photoURL={userProfile?.photoURL} displayName={userProfile?.displayName} username={userProfile?.username} size="sm" />
+            {user ? (
+              <>
+                <button
+                  onClick={() => { haptic('light'); setComposer({ open: true, mode: 'write' }); }}
+                  className="h-11 flex-1 rounded-full border border-hair bg-sunken px-4 text-left font-ui text-[15px] text-muted-foreground active:opacity-70"
+                >
+                  write a review…
+                </button>
+                <button
+                  onClick={() => { haptic('light'); setComposer({ open: true, mode: 'rate' }); }}
+                  className="inline-flex h-11 flex-shrink-0 items-center gap-1.5 rounded-full bg-primary px-4 font-headline text-[15px] font-bold lowercase text-primary-foreground shadow-fab transition-transform active:scale-95"
+                >
+                  <Star className="h-4 w-4" strokeWidth={2.2} /> rate
+                </button>
+              </>
+            ) : (
+              <Link href="/login" className="h-11 flex-1 inline-flex items-center justify-center rounded-full bg-foreground font-headline text-[15px] font-semibold lowercase text-background">
+                sign in to review
+              </Link>
+            )}
           </div>
         ) : (
-          <>
-            {/* Sort line — film-red underline on the active option. The
-                buttons are wrapped in a min-32px hit area (negative margin
-                preserves the prior visual rhythm). */}
-            <div className="flex items-center justify-between py-2">
-              <span className="cc-eyebrow">sort</span>
-              <div className="flex gap-2 cc-meta text-[10px] -my-2">
-                <button
-                  onClick={() => setSortBy('likes')}
-                  className={cn(
-                    'h-9 px-2 inline-flex items-center transition-colors active:scale-95',
-                    sortBy === 'likes'
-                      ? 'text-foreground border-b border-primary'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  most liked
-                </button>
-                <button
-                  onClick={() => setSortBy('recent')}
-                  className={cn(
-                    'h-9 px-2 inline-flex items-center transition-colors active:scale-95',
-                    sortBy === 'recent'
-                      ? 'text-foreground border-b border-primary'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  most recent
-                </button>
-              </div>
-            </div>
-
-            {/* Featured pull-quote — tinted bone callout, film-red eyebrow,
-                serif italic pull-quote. The magazine move. */}
-            {featured && (
-              <div
-                className="my-4 px-3.5 py-3.5 rounded-[12px]"
-                style={{ backgroundColor: 'oklch(0.93 0.012 78)' }}
-              >
-                <div className="cc-eyebrow text-primary">★ featured review</div>
-                <p className="font-serif italic font-light text-[19px] leading-[1.3] tracking-[-0.015em] text-foreground mt-2 before:content-['“'] after:content-['”']">
-                  {featured.text}
+          <div>
+            {/* replying-to context bar */}
+            <div className="flex items-center gap-3 border-b border-hair px-4 py-2.5">
+              <span className="w-0.5 self-stretch flex-shrink-0 rounded-full bg-primary" />
+              <div className="min-w-0 flex-1">
+                <p className="font-ui text-[13px] font-semibold text-foreground">
+                  replying to <span className="text-primary">@{replyingTo.username || replyingTo.userDisplayName || 'someone'}</span>’s review
                 </p>
-                <div className="flex items-center gap-2 mt-3">
-                  <ProfileAvatar
-                    photoURL={featured.userPhotoUrl ?? null}
-                    displayName={featured.userDisplayName ?? null}
-                    username={featured.username}
-                    size="sm"
-                  />
-                  <div className="min-w-0 flex-1 flex items-baseline gap-1.5 flex-wrap">
-                    <span className="font-headline font-bold text-[13px] tracking-[-0.01em] text-foreground">
-                      {featured.userDisplayName || featured.username || 'anonymous'}
-                    </span>
-                    {featured.username && (
-                      <span className="cc-meta text-[10px] text-muted-foreground">
-                        @{featured.username}
-                      </span>
-                    )}
-                    <span className="cc-meta text-[10px] text-muted-foreground">
-                      · {new Date(featured.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}
-                    </span>
-                  </div>
-                  {featured.ratingAtTime != null && (
-                    <span
-                      className="px-1.5 py-0.5 rounded font-headline font-bold text-[11px] tabular-nums"
-                      style={{
-                        ...getRatingStyle(featured.ratingAtTime).background,
-                        ...getRatingStyle(featured.ratingAtTime).textOnBg,
-                      }}
-                    >
-                      {featured.ratingAtTime.toFixed(1)}
-                    </span>
-                  )}
-                </div>
+                <p className="truncate font-ui text-[12.5px] text-muted-foreground">{replyingTo.text}</p>
               </div>
-            )}
-
-            {/* Comment list */}
-            <div>
-              {restReviews.map(review => (
-                <div key={review.id}>
-                  {/* Parent review */}
-                  <ReviewCard
-                    review={review}
-                    currentUserId={user?.uid}
-                    onDelete={handleDeleteReview}
-                    onEdit={handleEditReview}
-                    onReply={handleStartReply}
-                  />
-
-                  {/* View replies button */}
-                  {(review.replyCount || 0) > 0 && (
-                    <div className="pl-11 pb-2">
-                      <button
-                        onClick={() => handleToggleReplies(review)}
-                        disabled={loadingReplies[review.id]}
-                        className="flex items-center gap-1.5 cc-meta text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50"
-                      >
-                        {loadingReplies[review.id] ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : expandedReplies[review.id] ? (
-                          <ChevronUp className="h-3 w-3" />
-                        ) : (
-                          <ChevronDown className="h-3 w-3" />
-                        )}
-                        {expandedReplies[review.id]
-                          ? 'hide replies'
-                          : `${review.replyCount} ${review.replyCount === 1 ? 'reply' : 'replies'}`
-                        }
-                      </button>
-                    </div>
-                  )}
-
-                  {/* Inline replies — ReviewCard handles its own left-rule */}
-                  {expandedReplies[review.id] && (
-                    <div className="pb-2">
-                      {expandedReplies[review.id].map(reply => (
-                        <ReviewCard
-                          key={reply.id}
-                          review={reply}
-                          currentUserId={user?.uid}
-                          onDelete={handleDeleteReview}
-                          onReply={(r) => handleStartReply(r, review.id)}
-                          isReply
-                        />
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
+              <button onClick={() => { setReplyingTo(null); setReplyText(''); }} aria-label="Cancel reply" className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground active:scale-90">
+                <X className="h-4 w-4" strokeWidth={2.2} />
+              </button>
             </div>
-          </>
+            <div className="flex items-center gap-2.5 px-4 pb-[max(env(safe-area-inset-bottom),12px)] pt-3">
+              <ProfileAvatar photoURL={userProfile?.photoURL} displayName={userProfile?.displayName} username={userProfile?.username} size="sm" />
+              <input
+                ref={replyInputRef}
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); sendReply(); } }}
+                placeholder="write a reply…"
+                maxLength={1000}
+                className="h-11 flex-1 rounded-full border border-primary bg-paper px-4 font-ui text-foreground outline-none placeholder:text-muted-foreground/60"
+                style={{ fontSize: '16px' }}
+              />
+              <button
+                onClick={sendReply}
+                disabled={!replyText.trim() || replySending}
+                aria-label="Send reply"
+                className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-full bg-primary text-white shadow-fab transition-transform active:scale-90 disabled:opacity-40 disabled:shadow-none"
+              >
+                {replySending ? <Loader2 className="h-[18px] w-[18px] animate-spin" /> : <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.4} />}
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Fixed Bottom Input */}
-      {user && (
-        <div
-          className="flex-shrink-0 border-t border-border bg-background"
-          style={{
-            paddingBottom: keyboardHeight > 0 ? Math.max(12, keyboardHeight - 20) : 12,
-            transition: 'padding-bottom 0.1s ease-out',
-          }}
-        >
-          {/* Reply indicator */}
-          {replyingTo && (
-            <div className="flex items-center justify-between px-4 py-2 bg-secondary/50 border-b border-border">
-              <span className="text-sm text-muted-foreground">
-                Replying to <span className="font-medium text-foreground">@{replyingTo.username || replyingTo.userDisplayName || 'user'}</span>
-              </span>
-              <button
-                onClick={handleCancelReply}
-                className="p-1 rounded-full hover:bg-secondary"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
+      {/* composer (F13) */}
+      <ReviewComposerSheet
+        isOpen={composer.open}
+        onClose={() => setComposer((c) => ({ ...c, open: false }))}
+        film={composerFilm}
+        initialRating={Number.isFinite(tmdbId) ? getRating(tmdbId) : null}
+        startMode={composer.mode}
+        onPosted={() => { loadWall(); }}
+      />
 
-          {/* AUDIT.md 2.6: edit indicator (mirror of the reply indicator). */}
-          {editingReview && (
-            <div className="flex items-center justify-between px-4 py-2 bg-secondary/50 border-b border-border">
-              <span className="text-sm text-muted-foreground">Editing your comment</span>
-              <button
-                onClick={cancelEdit}
-                className="p-1 rounded-full hover:bg-secondary"
-                aria-label="Cancel edit"
-              >
-                <X className="h-4 w-4" />
-              </button>
-            </div>
-          )}
-
-          <div className="flex items-end gap-3 px-4 py-3">
-            <ProfileAvatar
-              photoURL={userProfile?.photoURL}
-              displayName={userProfile?.displayName}
-              username={userProfile?.username}
-              size="sm"
-            />
-
-            <div className="flex-1 relative">
-              <textarea
-                ref={inputRef}
-                value={commentText}
-                onChange={handleTextareaChange}
-                placeholder={replyingTo ? 'write a reply…' : 'add a review…'}
-                rows={1}
-                maxLength={1000}
-                className="w-full px-4 py-2 pr-[88px] rounded-full border border-border bg-paper focus:outline-none focus:border-primary resize-none font-serif placeholder:italic placeholder:font-light"
-                style={{
-                  fontSize: '16px', // Prevents iOS zoom
-                  lineHeight: '1.5',
-                  maxHeight: '120px',
-                }}
-                onKeyDown={(e) => {
-                  // Submit on Enter (without shift)
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSubmitComment();
-                  }
-                }}
-              />
-
-              {/* Spoiler toggle — author can hide the body behind a shield.
-                  Sized as a real tap target (40px) instead of the prior 36px;
-                  the textarea grows from h-11 to accommodate. */}
-              <button
-                onClick={() => setCommentHasSpoiler((v) => !v)}
-                aria-label={commentHasSpoiler ? 'Unmark as spoiler' : 'Mark as spoiler'}
-                title={commentHasSpoiler ? 'spoiler — viewers must tap to reveal' : 'mark as spoiler'}
-                className={cn(
-                  'absolute right-[48px] bottom-1 h-10 w-10 rounded-full flex items-center justify-center transition-colors active:scale-95',
-                  commentHasSpoiler
-                    ? 'text-primary'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                <EyeOff className="h-[18px] w-[18px]" strokeWidth={1.8} />
-              </button>
-
-              <button
-                onClick={handleSubmitComment}
-                disabled={!commentText.trim() || isSubmitting}
-                className="absolute right-1 bottom-1 h-10 w-10 rounded-full bg-primary text-white shadow-fab flex items-center justify-center disabled:opacity-40 disabled:bg-muted disabled:text-muted-foreground disabled:shadow-none active:scale-90 transition-all"
-                aria-label="Post comment"
-              >
-                {isSubmitting ? (
-                  <Loader2 className="h-[18px] w-[18px] animate-spin" />
-                ) : (
-                  <ArrowUp className="h-[18px] w-[18px]" strokeWidth={2.4} />
-                )}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Login prompt for non-authenticated users */}
-      {!user && (
-        <div className="flex-shrink-0 border-t border-border bg-background px-4 py-3">
-          <Link
-            href="/login"
-            className="block w-full text-center py-3 rounded-full bg-foreground text-background font-headline font-semibold lowercase tracking-tight"
-          >
-            sign in to comment
-          </Link>
-        </div>
-      )}
+      {/* long-press react + actions (F14) */}
+      <ReviewReactOverlay
+        isOpen={!!reactTarget}
+        onClose={() => setReactTarget(null)}
+        review={liveReactReview}
+        anchorTop={reactTarget?.top ?? 120}
+        isOwn={!!user && !!liveReactReview && user.uid === liveReactReview.userId}
+        onReact={(type) => { if (liveReactReview) handleReact(liveReactReview.id, type); }}
+        onHelpful={() => { if (liveReactReview) handleHelpful(liveReactReview.id, !liveReactReview.myHelpful); }}
+        onReply={() => { if (liveReactReview) startReply(liveReactReview); }}
+        onCopy={() => { if (liveReactReview) handleCopy(liveReactReview.text); }}
+        onShareStory={liveReactReview ? () => {
+          story.open({
+            kind: 'review',
+            user: liveReactReview.username || liveReactReview.userDisplayName || 'someone',
+            avatar: liveReactReview.userPhotoUrl,
+            title: movieTitle,
+            year: filmMeta.year,
+            director: filmMeta.director,
+            rating: liveReactReview.ratingAtTime,
+            quote: liveReactReview.text,
+          });
+        } : undefined}
+        onReportOrDelete={() => { if (liveReactReview) handleReportOrDelete(liveReactReview); }}
+      />
     </SwipeBackContainer>
   );
 }
 
-// Loading fallback
-function CommentsLoading() {
-  return (
-    <div className="fixed inset-0 bg-background flex items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-    </div>
-  );
-}
-
-// Default export with Suspense for useSearchParams
 export default function CommentsPage() {
   return (
-    <Suspense fallback={<CommentsLoading />}>
+    <Suspense fallback={<div className="fixed inset-0 flex items-center justify-center bg-background"><Loader2 className="h-8 w-8 animate-spin text-muted-foreground" /></div>}>
       <CommentsPageContent />
     </Suspense>
   );

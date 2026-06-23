@@ -21,19 +21,20 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
-import { activityFromDoc } from '@/lib/activities-server';
+import { getMutualIds, getCloseFriendIds } from '@/lib/follows-server';
+import { recordWatchEntry } from '@/lib/watches-server';
 import {
   extractMentions,
   createPostTagNotification,
   createPostLikeNotification,
 } from '@/lib/notifications-server';
-import type { Activity, Post, PostMedia, TaggedUser } from '@/lib/types';
+import type { Activity, Post, PostMedia, PostVisibility, TaggedUser } from '@/lib/types';
 
 // ─── Constants ────────────────────────────────────────────────────────────
 
 export const MAX_POST_MEDIA_BYTES = 200 * 1024 * 1024; // 200MB — Twitter-class
 export const MAX_POST_TEXT = 2000;
-export const MAX_POST_MEDIA = 6;
+export const MAX_POST_MEDIA = 10;
 const MAX_PLACE_LENGTH = 120;
 const MAX_TAGGED_USERS = 20;
 const MAX_PAGE = 100;
@@ -106,6 +107,10 @@ export function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
     taggedUserIds: d.taggedUserIds ?? [],
     taggedUsers: d.taggedUsers ?? [],
     place: d.place ?? null,
+    watchType: d.watchType ?? null,
+    watchedOn: d.watchedOn?.toDate?.() ?? null,
+    visibility: (d.visibility as PostVisibility) ?? 'everyone',
+    audienceUids: Array.isArray(d.audienceUids) ? d.audienceUids : undefined,
     likes: d.likes ?? 0,
     likedBy: d.likedBy ?? [],
     commentCount: d.commentCount ?? 0,
@@ -113,6 +118,43 @@ export function postFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Post {
     updatedAt: d.updatedAt?.toDate?.() ?? new Date(),
     editedAt: d.editedAt?.toDate?.() ?? null,
   };
+}
+
+// ─── Visibility / audience ──────────────────────────────────────────────────
+
+const VALID_VISIBILITY: readonly PostVisibility[] = ['everyone', 'friends', 'close_friends', 'only_me'];
+const MAX_AUDIENCE = 2000;
+
+/**
+ * Resolve a post's audience snapshot at WRITE time. 'everyone' carries no
+ * snapshot (public). Restricted posts store the exact uid set allowed to see
+ * them (the author is always allowed and is NOT included here), so the feed can
+ * filter in-memory with zero per-author relationship reads at read time.
+ */
+async function resolveAudience(
+  callerUid: string,
+  visibility: PostVisibility,
+): Promise<{ visibility: PostVisibility; audienceUids: string[] | null }> {
+  if (visibility === 'everyone') return { visibility, audienceUids: null };
+  if (visibility === 'only_me') return { visibility, audienceUids: [] };
+  const ids = visibility === 'friends'
+    ? await getMutualIds(callerUid)
+    : await getCloseFriendIds(callerUid);
+  return { visibility, audienceUids: [...new Set(ids)].filter((id) => id && id !== callerUid).slice(0, MAX_AUDIENCE) };
+}
+
+/**
+ * Can `viewerUid` see this post? The single source of truth applied in EVERY
+ * post read path (home feed, saved feed, post detail, profile posts). Public
+ * posts are visible to all (incl. anonymous); the author always sees their own;
+ * restricted posts require membership in the write-time `audienceUids` snapshot.
+ */
+export function canViewPost(post: Post, viewerUid: string | null): boolean {
+  const vis = post.visibility ?? 'everyone';
+  if (vis === 'everyone') return true;
+  if (viewerUid && viewerUid === post.authorId) return true;
+  if (!viewerUid) return false;
+  return (post.audienceUids ?? []).includes(viewerUid);
 }
 
 // ─── resolveTaggedUsers ───────────────────────────────────────────────────
@@ -243,23 +285,24 @@ export type CreatePostInput = {
   media?: PostMedia[];
   taggedMovie?: Post['taggedMovie'];
   rating?: number | null;
-  /** Legacy v2 callers — v3 uses inline @mentions in `text`. */
+  /** F04 "tag friends" (also accepts legacy v2 picks). v3 also extracts inline
+   *  @mentions from `text`; both feed the denormalized taggedUsers + notifs. */
   taggedUserIds?: string[];
   place?: string;
+  /** F04 "your watch" — 'first' | 'rewatch'. */
+  watchType?: 'first' | 'rewatch' | null;
+  /** F04 "watched on" — ISO date string; clamped to now (no future). */
+  watchedOn?: string | null;
+  /** F04 "visible to" — defaults to 'everyone'. */
+  visibility?: PostVisibility;
 };
 
-export async function createPost(
-  callerUid: string,
-  input: CreatePostInput,
-): Promise<{ postId: string }> {
+/** Shared parse/validate for the v3 post fields written by create + update. */
+function parsePostFields(input: CreatePostInput) {
   const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
   const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
   const taggedMovie = input.taggedMovie || null;
   const place = (input.place || '').trim().slice(0, MAX_PLACE_LENGTH) || null;
-
-  if (!taggedMovie && !text && media.length === 0) {
-    throw new PostValidationError('Add a few words, a photo, or a film first.');
-  }
 
   let rating: number | null = null;
   if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
@@ -269,10 +312,39 @@ export async function createPost(
     rating = Math.round(input.rating * 10) / 10;
   }
 
+  const watchType = taggedMovie && (input.watchType === 'first' || input.watchType === 'rewatch')
+    ? input.watchType
+    : null;
+
+  let watchedOn: Date | null = null;
+  if (taggedMovie && input.watchedOn) {
+    const d = new Date(input.watchedOn);
+    if (!Number.isNaN(d.getTime())) watchedOn = d.getTime() > Date.now() ? new Date() : d;
+  }
+
+  const visibility: PostVisibility = VALID_VISIBILITY.includes(input.visibility as PostVisibility)
+    ? (input.visibility as PostVisibility)
+    : 'everyone';
+
+  return { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility };
+}
+
+export async function createPost(
+  callerUid: string,
+  input: CreatePostInput,
+): Promise<{ postId: string }> {
+  const { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility } =
+    parsePostFields(input);
+
+  if (!taggedMovie && !text && media.length === 0) {
+    throw new PostValidationError('Add a few words, a photo, or a film first.');
+  }
+
   const db = getDb();
   const userDoc = await db.collection('users').doc(callerUid).get();
   const u = userDoc.data() || {};
   const taggedUsers = await resolveTaggedUsers(db, callerUid, input.taggedUserIds);
+  const audience = await resolveAudience(callerUid, visibility);
 
   const postRef = db.collection('posts').doc();
   await postRef.set({
@@ -288,6 +360,10 @@ export async function createPost(
     taggedUserIds: taggedUsers.map((t) => t.uid),
     taggedUsers,
     place,
+    watchType,
+    watchedOn: watchedOn ?? null,
+    visibility: audience.visibility,
+    ...(audience.audienceUids ? { audienceUids: audience.audienceUids } : {}),
     likes: 0,
     likedBy: [],
     commentCount: 0,
@@ -304,10 +380,39 @@ export async function createPost(
     }
   }
 
+  // A post about a film RECORDS a viewing in the watch log (F04 "your watch"),
+  // so "your history" in the movie drawer stays consistent. Lean entry only —
+  // the post body is the take (no duplicate /reviews doc); the rating is already
+  // upserted above. Best-effort: a watch-log hiccup never fails the post.
+  if (taggedMovie) {
+    try {
+      await recordWatchEntry(callerUid, {
+        tmdbId: taggedMovie.tmdbId,
+        mediaType: taggedMovie.mediaType,
+        movieTitle: taggedMovie.title,
+        moviePosterUrl: taggedMovie.posterUrl,
+        rating,
+        note: null,
+        watchedAt: (watchedOn ?? new Date()).toISOString(),
+      });
+    } catch (err) {
+      console.error('[createPost] watch-log entry failed:', err);
+    }
+  }
+
   const previewText = text.slice(0, 100);
+
+  // A tag/@-mention notification carries the post's preview text — so it must
+  // only go to recipients who are allowed to SEE the post. For a restricted
+  // post, never notify (and never leak the preview to) anyone outside the
+  // write-time audience; an 'only_me' post notifies no one.
+  const audienceSet = audience.audienceUids ? new Set(audience.audienceUids) : null;
+  const canRecipientSee = (uid: string): boolean =>
+    audience.visibility === 'everyone' || uid === callerUid || (audienceSet?.has(uid) ?? false);
 
   // Legacy taggedUserIds — explicit picks, no mentions-pref check.
   for (const t of taggedUsers) {
+    if (!canRecipientSee(t.uid)) continue;
     try {
       await createPostTagNotification(db, {
         postId: postRef.id,
@@ -344,6 +449,7 @@ export async function createPost(
         const doc = snap.docs[0];
         const mentionedUserId = doc.id;
         if (alreadyNotified.has(mentionedUserId)) continue;
+        if (!canRecipientSee(mentionedUserId)) continue;
         await createPostTagNotification(db, {
           postId: postRef.id,
           previewText: mentionPreview,
@@ -376,24 +482,16 @@ export async function updatePost(
   if (!snap.exists) throw new PostNotFoundError();
   if (snap.data()?.authorId !== callerUid) throw new PostAuthorMismatchError();
 
-  const text = (input.text || '').trim().slice(0, MAX_POST_TEXT);
-  const media = (Array.isArray(input.media) ? input.media : []).slice(0, MAX_POST_MEDIA);
-  const taggedMovie = input.taggedMovie || null;
-  const place = (input.place || '').trim().slice(0, MAX_PLACE_LENGTH) || null;
+  const { text, media, taggedMovie, place, rating, watchType, watchedOn, visibility } =
+    parsePostFields(input);
   if (!taggedMovie && !text && media.length === 0) {
     throw new PostValidationError('A post needs words, a photo, or a film.');
   }
 
-  let rating: number | null = null;
-  if (taggedMovie && typeof input.rating === 'number' && !Number.isNaN(input.rating)) {
-    if (input.rating < 1 || input.rating > 10) {
-      throw new PostValidationError('Rating must be between 1.0 and 10.0.');
-    }
-    rating = Math.round(input.rating * 10) / 10;
-  }
-
   const taggedUsers = await resolveTaggedUsers(db, callerUid, input.taggedUserIds);
+  const audience = await resolveAudience(callerUid, visibility);
 
+  // Editing does NOT re-log a watch (the viewing already happened at create).
   await ref.update({
     text,
     media,
@@ -402,6 +500,11 @@ export async function updatePost(
     taggedUserIds: taggedUsers.map((t) => t.uid),
     taggedUsers,
     place,
+    watchType,
+    watchedOn: watchedOn ?? null,
+    visibility: audience.visibility,
+    // Clear the snapshot when going public; otherwise replace it.
+    audienceUids: audience.audienceUids ?? FieldValue.delete(),
     updatedAt: FieldValue.serverTimestamp(),
     editedAt: FieldValue.serverTimestamp(),
   });
@@ -444,6 +547,7 @@ export async function getPost(
   const snap = await db.collection('posts').doc(postId).get();
   if (!snap.exists) return null;
   const post = postFromDoc(snap);
+  if (!canViewPost(post, viewerUid)) return null;
   if (viewerUid && (await isBlockedBetween(db, viewerUid, post.authorId))) {
     return null;
   }
@@ -464,6 +568,11 @@ export async function likePost(
   const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { kind: 'err' as const, error: new PostNotFoundError() };
+    // F04 audience: an out-of-audience caller gets the same 404 as a missing
+    // post — no liking, and no existence oracle on restricted posts.
+    if (!canViewPost(postFromDoc(snap), callerUid)) {
+      return { kind: 'err' as const, error: new PostNotFoundError() };
+    }
     const d = snap.data() || {};
     const likedBy: string[] = d.likedBy || [];
     if (likedBy.includes(callerUid)) {
@@ -511,6 +620,9 @@ export async function unlikePost(
   const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
     const snap = await tx.get(ref);
     if (!snap.exists) return { kind: 'err' as const, error: new PostNotFoundError() };
+    if (!canViewPost(postFromDoc(snap), callerUid)) {
+      return { kind: 'err' as const, error: new PostNotFoundError() };
+    }
     const d = snap.data() || {};
     const likedBy: string[] = d.likedBy || [];
     if (!likedBy.includes(callerUid)) {
@@ -541,48 +653,63 @@ export async function getHomeFeed(
   const blockSet = viewerUid ? await getBlockSet(db, viewerUid) : new Set<string>();
   const cursorDate = opts.cursor ? new Date(opts.cursor) : null;
 
-  let actQ = db.collection('activities').orderBy('createdAt', 'desc');
-  let postQ = db.collection('posts').orderBy('createdAt', 'desc');
-  if (cursorDate && !Number.isNaN(cursorDate.getTime())) {
-    actQ = actQ.where('createdAt', '<', cursorDate);
-    postQ = postQ.where('createdAt', '<', cursorDate);
+  // The reel is user-authored posts only. System activities (`added`,
+  // `watched`, `rated`, `reviewed`) are intentionally kept out of the home
+  // feed — they're low-signal logging; opinions belong in a written post.
+  //
+  // Block + F04-audience filtering happens in-memory AFTER the read, so a window
+  // can shrink below `limit` (others' private posts). Pagination MUST be keyed
+  // off the RAW scan, not the visible count — otherwise a single hidden post
+  // could set hasMore=false and dead-end infinite scroll. We scan in bounded
+  // rounds (cap reads under the free-tier budget) until we have a full visible
+  // page or the collection is exhausted, advancing the cursor past the last
+  // RAW doc each round so hidden docs are never re-scanned.
+  const baseQ = db.collection('posts').orderBy('createdAt', 'desc');
+  const MAX_ROUNDS = 5;
+  const ROUND = limit + 1;
+
+  const visible: { item: FeedItem; ts: number }[] = [];
+  let scanCursor: Date | null = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+  let rawCursor: string | undefined; // ISO of the last RAW doc scanned
+  let exhausted = false;
+  let rounds = 0;
+
+  // Scan until we have one MORE than the page (so we know there's a next page)
+  // or the collection runs out — keep going past hidden posts.
+  for (; rounds < MAX_ROUNDS && visible.length <= limit; rounds++) {
+    let q = baseQ;
+    if (scanCursor) q = q.where('createdAt', '<', scanCursor);
+    const snap = await q.limit(ROUND).get();
+    if (snap.empty) { exhausted = true; break; }
+    for (const d of snap.docs) {
+      const p = postFromDoc(d);
+      rawCursor = p.createdAt.toISOString();
+      scanCursor = p.createdAt;
+      if (blockSet.has(p.authorId)) continue;
+      if (!canViewPost(p, viewerUid)) continue;
+      visible.push({ item: { kind: 'post', post: p }, ts: p.createdAt.getTime() });
+    }
+    if (snap.size < ROUND) { exhausted = true; break; }
   }
 
-  // Over-fetch activities — only `rated`/`reviewed` survive the type
-  // filter below, so a `limit+1` fetch would routinely under-fill.
-  const [actSnap, postSnap] = await Promise.all([
-    actQ.limit(limit * 2 + 1).get(),
-    postQ.limit(limit + 1).get(),
-  ]);
+  visible.sort((a, b) => b.ts - a.ts);
+  const page = visible.slice(0, limit);
 
-  const merged = [
-    ...actSnap.docs
-      .map((d) => activityFromDoc(d))
-      // Opinions only — `rated` and `reviewed`. `added`/`watched` are
-      // low-signal logging and stay out of the feed.
-      .filter((a) => a.type === 'rated' || a.type === 'reviewed')
-      .map((a) => ({
-        item: { kind: 'activity' as const, activity: a },
-        ts: a.createdAt.getTime(),
-        authorId: a.userId,
-      })),
-    ...postSnap.docs.map((d) => {
-      const p = postFromDoc(d);
-      return {
-        item: { kind: 'post' as const, post: p },
-        ts: p.createdAt.getTime(),
-        authorId: p.authorId,
-      };
-    }),
-  ]
-    .filter((x) => !blockSet.has(x.authorId))
-    .sort((a, b) => b.ts - a.ts);
-
-  const hasMore = merged.length > limit;
-  const page = merged.slice(0, limit);
-  const nextCursor =
-    hasMore && page.length > 0
-      ? new Date(page[page.length - 1].ts).toISOString()
-      : undefined;
+  let hasMore: boolean;
+  let nextCursor: string | undefined;
+  if (visible.length > limit) {
+    // There's a confirmed next visible post — resume just after the LAST
+    // RETURNED item (not the last raw doc) so the surplus visible isn't dropped.
+    hasMore = true;
+    nextCursor = page.length > 0 ? new Date(page[page.length - 1].ts).toISOString() : rawCursor;
+  } else if (rounds >= MAX_ROUNDS && !exhausted) {
+    // Hit the scan cap on a dense run of hidden posts — there may be more;
+    // advance past everything scanned so we don't re-scan the hidden run.
+    hasMore = true;
+    nextCursor = rawCursor;
+  } else {
+    hasMore = false;
+    nextCursor = undefined;
+  }
   return { items: page.map((x) => x.item), hasMore, nextCursor };
 }

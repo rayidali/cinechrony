@@ -41,6 +41,6 @@ export const POST = apiRoute(async (req, { auth }) => {
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getMyBookmarks(auth.uid);
-});
+}, { softFallback: { keys: [] } });
 
 export const OPTIONS = optionsHandler;

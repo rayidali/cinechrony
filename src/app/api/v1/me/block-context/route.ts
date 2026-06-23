@@ -16,6 +16,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getMyBlockContext(auth.uid);
-});
+}, { softFallback: { blockedIds: [], iBlocked: [] } });
 
 export const OPTIONS = optionsHandler;

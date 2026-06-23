@@ -22,7 +22,24 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { sendPushToUser } from '@/lib/push-server';
 import { isBlockedBetween } from '@/lib/blocks-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
 import type { UserProfile } from '@/lib/types';
+
+// The follow-id SET is read per home load by BOTH the leaderboard and
+// friends-watching rails (N reads each, N = # follows). It changes rarely, so
+// cache per-user (5min) and invalidate on follow/unfollow.
+const followingIdsCache = createTtlCache<string[]>({ ttlMs: 300_000 });
+function invalidateFollowingIds(uid: string): void {
+  followingIdsCache.deleteByPrefix(`${uid}:`);
+}
+
+// The follower-id SET powers "mutuals" (post audience = follow-back). Same
+// rarely-changing shape as following; cache 5min, invalidate the TARGET's set
+// whenever a follow edge to them is created/removed.
+const followerIdsCache = createTtlCache<string[]>({ ttlMs: 300_000 });
+function invalidateFollowerIds(uid: string): void {
+  followerIdsCache.deleteByPrefix(`${uid}:`);
+}
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
 
@@ -116,6 +133,8 @@ export async function followUser(
     tx.update(followerUserRef, { followingCount: FieldValue.increment(1) });
     tx.update(targetUserRef, { followersCount: FieldValue.increment(1) });
   });
+  invalidateFollowingIds(callerUid); // the caller's follow set changed
+  invalidateFollowerIds(targetUid); // the target gained a follower (mutuals)
 
   // Best-effort follow notification. Failure here doesn't roll back.
   try {
@@ -175,7 +194,7 @@ export async function unfollowUser(
   const followerUserRef = db.collection('users').doc(callerUid);
   const targetUserRef = db.collection('users').doc(targetUid);
 
-  return db.runTransaction(async (tx) => {
+  const result = await db.runTransaction(async (tx) => {
     const existing = await tx.get(followingRef);
     if (!existing.exists) return { unfollowed: false };
 
@@ -185,12 +204,23 @@ export async function unfollowUser(
     tx.update(targetUserRef, { followersCount: FieldValue.increment(-1) });
     return { unfollowed: true };
   });
+  if (result.unfollowed) {
+    invalidateFollowingIds(callerUid);
+    invalidateFollowerIds(targetUid);
+  }
+  return result;
 }
 
 // ─── getFollowers / getFollowing ──────────────────────────────────────────
 
 const DEFAULT_LIST_LIMIT = 50;
 const MAX_LIST_LIMIT = 200;
+// IDs-only reads (getFollowingIds / getFollowerIds) hydrate NO profiles — one
+// query, doc-ids only — so they can scan far deeper than the profile-hydrating
+// lists. This is the ceiling for the follow SET used by mutuals/leaderboard/
+// friends-watching, so a 'friends' post or a top-watcher tally isn't silently
+// capped at 200.
+const MAX_ID_LIMIT = 2000;
 
 function profileFromDoc(
   doc: FirebaseFirestore.DocumentSnapshot,
@@ -260,6 +290,98 @@ export async function getFollowing(
   return profileDocs
     .filter((d) => d.exists)
     .map((d) => profileFromDoc(d, d.id));
+}
+
+/**
+ * Just the UIDs the target follows — ONE read, no profile hydration. Use this
+ * (not `getFollowing`) when you only need the follow SET for membership/scoping
+ * (e.g. the leaderboard), since the `following` subcollection doc id IS the
+ * followed uid. Saves up to `limit` per-profile reads per call.
+ */
+export async function getFollowingIds(
+  targetUid: string,
+  limit: number = DEFAULT_LIST_LIMIT,
+): Promise<string[]> {
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_ID_LIMIT);
+  // cached() auto-bypasses under the test emulator, so tests see fresh follows.
+  return cached(followingIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
+    const db = getDb();
+    const snap = await db
+      .collection('users').doc(targetUid)
+      .collection('following')
+      .limit(effectiveLimit)
+      .get();
+    return snap.docs.map((d) => d.id);
+  });
+}
+
+/**
+ * Just the UIDs that follow the target — ONE read, no profile hydration.
+ * Mirror of `getFollowingIds` for the followers side. Cached 5min.
+ */
+export async function getFollowerIds(
+  targetUid: string,
+  limit: number = DEFAULT_LIST_LIMIT,
+): Promise<string[]> {
+  const effectiveLimit = Math.min(Math.max(1, limit), MAX_ID_LIMIT);
+  return cached(followerIdsCache, `${targetUid}:${effectiveLimit}`, async () => {
+    const db = getDb();
+    const snap = await db
+      .collection('users').doc(targetUid)
+      .collection('followers')
+      .limit(effectiveLimit)
+      .get();
+    return snap.docs.map((d) => d.id);
+  });
+}
+
+/**
+ * The target's MUTUALS — users they follow who also follow them back. This is
+ * the "friends" audience for posts. Two cached set reads + an in-memory
+ * intersection (no per-edge reads). Scans the full follow graph (MAX_ID_LIMIT)
+ * so a large account's 'friends' audience isn't silently truncated.
+ */
+export async function getMutualIds(targetUid: string): Promise<string[]> {
+  const [following, followers] = await Promise.all([
+    getFollowingIds(targetUid, MAX_ID_LIMIT),
+    getFollowerIds(targetUid, MAX_ID_LIMIT),
+  ]);
+  const followerSet = new Set(followers);
+  return following.filter((id) => followerSet.has(id));
+}
+
+// ─── Close friends (server-only inner circle) ───────────────────────────────
+
+// Stored in a server-only top-level doc `/closeFriends/{uid}` ({ ids: [] }) so
+// a user's inner circle never leaks through a client-readable profile doc
+// (firestore.rules denies all client access; Admin SDK reads/writes here).
+const MAX_CLOSE_FRIENDS = 150;
+
+export async function getCloseFriendIds(uid: string): Promise<string[]> {
+  const db = getDb();
+  const snap = await db.collection('closeFriends').doc(uid).get();
+  const ids = snap.exists ? snap.data()?.ids : null;
+  return Array.isArray(ids) ? ids : [];
+}
+
+/**
+ * Replace the caller's close-friends list. Dedupes, drops self, caps at 150.
+ * (No follow-relationship requirement — you can keep anyone close.)
+ */
+export async function setCloseFriendIds(
+  callerUid: string,
+  ids: string[],
+): Promise<{ ids: string[] }> {
+  const clean = [...new Set(Array.isArray(ids) ? ids : [])]
+    .filter((id) => typeof id === 'string' && id && id !== callerUid)
+    .slice(0, MAX_CLOSE_FRIENDS);
+  const db = getDb();
+  await db.collection('closeFriends').doc(callerUid).set({
+    uid: callerUid,
+    ids: clean,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+  return { ids: clean };
 }
 
 // ─── isFollowing — single boolean check (Phase A PR #18) ────────────────

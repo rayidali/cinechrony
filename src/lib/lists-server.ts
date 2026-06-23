@@ -13,6 +13,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import type { ListMember } from '@/lib/types';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
@@ -573,6 +574,8 @@ export async function unlikeList(
 
 // ─── Shared types ────────────────────────────────────────────────────────
 
+export type ListMemberAvatar = { photoURL: string | null; username: string | null };
+
 export type LovedListCard = {
   id: string;
   name: string;
@@ -585,43 +588,70 @@ export type LovedListCard = {
   movieCount: number;
   likes: number;
   previewPosters: string[];
+  /** Contributor avatars (owner + up to 2 collaborators). Only populated when
+   *  the card is hydrated `rich` (the home community rail); `[{owner}]` otherwise. */
+  members: ListMemberAvatar[];
+  /** Films in the list marked Watched. Only computed when hydrated `rich`. */
+  watchedCount: number;
 };
 
 // ─── Internal: hydrateListCards ──────────────────────────────────────────
 
 /**
- * Turn raw list docs into discovery cards — batch-fetches owner profiles
- * and up to 4 preview posters per list. Shared by getLovedLists +
- * searchPublicLists.
+ * Turn raw list docs into discovery cards — batch-fetches member profiles and
+ * up to 4 preview posters per list. Shared by getLovedLists + searchPublicLists.
+ *
+ * `rich` adds the home-rail extras (contributor avatars + a Watched count via a
+ * cheap `count()` aggregate). It's gated so the lean callers (search, the F17
+ * "view all" grid) don't pay for reads they don't render — free-tier discipline.
  */
 async function hydrateListCards(
   db: FirebaseFirestore.Firestore,
   docs: FirebaseFirestore.QueryDocumentSnapshot[],
+  opts: { rich?: boolean } = {},
 ): Promise<LovedListCard[]> {
-  const ownerIds = [...new Set(docs.map((d) => d.data().ownerId).filter(Boolean))];
-  const ownerDocs = ownerIds.length
-    ? await db.getAll(...ownerIds.map((id) => db.collection('users').doc(id)))
-    : [];
-  const ownerById = new Map(ownerDocs.map((s) => [s.id, s.data()]));
+  const rich = opts.rich === true;
+
+  // Member uids to fetch: the owner always; + up to 2 collaborators when rich.
+  const perListMemberUids = new Map<string, string[]>();
+  const allMemberUids = new Set<string>();
+  for (const doc of docs) {
+    const d = doc.data();
+    const ownerId: string = d.ownerId;
+    const collabs: string[] = Array.isArray(d.collaboratorIds) ? d.collaboratorIds : [];
+    const uids = rich
+      ? [ownerId, ...collabs.filter((c) => c && c !== ownerId)].slice(0, 3)
+      : [ownerId];
+    perListMemberUids.set(doc.id, uids);
+    for (const u of uids) if (u) allMemberUids.add(u);
+  }
+  const memberUids = [...allMemberUids];
+  let userById = new Map<string, FirebaseFirestore.DocumentData | undefined>();
+  try {
+    const memberDocs = memberUids.length
+      ? await db.getAll(...memberUids.map((id) => db.collection('users').doc(id)))
+      : [];
+    userById = new Map(memberDocs.map((s) => [s.id, s.data()]));
+  } catch {
+    /* member fetch failed (quota/transient) — degrade to no avatars */
+  }
 
   return Promise.all(
     docs.map(async (doc) => {
       const d = doc.data();
       const ownerId: string = d.ownerId;
-      const owner = ownerById.get(ownerId);
-      const moviesSnap = await db
-        .collection('users').doc(ownerId)
-        .collection('lists').doc(doc.id)
-        .collection('movies')
-        .orderBy('createdAt', 'desc')
-        .limit(4)
-        .get();
-      const previewPosters: string[] = [];
-      moviesSnap.forEach((m) => {
-        const p = m.data().posterUrl;
-        if (typeof p === 'string' && p) previewPosters.push(p);
+      const owner = userById.get(ownerId);
+
+      const members: ListMemberAvatar[] = (perListMemberUids.get(doc.id) ?? []).map((uid) => {
+        const u = userById.get(uid);
+        return { photoURL: u?.photoURL ?? null, username: u?.username ?? null };
       });
-      return {
+
+      // The base card needs NO extra reads — it's all on the list doc. The
+      // poster/watched reads are best-effort: a per-list failure (quota/timeout)
+      // degrades this one card instead of rejecting the whole request. That
+      // keeps the endpoint 200 with partial data rather than 500-ing the rail.
+      const card: LovedListCard = {
         id: doc.id,
         name: d.name || 'untitled list',
         ownerId,
@@ -629,10 +659,39 @@ async function hydrateListCards(
         ownerDisplayName: owner?.displayName || null,
         coverImageUrl: d.coverImageUrl || '',
         coverMode: (d.coverMode as 'auto' | 'custom' | undefined) ?? null,
-        movieCount: typeof d.movieCount === 'number' ? d.movieCount : previewPosters.length,
+        movieCount: typeof d.movieCount === 'number' ? d.movieCount : 0,
         likes: d.likes || 0,
-        previewPosters,
+        previewPosters: [],
+        members,
+        watchedCount: 0,
       };
+
+      try {
+        const moviesRef = db
+          .collection('users').doc(ownerId)
+          .collection('lists').doc(doc.id)
+          .collection('movies');
+        const [moviesSnap, watchedCount] = await Promise.all([
+          moviesRef.orderBy('createdAt', 'desc').limit(4).get(),
+          rich
+            ? moviesRef.where('status', '==', 'Watched').count().get()
+                .then((a) => a.data().count)
+                .catch(() => 0)
+            : Promise.resolve(0),
+        ]);
+        moviesSnap.forEach((m) => {
+          const p = m.data().posterUrl;
+          if (typeof p === 'string' && p) card.previewPosters.push(p);
+        });
+        card.watchedCount = watchedCount;
+        if (card.movieCount === 0 && card.previewPosters.length) {
+          card.movieCount = card.previewPosters.length;
+        }
+      } catch {
+        /* preview/watched read failed — keep the base card (no posters) */
+      }
+
+      return card;
     }),
   );
 }
@@ -646,36 +705,60 @@ async function hydrateListCards(
  * Cold-start gated: returns `{ lists: [], gated: true }` until at least
  * MIN_LOVED_LISTS public lists have been liked.
  */
-export async function getLovedLists(limit = 12): Promise<{ lists: LovedListCard[]; gated: boolean }> {
-  const MIN_LOVED_LISTS = 3;
-  const db = getDb();
-  const snap = await db
-    .collectionGroup('lists')
-    .where('isPublic', '==', true)
-    .where('likes', '>', 0)
-    .orderBy('likes', 'desc')
-    .limit(60)
-    .get();
+// Global cache — the loved-lists showcase is identical for every viewer, so one
+// collectionGroup scan every few minutes serves the whole user base. Keyed by
+// limit (the only input). This is the highest-leverage cache: it fires on every
+// home load via both the featured carousel and the community rail.
+const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 600_000 });
 
-  if (snap.size < MIN_LOVED_LISTS) {
-    return { lists: [], gated: true };
-  }
+export async function getLovedLists(
+  limit = 12,
+  opts: { rich?: boolean } = {},
+): Promise<{ lists: LovedListCard[]; gated: boolean }> {
+  const rich = opts.rich === true;
+  return cached(lovedListsCache, `limit:${limit}:rich:${rich ? 1 : 0}`, async () => {
+    const db = getDb();
+    const now = Date.now();
 
-  const now = Date.now();
-  const ranked = snap.docs
-    .map((doc) => {
-      const d = doc.data();
-      const likes: number = d.likes || 0;
-      const lastMs = d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
-      const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
-      return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
-    })
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit)
-    .map((r) => r.doc);
+    // ONE index-free query: all public lists. We split + rank in memory rather
+    // than `where('likes','>',0).orderBy('likes')` so there's NO composite-index
+    // dependency (which 500s in prod if undeployed) and it's a single read.
+    const snap = await db
+      .collectionGroup('lists')
+      .where('isPublic', '==', true)
+      .limit(80)
+      .get();
 
-  const lists = await hydrateListCards(db, ranked);
-  return { lists, gated: false };
+    // 1. Liked lists, ranked by a recency-weighted trending score (HN-style).
+    const liked = snap.docs
+      .filter((doc) => (doc.data().likes || 0) > 0)
+      .map((doc) => {
+        const d = doc.data();
+        const likes: number = d.likes || 0;
+        const lastMs = d.lastLikedAt?.toMillis?.() ?? d.createdAt?.toMillis?.() ?? now;
+        const ageHours = Math.max(0, (now - lastMs) / 3_600_000);
+        return { doc, score: likes / Math.pow(ageHours + 2, 1.5) };
+      })
+      .sort((a, b) => b.score - a.score)
+      .map((r) => r.doc);
+
+    // 2. Backfill with the most recent NON-empty public lists (even unliked) so
+    //    the showcase isn't blank on a young app. Deduped against the liked set.
+    const likedPaths = new Set(liked.map((d) => d.ref.path));
+    const fresh = snap.docs
+      .filter((doc) => !likedPaths.has(doc.ref.path) && (doc.data().movieCount || 0) > 0)
+      .sort((a, b) => {
+        const am = a.data().updatedAt?.toMillis?.() ?? a.data().createdAt?.toMillis?.() ?? 0;
+        const bm = b.data().updatedAt?.toMillis?.() ?? b.data().createdAt?.toMillis?.() ?? 0;
+        return bm - am;
+      });
+
+    const top = [...liked, ...fresh].slice(0, limit);
+    if (top.length === 0) return { lists: [], gated: true };
+
+    const lists = await hydrateListCards(db, top, { rich });
+    return { lists, gated: false };
+  });
 }
 
 // ─── searchPublicLists (LAUNCH 0.5.3 — Home search overlay) ─────────────
@@ -744,11 +827,67 @@ export async function getUserLists(userId: string): Promise<{ lists: ListSummary
   return { lists };
 }
 
+// ─── getListsForMovie — membership across the caller's own lists (F05) ─────
+
+export type ListForMovie = {
+  id: string;
+  name: string;
+  movieCount: number;
+  coverImageUrl: string | null;
+  coverMode: string | null;
+  contains: boolean; // does this list already hold the film?
+};
+
+/**
+ * The caller's own lists, each flagged with whether it already contains the
+ * film — powers the add-to-list membership sheet (F05). The in-list movie doc
+ * id is deterministic (`${mediaType}_${tmdbId}`), so membership is ONE getAll
+ * batch across the lists rather than a per-list scan.
+ */
+export async function getListsForMovie(
+  callerUid: string,
+  movieDocId: string,
+): Promise<{ lists: ListForMovie[] }> {
+  const db = getDb();
+  const listsSnap = await db
+    .collection('users').doc(callerUid).collection('lists')
+    .limit(100)
+    .get();
+  if (listsSnap.empty) return { lists: [] };
+
+  const movieRefs = listsSnap.docs.map((l) =>
+    db.collection('users').doc(callerUid).collection('lists').doc(l.id)
+      .collection('movies').doc(movieDocId),
+  );
+  const memberDocs = await db.getAll(...movieRefs);
+  const containsListIds = new Set(
+    memberDocs.filter((d) => d.exists).map((d) => d.ref.parent.parent!.id),
+  );
+
+  const lists = listsSnap.docs
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        movieCount: data.movieCount || 0,
+        coverImageUrl: data.coverImageUrl || null,
+        coverMode: data.coverMode || null,
+        contains: containsListIds.has(doc.id),
+        _sortTime: data.updatedAt?.toDate?.()?.getTime?.() || 0,
+      };
+    })
+    .sort((a, b) => b._sortTime - a._sortTime)
+    .map(({ _sortTime: _, ...rest }) => rest);
+  return { lists };
+}
+
 export async function getUserPublicLists(userId: string): Promise<{ lists: ListSummary[] }> {
   const db = getDb();
   const listsSnapshot = await db
     .collection('users').doc(userId).collection('lists')
     .where('isPublic', '==', true)
+    .limit(50)
     .get();
 
   const lists = listsSnapshot.docs.map((doc) => {
@@ -788,71 +927,88 @@ export type CollaborativeListSummary = {
   updatedAt: string;
 };
 
-export async function getCollaborativeLists(userId: string): Promise<{ lists: CollaborativeListSummary[] }> {
-  const db = getDb();
-  const acceptedInvites = await db.collection('invites')
-    .where('inviteeId', '==', userId)
-    .where('status', '==', 'accepted')
-    .get();
+// Per-user; the collab-lists grid tolerates a couple minutes of lag.
+// Invalidated on invite accept so a freshly-joined list shows immediately.
+const collabListsCache = createTtlCache<{ lists: CollaborativeListSummary[] }>({ ttlMs: 180_000 });
+export function invalidateCollaborativeLists(userId: string): void {
+  collabListsCache.delete(userId);
+}
 
-  const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
-    const inviteData = inviteDoc.data();
-    const listDoc = await db
-      .collection('users').doc(inviteData.listOwnerId)
-      .collection('lists').doc(inviteData.listId)
+export async function getCollaborativeLists(userId: string): Promise<{ lists: CollaborativeListSummary[] }> {
+  return cached(collabListsCache, userId, async () => {
+    const db = getDb();
+    const acceptedInvites = await db.collection('invites')
+      .where('inviteeId', '==', userId)
+      .where('status', '==', 'accepted')
+      .limit(50)
       .get();
-    if (!listDoc.exists) return null;
-    const listData = listDoc.data();
-    if (!listData?.collaboratorIds?.includes(userId)) return null;
-    return {
-      id: listDoc.id,
-      name: listData.name,
-      ownerId: inviteData.listOwnerId,
-      ownerUsername: inviteData.inviterUsername || null,
-      ownerDisplayName: inviteData.inviterDisplayName || inviteData.inviterUsername || null,
-      isPublic: listData.isPublic || false,
-      isDefault: listData.isDefault || false,
-      collaboratorIds: listData.collaboratorIds || [],
-      coverImageUrl: listData.coverImageUrl || null,
-      createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-      updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-    };
+
+    const listPromises = acceptedInvites.docs.map(async (inviteDoc) => {
+      const inviteData = inviteDoc.data();
+      const listDoc = await db
+        .collection('users').doc(inviteData.listOwnerId)
+        .collection('lists').doc(inviteData.listId)
+        .get();
+      if (!listDoc.exists) return null;
+      const listData = listDoc.data();
+      if (!listData?.collaboratorIds?.includes(userId)) return null;
+      return {
+        id: listDoc.id,
+        name: listData.name,
+        ownerId: inviteData.listOwnerId,
+        ownerUsername: inviteData.inviterUsername || null,
+        ownerDisplayName: inviteData.inviterDisplayName || inviteData.inviterUsername || null,
+        isPublic: listData.isPublic || false,
+        isDefault: listData.isDefault || false,
+        collaboratorIds: listData.collaboratorIds || [],
+        coverImageUrl: listData.coverImageUrl || null,
+        createdAt: listData.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        updatedAt: listData.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+      };
+    });
+    const results = await Promise.all(listPromises);
+    return { lists: results.filter((l): l is CollaborativeListSummary => l !== null) };
   });
-  const results = await Promise.all(listPromises);
-  return { lists: results.filter((l): l is CollaborativeListSummary => l !== null) };
 }
 
 // ─── getListMembers ──────────────────────────────────────────────────────
+
+// Members are the same for every viewer; cache per list. Self-heals in ≤3min;
+// the list-detail page also tracks collaboratorIds live via the client cache.
+const listMembersCache = createTtlCache<{ members: ListMember[] }>({ ttlMs: 180_000 });
+export function invalidateListMembers(ownerId: string, listId: string): void {
+  listMembersCache.delete(`${ownerId}:${listId}`);
+}
 
 export async function getListMembers(
   listOwnerId: string,
   listId: string,
 ): Promise<{ members: ListMember[] }> {
-  const db = getDb();
-  const listDoc = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .get();
-  if (!listDoc.exists) throw new ListNotFoundError();
+  return cached(listMembersCache, `${listOwnerId}:${listId}`, async () => {
+    const db = getDb();
+    const listDoc = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId)
+      .get();
+    if (!listDoc.exists) throw new ListNotFoundError();
 
-  const collaboratorIds: string[] = listDoc.data()?.collaboratorIds || [];
-  const allUserIds = [listOwnerId, ...collaboratorIds];
+    const collaboratorIds: string[] = listDoc.data()?.collaboratorIds || [];
+    const allUserIds = [listOwnerId, ...collaboratorIds];
 
-  const userPromises = allUserIds.map(async (userId, index) => {
-    const userDoc = await db.collection('users').doc(userId).get();
-    if (!userDoc.exists) return null;
-    const userData = userDoc.data();
-    return {
-      uid: userId,
-      username: userData?.username || null,
-      displayName: userData?.displayName || null,
-      photoURL: userData?.photoURL || null,
-      role: index === 0 ? 'owner' as const : 'collaborator' as const,
-    };
+    const userDocs = await db.getAll(...allUserIds.map((uid) => db.collection('users').doc(uid)));
+    const members = userDocs.map((userDoc, index) => {
+      if (!userDoc.exists) return null;
+      const userData = userDoc.data();
+      return {
+        uid: allUserIds[index],
+        username: userData?.username || null,
+        displayName: userData?.displayName || null,
+        photoURL: userData?.photoURL || null,
+        role: index === 0 ? 'owner' as const : 'collaborator' as const,
+      };
+    });
+    return { members: members.filter((m): m is ListMember => m !== null) };
   });
-
-  const results = await Promise.all(userPromises);
-  return { members: results.filter((m): m is ListMember => m !== null) };
 }
 
 // ─── getListPreview / getListsPreviews (AUDIT 1.13 — privacy gated) ─────
@@ -863,44 +1019,56 @@ export async function getListMembers(
  * - private lists: only owner or collaborator (by verified token uid).
  *   Returns an empty preview (no leak, no error) for anyone else.
  */
+// Preview thumbnails (grid cards on /lists + profile). Cached per
+// owner:list:viewer — viewer matters only for the private-list privacy gate.
+// Short TTL (2min) self-heals after a movie add without per-viewer invalidation.
+const listPreviewCache = createTtlCache<{ previewPosters: string[]; movieCount: number }>({ ttlMs: 300_000 });
+// Keyed owner:list:viewer — drop every viewer variant when the list's movies change.
+export function invalidateListPreview(ownerId: string, listId: string): void {
+  listPreviewCache.deleteByPrefix(`${ownerId}:${listId}:`);
+}
+
 export async function getListPreview(
   listOwnerId: string,
   listId: string,
   viewerUid: string | null,
 ): Promise<{ previewPosters: string[]; movieCount: number }> {
-  const db = getDb();
-  const listSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId).get();
-  if (!listSnap.exists) return { previewPosters: [], movieCount: 0 };
+  return cached(listPreviewCache, `${listOwnerId}:${listId}:${viewerUid ?? 'anon'}`, async () => {
+    const db = getDb();
+    const listSnap = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId).get();
+    if (!listSnap.exists) return { previewPosters: [], movieCount: 0 };
 
-  const listInfo = listSnap.data();
-  if (listInfo?.isPublic !== true) {
-    const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
-    const allowed = viewerUid != null &&
-      (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
-    if (!allowed) return { previewPosters: [], movieCount: 0 };
-  }
+    const listInfo = listSnap.data();
+    if (listInfo?.isPublic !== true) {
+      const collaboratorIds: string[] = listInfo?.collaboratorIds || [];
+      const allowed = viewerUid != null &&
+        (viewerUid === listOwnerId || collaboratorIds.includes(viewerUid));
+      if (!allowed) return { previewPosters: [], movieCount: 0 };
+    }
 
-  const moviesSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .collection('movies')
-    .orderBy('createdAt', 'desc')
-    .limit(4)
-    .get();
-  const previewPosters: string[] = [];
-  moviesSnap.forEach((doc) => {
-    const url = doc.data().posterUrl;
-    if (typeof url === 'string' && url) previewPosters.push(url);
+    const moviesSnap = await db
+      .collection('users').doc(listOwnerId)
+      .collection('lists').doc(listId)
+      .collection('movies')
+      .orderBy('createdAt', 'desc')
+      .limit(4)
+      .get();
+    const previewPosters: string[] = [];
+    moviesSnap.forEach((doc) => {
+      const url = doc.data().posterUrl;
+      if (typeof url === 'string' && url) previewPosters.push(url);
+    });
+
+    // Use the denormalized movieCount on the list doc we already read — drops a
+    // separate count() aggregate read per list (×N lists on /lists + profile).
+    const movieCount = typeof listInfo?.movieCount === 'number'
+      ? listInfo.movieCount
+      : previewPosters.length;
+
+    return { previewPosters, movieCount };
   });
-
-  const countSnap = await db
-    .collection('users').doc(listOwnerId)
-    .collection('lists').doc(listId)
-    .collection('movies').count().get();
-
-  return { previewPosters, movieCount: countSnap.data().count };
 }
 
 export async function getListsPreviews(
@@ -933,6 +1101,7 @@ export type PublicListResult = {
     ownerId: string;
     collaboratorIds: string[];
     coverImageUrl: string;
+    coverMode: 'auto' | 'custom' | null;
     likes: number;
     likedBy: string[];
     createdAt: string;
@@ -972,7 +1141,7 @@ export async function getPublicListMovies(
     .collection('users').doc(ownerId)
     .collection('lists').doc(listId)
     .collection('movies')
-    .orderBy('createdAt', 'desc').get();
+    .orderBy('createdAt', 'desc').limit(300).get();
 
   const movies = moviesSnapshot.docs.map((doc) => {
     const data = doc.data();
@@ -983,6 +1152,14 @@ export async function getPublicListMovies(
       posterUrl: data.posterUrl,
       posterHint: data.posterHint,
       addedBy: data.addedBy,
+      // Denormalized attribution + media type — already on the doc, so projecting
+      // them costs no extra reads and lets the read-only cells show the TV badge
+      // and "added by …" at parity with the editable list. Notes/noteAuthors are
+      // deliberately NOT projected — collaborator notes stay owner/collaborator-only.
+      addedByDisplayName: data.addedByDisplayName ?? null,
+      addedByUsername: data.addedByUsername ?? null,
+      addedByPhotoURL: data.addedByPhotoURL ?? null,
+      mediaType: data.mediaType ?? 'movie',
       socialLink: data.socialLink || '',
       status: data.status,
       tmdbId: data.tmdbId,
@@ -1003,6 +1180,7 @@ export async function getPublicListMovies(
       ownerId: listData?.ownerId,
       collaboratorIds: listData?.collaboratorIds || [],
       coverImageUrl: listData?.coverImageUrl || '',
+      coverMode: listData?.coverMode || null,
       likes: listData?.likes || 0,
       likedBy: listData?.likedBy || [],
       createdAt: listData?.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),

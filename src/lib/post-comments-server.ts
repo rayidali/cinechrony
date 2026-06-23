@@ -20,6 +20,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
 import { createPostCommentNotification } from '@/lib/notifications-server';
+import { postFromDoc, canViewPost } from '@/lib/posts-server';
 import type { PostComment } from '@/lib/types';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -123,6 +124,11 @@ export async function createPostComment(
   if (!postSnap.exists) throw new PostNotFoundError();
   const post = postSnap.data() || {};
 
+  // F04 audience: an out-of-audience caller can't even see the post — they
+  // can't comment on it either. Return the same "not found" as a missing post
+  // so the restricted post's existence isn't revealed.
+  if (!canViewPost(postFromDoc(postSnap), callerUid)) throw new PostNotFoundError();
+
   if (await isBlockedBetween(db, callerUid, post.authorId)) {
     throw new BlockedCommentError();
   }
@@ -201,6 +207,12 @@ export async function getPostComments(
   viewerUid: string | null,
 ): Promise<{ comments: PostComment[] }> {
   const db = getDb();
+  // F04 audience: the conversation under a restricted post is as private as the
+  // post — gate the whole thread on canViewPost (mirrors getPost).
+  const postSnap = await db.collection('posts').doc(postId).get();
+  if (!postSnap.exists || !canViewPost(postFromDoc(postSnap), viewerUid)) {
+    return { comments: [] };
+  }
   const blockSet = viewerUid ? await getBlockSet(db, viewerUid) : new Set<string>();
   const snap = await db
     .collection('posts').doc(postId)

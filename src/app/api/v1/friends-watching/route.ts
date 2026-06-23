@@ -11,6 +11,6 @@ export const dynamic = 'force-dynamic';
 
 export const GET = apiRoute(async (_req, { auth }) => {
   return getFriendsWatching(auth.uid);
-});
+}, { softFallback: { cards: [] } });
 
 export const OPTIONS = optionsHandler;

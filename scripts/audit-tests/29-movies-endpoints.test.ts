@@ -32,6 +32,7 @@ import { callRoute } from './lib/route-call.ts';
 import { POST as postMovie } from '@/app/api/v1/lists/[ownerId]/[listId]/movies/route';
 import { PATCH as patchMovie, DELETE as deleteMovie }
   from '@/app/api/v1/lists/[ownerId]/[listId]/movies/[movieId]/route';
+import { GET as listMembershipGet } from '@/app/api/v1/movies/[tmdbId]/list-membership/route';
 
 let owner: TestUser, collab: TestUser, stranger: TestUser;
 
@@ -81,6 +82,35 @@ function tmdbMovie(opts: Partial<{ id: string; title: string; year: string; post
     ...(opts.posterHint !== undefined ? { posterHint: opts.posterHint } : {}),
   };
 }
+
+// ─── GET /movies/[tmdbId]/list-membership (F05 add-to-list) ──────────────
+
+test('list-membership: flags which of the caller’s lists already hold the film', async () => {
+  await seedList(); // L1
+  await adminDb().collection('users').doc(owner.uid).collection('lists').doc('L2').set({
+    id: 'L2', name: 'Another', ownerId: owner.uid, collaboratorIds: [], isPublic: false, movieCount: 0,
+  });
+  const token = await owner.getIdToken();
+  // add tmdb 42 to L1 only (doc id becomes movie_42)
+  await callRoute(postMovie, 'POST', {
+    token, params: { ownerId: owner.uid, listId: LIST_ID }, body: { movieData: tmdbMovie({ id: '42' }) },
+  });
+
+  const res = await callRoute<{ lists: Array<{ id: string; contains: boolean }> }>(
+    listMembershipGet, 'GET', { token, params: { tmdbId: '42' }, url: 'http://test/api/v1/movies/42/list-membership?mediaType=movie' },
+  );
+  if (res.body.ok !== true) return assert.fail('expected ok');
+  const byId = Object.fromEntries(res.body.data.lists.map((l) => [l.id, l.contains]));
+  assert.equal(byId[LIST_ID], true, 'L1 holds the film');
+  assert.equal(byId['L2'], false, 'L2 does not');
+});
+
+test('list-membership: unauth → 401', async () => {
+  const res = await callRoute(listMembershipGet, 'GET', {
+    params: { tmdbId: '42' }, url: 'http://test/api/v1/movies/42/list-membership',
+  });
+  assert.equal(res.status, 401);
+});
 
 // ─── POST /api/v1/lists/[ownerId]/[listId]/movies ────────────────────────
 

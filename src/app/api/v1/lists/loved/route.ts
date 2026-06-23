@@ -12,7 +12,10 @@ export const dynamic = 'force-dynamic';
 export const GET = publicApiRoute(async (req) => {
   const url = new URL(req.url);
   const limit = Number(url.searchParams.get('limit') ?? '12');
-  return getLovedLists(Number.isFinite(limit) ? limit : 12);
-});
+  // `rich=1` (the home community rail) adds contributor avatars + a Watched
+  // count per list; the lean "view all" grid omits it (free-tier discipline).
+  const rich = url.searchParams.get('rich') === '1';
+  return getLovedLists(Number.isFinite(limit) ? limit : 12, { rich });
+}, { softFallback: { lists: [], gated: true } });
 
 export const OPTIONS = optionsHandler;

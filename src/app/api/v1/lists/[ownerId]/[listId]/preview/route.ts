@@ -14,6 +14,6 @@ type RouteParams = { ownerId: string; listId: string };
 
 export const GET = publicApiRoute<RouteParams>(async (_req, { auth, params }) => {
   return getListPreview(params.ownerId, params.listId, auth?.uid ?? null);
-});
+}, { softFallback: { previewPosters: [], movieCount: 0 } });
 
 export const OPTIONS = optionsHandler;

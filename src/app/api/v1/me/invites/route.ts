@@ -13,6 +13,6 @@ export const dynamic = 'force-dynamic';
 export const GET = apiRoute(async (_req, { auth }) => {
   const invites = await getMyPendingInvites(auth.uid);
   return { invites };
-});
+}, { softFallback: { invites: [] } });
 
 export const OPTIONS = optionsHandler;

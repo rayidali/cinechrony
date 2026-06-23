@@ -1,29 +1,58 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, type ReactNode, type ComponentType } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft, FileArchive, Loader2, AlertCircle, Check, Film, Star, Clock, MessageSquare, List, Trash2, AlertTriangle, Bell, AtSign, Heart, UserPlus, Users } from 'lucide-react';
-import { useUser } from '@/firebase';
-import { Button } from '@/components/ui/button';
+import {
+  ChevronLeft,
+  FileArchive,
+  Loader2,
+  AlertCircle,
+  Check,
+  Film,
+  Star,
+  Clock,
+  MessageSquare,
+  List,
+  Trash2,
+  AlertTriangle,
+  Bell,
+  AtSign,
+  Heart,
+  UserPlus,
+  Users,
+  SunMoon,
+  Download,
+} from 'lucide-react';
+import { useTheme } from 'next-themes';
+import { useUser, useFirestore } from '@/firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import { Segmented } from '@/components/v3/segmented';
+import { Frost } from '@/components/v3/frost';
+import { CtaButton } from '@/components/v3/onboarding-kit';
+import { DEFAULT_THEME } from '@/components/theme-provider';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { haptic } from '@/lib/haptics';
+import { cn } from '@/lib/utils';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
-import { signOut } from 'firebase/auth';
-import { useFirestore } from '@/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import { BottomNav } from '@/components/bottom-nav';
 import { PushNotificationToggle } from '@/components/push-notification-prompt';
 import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
 
-const retroButtonClass = "border dark:border border-border rounded-full shadow-lift transition-all duration-200";
+const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
 export default function SettingsPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const { theme, setTheme } = useTheme();
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // next-themes resolves the active theme only after mount — guard the
+  // segmented value so the static prerender and the client agree.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
   // Import states
   const [isProcessing, setIsProcessing] = useState(false);
@@ -99,56 +128,35 @@ export default function SettingsPage() {
   // Handle notification preference toggle
   const handleToggleNotifPref = async (key: keyof NotificationPreferences) => {
     if (!user?.uid) return;
-
+    haptic('selection');
     const newValue = !notifPrefs[key];
     // Optimistic update
     setNotifPrefs(prev => ({ ...prev, [key]: newValue }));
-
     try {
       await apiCall('PATCH', '/api/v1/me/notification-preferences', { [key]: newValue });
-    } catch (err) {
+    } catch {
       // Revert on error
       setNotifPrefs(prev => ({ ...prev, [key]: !newValue }));
-      toast({
-        variant: "destructive",
-        title: "Failed to update",
-        description: "Could not save your preference. Please try again.",
-      });
+      toast({ variant: 'destructive', title: 'failed to update', description: 'could not save your preference. please try again.' });
     }
   };
 
   const handleDeleteAccount = async () => {
     if (!user || !userUsername) return;
-
     if (deleteConfirmUsername.toLowerCase().trim() !== userUsername.toLowerCase()) {
-      toast({
-        variant: "destructive",
-        title: "Username doesn't match",
-        description: "Please enter your exact username to confirm deletion.",
-      });
+      toast({ variant: 'destructive', title: "username doesn't match", description: 'please enter your exact username to confirm deletion.' });
       return;
     }
-
     setIsDeleting(true);
     try {
       await apiCall('DELETE', '/api/v1/me', { confirmUsername: deleteConfirmUsername });
-
-      toast({
-        title: "Account deleted",
-        description: "Your account has been permanently deleted.",
-      });
-
-      // Sign out and redirect to home
+      toast({ title: 'account deleted', description: 'your account has been permanently deleted.' });
       const { getAuth } = await import('firebase/auth');
       const auth = getAuth();
       await auth.signOut();
       router.push('/');
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Failed to delete account",
-        description: error.message || "Please try again later.",
-      });
+      toast({ variant: 'destructive', title: 'failed to delete account', description: error.message || 'please try again later.' });
     } finally {
       setIsDeleting(false);
       setShowDeleteModal(false);
@@ -166,7 +174,6 @@ export default function SettingsPage() {
 
     try {
       const reader = new FileReader();
-
       reader.onload = async () => {
         try {
           const base64 = (reader.result as string).split(',')[1];
@@ -174,17 +181,12 @@ export default function SettingsPage() {
             'POST', '/api/v1/imports/letterboxd/parse',
             { base64Data: base64, fileName: file.name },
           );
-
           if (result.data) {
-            const totalMovies =
-              (result.data.watched?.length || 0) +
-              (result.data.watchlist?.length || 0);
-
+            const totalMovies = (result.data.watched?.length || 0) + (result.data.watchlist?.length || 0);
             if (totalMovies === 0) {
-              setImportError("No movies found in the export file.");
+              setImportError('No movies found in the export file.');
               return;
             }
-
             setLetterboxdData({
               watched: result.data.watched || [],
               ratings: result.data.ratings || [],
@@ -195,29 +197,24 @@ export default function SettingsPage() {
             });
           }
         } catch (err: any) {
-          setImportError(
-            err instanceof ApiClientError ? err.message : (err.message || "Failed to process file"),
-          );
+          setImportError(err instanceof ApiClientError ? err.message : err.message || 'Failed to process file');
         } finally {
           setIsProcessing(false);
         }
       };
-
       reader.onerror = () => {
-        setImportError("Failed to read file");
+        setImportError('Failed to read file');
         setIsProcessing(false);
       };
-
       reader.readAsDataURL(file);
     } catch (err: any) {
-      setImportError(err.message || "Failed to process file");
+      setImportError(err.message || 'Failed to process file');
       setIsProcessing(false);
     }
   };
 
   const handleImport = async () => {
     if (!user || !letterboxdData) return;
-
     setIsImporting(true);
     try {
       const result = await apiCall<{
@@ -227,24 +224,13 @@ export default function SettingsPage() {
         data: letterboxdData,
         options: { importWatched, importRatings, importWatchlist, importReviews, importLists },
       });
-
       const listsMsg = result.listsCreated ? ` and ${result.listsCreated} lists` : '';
-      toast({
-        title: "Import complete!",
-        description: `Successfully imported ${result.importedCount} movies${listsMsg}.`,
-      });
-
-      // Reset state
+      haptic('success');
+      toast({ title: 'import complete', description: `imported ${result.importedCount} movies${listsMsg}.` });
       setLetterboxdData(null);
-      if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-      }
+      if (fileInputRef.current) fileInputRef.current.value = '';
     } catch (error: any) {
-      toast({
-        variant: "destructive",
-        title: "Import failed",
-        description: error.message || "Failed to import movies.",
-      });
+      toast({ variant: 'destructive', title: 'import failed', description: error.message || 'failed to import movies.' });
     } finally {
       setIsImporting(false);
     }
@@ -252,8 +238,8 @@ export default function SettingsPage() {
 
   if (isUserLoading || !user) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+        <img src={APP_ICON} alt="Loading" className="h-12 w-12 animate-pulse" />
       </div>
     );
   }
@@ -264,478 +250,235 @@ export default function SettingsPage() {
   const reviewsCount = letterboxdData?.reviews.filter(r => r.Review && r.Review.trim()).length || 0;
   const favoritesCount = letterboxdData?.favorites?.length || 0;
   const listsCount = letterboxdData?.lists?.length || 0;
-  const totalSelected =
-    (importWatched ? watchedCount : 0) +
-    (importWatchlist ? watchlistCount : 0);
+  const totalSelected = (importWatched ? watchedCount : 0) + (importWatchlist ? watchlistCount : 0);
 
   return (
-    <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-      <div className="container mx-auto p-4 md:p-8 max-w-2xl">
-        <header className="mb-8">
-          <Link href="/profile">
-            <Button variant="ghost" className="gap-2 mb-4">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Profile
-            </Button>
-          </Link>
-          <h1 className="text-2xl md:text-3xl font-headline font-bold">Settings</h1>
-        </header>
-
-        {/* Import from Letterboxd Section */}
-        <section className="mb-8">
-          <div className="flex items-center gap-3 mb-4">
-            <img
-              src="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png"
-              alt="Letterboxd"
-              className="h-8 w-8"
-            />
-            <h2 className="text-xl font-headline font-bold">Import from Letterboxd</h2>
+    <main className="min-h-[100dvh] bg-background pb-28 text-foreground">
+      {/* sticky frosted header */}
+      <Frost className="sticky top-0 z-40 border-b border-hair" tint="var(--cc-chrome)">
+        <div className="px-4 pt-safe">
+          <div className="flex items-center gap-2 py-2.5">
+            <button
+              onClick={() => { haptic('light'); router.push('/profile'); }}
+              aria-label="back"
+              className="-ml-1 flex h-9 w-9 items-center justify-center rounded-full text-foreground transition-opacity active:opacity-60"
+            >
+              <ChevronLeft className="h-[22px] w-[22px]" />
+            </button>
+            <h1
+              className="font-headline text-[22px] font-bold lowercase tracking-[-0.02em]"
+              style={{ fontVariationSettings: '"wdth" 95' }}
+            >
+              settings
+            </h1>
           </div>
+        </div>
+      </Frost>
 
-          <p className="text-muted-foreground mb-6">
-            Import your watched movies, ratings, watchlist, reviews, and favorites from Letterboxd.
-          </p>
-
-          <input
-            type="file"
-            ref={fileInputRef}
-            onChange={handleFileSelect}
-            accept=".zip,.csv"
-            className="hidden"
+      <div className="mx-auto max-w-2xl px-5 pt-6">
+        {/* Appearance */}
+        <Group icon={SunMoon} eyebrow="appearance" title="how it looks" desc="choose how cinechrony looks on this device.">
+          <Segmented
+            value={mounted ? (theme ?? DEFAULT_THEME) : DEFAULT_THEME}
+            onChange={(v) => setTheme(v)}
+            options={[
+              { id: 'light', label: 'light' },
+              { id: 'dark', label: 'dark' },
+              { id: 'system', label: 'system' },
+            ]}
           />
+        </Group>
+
+        {/* Import from Letterboxd */}
+        <Group iconImg="https://i.postimg.cc/hGbjT6fK/Letterboxd-Decal-Dots-500px-(1).png" eyebrow="import" title="from letterboxd" desc="bring over your watched films, ratings, watchlist, reviews, and favorites from a letterboxd export.">
+          <input type="file" ref={fileInputRef} onChange={handleFileSelect} accept=".zip,.csv" className="hidden" />
 
           {!letterboxdData ? (
             <>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isProcessing}
-                className="w-full p-8 rounded-2xl border border-dashed border-border hover:border-primary hover:bg-primary/5 transition-colors flex flex-col items-center justify-center gap-4"
+                className="flex w-full flex-col items-center justify-center gap-4 rounded-[18px] border border-dashed border-border bg-card p-8 transition-colors hover:border-primary active:scale-[0.99]"
               >
                 {isProcessing ? (
                   <>
-                    <Loader2 className="h-12 w-12 text-primary animate-spin" />
-                    <span className="text-muted-foreground">Processing...</span>
+                    <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                    <span className="font-ui text-[14px] text-muted-foreground">processing…</span>
                   </>
                 ) : (
                   <>
-                    <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center">
-                      <FileArchive className="h-8 w-8 text-primary" />
+                    <div className="flex h-14 w-14 items-center justify-center rounded-[16px] bg-primary/12">
+                      <FileArchive className="h-7 w-7 text-primary" />
                     </div>
                     <div className="text-center">
-                      <p className="font-medium">Tap to select your Letterboxd export</p>
-                      <p className="text-sm text-muted-foreground mt-1">
-                        .zip or .csv file
-                      </p>
+                      <p className="font-ui text-[15px] font-semibold text-foreground">tap to select your letterboxd export</p>
+                      <p className="mt-1 font-mono text-[11px] text-muted-foreground">.zip or .csv</p>
                     </div>
                   </>
                 )}
               </button>
 
               {importError && (
-                <div className="mt-4 p-4 rounded-xl bg-destructive/10 border border-destructive/20 flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-destructive flex-shrink-0 mt-0.5" />
-                  <div>
-                    <p className="text-sm text-destructive font-medium">Error</p>
-                    <p className="text-sm text-destructive/80">{importError}</p>
-                  </div>
+                <div className="mt-4 flex items-start gap-3 rounded-[14px] border border-destructive/20 bg-destructive/10 p-4">
+                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" />
+                  <p className="font-ui text-[13px] text-destructive">{importError}</p>
                 </div>
               )}
 
-              <div className="mt-6 p-4 rounded-xl bg-secondary/50">
-                <p className="text-sm font-medium mb-2">How to export from Letterboxd:</p>
-                <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
-                  <li>Go to <a href="https://letterboxd.com/settings/" target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">letterboxd.com/settings</a></li>
-                  <li>Scroll to &quot;Import & Export&quot;</li>
-                  <li>Click &quot;Export Your Data&quot;</li>
-                  <li>Download the ZIP file</li>
+              <div className="mt-5 rounded-[14px] bg-sunken p-4">
+                <p className="mb-2 font-ui text-[13px] font-semibold text-foreground">how to export from letterboxd</p>
+                <ol className="list-inside list-decimal space-y-1 font-ui text-[13px] text-muted-foreground">
+                  <li>go to <a href="https://letterboxd.com/settings/" target="_blank" rel="noopener noreferrer" className="text-primary">letterboxd.com/settings</a></li>
+                  <li>scroll to &quot;import &amp; export&quot;</li>
+                  <li>click &quot;export your data&quot;</li>
+                  <li>download the zip</li>
                 </ol>
               </div>
             </>
           ) : (
-            <div className="space-y-6">
+            <div className="space-y-5">
               {/* Stats card */}
-              <div className="bg-secondary/30 rounded-2xl p-4 space-y-3">
-                <div className="flex items-center gap-2 mb-2">
-                  <Check className="h-5 w-5 text-green-500" />
-                  <span className="font-medium">File loaded successfully!</span>
+              <div className="space-y-3 rounded-[16px] border border-hair bg-card p-4">
+                <div className="mb-1 flex items-center gap-2">
+                  <Check className="h-5 w-5 text-success" strokeWidth={2.5} />
+                  <span className="font-ui text-[14px] font-semibold">file loaded</span>
                 </div>
-                {watchedCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <Film className="h-5 w-5 text-primary" />
-                    <span>{watchedCount} watched movies</span>
-                  </div>
-                )}
-                {ratingsCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <Star className="h-5 w-5 text-muted-foreground" />
-                    <span>{ratingsCount} with ratings</span>
-                  </div>
-                )}
-                {watchlistCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <Clock className="h-5 w-5 text-blue-500" />
-                    <span>{watchlistCount} in watchlist</span>
-                  </div>
-                )}
-                {reviewsCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <MessageSquare className="h-5 w-5 text-green-500" />
-                    <span>{reviewsCount} reviews</span>
-                  </div>
-                )}
-                {favoritesCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <Star className="h-5 w-5 text-pink-500 fill-pink-500" />
-                    <span>{favoritesCount} favorites → Top 5</span>
-                  </div>
-                )}
-                {listsCount > 0 && (
-                  <div className="flex items-center gap-3">
-                    <List className="h-5 w-5 text-purple-500" />
-                    <span>{listsCount} custom lists</span>
-                  </div>
-                )}
+                <StatLine show={watchedCount > 0} icon={Film} className="text-primary" label={`${watchedCount} watched films`} />
+                <StatLine show={ratingsCount > 0} icon={Star} className="text-muted-foreground" label={`${ratingsCount} with ratings`} />
+                <StatLine show={watchlistCount > 0} icon={Clock} className="text-primary" label={`${watchlistCount} in watchlist`} />
+                <StatLine show={reviewsCount > 0} icon={MessageSquare} className="text-success" label={`${reviewsCount} reviews`} />
+                <StatLine show={favoritesCount > 0} icon={Star} className="text-primary" label={`${favoritesCount} favorites → top 5`} />
+                <StatLine show={listsCount > 0} icon={List} className="text-primary" label={`${listsCount} custom lists`} />
               </div>
 
               {/* Import options */}
-              <div className="space-y-3">
-                <p className="text-sm font-medium text-muted-foreground">Select what to import:</p>
-
-                {watchedCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importWatched}
-                      onChange={(e) => setImportWatched(e.target.checked)}
-                      className="w-5 h-5 rounded"
-                    />
-                    <span>Watched movies</span>
-                  </label>
-                )}
-
-                {ratingsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importRatings}
-                      onChange={(e) => setImportRatings(e.target.checked)}
-                      className="w-5 h-5 rounded"
-                    />
-                    <span>Ratings (converted to /10)</span>
-                  </label>
-                )}
-
-                {watchlistCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importWatchlist}
-                      onChange={(e) => setImportWatchlist(e.target.checked)}
-                      className="w-5 h-5 rounded"
-                    />
-                    <span>Watchlist</span>
-                  </label>
-                )}
-
-                {reviewsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importReviews}
-                      onChange={(e) => setImportReviews(e.target.checked)}
-                      className="w-5 h-5 rounded"
-                    />
-                    <span>Reviews</span>
-                  </label>
-                )}
-
-                {listsCount > 0 && (
-                  <label className="flex items-center gap-3 p-3 rounded-xl border border-border hover:bg-secondary/50 transition-colors cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={importLists}
-                      onChange={(e) => setImportLists(e.target.checked)}
-                      className="w-5 h-5 rounded"
-                    />
-                    <span>Custom lists (with movies)</span>
-                  </label>
-                )}
+              <div className="space-y-2">
+                <p className="px-1 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">select what to import</p>
+                <OptionRow show={watchedCount > 0} label="watched films" on={importWatched} onToggle={() => setImportWatched(v => !v)} />
+                <OptionRow show={ratingsCount > 0} label="ratings (converted to /10)" on={importRatings} onToggle={() => setImportRatings(v => !v)} />
+                <OptionRow show={watchlistCount > 0} label="watchlist" on={importWatchlist} onToggle={() => setImportWatchlist(v => !v)} />
+                <OptionRow show={reviewsCount > 0} label="reviews" on={importReviews} onToggle={() => setImportReviews(v => !v)} />
+                <OptionRow show={listsCount > 0} label="custom lists (with films)" on={importLists} onToggle={() => setImportLists(v => !v)} />
               </div>
 
               <div className="flex gap-3">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setLetterboxdData(null);
-                    if (fileInputRef.current) {
-                      fileInputRef.current.value = '';
-                    }
-                  }}
-                  className={`${retroButtonClass} flex-1`}
+                <button
+                  onClick={() => { setLetterboxdData(null); if (fileInputRef.current) fileInputRef.current.value = ''; }}
+                  className="h-[52px] flex-1 rounded-full border border-hair bg-card font-ui text-[15px] font-semibold text-foreground shadow-press transition-all active:scale-[0.98]"
                 >
-                  Cancel
-                </Button>
-                <Button
-                  onClick={handleImport}
-                  className={`${retroButtonClass} bg-primary text-primary-foreground hover:bg-primary/90 font-bold flex-1`}
-                  disabled={totalSelected === 0 || isImporting}
-                >
-                  {isImporting ? (
-                    <>
-                      <Loader2 className="animate-spin mr-2" />
-                      Importing...
-                    </>
-                  ) : (
-                    'Import Selected'
-                  )}
-                </Button>
+                  cancel
+                </button>
+                <div className="flex-1">
+                  <CtaButton label="import selected" icon={Download} onClick={handleImport} disabled={totalSelected === 0} loading={isImporting} />
+                </div>
               </div>
 
               {totalSelected > 50 && (
-                <p className="text-center text-xs text-muted-foreground">
-                  Large imports may take a minute
-                </p>
+                <p className="text-center font-mono text-[11px] text-muted-foreground">large imports may take a minute</p>
               )}
             </div>
           )}
-        </section>
+        </Group>
 
-        {/* Notifications Section */}
-        <section className="mb-8 pt-8 border-t border-border">
-          <div className="flex items-center gap-3 mb-4">
-            <Bell className="h-6 w-6 text-primary" />
-            <h2 className="text-xl font-headline font-bold">Notifications</h2>
-          </div>
-
-          <p className="text-muted-foreground mb-6">
-            Choose which notifications you want to receive.
-          </p>
-
-          {/* Push Notifications Toggle */}
-          <div className="p-4 rounded-xl border border-border mb-4">
+        {/* Notifications */}
+        <Group icon={Bell} eyebrow="notifications" title="what reaches you" desc="choose which notifications you want to receive.">
+          <div className="mb-4 rounded-[16px] border border-hair bg-card p-4">
             <PushNotificationToggle />
           </div>
 
-          {/* In-app notification preferences */}
-          <div className="space-y-3">
-            <p className="text-sm font-medium text-muted-foreground">In-app notifications:</p>
+          <p className="mb-2 px-1 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">in-app</p>
+          {isLoadingPrefs ? (
+            <div className="flex items-center justify-center py-5">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <NotifRow icon={AtSign} iconClass="text-primary" title="@mentions" sub="when someone mentions you in a comment" on={notifPrefs.mentions} onToggle={() => handleToggleNotifPref('mentions')} />
+              <NotifRow icon={MessageSquare} iconClass="text-primary" title="replies" sub="when someone replies to your comment" on={notifPrefs.replies} onToggle={() => handleToggleNotifPref('replies')} />
+              <NotifRow icon={Heart} iconClass="text-destructive" title="likes" sub="when someone likes your comment" on={notifPrefs.likes} onToggle={() => handleToggleNotifPref('likes')} />
+              <NotifRow icon={UserPlus} iconClass="text-success" title="new followers" sub="when someone starts following you" on={notifPrefs.follows} onToggle={() => handleToggleNotifPref('follows')} />
+              <NotifRow icon={Users} iconClass="text-primary" title="list invites" sub="when someone invites you to a list" on={notifPrefs.listInvites} onToggle={() => handleToggleNotifPref('listInvites')} />
+            </div>
+          )}
+        </Group>
 
-            {isLoadingPrefs ? (
-              <div className="flex items-center justify-center py-4">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : (
-              <>
-                {/* Mentions */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
-                    <AtSign className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">@Mentions</p>
-                      <p className="text-sm text-muted-foreground">When someone mentions you in a comment</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleNotifPref('mentions')}
-                    className={`relative w-12 h-7 rounded-full transition-colors ${
-                      notifPrefs.mentions ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        notifPrefs.mentions ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
+        {/* Blocked users */}
+        <div className="mt-9 border-t border-hair pt-9">
+          <BlockedUsersSection />
+        </div>
 
-                {/* Replies */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
-                    <MessageSquare className="h-5 w-5 text-primary" />
-                    <div>
-                      <p className="font-medium">Replies</p>
-                      <p className="text-sm text-muted-foreground">When someone replies to your comment</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleNotifPref('replies')}
-                    className={`relative w-12 h-7 rounded-full transition-colors ${
-                      notifPrefs.replies ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        notifPrefs.replies ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Likes */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
-                    <Heart className="h-5 w-5 text-red-500" />
-                    <div>
-                      <p className="font-medium">Likes</p>
-                      <p className="text-sm text-muted-foreground">When someone likes your comment</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleNotifPref('likes')}
-                    className={`relative w-12 h-7 rounded-full transition-colors ${
-                      notifPrefs.likes ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        notifPrefs.likes ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* New Followers */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
-                    <UserPlus className="h-5 w-5 text-green-500" />
-                    <div>
-                      <p className="font-medium">New Followers</p>
-                      <p className="text-sm text-muted-foreground">When someone starts following you</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleNotifPref('follows')}
-                    className={`relative w-12 h-7 rounded-full transition-colors ${
-                      notifPrefs.follows ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        notifPrefs.follows ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* List Invites */}
-                <div className="flex items-center justify-between py-3 px-4 rounded-xl border border-border">
-                  <div className="flex items-center gap-3">
-                    <Users className="h-5 w-5 text-blue-500" />
-                    <div>
-                      <p className="font-medium">List Invites</p>
-                      <p className="text-sm text-muted-foreground">When someone invites you to a list</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleNotifPref('listInvites')}
-                    className={`relative w-12 h-7 rounded-full transition-colors ${
-                      notifPrefs.listInvites ? 'bg-primary' : 'bg-muted'
-                    }`}
-                  >
-                    <div
-                      className={`absolute top-1 w-5 h-5 rounded-full bg-white shadow transition-transform ${
-                        notifPrefs.listInvites ? 'translate-x-6' : 'translate-x-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-              </>
-            )}
+        {/* Danger zone */}
+        <div className="mt-9 border-t border-hair pt-9">
+          <div className="mb-3 flex items-center gap-2">
+            <AlertTriangle className="h-[18px] w-[18px] text-destructive" />
+            <h2 className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-destructive">danger zone</h2>
           </div>
-        </section>
-
-        {/* Blocked users (LAUNCH 0.5.5) */}
-        <BlockedUsersSection />
-
-        {/* Danger Zone */}
-        <section className="mt-12 pt-8 border-t border-destructive/30">
-          <div className="flex items-center gap-3 mb-4">
-            <AlertTriangle className="h-6 w-6 text-destructive" />
-            <h2 className="text-xl font-headline font-bold text-destructive">Danger Zone</h2>
-          </div>
-
-          <div className="p-4 rounded-xl border border-destructive/30 bg-destructive/5">
-            <h3 className="font-semibold text-destructive mb-2">Delete Account</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              Permanently delete your account and all associated data. This action cannot be undone.
-              All your lists, movies, ratings, reviews, and followers will be permanently removed.
+          <div className="rounded-[16px] border border-destructive/25 bg-destructive/5 p-4">
+            <h3 className="font-headline text-[17px] font-bold lowercase text-destructive">delete account</h3>
+            <p className="mt-1.5 font-ui text-[13px] leading-[1.5] text-muted-foreground">
+              permanently delete your account and all associated data. this cannot be undone — every list, film, rating, review, and follower is removed.
             </p>
-            <Button
-              variant="destructive"
-              onClick={() => setShowDeleteModal(true)}
-              className="gap-2"
+            <button
+              onClick={() => { haptic('warning'); setShowDeleteModal(true); }}
+              className="mt-4 inline-flex h-11 items-center gap-2 rounded-full bg-destructive px-5 font-ui text-[14px] font-semibold text-destructive-foreground transition-all active:scale-[0.98]"
             >
               <Trash2 className="h-4 w-4" />
-              Delete My Account
-            </Button>
+              delete my account
+            </button>
           </div>
-        </section>
+        </div>
 
-        {/* AUDIT.md (App Store / TMDB ToS): attribution + legal links. */}
-        <section className="pt-2 pb-8 text-center space-y-1">
-          <p className="text-xs text-muted-foreground">
-            Movie &amp; TV data from{' '}
-            <a
-              href="https://www.themoviedb.org/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline"
-            >
-              TMDB
-            </a>
-            . This product uses the TMDB API but is not endorsed or certified by TMDB.
+        {/* Legal footer */}
+        <div className="space-y-1.5 pb-8 pt-9 text-center">
+          <p className="font-ui text-[11px] text-muted-foreground">
+            movie &amp; tv data from{' '}
+            <a href="https://www.themoviedb.org/" target="_blank" rel="noopener noreferrer" className="underline">TMDB</a>
+            . this product uses the TMDB API but is not endorsed or certified by TMDB.
           </p>
-          <p className="text-xs text-muted-foreground space-x-3">
-            <a href="/privacy" className="underline">Privacy Policy</a>
+          <p className="space-x-3 font-ui text-[11px] text-muted-foreground">
+            <a href="/privacy" className="underline">privacy</a>
             <span aria-hidden>·</span>
-            <a href="/terms" className="underline">Terms of Service</a>
+            <a href="/terms" className="underline">terms</a>
             <span aria-hidden>·</span>
-            <a href="mailto:support@cinechrony.com" className="underline">
-              Contact
-            </a>
+            <a href="mailto:support@cinechrony.com" className="underline">contact</a>
           </p>
-        </section>
+        </div>
       </div>
 
-      {/* Delete Account Confirmation Modal */}
+      {/* Delete confirmation modal */}
       {showDeleteModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60">
-          <div className="w-full max-w-md bg-background rounded-2xl border border-border shadow-photo p-6">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 rounded-full bg-destructive/10">
-                <AlertTriangle className="h-6 w-6 text-destructive" />
+        <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-[22px] border border-hair bg-background p-6 shadow-photo">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-destructive/12">
+                <AlertTriangle className="h-5 w-5 text-destructive" />
               </div>
-              <h3 className="text-xl font-headline font-bold">Delete Account?</h3>
+              <h3 className="font-headline text-[20px] font-bold lowercase">delete account?</h3>
             </div>
 
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                This will permanently delete:
-              </p>
-              <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-                <li>All your movie lists and saved movies</li>
-                <li>All your ratings and reviews</li>
-                <li>Your profile and username</li>
-                <li>All follower/following connections</li>
+              <p className="font-ui text-[13px] text-muted-foreground">this will permanently delete:</p>
+              <ul className="list-inside list-disc space-y-1 font-ui text-[13px] text-muted-foreground">
+                <li>all your lists and saved films</li>
+                <li>all your ratings and reviews</li>
+                <li>your profile and username</li>
+                <li>all follower / following connections</li>
               </ul>
 
-              <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20">
-                <p className="text-sm font-medium text-destructive">
-                  This action is permanent and cannot be undone.
-                </p>
+              <div className="rounded-[12px] border border-destructive/20 bg-destructive/10 p-3">
+                <p className="font-ui text-[13px] font-semibold text-destructive">this is permanent and cannot be undone.</p>
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">
-                  Type <span className="font-mono bg-secondary px-1 rounded">{userUsername}</span> to confirm:
+                <label className="mb-2 block font-ui text-[13px] font-medium">
+                  type <span className="rounded bg-sunken px-1 font-mono">{userUsername}</span> to confirm:
                 </label>
                 <input
                   type="text"
                   value={deleteConfirmUsername}
                   onChange={(e) => setDeleteConfirmUsername(e.target.value)}
-                  placeholder="Enter your username"
-                  className="w-full px-4 py-3 rounded-xl border border-border bg-background focus:outline-none focus:border-destructive"
+                  placeholder="your username"
+                  className="w-full rounded-[14px] border border-hair bg-card px-4 py-3 font-mono text-foreground outline-none focus:border-destructive"
                   style={{ fontSize: '16px' }}
                   autoComplete="off"
                   autoCorrect="off"
@@ -743,33 +486,21 @@ export default function SettingsPage() {
                 />
               </div>
 
-              <div className="flex gap-3 pt-2">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteConfirmUsername('');
-                  }}
-                  className={`${retroButtonClass} flex-1`}
+              <div className="flex gap-3 pt-1">
+                <button
+                  onClick={() => { setShowDeleteModal(false); setDeleteConfirmUsername(''); }}
                   disabled={isDeleting}
+                  className="h-[50px] flex-1 rounded-full border border-hair bg-card font-ui text-[15px] font-semibold text-foreground transition-all active:scale-[0.98] disabled:opacity-50"
                 >
-                  Cancel
-                </Button>
-                <Button
-                  variant="destructive"
+                  cancel
+                </button>
+                <button
                   onClick={handleDeleteAccount}
-                  className="flex-1"
                   disabled={isDeleting || deleteConfirmUsername.toLowerCase().trim() !== userUsername?.toLowerCase()}
+                  className="flex h-[50px] flex-1 items-center justify-center gap-2 rounded-full bg-destructive font-ui text-[15px] font-semibold text-destructive-foreground transition-all active:scale-[0.98] disabled:opacity-45"
                 >
-                  {isDeleting ? (
-                    <>
-                      <Loader2 className="animate-spin mr-2 h-4 w-4" />
-                      Deleting...
-                    </>
-                  ) : (
-                    'Delete Forever'
-                  )}
-                </Button>
+                  {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'delete forever'}
+                </button>
               </div>
             </div>
           </div>
@@ -778,5 +509,119 @@ export default function SettingsPage() {
 
       <BottomNav />
     </main>
+  );
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function Group({
+  icon: Icon,
+  iconImg,
+  eyebrow,
+  title,
+  desc,
+  children,
+}: {
+  icon?: ComponentType<{ className?: string }>;
+  iconImg?: string;
+  eyebrow: string;
+  title: string;
+  desc?: string;
+  children: ReactNode;
+}) {
+  return (
+    <section className="mb-9">
+      <div className="mb-1 flex items-center gap-2">
+        {Icon && <Icon className="h-[18px] w-[18px] text-primary" />}
+        {iconImg && <img src={iconImg} alt="" className="h-[18px] w-[18px]" />}
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">{eyebrow}</span>
+      </div>
+      <h2
+        className="font-headline text-[22px] font-bold lowercase tracking-[-0.02em]"
+        style={{ fontVariationSettings: '"wdth" 95' }}
+      >
+        {title}
+      </h2>
+      {desc && <p className="mb-4 mt-1 font-ui text-[13px] leading-[1.5] text-muted-foreground">{desc}</p>}
+      {!desc && <div className="mb-4" />}
+      {children}
+    </section>
+  );
+}
+
+function Toggle({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      onClick={onToggle}
+      role="switch"
+      aria-checked={on}
+      className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full transition-colors', on ? 'bg-primary' : 'bg-foreground/15')}
+    >
+      <span
+        className={cn(
+          'absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200',
+          on ? 'translate-x-[23px]' : 'translate-x-[3px]',
+        )}
+      />
+    </button>
+  );
+}
+
+function NotifRow({
+  icon: Icon,
+  iconClass,
+  title,
+  sub,
+  on,
+  onToggle,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  iconClass: string;
+  title: string;
+  sub: string;
+  on: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[16px] border border-hair bg-card px-4 py-3">
+      <div className="flex items-center gap-3">
+        <Icon className={cn('h-5 w-5', iconClass)} />
+        <div>
+          <p className="font-ui text-[15px] font-semibold lowercase text-foreground">{title}</p>
+          <p className="font-ui text-[12px] text-muted-foreground">{sub}</p>
+        </div>
+      </div>
+      <Toggle on={on} onToggle={onToggle} />
+    </div>
+  );
+}
+
+function OptionRow({ show, label, on, onToggle }: { show: boolean; label: string; on: boolean; onToggle: () => void }) {
+  if (!show) return null;
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-[14px] border border-hair bg-card px-4 py-3">
+      <span className="font-ui text-[15px] lowercase text-foreground">{label}</span>
+      <Toggle on={on} onToggle={onToggle} />
+    </div>
+  );
+}
+
+function StatLine({
+  show,
+  icon: Icon,
+  className,
+  label,
+}: {
+  show: boolean;
+  icon: ComponentType<{ className?: string }>;
+  className: string;
+  label: string;
+}) {
+  if (!show) return null;
+  return (
+    <div className="flex items-center gap-3">
+      <Icon className={cn('h-[18px] w-[18px]', className)} />
+      <span className="font-ui text-[14px] lowercase text-foreground">{label}</span>
+    </div>
   );
 }

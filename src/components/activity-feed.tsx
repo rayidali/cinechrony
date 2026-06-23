@@ -6,12 +6,21 @@ import Link from 'next/link';
 import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';
+import type { HotTake } from '@/lib/reviews-server';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import {
   readCachedAction,
   setCachedAction,
+  isCachedActionFresh,
+  invalidateCachedActionsByPrefix,
 } from '@/lib/use-cached-action';
+
+// Freshness windows — within these, a mount reuses cache instead of refetching
+// (the single biggest Firestore-read saver on repeat home loads). Pull-to-
+// refresh (a `refreshKey` bump) always bypasses these.
+const FEED_STALE_MS = 120_000; // 2 min
+const RAILS_STALE_MS = 300_000; // 5 min — recs + friends-watching
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import type { Activity, Movie } from '@/lib/types';
@@ -19,6 +28,7 @@ import { ActivityCard } from './activity-card';
 import { PostCard } from './post-card';
 import { RecommendationCard } from './recommendation-card';
 import { FriendsWatchingCard } from './friends-watching-card';
+import { HotTakeCard } from './hot-take-card';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 
 type ActivityFeedProps = {
@@ -35,12 +45,14 @@ const feedItemAuthor = (item: FeedItem) =>
 const feedItemId = (item: FeedItem) =>
   item.kind === 'activity' ? `a_${item.activity.id}` : `p_${item.post.id}`;
 
-// Skeleton loader for the initial load.
+// Skeleton loader for the initial load — mirrors the borderless diary reel
+// (divide-y rows, 48×72 poster chip) so there's no card→stream layout jump on
+// hydration.
 function FeedSkeleton() {
   return (
-    <div className="space-y-4">
+    <div className="divide-y divide-hair">
       {[1, 2, 3].map((i) => (
-        <div key={i} className="bg-card rounded-2xl border border-border p-4 shadow-lift">
+        <div key={i} className="py-5">
           <div className="flex items-center gap-3 mb-3">
             <div className="w-10 h-10 rounded-full bg-muted animate-pulse" />
             <div className="flex-1">
@@ -49,7 +61,7 @@ function FeedSkeleton() {
             </div>
           </div>
           <div className="flex gap-3">
-            <div className="w-16 aspect-[2/3] rounded-lg bg-muted animate-pulse" />
+            <div className="w-12 h-[72px] rounded-[10px] bg-muted animate-pulse" />
             <div className="flex-1">
               <div className="h-5 bg-muted rounded animate-pulse w-3/4 mb-2" />
               <div className="h-3 bg-muted rounded animate-pulse w-1/4" />
@@ -140,15 +152,18 @@ export function ActivityFeed({
   const feedKey = currentUserId ? `home-feed:${currentUserId}:${feedFilter}` : null;
   const recKey = currentUserId ? `home-recs:${currentUserId}` : null;
   const fwKey = currentUserId ? `home-fw:${currentUserId}` : null;
+  const htKey = currentUserId ? `home-hot-takes:${currentUserId}` : null;
 
   type FeedSnapshot = { items: FeedItem[]; hasMore: boolean; cursor: string | null };
   const cachedFeed = feedKey ? readCachedAction<FeedSnapshot>(feedKey) : undefined;
   const cachedRecs = recKey ? readCachedAction<RecommendationSet[]>(recKey) : undefined;
   const cachedFw = fwKey ? readCachedAction<FWCard[]>(fwKey) : undefined;
+  const cachedHt = htKey ? readCachedAction<HotTake[]>(htKey) : undefined;
 
   const [items, setItems] = useState<FeedItem[]>(cachedFeed?.items ?? []);
   const [recSets, setRecSets] = useState<RecommendationSet[]>(cachedRecs ?? []);
   const [fwCards, setFwCards] = useState<FWCard[]>(cachedFw ?? []);
+  const [hotTakes, setHotTakes] = useState<HotTake[]>(cachedHt ?? []);
   const [isLoading, setIsLoading] = useState(cachedFeed === undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(cachedFeed?.hasMore ?? false);
@@ -158,6 +173,10 @@ export function ActivityFeed({
   const { openMovie } = useMovieModal();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
+  // Track refreshKey per-effect so a pull-to-refresh forces a refetch but a
+  // plain remount respects the freshness window.
+  const lastFeedRefreshRef = useRef(refreshKey);
+  const lastRailsRefreshRef = useRef(refreshKey);
 
   // Fetch one page — `saved` reads the bookmarks feed, everything else the
   // merged home feed (activities + posts).
@@ -213,9 +232,16 @@ export function ActivityFeed({
   // shows the skeleton, then swaps in on first fetch.
   useEffect(() => {
     let cancelled = false;
+    const forced = lastFeedRefreshRef.current !== refreshKey;
+    lastFeedRefreshRef.current = refreshKey;
     (async () => {
       try {
         const hadCached = feedKey ? readCachedAction(feedKey) !== undefined : false;
+        // Fresh cache + not a pull-to-refresh → reuse it, skip the read.
+        if (hadCached && !forced && feedKey && isCachedActionFresh(feedKey, FEED_STALE_MS)) {
+          setIsLoading(false);
+          return;
+        }
         if (!hadCached) setIsLoading(true);
         setError(null);
         const result = await fetchPage();
@@ -250,15 +276,30 @@ export function ActivityFeed({
   // refresh in the background.
   useEffect(() => {
     let cancelled = false;
+    const forced = lastRailsRefreshRef.current !== refreshKey;
+    lastRailsRefreshRef.current = refreshKey;
+    // Fresh recs + friends-watching + hot-takes → skip all three reads on a
+    // plain remount.
+    if (!forced && recKey && fwKey && htKey
+        && isCachedActionFresh(recKey, RAILS_STALE_MS)
+        && isCachedActionFresh(fwKey, RAILS_STALE_MS)
+        && isCachedActionFresh(htKey, RAILS_STALE_MS)
+        && readCachedAction(recKey) !== undefined
+        && readCachedAction(fwKey) !== undefined
+        && readCachedAction(htKey) !== undefined) {
+      return;
+    }
     (async () => {
       try {
         const idToken = (await auth.currentUser?.getIdToken()) ?? '';
         if (!idToken) return;
-        const [recs, fw] = await Promise.all([
+        const [recs, fw, ht] = await Promise.all([
           apiCall<{ sets: RecommendationSet[] }>('GET', '/api/v1/recommendations')
             .catch(() => ({ sets: [] as RecommendationSet[] })),
           apiCall<{ cards: FWCard[] }>('GET', '/api/v1/friends-watching')
             .catch(() => ({ cards: [] as FWCard[] })),
+          apiCall<{ highlights: HotTake[] }>('GET', '/api/v1/reviews/highlights')
+            .catch(() => ({ highlights: [] as HotTake[] })),
         ]);
         if (cancelled) return;
         const sets = recs.sets ?? [];
@@ -267,6 +308,9 @@ export function ActivityFeed({
         const cards = fw.cards ?? [];
         setFwCards(cards);
         if (fwKey) setCachedAction(fwKey, cards);
+        const takes = ht.highlights ?? [];
+        setHotTakes(takes);
+        if (htKey) setCachedAction(htKey, takes);
       } catch {
         /* non-critical */
       }
@@ -274,7 +318,7 @@ export function ActivityFeed({
     return () => {
       cancelled = true;
     };
-  }, [auth, refreshKey, recKey, fwKey]);
+  }, [auth, refreshKey, recKey, fwKey, htKey]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;
@@ -330,7 +374,11 @@ export function ActivityFeed({
     setItems((prev) =>
       prev.filter((it) => !(it.kind === 'post' && it.post.id === postId)),
     );
-  }, []);
+    // Bust the cached feed snapshot(s) too, or the deleted post resurrects from
+    // cache on the next remount within the freshness window. Prefix covers every
+    // filter (all/friends share one /home-feed fetch, cached per filter key).
+    if (currentUserId) invalidateCachedActionsByPrefix(`home-feed:${currentUserId}`);
+  }, [currentUserId]);
 
   // Filter — block always; mute on all/friends; friends narrows to follows.
   const visibleItems = useMemo(() => {
@@ -346,6 +394,19 @@ export function ActivityFeed({
     return list;
   }, [items, feedFilter, followingIds, isMuted, isBlocked]);
 
+  // Hot-takes are a GLOBAL pool — filter to the viewer (block + mute + not
+  // self), mirroring the feed's own filtering above.
+  const visibleHotTakes = useMemo(
+    () =>
+      hotTakes.filter(
+        (t) =>
+          t.author.uid !== currentUserId &&
+          !isBlocked(t.author.uid) &&
+          !isMuted(t.author.uid),
+      ),
+    [hotTakes, currentUserId, isBlocked, isMuted],
+  );
+
   // Interleave recommendations + friends-watching (only in the `all` view).
   // The first recommendation lands within the first scroll — by card 3, or at
   // the end of a short feed so sparse feeds still surface discovery; then
@@ -355,10 +416,20 @@ export function ActivityFeed({
     const nodes: ReactNode[] = [];
     let recIdx = 0;
     let fwIdx = 0;
+    let htIdx = 0;
     const total = visibleItems.length;
     const firstRecAt = Math.min(3, total);
     const firstFwAt = Math.min(6, total);
     visibleItems.forEach((item, i) => {
+      // Hot-take "green quote card" — leads the reel, then every 8 (for-you
+      // only). Pushed BEFORE the item so the first one heads the stream, per
+      // the design.
+      if (feedFilter === 'all' && htIdx < visibleHotTakes.length && i % 8 === 0) {
+        nodes.push(
+          <HotTakeCard key={`ht_${visibleHotTakes[htIdx].reviewId}`} take={visibleHotTakes[htIdx]} />,
+        );
+        htIdx++;
+      }
       if (item.kind === 'post') {
         nodes.push(
           <PostCard
@@ -394,13 +465,15 @@ export function ActivityFeed({
         (pos === firstFwAt || (pos > firstFwAt && (pos - firstFwAt) % 9 === 0))
       ) {
         nodes.push(
-          <FriendsWatchingCard key={`fw_${fwCards[fwIdx].tmdbId}`} card={fwCards[fwIdx]} />,
+          <div key={`fw_${fwCards[fwIdx].tmdbId}`} className="py-5">
+            <FriendsWatchingCard card={fwCards[fwIdx]} />
+          </div>,
         );
         fwIdx++;
       }
     });
     return nodes;
-  }, [visibleItems, recSets, fwCards, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
+  }, [visibleItems, recSets, fwCards, visibleHotTakes, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
 
   return (
     <section>
@@ -411,8 +484,14 @@ export function ActivityFeed({
       ) : visibleItems.length === 0 ? (
         <>
           <EmptyState feedFilter={feedFilter} />
-          {/* An empty feed but the viewer has loved films → still offer
-              discovery, the moment it matters most. */}
+          {/* An empty feed → still offer discovery the moment it matters most:
+              the global hot-take pool, then loved-film recommendations. Both
+              are for-you-only and already block/mute/self-filtered. */}
+          {feedFilter === 'all' && visibleHotTakes.length > 0 && (
+            <div className="mt-2">
+              <HotTakeCard take={visibleHotTakes[0]} />
+            </div>
+          )}
           {feedFilter === 'all' && recSets.length > 0 && (
             <div className="space-y-4 mt-2">
               {recSets.map((set) => (
@@ -423,7 +502,7 @@ export function ActivityFeed({
         </>
       ) : (
         <>
-          <div className="space-y-4">{feedNodes}</div>
+          <div className="divide-y divide-hair">{feedNodes}</div>
           <div ref={sentinelRef} className="h-1" />
           {isLoadingMore && <LoadingMore />}
           {!hasMore && visibleItems.length > 0 && <EndOfFeed />}

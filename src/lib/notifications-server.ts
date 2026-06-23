@@ -13,6 +13,7 @@
 
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import { createTtlCache, cached } from '@/lib/server-cache';
 import { getBlockSet } from '@/lib/blocks-server';
 import { sendPushToUser, type PushPayload } from '@/lib/push-server';
 import {
@@ -483,17 +484,28 @@ export async function listNotifications(
 
 // ─── getUnreadNotificationCount — cheap aggregate ────────────────────────
 
+// The badge polls this every minute for the whole session — cache the count()
+// per uid so an idle-but-open app stops re-charging Firestore. Invalidated the
+// moment the user marks notifications read (below) so the badge clears instantly.
+const unreadCountCache = createTtlCache<{ count: number }>({ ttlMs: 30_000 });
+
+export function invalidateUnreadCount(uid: string): void {
+  unreadCountCache.delete(uid);
+}
+
 export async function getUnreadNotificationCount(
   callerUid: string,
 ): Promise<{ count: number }> {
-  const db = getDb();
-  const snap = await db
-    .collection('notifications')
-    .where('userId', '==', callerUid)
-    .where('read', '==', false)
-    .count()
-    .get();
-  return { count: snap.data().count };
+  return cached(unreadCountCache, callerUid, async () => {
+    const db = getDb();
+    const snap = await db
+      .collection('notifications')
+      .where('userId', '==', callerUid)
+      .where('read', '==', false)
+      .count()
+      .get();
+    return { count: snap.data().count };
+  });
 }
 
 // ─── markNotificationsRead — batch update ────────────────────────────────
@@ -522,6 +534,7 @@ export async function markNotificationsRead(
       }
     }
     if (updates > 0) await batch.commit();
+    invalidateUnreadCount(callerUid);
     return;
   }
 
@@ -534,6 +547,7 @@ export async function markNotificationsRead(
   const batch = db.batch();
   snap.docs.forEach((d) => batch.update(d.ref, { read: true }));
   await batch.commit();
+  invalidateUnreadCount(callerUid);
 }
 
 // ─── Push-subscription CRUD ──────────────────────────────────────────────

@@ -84,6 +84,25 @@
     /* FAB — soft film-red lift. The v2 FAB dropped the brutalist stamp. */
     --shadow-fab:   0 4px 12px oklch(var(--cc-film-red) / 0.35),
                     0 1px 2px oklch(0.16 0.01 60 / 0.10);
+
+    /* ---- v3 iOS-native additions (Phase 0.7) — bare oklch components ----
+       Additive only; every v2 token above is unchanged. */
+    --cc-sunken:    0.925 0.012 70;   /* search field, segmented track, chips */
+    --cc-faint:     0.58 0.012 60;    /* tertiary text / chevrons */
+    --cc-hairline:  0.22 0.012 60;    /* ink for translucent rules: use /0.12 (rule), /0.08 (hair) */
+    /* Home accent palette — category dots + leaderboard rank badges */
+    --cc-violet:    0.55 0.14 300;
+    --cc-blue:      0.58 0.13 245;
+    --cc-pink:      0.66 0.15 350;
+    /* Frosted-bar tints — ready-to-use values (alpha baked); not Tailwind colors */
+    --cc-chrome:    oklch(0.945 0.012 78 / 0.66);   /* nav / top bar */
+    --cc-tab-tint:  oklch(0.985 0.006 80 / 0.62);   /* floating tab bar */
+    /* Motion — iOS easings + the 3-step duration scale */
+    --ease-out:     cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-bounce:  cubic-bezier(0.34, 1.56, 0.64, 1);
+    --dur-fast:     140ms;
+    --dur:          220ms;
+    --dur-slow:     360ms;
   }
 
   .dark {
@@ -135,6 +154,17 @@
     --shadow-stamp: 3px 3px 0 0 oklch(0.92 0.012 78);
     --shadow-fab:   0 4px 14px oklch(0.72 0.16 35 / 0.42),
                     0 1px 3px rgba(0,0,0,0.5);
+
+    /* ---- v3 iOS-native additions (Phase 0.7) — dark "projection room" ---- */
+    --cc-sunken:    0.235 0.012 60;
+    --cc-faint:     0.52 0.012 60;
+    --cc-hairline:  0.92 0.012 78;   /* light ink for rules on dark */
+    --cc-violet:    0.66 0.13 300;
+    --cc-blue:      0.70 0.11 245;
+    --cc-pink:      0.74 0.12 350;
+    --cc-chrome:    oklch(0.205 0.012 60 / 0.62);
+    --cc-tab-tint:  oklch(0.255 0.012 60 / 0.55);
+    /* --ease-* / --dur-* are appearance-independent; inherited from :root. */
   }
 }
 
@@ -174,6 +204,42 @@
   from { transform: translateX(0); }
   to { transform: translateX(-50%); }
 }
+/* slow cinematic drift for the movie-drawer hero stills (Ken Burns) */
+@keyframes cc-kenburns {
+  from { transform: scale(1.03); }
+  to { transform: scale(1.12) translateY(-1.5%); }
+}
+/* onboarding: pulsing ring behind the splash / import mark */
+@keyframes cc-pulse-ring {
+  0% { transform: scale(1); opacity: 0.5; }
+  70%, 100% { transform: scale(1.55); opacity: 0; }
+}
+/* onboarding: slow drift for the welcome / login poster wall */
+@keyframes cc-posterwall {
+  from { transform: scale(1.18) rotate(-4deg) translateY(-4%); }
+  to { transform: scale(1.18) rotate(-4deg) translateY(-10%); }
+}
+/* import: a real poster springing into the building wall */
+@keyframes cc-poster-pop {
+  from { opacity: 0; transform: scale(0.82) translateY(7px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+/* import: skeleton shimmer for not-yet-filled poster slots */
+@keyframes cc-shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+/* import: a stat counting up gently nudges as it lands */
+@keyframes cc-tick {
+  0% { transform: translateY(0); }
+  40% { transform: translateY(-2px); }
+  100% { transform: translateY(0); }
+}
+/* import: the background progress pill sliding up into view */
+@keyframes cc-pill-in {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .animate-float {
   animation: float 4s cubic-bezier(0.16, 1, 0.3, 1) infinite;
@@ -194,6 +260,37 @@
 .animate-sheet-rise {
   animation: sheet-rise 0.32s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+.cc-kenburns {
+  animation: cc-kenburns 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.cc-pulse-ring {
+  animation: cc-pulse-ring 2.4s ease-out infinite;
+  will-change: transform, opacity;
+}
+.cc-posterwall {
+  animation: cc-posterwall 28s ease-in-out infinite alternate;
+  will-change: transform;
+}
+.cc-poster-pop {
+  animation: cc-poster-pop 0.5s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.cc-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    oklch(var(--muted) / 0) 30%,
+    oklch(var(--foreground) / 0.06) 50%,
+    oklch(var(--muted) / 0) 70%
+  );
+  background-size: 200% 100%;
+  animation: cc-shimmer 1.5s ease-in-out infinite;
+}
+.cc-tick {
+  animation: cc-tick 0.4s ease-out;
+}
+.cc-pill-in {
+  animation: cc-pill-in 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .animate-float,
@@ -201,7 +298,14 @@
   .animate-rise,
   .animate-slide-up,
   .animate-fade-in,
-  .animate-sheet-rise {
+  .animate-sheet-rise,
+  .cc-kenburns,
+  .cc-pulse-ring,
+  .cc-posterwall,
+  .cc-poster-pop,
+  .cc-shimmer,
+  .cc-tick,
+  .cc-pill-in {
     animation: none;
   }
 }
@@ -275,9 +379,9 @@
   .cc-eyebrow {
     font-family: var(--font-mono), "Space Mono", ui-monospace, monospace;
     font-weight: 700;
-    font-size: 0.6875rem;
+    font-size: 0.625rem;
     text-transform: uppercase;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.15em;
     color: oklch(var(--muted-foreground));
   }
 

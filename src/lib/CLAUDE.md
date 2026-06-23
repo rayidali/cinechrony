@@ -15,6 +15,9 @@ src/lib/
 ├── admin-handler.ts          # adminRoute wrapper (ADMIN_SECRET const-time compare)
 ├── api-client.ts             # apiCall<T>(method, path, body?) for the client
 ├── auth-server.ts            # verifyCaller(req) — Bearer token → UID
+├── auth-login-server.ts      # loginWithIdentifier (email-or-@username → custom
+│                              # token; resolves handle→email server-side, verifies
+│                              # password via Identity Toolkit REST; Wave 7)
 ├── rate-limit.ts             # checkRateLimit(uid, bucket) — review/like/follow/…
 │
 ├─── Server-side domain helpers (consumed by /api/v1/* routes) ──────
@@ -25,8 +28,13 @@ src/lib/
 ├── movies-server.ts          # addMovieToList, updateMovieStatus, …
 ├── invites-server.ts         # inviteToList, acceptInvite, revokeInvite, …
 ├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
-├── reviews-server.ts         # createReview, like/unlike, threading
+├── reviews-server.ts         # createReview, like/unlike (= "helpful"), threading,
+│                              # getReviewHighlights (hot-takes), reactReview/
+│                              # unreactReview + getReviewsWall (F12 reviews wall)
+├── review-verdict.ts         # loved/liked/fine/nope buckets (pure, server+client)
+├── review-reactions.ts       # the 5 icon reactions (pure: types + colours)
 ├── ratings-server.ts         # createOrUpdateRating, deleteRating
+├── watches-server.ts         # logWatch (F03) + getWatchesForMovie (watch log)
 ├── activities-server.ts      # getActivityFeed, likeActivity, …
 ├── posts-server.ts           # createPost, updatePost, deletePost, likePost
 ├── post-comments-server.ts   # createPostComment + likes
@@ -39,17 +47,68 @@ src/lib/
 ├── blocks-server.ts          # blockUser, unblockUser, getBlockSet
 ├── reports-server.ts         # reportContent (5 content types)
 ├── friends-watching-server.ts# Aggregated "your circle is watching"
+├── leaderboard-server.ts     # Weekly "top watchers" (follow-graph aggregate)
 ├── letterboxd-server.ts      # ZIP parse + TMDB match + import
+├── letterboxd-scrape-server.ts # USERNAME scrape engine (Apify cheerio+browser
+│                              # actors). Decoupled run helpers: startRun /
+│                              # getRunStatus / fetchDatasetItems + normalizeRows
+│                              # (pure). scrapeLetterboxdLibrary (sync, dry-run) +
+│                              # importLetterboxdFromUsername. /preview route.
+├── letterboxd-username-import-server.ts # ASYNC + CHUNKED onboarding import:
+│                              # startLibraryScrape / pollLibraryScrape (→ deduped
+│                              # ImportLibrary; buildImportItems forces Watched for
+│                              # any rated/reviewed film) + importFilmChunk (concurrent
+│                              # TMDB match, ~120/req, returns posters) / importUserList
+│                              # / setUserFavorites / finalizeDefaultList (recount +
+│                              # record importedLetterboxd + kick reviews run). REVIEWS
+│                              # BACKGROUND: startReviewsRun + syncPendingReviews —
+│                              # writes CANONICAL review docs (parentId:null etc. so
+│                              # they show in the wall), ratingAtTime from /ratings,
+│                              # upserts the film Watched; deterministic lb_{uid}_{tmdbId}
+│                              # ids; pendingReviews on users_private. Wired by
+│                              # /imports/letterboxd/scrape/{start,status,import} +
+│                              # /imports/letterboxd/reviews/sync
+├── import-store.ts           # CLIENT singleton (useImportStore) owning the import
+│                              # lifecycle so it survives navigation: scrape→poll→
+│                              # chunks→finalize, ETA, foreground flag, localStorage
+│                              # resume-on-kill (+ resume on app foreground). Views:
+│                              # importing-step + import pill. importFilmChunk keeps
+│                              # the default-list movieCount live (increment/chunk,
+│                              # finalize SETs authoritative). importUserList writes
+│                              # films THEN creates the list doc w/ final count (no
+│                              # 0→N flicker) + strips LB share-blurb descriptions +
+│                              # skips empty lists.
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────
 ├── tmdb-details-cache.ts     # Module-level cache (modal back-nav contract)
 ├── tmdb-client.ts            # Browser-side TMDB fetch (NEXT_PUBLIC_ token)
+├── seeded-gradient.ts        # Deterministic cover/avatar gradient fallback
 ├── use-cached-action.ts      # SWR-style cache hook with persistence
 ├── cache-config.ts           # Registers localStorage-mirrored keys
 ├── list-detail-seed.ts       # sessionStorage seed for list page chrome
 ├── native-auth.ts            # ★ Capacitor Google/Apple sign-in router
-└── native-push.ts            # ★ Capacitor FCM token registration
+├── native-push.ts            # ★ Capacitor FCM token registration
+├── story-card.ts             # Story-share PURE helpers + wire contract: the
+│                              # StorySharePayload union (review|watched|list),
+│                              # payloadToParams / paramsToModel, rating→hex,
+│                              # deterministic gradient/placeholder colours,
+│                              # quote/meta formatting. Shared by the renderer
+│                              # route + the client. No React/Node/DOM.
+├── story-share.ts            # CLIENT glue: storyImageUrl(payload) →
+│                              # `${apiOrigin()}/api/v1/share/story?…` (same-origin on
+│                              # web/preview so the route is reachable — NOT shareOrigin);
+│                              # shareStory() (image → IG Stories) + sendToFriend() (image +
+│                              # deep link → iMessage/etc.) via @capacitor/share+filesystem /
+│                              # navigator.share / download (web)
+├── og-shared.ts              # SERVER-only render infra shared by both image routes
+│                              # (/share/story + /share/og): loadBrandFonts() (public/fonts
+│                              # TTFs), fetchImageDataUri (timeout → null), clapper SVG, shade,
+│                              # font-family consts, IMG_HEADERS (ACAO:*). Route handlers only.
+└── share-meta.ts             # SERVER-side OG/Twitter metadata: deployOrigin() (absolute
+                               # URLs, no headers() → static-export-safe), ogImageUrl() →
+                               # /api/v1/share/og?…, pageMetadata() + defaultShareMetadata().
+                               # Used by generateMetadata on post/profile/list pages + layout.
 ```
 
 > **★** = new in Phase B (2026-06-08). The native-* helpers detect
@@ -399,3 +458,47 @@ Edit `getRatingHSL()` in `utils.ts`:
 - `normalizedRating` maps 1-10 to 0-1
 - `hue` interpolates from 0 (red) to 120 (green)
 - `saturation` and `lightness` can be adjusted for theme
+
+---
+
+## Phase 0.7 — Wave 3: post visibility + watch-log + close-friends (2026-06-16)
+
+The server model behind F04 "create a post".
+
+**Post type** (`types.ts`) gained: `watchType?: 'first' | 'rewatch'`,
+`watchedOn?: Date | null`, `visibility?: PostVisibility` (`'everyone' |
+'friends' | 'close_friends' | 'only_me'`, default `'everyone'`), and
+`audienceUids?: string[]` — a WRITE-TIME snapshot of who may see a restricted
+post (excludes the author, who always can). New `PostVisibility` +
+`PostWatchType` types.
+
+**`posts-server.ts`**:
+- `parsePostFields()` — shared create/update validation (text, media, rating,
+  watchType, future-clamped watchedOn, visibility).
+- `resolveAudience(uid, visibility)` — `everyone` → no snapshot; `only_me` → `[]`;
+  `friends` → `getMutualIds`; `close_friends` → `getCloseFriendIds`.
+- **`canViewPost(post, viewerUid)` — the single audience guard**, applied in
+  EVERY post read path: `getHomeFeed`, `getPost`, `getSavedFeed`
+  (bookmarks-server), `getPostComments` + `createPostComment`
+  (post-comments-server), and `likePost`/`unlikePost`. Out-of-audience callers
+  get the same 404/empty as a missing post (no existence oracle).
+- `createPost` also: records a watch (`recordWatchEntry`, no dup review/rating),
+  and only sends tag/@-mention notifications to recipients who pass
+  `canViewPost` (a restricted post never leaks its preview to outsiders).
+- `getHomeFeed` paginates off the RAW scan (bounded rounds), NOT the
+  audience-filtered count, so a hidden post can't dead-end infinite scroll;
+  `nextCursor` resumes after the last RETURNED post. `MAX_POST_MEDIA = 10`.
+
+**`follows-server.ts`**: `getFollowerIds` (cached, mirror of `getFollowingIds`);
+`getMutualIds` (following ∩ followers, scans to `MAX_ID_LIMIT = 2000` so a big
+account's `friends` audience isn't capped at 200); `getCloseFriendIds` /
+`setCloseFriendIds` (server-only `/closeFriends/{uid}` doc, dedup/self-strip/cap
+150). Follow/unfollow now invalidate BOTH the follower and following id caches.
+
+**`watches-server.ts`**: `recordWatchEntry` (the lean core extracted from
+`logWatch` — writes the watch doc + ordinal, NO rating/review side-effects;
+`logWatch` now calls it then layers the rating upsert + review). `getRecentWatches`
+(distinct recently-watched films for the picker rail).
+
+**New endpoints**: `GET/PUT /api/v1/me/close-friends`, `GET /api/v1/watches/recent`.
+**firestore.rules**: `/closeFriends/{uid}` server-only.

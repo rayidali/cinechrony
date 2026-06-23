@@ -15,7 +15,15 @@
  */
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
+import { createTtlCache, cached } from '@/lib/server-cache';
 import type { Activity, ActivityType } from '@/lib/types';
+
+// Author denorm fields for activity docs. A burst (e.g. a Letterboxd import or
+// rating a batch) emits many activities for the same user — cache the profile
+// read so it's one read, not N. 60s lag in a baked-in name/photo is fine since
+// activities are point-in-time snapshots anyway. [free-tier write-amp]
+type ActivityAuthor = { username: string | null; displayName: string | null; photoURL: string | null };
+const activityAuthorCache = createTtlCache<ActivityAuthor>({ ttlMs: 60_000 });
 
 // ─── Typed errors (Phase A PR #10) ────────────────────────────────────────
 
@@ -60,16 +68,23 @@ export async function createActivity(
   data: ActivityWrite,
 ): Promise<{ success: true; activityId: string } | { error: string }> {
   try {
-    const userDoc = await db.collection('users').doc(data.userId).get();
-    const userData = userDoc.data();
+    const author = await cached(activityAuthorCache, data.userId, async () => {
+      const userDoc = await db.collection('users').doc(data.userId).get();
+      const u = userDoc.data();
+      return {
+        username: u?.username || null,
+        displayName: u?.displayName || null,
+        photoURL: u?.photoURL || null,
+      };
+    });
 
     const activityRef = db.collection('activities').doc();
     await activityRef.set({
       id: activityRef.id,
       userId: data.userId,
-      username: userData?.username || null,
-      displayName: userData?.displayName || null,
-      photoURL: userData?.photoURL || null,
+      username: author.username,
+      displayName: author.displayName,
+      photoURL: author.photoURL,
       type: data.type,
       tmdbId: data.tmdbId,
       movieTitle: data.movieTitle,

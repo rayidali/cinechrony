@@ -9,6 +9,7 @@
  */
 
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult } from '@/lib/types';
+import { getVibe } from '@/lib/vibes';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_BASE = 'https://image.tmdb.org/t/p/w500';
@@ -104,4 +105,126 @@ export async function searchTmdbMulti(query: string, limit = 16): Promise<Search
     if (i < tvShows.length) combined.push(tvShows[i]);
   }
   return combined.slice(0, limit);
+}
+
+function mapMovies(results: unknown, limit: number): SearchResult[] {
+  if (!Array.isArray(results)) return [];
+  return results
+    .filter((r: TMDBSearchResult) => r.poster_path)
+    .slice(0, limit)
+    .map(formatMovie);
+}
+
+/**
+ * "In theatres" — TMDB now-playing (US). Public, non-secret TMDB data, so it
+ * runs client-direct like `searchTmdbMulti` (no server proxy needed → works on
+ * web, preview, and the Capacitor native shell without an API round-trip).
+ */
+export async function getNowPlayingMovies(limit = 18): Promise<SearchResult[]> {
+  const data = await tmdbFetch('movie/now_playing', {
+    language: 'en-US',
+    page: '1',
+    region: 'US',
+  });
+  return mapMovies(data?.results, limit);
+}
+
+/** "Coming soon" — TMDB upcoming (US), future releases only. Client-direct. */
+export async function getUpcomingMovies(limit = 18): Promise<SearchResult[]> {
+  const data = await tmdbFetch('movie/upcoming', {
+    language: 'en-US',
+    page: '1',
+    region: 'US',
+  });
+  const now = Date.now();
+  const future = (Array.isArray(data?.results) ? data.results : []).filter(
+    (r: TMDBSearchResult) => {
+      const t = Date.parse(r.release_date || '');
+      return Number.isFinite(t) && t > now;
+    },
+  );
+  return mapMovies(future, limit);
+}
+
+/**
+ * "Browse by vibe" — resolve a curated vibe term to a TMDB keyword id, then
+ * `/discover` the best-voted films tagged with it. Retries without the vote
+ * floor, then falls back to a title search, so a vibe never renders empty.
+ * Client-direct (public TMDB data).
+ */
+export async function discoverByVibe(vibeId: string, limit = 24): Promise<SearchResult[]> {
+  const vibe = getVibe(vibeId);
+  if (!vibe) return [];
+
+  // 1. term → keyword id
+  const kw = await tmdbFetch('search/keyword', { query: vibe.keyword, page: '1' });
+  const first = Array.isArray(kw?.results) ? kw.results[0] : null;
+  const keywordId: number | null = first && typeof first.id === 'number' ? first.id : null;
+
+  // 2. discover by keyword (well-voted first, then any)
+  if (keywordId) {
+    const discover = async (minVotes: number) => {
+      const params: Record<string, string> = {
+        with_keywords: String(keywordId),
+        sort_by: 'vote_count.desc',
+        include_adult: 'false',
+        language: 'en-US',
+        page: '1',
+      };
+      if (minVotes > 0) params['vote_count.gte'] = String(minVotes);
+      const d = await tmdbFetch('discover/movie', params);
+      return mapMovies(d?.results, limit);
+    };
+    let movies = await discover(150);
+    if (movies.length === 0) movies = await discover(0);
+    if (movies.length > 0) return movies;
+  }
+
+  // 3. fallback — plain title search on the term
+  const s = await tmdbFetch('search/movie', {
+    query: vibe.keyword,
+    include_adult: 'false',
+    language: 'en-US',
+    page: '1',
+  });
+  return mapMovies(s?.results, limit);
+}
+
+/**
+ * "dig in" home rail — four real TMDB category shelves (Phase 0.7 / v3,
+ * `ios-home.jsx::TopPicks`). All client-direct (public, non-secret TMDB),
+ * fetched in parallel, so the rail works on web + preview + native with no
+ * server round-trip. `new` = now playing, `trending` = trending/day, `popular`
+ * = most-voted, `lowkey` = well-rated but under-seen (the hidden-gems heuristic).
+ */
+export type DigInCategory = 'new' | 'trending' | 'popular' | 'lowkey';
+export type DigInData = Record<DigInCategory, SearchResult[]>;
+
+export async function getDigIn(perCat = 6): Promise<DigInData> {
+  const [now, trend, popular, lowkey] = await Promise.all([
+    tmdbFetch('movie/now_playing', { language: 'en-US', page: '1', region: 'US' }),
+    tmdbFetch('trending/movie/day', { language: 'en-US' }),
+    tmdbFetch('discover/movie', {
+      sort_by: 'vote_count.desc',
+      'vote_count.gte': '4000',
+      include_adult: 'false',
+      language: 'en-US',
+      page: '1',
+    }),
+    tmdbFetch('discover/movie', {
+      sort_by: 'vote_average.desc',
+      'vote_count.gte': '300',
+      'vote_count.lte': '1800',
+      'vote_average.gte': '7.4',
+      include_adult: 'false',
+      language: 'en-US',
+      page: '1',
+    }),
+  ]);
+  return {
+    new: mapMovies(now?.results, perCat),
+    trending: mapMovies(trend?.results, perCat),
+    popular: mapMovies(popular?.results, perCat),
+    lowkey: mapMovies(lowkey?.results, perCat),
+  };
 }

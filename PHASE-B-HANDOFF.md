@@ -1,5 +1,16 @@
 # Phase B — Capacitor wrap: owner handoff
 
+> ⚠️ **Confirm the live domain before you bake anything in.** This doc uses
+> `cinechrony.vercel.app` as the API/Universal-Links origin, but the app is
+> currently live at **`movienight-kappa.vercel.app`**, and
+> `capacitor.config.ts` references `cinechrony.vercel.app` too — they don't
+> match. **Decide the real production origin first** (the live Vercel domain
+> or a finalized custom domain like `cinechrony.com`), then use that ONE value
+> everywhere below: the `NEXT_PUBLIC_API_BASE_URL` build var (§9), the
+> `applinks:` Associated Domain (§2), the AASA / assetlinks files (§3, §5),
+> and `capacitor.config.ts`. Baking in the wrong origin = the app boots but can't
+> reach the API, and deep links silently fail.
+
 Phase B is **code-complete** but a few things only the human (with the Apple Developer account, the Firebase Console, and the production domain) can finish. This doc is your checklist.
 
 If you do these in order, you go from "the iOS app boots in Simulator with a blank screen" → "the iOS app signs in with Google + Apple, deep links open from Messages, and push notifications arrive on your real phone."
@@ -163,6 +174,35 @@ npx cap sync ios
 ```
 
 Without this, the bundled JS will call `/api/v1/*` as a relative path → fails inside the WebView (the WebView's origin is `capacitor://localhost`, which has no `/api`).
+
+### 9b. `APIFY_TOKEN` — the onboarding Letterboxd username import (optional)
+
+The onboarding "bring your films" step scrapes a public Letterboxd library via
+Apify. Set a **server-side** (NOT `NEXT_PUBLIC_`) env var in Vercel prod:
+
+```
+APIFY_TOKEN=apify_api_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+```
+
+Get it from apify.com → Settings → Integrations → API token. The token drives the
+ready-made `apify/cheerio-scraper` actor (RESIDENTIAL proxies clear Letterboxd's
+Cloudflare). **Until it's set, onboarding still works fully** — the letterboxd
+step's `/preview` falls back to an optimistic "ready" state and `scrape/start`
+returns `{ available: false }`, so the import is skipped cleanly (no crash). Add
+the token to light the feature up; no redeploy of the app binary needed (it's a
+Vercel-side route). Cost is only incurred when a user who reaches the step
+actually finishes onboarding (account-last).
+
+**Import design (time-safe):** the import is async + chunked so it never blows a
+function's time budget. The client starts the scrape (`scrape/start`), polls
+(`scrape/status`, showing "N found"), then imports films in ~120-film chunks
+(`scrape/import`, concurrent TMDB matching) behind a live progress bar (a real
+poster wall builds as it goes). Films/ratings/watchlist/lists/favourites come from
+the fast cheerio run. **Reviews import in the BACKGROUND** — the reviews
+browser-actor is minutes-slow (a capped run didn't finish in 4.5 min), so it's
+never part of the wait: `finalize` kicks the reviews run, and `<PendingImportSync/>`
+finishes it after onboarding (polls `/reviews/sync`, imports, toasts). No special
+Vercel plan/`maxDuration` is required because every request is short.
 
 ---
 

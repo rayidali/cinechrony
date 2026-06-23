@@ -100,21 +100,21 @@ export const ActivityCard = memo(function ActivityCard({
     : '';
 
   return (
-    <div className="bg-card rounded-[20px] border border-border p-4 shadow-lift">
+    <div className="py-5">
       {/* Row 1 — who · what · when */}
-      <div className="flex items-center gap-2.5">
-        <Link href={profileUrl} className="flex-shrink-0">
+      <div className="flex items-center gap-[11px]">
+        <Link href={profileUrl} aria-label={handle} className="flex-shrink-0">
           {livePhotoURL ? (
             <Image
               src={livePhotoURL}
               alt={handle}
-              width={32}
-              height={32}
-              className="rounded-full border border-border object-cover w-8 h-8"
+              width={40}
+              height={40}
+              className="rounded-full object-cover w-10 h-10"
             />
           ) : (
-            <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center border border-border">
-              <span className="font-headline font-bold text-xs">{avatarLetter}</span>
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center">
+              <span className="font-headline font-bold text-sm text-muted-foreground">{avatarLetter}</span>
             </div>
           )}
         </Link>
@@ -123,7 +123,7 @@ export const ActivityCard = memo(function ActivityCard({
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={profileUrl}
-              className="font-headline font-semibold text-sm tracking-tight hover:underline truncate"
+              className="font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline truncate"
             >
               {handle}
             </Link>
@@ -161,7 +161,7 @@ export const ActivityCard = memo(function ActivityCard({
       {/* Row 2 — the movie */}
       <button onClick={handleMovieClick} className="w-full text-left group mt-3">
         <div className="flex gap-3 items-start">
-          <div className="flex-shrink-0 w-12 aspect-[2/3] rounded-lg overflow-hidden border border-border relative">
+          <div className="relative w-12 h-[72px] rounded-[10px] overflow-hidden bg-muted flex-shrink-0">
             <Image
               src={posterUrl}
               alt={activity.movieTitle}
@@ -196,22 +196,23 @@ export const ActivityCard = memo(function ActivityCard({
         </div>
       </button>
 
-      {/* Footer — like + save on the left, reply on the right. Touch targets
-          sized for thumbs: 40×40 with negative outer margin to keep visual
-          spacing compact. Icons bumped to 18px for legibility. */}
-      <div className="flex items-center justify-between mt-2.5 pt-3 border-t border-border">
+      {/* Footer — like + save on the left, reply on the right. Borderless to
+          match the PostCard footer: the reel's own divide-y draws the only
+          rule between entries (no internal border-t). Touch targets sized for
+          thumbs; icons 18px for legibility. */}
+      <div className="flex items-center justify-between mt-3.5">
         <div className="flex items-center gap-1 -my-1">
           <button
             onClick={handleLike}
             disabled={!currentUserId || isPending}
             className={cn(
-              'flex items-center gap-1.5 cc-meta text-[12px] h-10 px-2 rounded-full transition-colors active:scale-95',
-              isLiked ? 'text-success' : 'text-muted-foreground hover:text-foreground',
+              'flex items-center gap-1.5 font-ui font-semibold text-[13px] h-10 px-2 rounded-full transition-colors active:scale-95',
+              isLiked ? 'text-primary' : 'text-muted-foreground hover:text-foreground',
               (!currentUserId || isPending) && 'opacity-50 cursor-not-allowed'
             )}
             aria-label={isLiked ? 'Unlike' : 'Like'}
           >
-            <Heart className={cn('h-[18px] w-[18px]', isLiked && 'fill-current')} strokeWidth={1.8} />
+            <Heart className={cn('h-[18px] w-[18px]', isLiked ? 'fill-primary text-primary' : '')} strokeWidth={1.9} />
             {likeCount > 0 && <span className="tabular-nums">{likeCount}</span>}
           </button>
 

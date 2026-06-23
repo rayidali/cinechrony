@@ -1,37 +1,32 @@
 'use client';
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
-import { Search, Loader2, X, Film, Tv, Instagram, Youtube, Plus, ArrowLeft, Check } from 'lucide-react';
+import { Search, Loader2, X, Film, Instagram, Youtube, ChevronLeft, Check } from 'lucide-react';
 import Image from 'next/image';
 import { Drawer } from 'vaul';
 import { TiktokIcon } from './icons';
+import { FilmGridTile } from '@/components/v3/film-grid-tile';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import type { SearchResult, TMDBSearchResult, TMDBTVSearchResult, MovieList } from '@/lib/types';
-import { apiCall, ApiClientError } from '@/lib/api-client';
+import { apiCall } from '@/lib/api-client';
 import type { ListSummary, CollaborativeListSummary } from '@/lib/lists-server';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { FullscreenTextInput } from '@/components/fullscreen-text-input';
+import { seededGradient } from '@/lib/seeded-gradient';
+import { getRatingStyle } from '@/lib/utils';
+import { haptic } from '@/lib/haptics';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
 async function tmdbFetch(path: string, params: Record<string, string> = {}) {
   const accessToken = process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN;
   if (!accessToken) return null;
-
   const url = new URL(`${TMDB_API_BASE_URL}/${path}`);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   try {
     const response = await fetch(url.toString(), {
-      headers: {
-        accept: 'application/json',
-        Authorization: `Bearer ${accessToken}`,
-      },
+      headers: { accept: 'application/json', Authorization: `Bearer ${accessToken}` },
     });
     if (!response.ok) return null;
     return response.json();
@@ -41,11 +36,10 @@ async function tmdbFetch(path: string, params: Record<string, string> = {}) {
 }
 
 function formatMovieSearchResult(result: TMDBSearchResult): SearchResult {
-  const year = result.release_date ? result.release_date.split('-')[0] : 'N/A';
   return {
     id: result.id.toString(),
     title: result.title,
-    year,
+    year: result.release_date ? result.release_date.split('-')[0] : 'N/A',
     posterUrl: result.poster_path
       ? `https://image.tmdb.org/t/p/w500${result.poster_path}`
       : 'https://picsum.photos/seed/placeholder/500/750',
@@ -57,11 +51,10 @@ function formatMovieSearchResult(result: TMDBSearchResult): SearchResult {
 }
 
 function formatTVSearchResult(result: TMDBTVSearchResult): SearchResult {
-  const year = result.first_air_date ? result.first_air_date.split('-')[0] : 'N/A';
   return {
     id: result.id.toString(),
     title: result.name,
-    year,
+    year: result.first_air_date ? result.first_air_date.split('-')[0] : 'N/A',
     posterUrl: result.poster_path
       ? `https://image.tmdb.org/t/p/w500${result.poster_path}`
       : 'https://picsum.photos/seed/placeholder/500/750',
@@ -74,15 +67,12 @@ function formatTVSearchResult(result: TMDBTVSearchResult): SearchResult {
 
 async function searchAll(query: string): Promise<SearchResult[]> {
   if (!query) return [];
-
   const [moviesData, tvData] = await Promise.all([
     tmdbFetch('search/movie', { query, include_adult: 'false', language: 'en-US', page: '1' }),
     tmdbFetch('search/tv', { query, include_adult: 'false', language: 'en-US', page: '1' }),
   ]);
-
   const movies = moviesData?.results?.slice(0, 10).map(formatMovieSearchResult) || [];
   const tvShows = tvData?.results?.slice(0, 10).map(formatTVSearchResult) || [];
-
   const combined: SearchResult[] = [];
   const maxLength = Math.max(movies.length, tvShows.length);
   for (let i = 0; i < maxLength; i++) {
@@ -102,8 +92,7 @@ interface AddMovieModalProps {
 
 type Step = 'search' | 'preview' | 'select-list' | 'edit-link';
 
-interface ListWithPreview extends MovieList {
-  previewPosters?: string[];
+interface ListWithMeta extends MovieList {
   isShared?: boolean;
   ownerDisplayName?: string;
 }
@@ -113,22 +102,21 @@ interface ListSelection {
   listOwnerId: string;
   listName: string;
   note: string;
-  previewPosters?: string[];
 }
+
+const SHEET = 'fixed bottom-0 left-0 right-0 flex flex-col rounded-t-[22px] bg-card outline-none';
+const HANDLE = 'mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30';
 
 export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }: AddMovieModalProps) {
   const { user } = useUser();
   const { toast } = useToast();
 
-  // Flow state
   const [step, setStep] = useState<Step>('search');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [selectedMovie, setSelectedMovie] = useState<SearchResult | null>(null);
   const [socialLink, setSocialLink] = useState('');
-  const [allLists, setAllLists] = useState<ListWithPreview[]>([]);
-
-  // Multi-list selection with per-list notes
+  const [allLists, setAllLists] = useState<ListWithMeta[]>([]);
   const [selectedLists, setSelectedLists] = useState<Map<string, ListSelection>>(new Map());
 
   const [isSearching, startSearchTransition] = useTransition();
@@ -137,7 +125,7 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
 
   const parsedVideo = parseVideoUrl(socialLink);
 
-  // Reset state when modal closes
+  // Reset on close.
   useEffect(() => {
     if (!isOpen) {
       setStep('search');
@@ -150,104 +138,52 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
     }
   }, [isOpen]);
 
-  // Initialize with current list selected when opening
+  // Pre-select the current list when opening from inside one.
   useEffect(() => {
     if (isOpen && listId && listOwnerId) {
       setSelectedLists(new Map([[listId, {
-        listId,
-        listOwnerId,
-        listName: listName || 'List',
-        note: '',
-        previewPosters: [],
+        listId, listOwnerId, listName: listName || 'list', note: '',
       }]]));
     }
   }, [isOpen, listId, listOwnerId, listName]);
 
-  // Debounced search
+  // Debounced search.
   useEffect(() => {
     if (!query.trim() || step !== 'search') {
       if (!query.trim()) setResults([]);
       return;
     }
-
     const timer = setTimeout(() => {
-      startSearchTransition(async () => {
-        const searchResults = await searchAll(query);
-        setResults(searchResults);
-      });
+      startSearchTransition(async () => setResults(await searchAll(query)));
     }, 300);
-
     return () => clearTimeout(timer);
   }, [query, step]);
 
-  // Load user lists AND collaborative lists when entering select-list step
+  // Load own + collaborative lists when entering the select step (no per-list
+  // preview fetch — cover-or-gradient like F05, which also saves N reads).
   useEffect(() => {
-    if (step === 'select-list' && user?.uid && allLists.length === 0) {
-      setIsLoadingLists(true);
-
-      Promise.all([
-        apiCall<{ lists: ListSummary[] }>('GET', `/api/v1/users/${user.uid}/lists`),
-        apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
-      ]).then(async ([userResult, collabResult]) => {
-        // Lib-server types serialize dates as ISO strings — the legacy
-        // ListWithPreview type sat on top of Server-Action responses that
-        // did the same thing, but TS was lenient because actions returned
-        // `any`-shaped data. Cast through unknown to preserve runtime.
-        const ownLists: ListWithPreview[] = (userResult.lists || []).map((l) => ({
-          ...(l as unknown as MovieList),
-          isShared: false,
+    if (step !== 'select-list' || !user?.uid || allLists.length > 0) return;
+    setIsLoadingLists(true);
+    Promise.all([
+      apiCall<{ lists: ListSummary[] }>('GET', `/api/v1/users/${user.uid}/lists`),
+      apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists'),
+    ])
+      .then(([userResult, collabResult]) => {
+        const ownLists: ListWithMeta[] = (userResult.lists || []).map((l) => ({
+          ...(l as unknown as MovieList), isShared: false,
         }));
-
-        const sharedLists: ListWithPreview[] = (collabResult.lists || []).map((l) => ({
+        const sharedLists: ListWithMeta[] = (collabResult.lists || []).map((l) => ({
           ...(l as unknown as MovieList & { ownerDisplayName?: string }),
           isShared: true,
-          ownerDisplayName: (l as { ownerDisplayName?: string }).ownerDisplayName || 'Unknown',
+          ownerDisplayName: (l as { ownerDisplayName?: string }).ownerDisplayName || 'a friend',
         }));
-
-        const combined = [...ownLists, ...sharedLists];
-
-        // Fetch preview posters for all lists in parallel
-        const listsWithPreviews = await Promise.all(
-          combined.map(async (list) => {
-            try {
-              const preview = await apiCall<{ previewPosters: string[]; movieCount: number }>(
-                'GET', `/api/v1/lists/${list.ownerId}/${list.id}/preview`,
-              );
-              return {
-                ...list,
-                previewPosters: preview.previewPosters || [],
-              };
-            } catch {
-              return { ...list, previewPosters: [] };
-            }
-          })
-        );
-
-        setAllLists(listsWithPreviews);
-
-        // Update the current list selection with preview posters
-        const currentList = listsWithPreviews.find(l => l.id === listId);
-        if (currentList) {
-          setSelectedLists(prev => {
-            const newMap = new Map(prev);
-            const existing = newMap.get(listId);
-            if (existing) {
-              newMap.set(listId, {
-                ...existing,
-                previewPosters: currentList.previewPosters,
-                listName: currentList.name,
-              });
-            }
-            return newMap;
-          });
-        }
-
-        setIsLoadingLists(false);
-      });
-    }
-  }, [step, user?.uid, allLists.length, listId]);
+        setAllLists([...ownLists, ...sharedLists]);
+      })
+      .finally(() => setIsLoadingLists(false));
+  }, [step, user?.uid, allLists.length]);
 
   const handleSelectMovie = useCallback((movie: SearchResult) => {
+    haptic('light');
     setSelectedMovie(movie);
     setStep('preview');
     setQuery('');
@@ -260,481 +196,287 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
     setSocialLink('');
   }, []);
 
-  const handleBackToPreview = useCallback(() => {
-    setStep('preview');
-  }, []);
+  const handleBackToPreview = useCallback(() => setStep('preview'), []);
+  const handleProceedToListSelect = useCallback(() => { haptic('light'); setStep('select-list'); }, []);
 
-  const handleProceedToListSelect = useCallback(() => {
-    setStep('select-list');
-  }, []);
-
-  const toggleListSelection = useCallback((list: ListWithPreview) => {
-    setSelectedLists(prev => {
-      const newMap = new Map(prev);
-      if (newMap.has(list.id)) {
-        newMap.delete(list.id);
-      } else {
-        newMap.set(list.id, {
-          listId: list.id,
-          listOwnerId: list.ownerId,
-          listName: list.name,
-          note: '',
-          previewPosters: list.previewPosters,
-        });
-      }
-      return newMap;
+  const toggleListSelection = useCallback((list: ListWithMeta) => {
+    haptic('selection');
+    setSelectedLists((prev) => {
+      const next = new Map(prev);
+      if (next.has(list.id)) next.delete(list.id);
+      else next.set(list.id, { listId: list.id, listOwnerId: list.ownerId, listName: list.name, note: '' });
+      return next;
     });
   }, []);
 
-  const updateListNote = useCallback((listId: string, note: string) => {
-    setSelectedLists(prev => {
-      const newMap = new Map(prev);
-      const existing = newMap.get(listId);
-      if (existing) {
-        newMap.set(listId, { ...existing, note });
-      }
-      return newMap;
+  const updateListNote = useCallback((id: string, note: string) => {
+    setSelectedLists((prev) => {
+      const next = new Map(prev);
+      const existing = next.get(id);
+      if (existing) next.set(id, { ...existing, note });
+      return next;
     });
   }, []);
 
   const handleAddMovie = useCallback(async () => {
     if (!selectedMovie || !user || selectedLists.size === 0) return;
-
     startAddingTransition(async () => {
-      const itemType = selectedMovie.mediaType === 'tv' ? 'TV Show' : 'Movie';
+      const itemType = selectedMovie.mediaType === 'tv' ? 'show' : 'film';
       let successCount = 0;
       let errorCount = 0;
-
-      // Add to each selected list
       for (const selection of selectedLists.values()) {
         try {
-          await apiCall(
-            'POST',
-            `/api/v1/lists/${selection.listOwnerId}/${selection.listId}/movies`,
-            {
-              movieData: selectedMovie,
-              status: 'To Watch',
-              socialLink: socialLink || undefined,
-              note: selection.note || undefined,
-            },
-          );
+          await apiCall('POST', `/api/v1/lists/${selection.listOwnerId}/${selection.listId}/movies`, {
+            movieData: selectedMovie,
+            status: 'To Watch',
+            socialLink: socialLink || undefined,
+            note: selection.note || undefined,
+          });
           successCount++;
         } catch (err) {
           console.error('[add-movie-modal] add failed:', err);
           errorCount++;
         }
       }
-
       if (successCount > 0) {
+        const first = Array.from(selectedLists.values())[0];
         toast({
-          title: `${itemType} Added!`,
+          title: `${itemType} added`,
           description: successCount === 1
-            ? `${selectedMovie.title} has been added to ${Array.from(selectedLists.values())[0].listName}.`
-            : `${selectedMovie.title} has been added to ${successCount} lists.`,
+            ? `${selectedMovie.title} → ${first.listName}`
+            : `${selectedMovie.title} → ${successCount} lists`,
         });
       }
       if (errorCount > 0) {
-        toast({
-          variant: 'destructive',
-          title: 'Some errors occurred',
-          description: `Failed to add to ${errorCount} list(s).`,
-        });
+        toast({ variant: 'destructive', title: 'Some errors occurred', description: `failed on ${errorCount} list(s).` });
       }
-
       onClose();
     });
   }, [selectedMovie, user, selectedLists, socialLink, onClose, toast]);
 
-  const getProviderIcon = (size: 'sm' | 'md' = 'sm') => {
-    const className = size === 'sm' ? 'h-4 w-4' : 'h-5 w-5';
+  const providerIcon = (cls = 'h-4 w-4') => {
     if (!parsedVideo?.provider) return null;
     switch (parsedVideo.provider) {
-      case 'tiktok': return <TiktokIcon className={`${className} text-primary`} />;
-      case 'instagram': return <Instagram className={`${className} text-primary`} />;
-      case 'youtube': return <Youtube className={`${className} text-primary`} />;
+      case 'tiktok': return <TiktokIcon className={`${cls} text-primary`} />;
+      case 'instagram': return <Instagram className={`${cls} text-primary`} />;
+      case 'youtube': return <Youtube className={`${cls} text-primary`} />;
       default: return null;
     }
   };
 
   const selectedCount = selectedLists.size;
+  const ratingStyle = selectedMovie?.rating && selectedMovie.rating > 0 ? getRatingStyle(selectedMovie.rating) : null;
 
-  // Render list cover - prioritize custom cover, then preview posters
-  const renderListCover = (list: ListWithPreview) => {
-    // First check for custom cover image
-    if (list.coverImageUrl) {
-      return (
-        <Image
-          src={list.coverImageUrl}
-          alt={list.name}
-          fill
-          className="object-cover"
-        />
-      );
-    }
-
-    // Fall back to preview posters
-    const posters = list.previewPosters || [];
-
-    if (posters.length === 0) {
-      return <Film className="h-6 w-6 text-muted-foreground" />;
-    }
-
-    if (posters.length === 1) {
-      return (
-        <Image
-          src={posters[0]}
-          alt={list.name}
-          fill
-          className="object-cover"
-        />
-      );
-    }
-
-    // 2x2 grid for multiple posters
-    return (
-      <div className="absolute inset-0 grid grid-cols-2 grid-rows-2 gap-px bg-border">
-        {posters.slice(0, 4).map((poster, idx) => (
-          <div key={idx} className="relative overflow-hidden">
-            <Image
-              src={poster}
-              alt=""
-              fill
-              className="object-cover"
-            />
-          </div>
-        ))}
-        {/* Fill empty slots if less than 4 */}
-        {posters.length < 4 && Array.from({ length: 4 - posters.length }).map((_, idx) => (
-          <div key={`empty-${idx}`} className="bg-secondary" />
-        ))}
-      </div>
-    );
-  };
-
-  // Don't render anything if not open
   if (!isOpen) return null;
 
   return (
     <>
-      {/* Step 1: Search - Full Screen Overlay (not Vaul - for consistent height) */}
+      {/* Step 1 — search. Mirrors the home search overlay (search bar + close,
+          then a 3-up poster grid) so it reads as the same confident surface.
+          Full-screen overlay (not Vaul) keeps a stable height for the keyboard. */}
       {step === 'search' && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in slide-in-from-bottom-4 duration-200">
-          {/* Drag handle visual */}
-          <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
-
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-            <div className="w-9" />
-            <h2 className="text-lg font-semibold">Search</h2>
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-fade-in">
+          <div
+            className="flex items-center gap-2.5 px-4"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.75rem)', paddingBottom: '0.75rem' }}
+          >
+            <div className="flex-1 flex items-center gap-2.5 h-12 px-3.5 rounded-[14px] border border-hair bg-sunken">
+              <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={2} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="search a film to add…"
+                className="w-full bg-transparent border-0 outline-none font-body text-[15px] text-foreground placeholder:text-muted-foreground"
+                style={{ fontSize: '16px' }}
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoFocus
+              />
+              {isSearching ? (
+                <Loader2 className="h-[18px] w-[18px] flex-shrink-0 animate-spin text-muted-foreground" />
+              ) : query ? (
+                <button
+                  onClick={() => setQuery('')}
+                  aria-label="Clear"
+                  className="flex h-[22px] w-[22px] flex-shrink-0 items-center justify-center rounded-full bg-foreground/10 text-muted-foreground"
+                >
+                  <X className="h-3 w-3" strokeWidth={2.6} />
+                </button>
+              ) : null}
+            </div>
             <button
-              onClick={onClose}
-              className="p-2 -mr-2 rounded-full hover:bg-secondary transition-colors"
+              onClick={() => { haptic('light'); onClose(); }}
+              aria-label="Close"
+              className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full bg-secondary text-foreground transition-transform active:scale-90"
             >
-              <X className="h-5 w-5" />
+              <X className="h-[19px] w-[19px]" strokeWidth={2.2} />
             </button>
           </div>
 
-          {/* Search Input */}
-          <div className="p-4 flex-shrink-0">
-            <div className="relative">
-              <Input
-                type="text"
-                placeholder="Search movies or TV shows..."
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                className="pr-10 h-12 text-base bg-secondary/50 border-border rounded-xl"
-                style={{ fontSize: '16px' }}
-                autoFocus
-              />
-              <div className="absolute inset-y-0 right-0 flex items-center pr-3">
-                {isSearching ? (
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                ) : (
-                  <Search className="h-5 w-5 text-muted-foreground" />
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Search Results */}
-          <div className="flex-1 overflow-y-auto min-h-0 pb-[env(safe-area-inset-bottom,0px)]">
-            {results.length === 0 && query && !isSearching ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Search className="h-12 w-12 mb-4 opacity-50" />
-                <p>No results found</p>
-              </div>
-            ) : results.length === 0 && !query ? (
-              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-                <Film className="h-12 w-12 mb-4 opacity-50" />
-                <p>Search for movies or TV shows</p>
-              </div>
+          <div className="flex-1 overflow-y-auto min-h-0 px-4 pb-24">
+            {results.length === 0 ? (
+              <p className="pt-24 text-center font-serif italic text-[15px] text-muted-foreground px-8">
+                {query && !isSearching ? "couldn't find that one. try another title?" : 'search for a film or show to add to your list.'}
+              </p>
             ) : (
-              <div className="divide-y divide-border">
-                {results.map((movie) => (
-                  <button
-                    key={`${movie.mediaType}-${movie.id}`}
-                    onClick={() => handleSelectMovie(movie)}
-                    className="w-full text-left p-4 hover:bg-secondary/50 active:bg-secondary transition-colors flex items-center gap-4"
-                  >
-                    <Image
-                      src={movie.posterUrl}
-                      alt={movie.title}
-                      width={48}
-                      height={72}
-                      className="rounded-lg border border-border object-cover flex-shrink-0"
+              <section className="pt-2">
+                <div className="cc-eyebrow">films &amp; tv</div>
+                <div className="h-px bg-rule mt-2.5 mb-3.5" />
+                <div className="grid grid-cols-3 gap-3">
+                  {results.map((movie) => (
+                    <FilmGridTile
+                      key={`${movie.mediaType}-${movie.id}`}
+                      posterUrl={movie.posterUrl}
+                      title={movie.title}
+                      year={movie.year}
+                      isTv={movie.mediaType === 'tv'}
+                      onOpen={() => handleSelectMovie(movie)}
                     />
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold truncate">{movie.title}</p>
-                      <p className="text-sm text-muted-foreground">{movie.year}</p>
-                    </div>
-                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full flex-shrink-0">
-                      {movie.mediaType === 'movie' ? (
-                        <>
-                          <Film className="h-3 w-3" />
-                          <span>Movie</span>
-                        </>
-                      ) : (
-                        <>
-                          <Tv className="h-3 w-3" />
-                          <span>TV</span>
-                        </>
-                      )}
-                    </div>
-                  </button>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </section>
             )}
           </div>
         </div>
       )}
 
-      {/* Step 2: Movie Preview Bottom Sheet */}
+      {/* Step 2 — preview the picked film + attach a clip */}
       <Drawer.Root
         open={step === 'preview' && !!selectedMovie}
-        onOpenChange={(open) => {
-          // Only go back to search if user actually dismissed the drawer (not transitioning to another step)
-          if (!open && step === 'preview') {
-            handleBackToSearch();
-          }
-        }}
-        modal={true}
+        onOpenChange={(open) => { if (!open && step === 'preview') handleBackToSearch(); }}
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-          <Drawer.Content
-            className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none"
-            style={{ height: '85vh', maxHeight: '85vh' }}
-          >
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-              <button
-                onClick={handleBackToSearch}
-                className="p-2 -ml-2 rounded-full hover:bg-secondary transition-colors"
-              >
-                <ArrowLeft className="h-5 w-5" />
+          <Drawer.Content className={`${SHEET} z-50`} style={{ height: '85vh', maxHeight: '85vh' }}>
+            <div className={HANDLE} />
+            <div className="flex items-center justify-between px-5 py-2.5">
+              <button onClick={handleBackToSearch} className="-ml-1 p-1 text-foreground active:opacity-60" aria-label="Back">
+                <ChevronLeft className="h-6 w-6" strokeWidth={2} />
               </button>
-              <Drawer.Title className="text-lg font-semibold">Add to List</Drawer.Title>
-              <button
-                onClick={handleProceedToListSelect}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors text-sm font-medium"
-              >
-                <Plus className="h-4 w-4" />
-                <span>Add</span>
+              <Drawer.Title className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">add to list</Drawer.Title>
+              <button onClick={handleProceedToListSelect} className="font-ui font-bold text-[15px] text-primary active:opacity-60">
+                next
               </button>
             </div>
 
             {selectedMovie && (
-              <div className="flex-1 overflow-y-auto min-h-0">
-                {/* Movie Info */}
-                <div className="p-4">
-                  <div className="flex gap-4">
-                    <Image
-                      src={selectedMovie.posterUrl}
-                      alt={selectedMovie.title}
-                      width={100}
-                      height={150}
-                      className="rounded-xl border border-border shadow-md object-cover flex-shrink-0"
-                    />
-                    <div className="flex-1 min-w-0">
-                      <h3 className="text-xl font-bold">{selectedMovie.title}</h3>
-                      <p className="text-muted-foreground">{selectedMovie.year}</p>
-                      <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-secondary px-2 py-1 rounded-full w-fit mt-2">
-                        {selectedMovie.mediaType === 'movie' ? (
-                          <>
-                            <Film className="h-3 w-3" />
-                            <span>Movie</span>
-                          </>
-                        ) : (
-                          <>
-                            <Tv className="h-3 w-3" />
-                            <span>TV Show</span>
-                          </>
-                        )}
-                      </div>
-                      {selectedMovie.rating && selectedMovie.rating > 0 && (
-                        <div className="mt-2 text-sm">
-                          <span className="text-warning">★</span>
-                          <span className="ml-1">{selectedMovie.rating.toFixed(1)}/10</span>
-                        </div>
-                      )}
-                    </div>
+              <div className="flex-1 overflow-y-auto min-h-0 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
+                <div className="flex gap-4 mt-1">
+                  <div className="relative h-[132px] w-[88px] flex-shrink-0 rounded-2xl overflow-hidden bg-sunken shadow-photo">
+                    <Image src={selectedMovie.posterUrl} alt={selectedMovie.title} fill className="object-cover" sizes="88px" />
                   </div>
-
-                  {/* Overview */}
-                  {selectedMovie.overview && (
-                    <p className="mt-4 text-sm text-muted-foreground leading-relaxed line-clamp-3">
-                      {selectedMovie.overview}
-                    </p>
-                  )}
+                  <div className="flex-1 min-w-0 pt-1">
+                    <h3 className="font-headline font-bold text-[22px] lowercase tracking-[-0.02em] leading-[1.02]">{selectedMovie.title}</h3>
+                    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                      {ratingStyle && (
+                        <span className="px-2 py-0.5 rounded-md font-mono text-[11px] font-bold tabular-nums" style={{ ...ratingStyle.background, ...ratingStyle.textOnBg }}>
+                          {selectedMovie.rating!.toFixed(1)}
+                        </span>
+                      )}
+                      <span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+                        {selectedMovie.year !== 'N/A' ? selectedMovie.year : ''}{selectedMovie.year !== 'N/A' ? ' · ' : ''}{selectedMovie.mediaType === 'tv' ? 'tv' : 'film'}
+                      </span>
+                    </div>
+                    {selectedMovie.overview && (
+                      <p className="mt-3 font-serif italic text-[14px] leading-snug text-foreground/85 line-clamp-4">{selectedMovie.overview}</p>
+                    )}
+                  </div>
                 </div>
 
-                {/* Social Link Input - Tap to open fullscreen input */}
-                <div className="p-4 border-t border-border">
-                  <label className="text-sm font-medium mb-1 block">
-                    What made you want to watch this?
-                  </label>
-                  <p className="text-xs text-muted-foreground mb-3">
-                    Saw a cool edit or trailer? Paste the link so others can see!
-                  </p>
+                <div className="mt-7">
+                  <div className="cc-eyebrow text-muted-foreground mb-2">what made you want to watch this?</div>
                   <button
                     type="button"
                     onClick={() => setStep('edit-link')}
-                    className={`w-full text-left bg-secondary/50 rounded-xl px-3 py-3 text-base border border-border hover:border-primary/50 transition-colors ${
-                      socialLink ? 'text-foreground' : 'text-muted-foreground'
-                    }`}
+                    className="w-full flex items-center justify-between gap-2 rounded-2xl border border-hair bg-background/60 px-4 py-3 text-left active:opacity-60 transition-opacity"
                   >
-                    <div className="flex items-center justify-between">
-                      <span className="truncate flex-1">
-                        {socialLink || 'Paste TikTok, Reel, or YouTube link...'}
-                      </span>
-                      {parsedVideo?.provider && (
-                        <span className="flex-shrink-0 ml-2">
-                          {getProviderIcon()}
-                        </span>
-                      )}
-                    </div>
+                    <span className={`truncate font-serif italic text-[15px] ${socialLink ? 'text-foreground' : 'text-muted-foreground/70'}`}>
+                      {socialLink || 'paste a tiktok, reel, or youtube link…'}
+                    </span>
+                    {parsedVideo?.provider && <span className="flex-shrink-0">{providerIcon()}</span>}
                   </button>
                   {parsedVideo?.provider ? (
-                    <p className="text-xs text-green-600 mt-2 flex items-center gap-1">
-                      {getProviderIcon()}
-                      <span>{getProviderDisplayName(parsedVideo.provider)} video will be embedded!</span>
+                    <p className="mt-2 flex items-center gap-1.5 font-mono text-[10px] text-success lowercase">
+                      {providerIcon('h-3.5 w-3.5')}
+                      <span>{getProviderDisplayName(parsedVideo.provider).toLowerCase()} clip will embed</span>
                     </p>
                   ) : (
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span>Works with:</span>
-                      <div className="flex items-center gap-2">
-                        <TiktokIcon className="h-4 w-4" />
-                        <Instagram className="h-4 w-4" />
-                        <Youtube className="h-4 w-4" />
-                      </div>
+                    <div className="mt-2 flex items-center gap-2.5 font-mono text-[10px] text-muted-foreground lowercase">
+                      <span>works with</span>
+                      <TiktokIcon className="h-3.5 w-3.5" />
+                      <Instagram className="h-3.5 w-3.5" strokeWidth={1.8} />
+                      <Youtube className="h-3.5 w-3.5" strokeWidth={1.8} />
                     </div>
                   )}
                 </div>
               </div>
             )}
-
-            <div className="pb-[env(safe-area-inset-bottom,0px)]" />
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Step 3: Multi-List Selection Bottom Sheet */}
-      <Drawer.Root
-        open={step === 'select-list'}
-        onOpenChange={(open) => !open && handleBackToPreview()}
-        modal={true}
-      >
+      {/* Step 3 — choose which lists */}
+      <Drawer.Root open={step === 'select-list'} onOpenChange={(open) => !open && handleBackToPreview()}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content
-            className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-background border-t border-border outline-none"
-            style={{ height: '85vh', maxHeight: '85vh' }}
-          >
-            {/* Drag handle */}
-            <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />
-
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0">
-              <button
-                onClick={handleBackToPreview}
-                className="p-2 -ml-2 rounded-full hover:bg-secondary transition-colors"
-              >
-                <ArrowLeft className="h-5 w-5" />
+          <Drawer.Content className={`${SHEET} z-[60]`} style={{ height: '85vh', maxHeight: '85vh' }}>
+            <div className={HANDLE} />
+            <div className="flex items-center justify-between px-5 py-2.5">
+              <button onClick={handleBackToPreview} className="-ml-1 p-1 text-foreground active:opacity-60" aria-label="Back">
+                <ChevronLeft className="h-6 w-6" strokeWidth={2} />
               </button>
-              <Drawer.Title className="text-lg font-semibold">
-                Add to {selectedCount} {selectedCount === 1 ? 'list' : 'lists'}
+              <Drawer.Title className="font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">
+                {selectedCount > 0 ? `add to ${selectedCount} ${selectedCount === 1 ? 'list' : 'lists'}` : 'add to list'}
               </Drawer.Title>
-              <div className="w-9" />
+              <span className="w-6" />
             </div>
 
-            {/* Scrollable list area */}
-            <div className="flex-1 overflow-y-auto min-h-0">
+            <div className="flex-1 overflow-y-auto min-h-0 px-5">
               {isLoadingLists ? (
-                <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
+                <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
+              ) : allLists.length === 0 ? (
+                <p className="pt-14 text-center font-serif italic text-[15px] text-muted-foreground">no lists yet — make one first.</p>
               ) : (
-                <div className="p-4 space-y-3">
+                <div className="rounded-2xl border border-hair bg-card divide-y divide-hair overflow-hidden">
                   {allLists.map((list) => {
-                    const isSelected = selectedLists.has(list.id);
+                    const on = selectedLists.has(list.id);
                     const selection = selectedLists.get(list.id);
-
+                    const cover = list.coverImageUrl || null;
                     return (
-                      <div
-                        key={list.id}
-                        className={`rounded-2xl border overflow-hidden transition-all ${
-                          isSelected
-                            ? 'border-primary bg-primary/5'
-                            : 'border-border'
-                        }`}
-                      >
-                        {/* List Card Header */}
-                        <button
-                          onClick={() => toggleListSelection(list)}
-                          className="w-full p-3 flex items-center gap-3"
-                        >
-                          {/* List Cover */}
-                          <div className="w-16 h-16 rounded-xl bg-secondary flex items-center justify-center flex-shrink-0 overflow-hidden relative">
-                            {renderListCover(list)}
-                          </div>
-
-                          {/* List Info */}
-                          <div className="flex-1 min-w-0 text-left">
-                            <p className="font-semibold truncate">{list.name}</p>
-                            <p className="text-xs text-muted-foreground">
-                              {list.isShared ? (
-                                <span>Shared by {list.ownerDisplayName}</span>
-                              ) : (
-                                list.isPublic ? 'Public' : 'Private'
-                              )}
-                            </p>
-                          </div>
-
-                          {/* Selection Indicator */}
-                          <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 transition-colors ${
-                            isSelected
-                              ? 'bg-primary'
-                              : 'border border-border'
-                          }`}>
-                            {isSelected && (
-                              <Check className="h-4 w-4 text-primary-foreground" />
+                      <div key={list.id}>
+                        <button onClick={() => toggleListSelection(list)} className="w-full flex items-center gap-3.5 p-3.5 text-left active:bg-foreground/5 transition-colors">
+                          <span
+                            className="relative h-[52px] w-[52px] flex-shrink-0 rounded-[14px] overflow-hidden flex items-center justify-center"
+                            style={!cover ? { background: seededGradient(list.name) } : undefined}
+                          >
+                            {cover ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={cover} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <Film className="h-5 w-5 text-white/80" strokeWidth={1.8} />
                             )}
-                          </div>
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="block font-headline font-bold text-[16.5px] lowercase tracking-[-0.02em] truncate">{list.name}</span>
+                            <span className="block font-mono text-[11px] text-muted-foreground lowercase truncate mt-0.5">
+                              {list.isShared ? `shared by ${list.ownerDisplayName}` : (list.isPublic ? 'public' : 'private')}
+                            </span>
+                          </span>
+                          <span className={`flex-shrink-0 h-7 w-7 rounded-full flex items-center justify-center transition-colors ${on ? 'bg-primary text-white' : 'border-2 border-hair'}`}>
+                            {on && <Check className="h-4 w-4" strokeWidth={3} />}
+                          </span>
                         </button>
-
-                        {/* Note Input (only when selected) */}
-                        {isSelected && (
-                          <div className="px-3 pb-3">
+                        {on && (
+                          <div className="px-3 pb-3 -mt-0.5">
                             <textarea
                               value={selection?.note || ''}
                               onChange={(e) => updateListNote(list.id, e.target.value)}
-                              placeholder="Add a note..."
+                              placeholder="add a note for this list…"
                               rows={2}
                               maxLength={200}
-                              className="w-full resize-none rounded-xl border border-border bg-background px-3 py-2 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              className="w-full resize-none rounded-xl border border-hair bg-background/60 px-3 py-2 font-serif italic text-[14px] text-foreground placeholder:text-muted-foreground/70 outline-none focus:border-foreground/30 transition-colors"
                               style={{ fontSize: '16px' }}
                             />
                           </div>
@@ -746,40 +488,28 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
               )}
             </div>
 
-            {/* Fixed Save Button at bottom */}
-            <div className="flex-shrink-0 p-4 border-t border-border bg-background pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-              <Button
+            <div className="flex-shrink-0 px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]">
+              <button
                 onClick={handleAddMovie}
                 disabled={isAdding || selectedCount === 0}
-                className="w-full h-12 text-base font-semibold rounded-xl"
-                size="lg"
+                className="w-full h-12 rounded-full inline-flex items-center justify-center gap-2 bg-primary text-primary-foreground font-headline font-bold text-[15px] lowercase tracking-[-0.02em] shadow-fab transition-all active:scale-[0.98] disabled:opacity-50"
               >
-                {isAdding ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <>
-                    <Check className="h-5 w-5 mr-2" />
-                    Save
-                  </>
-                )}
-              </Button>
+                {isAdding ? <Loader2 className="h-5 w-5 animate-spin" /> : <><Check className="h-[17px] w-[17px]" strokeWidth={2.5} />add</>}
+              </button>
             </div>
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
 
-      {/* Fullscreen input for social link - renders when drawer is CLOSED */}
+      {/* social-link editor — renders when the drawer is CLOSED (iOS keyboard-safe) */}
       <FullscreenTextInput
         isOpen={step === 'edit-link'}
         onClose={() => setStep('preview')}
-        onSave={async (text) => {
-          setSocialLink(text);
-          // Note: FullscreenTextInput calls onClose after onSave, which sets step back to 'preview'
-        }}
+        onSave={async (text) => { setSocialLink(text); }}
         initialValue={socialLink}
-        title="Add Link"
+        title="add link"
         subtitle={selectedMovie?.title}
-        placeholder="Paste TikTok, Reel, or YouTube link..."
+        placeholder="paste tiktok, reel, or youtube link…"
         singleLine
         inputType="url"
         maxLength={500}

@@ -5,18 +5,18 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { UserAvatar } from '@/components/user-avatar';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { NotificationBell } from '@/components/notification-bell';
 import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
-import { collection, doc } from 'firebase/firestore';
+import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
+import { Hero } from '@/components/v3/hero';
+import { GlassBtn } from '@/components/v3/glass-button';
 import { Fab } from '@/components/fab';
 import { apiCall } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
 import { recallListSeed } from '@/lib/list-detail-seed';
@@ -41,6 +41,9 @@ export default function ListDetailPage() {
   const [loadingTimedOut, setLoadingTimedOut] = useState(false);
   // Add movie modal state
   const [isAddMovieOpen, setIsAddMovieOpen] = useState(false);
+  // Movie detail drawer open state (lifted from MovieList) — so pull-to-refresh
+  // is disabled while the drawer is open, matching the add-modal convention.
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Determine the effective owner ID (user's own or collaborative)
   const effectiveOwnerId = collaborativeListOwner || user?.uid;
@@ -76,7 +79,13 @@ export default function ListDetailPage() {
   // Get movies in this list
   const moviesQuery = useMemoFirebase(() => {
     if (!effectiveOwnerId || !listId) return null;
-    return collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies');
+    // Cap the real-time listener so a runaway/huge list can't read thousands of
+    // docs on mount. 300 covers any real list; MovieList still sorts/filters.
+    return query(
+      collection(firestore, 'users', effectiveOwnerId, 'lists', listId, 'movies'),
+      orderBy('createdAt', 'desc'),
+      limit(300),
+    );
   }, [firestore, effectiveOwnerId, listId]);
 
   const { data: movies, isLoading: isLoadingMovies, error: moviesError } = useCollection<Movie>(moviesQuery);
@@ -156,8 +165,16 @@ export default function ListDetailPage() {
       if (!collaborativeListOwner || queryParamFailed) {
         setIsCheckingCollab(true);
         try {
-          const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
-          const collabList = result.lists?.find(l => l.id === listId);
+          // Reuse the shared collab-lists cache (same key as /lists + the
+          // bottom-nav prefetch) so opening a collab list doesn't re-fetch it.
+          const cacheKey = `collab-lists:${user.uid}`;
+          let lists = readCachedAction<CollaborativeListSummary[]>(cacheKey);
+          if (!lists || !isCachedActionFresh(cacheKey, 60_000)) {
+            const result = await apiCall<{ lists: CollaborativeListSummary[] }>("GET", "/api/v1/me/collaborative-lists");
+            lists = result.lists ?? [];
+            setCachedAction(cacheKey, lists);
+          }
+          const collabList = lists.find(l => l.id === listId);
           if (collabList) {
             setCollaborativeListOwner(collabList.ownerId);
           } else {
@@ -248,12 +265,12 @@ export default function ListDetailPage() {
             <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border border-border">
               <AlertTriangle className="h-8 w-8 text-destructive" />
             </div>
-            <h1 className="text-2xl font-headline font-bold mb-2">Access Denied</h1>
-            <p className="text-muted-foreground mb-4 text-center max-w-md">
-              You don&apos;t have permission to view this list. Ask the list owner to invite you as a collaborator.
+            <h1 className="text-2xl font-headline font-bold lowercase tracking-tight mb-2">access denied</h1>
+            <p className="cc-lead text-muted-foreground mb-4 text-center max-w-md">
+              you don&apos;t have permission to view this list. ask the owner to invite you as a collaborator.
             </p>
             <Link href="/lists">
-              <Button>Go to My Lists</Button>
+              <Button>go to my lists</Button>
             </Link>
           </div>
         </div>
@@ -297,30 +314,37 @@ export default function ListDetailPage() {
   //     case; rarer, but should still feel snappy because IndexedDB
   //     persistence makes the second snapshot near-instant).
 
+  const isPublic = !!effectiveListData?.isPublic;
+  const hasCover =
+    !!effectiveListData?.coverImageUrl && effectiveListData?.coverMode !== 'auto';
+
   return (
     <>
-      <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen}>
-        <main className="min-h-screen font-body text-foreground pb-24 md:pb-8 md:pt-20">
-          <div className="container mx-auto p-4 md:p-8">
-            <header className="mb-8">
-              {/* Top bar with back button */}
-              <div className="w-full flex justify-between items-center mb-6">
-                <Link href="/lists">
-                  <Button variant="ghost" className="gap-2">
-                    <ArrowLeft className="h-4 w-4" />
-                    All Lists
-                  </Button>
-                </Link>
-                <div className="flex items-center gap-3">
-                  <NotificationBell />
-                  <ThemeToggle />
-                  <UserAvatar />
-                </div>
-              </div>
+      <PullToRefresh onRefresh={handleRefresh} disabled={isAddMovieOpen || isDrawerOpen}>
+        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
+          {/* Cinematic hero — cover (or seeded gradient) + glass chrome */}
+          <Hero
+            coverImageUrl={hasCover ? effectiveListData?.coverImageUrl : undefined}
+            seed={effectiveListData?.name}
+            topLeft={
+              <GlassBtn icon={ArrowLeft} ariaLabel="Back to lists" onClick={() => router.push('/lists')} />
+            }
+          >
+            <div className="font-mono text-[10px] font-bold uppercase tracking-[0.2em] text-white/85">
+              {isPublic ? 'public list' : 'private list'}
+            </div>
+            {effectiveListData ? (
+              <h1 className="mt-2 font-headline text-[34px] font-bold leading-[0.92] tracking-tight lowercase text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.35)] md:text-5xl">
+                {effectiveListData.name || 'list'}
+              </h1>
+            ) : (
+              <div className="mt-2 h-9 w-2/3 animate-pulse rounded bg-white/20" />
+            )}
+          </Hero>
 
-              {/* List header — renders against effectiveListData so the seed
-                  paints it synchronously. When effectiveOwnerId isn't known
-                  yet (direct URL nav, no seed), a skeleton stands in. */}
+          {/* Pull-up content sheet */}
+          <div className="relative z-[1] -mt-5 min-h-[60vh] rounded-t-[22px] bg-background">
+            <div className="mx-auto max-w-3xl px-4 pt-5">
               {effectiveOwnerId && effectiveListData ? (
                 <ListHeader
                   listId={listId}
@@ -328,27 +352,28 @@ export default function ListDetailPage() {
                   listData={effectiveListData}
                   isOwner={isOwner}
                   isCollaborator={isCollaborator}
+                  movieCount={movies?.length}
+                  posters={(movies || []).map((m) => m.posterUrl).filter(Boolean).slice(0, 3)}
                 />
               ) : (
                 <div className="space-y-3" aria-label="Loading list header">
-                  <div className="h-8 w-2/3 rounded bg-muted animate-pulse" />
-                  <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
+                  <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
+                  <div className="h-8 w-1/3 rounded-full bg-muted animate-pulse" />
                 </div>
               )}
-            </header>
 
-            {/* Movie list — `MovieList` shows its own skeleton when isLoading
-                is true. With Firestore IndexedDB persistence, the first
-                snapshot usually lands in <50ms on re-mount, so the skeleton
-                is barely a flash. */}
-            <div className="w-full">
-              <MovieList
-                initialMovies={movies || []}
-                isLoading={isLoadingMovies}
-                listId={listId}
-                listOwnerId={effectiveOwnerId}
-                canEdit={canEdit}
-              />
+              {/* Movie list — `MovieList` shows its own skeleton when isLoading. */}
+              <div className="mt-6">
+                <MovieList
+                  initialMovies={movies || []}
+                  isLoading={isLoadingMovies}
+                  listId={listId}
+                  listOwnerId={effectiveOwnerId}
+                  listName={effectiveListData?.name}
+                  canEdit={canEdit}
+                  onDrawerOpenChange={setIsDrawerOpen}
+                />
+              </div>
             </div>
           </div>
         </main>
@@ -356,7 +381,7 @@ export default function ListDetailPage() {
 
       <BottomNav />
 
-      {/* FAB for adding movies */}
+      {/* Persistent add — film-red FAB (the hero + scrolls away on long lists) */}
       {canEdit && effectiveOwnerId && (
         <Fab
           icon={Plus}

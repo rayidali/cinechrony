@@ -2,22 +2,184 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-08)
+## Current state (2026-06-17)
 
-- **Phase A complete** — `src/app/actions.ts` is deleted. Every former
-  Server Action is now either a `/api/v1/*` route handler (Bearer-token
-  auth, envelope contract) or a helper in `src/lib/<domain>-server.ts`.
-  See `src/app/CLAUDE.md` for the API surface map.
-- **Phase B complete** — Capacitor 8 wraps the static `out/` bundle in
-  native iOS + Android shells (`ios/` and `android/` at repo root).
-  Native Google + Apple sign-in, FCM push delivery, Universal Links,
-  status-bar / splash / safe-area polish all in code. Owner manual
-  setup (Apple Developer, Firebase Console iOS/Android, APNs key) in
-  `PHASE-B-HANDOFF.md` at repo root.
-- **Verification:** typecheck ✓ · `npm run build` (Vercel) ✓ ·
-  `npm run build:static` (Capacitor) ✓ · audit suite **403/403**.
-- **Next:** Phase C — iOS Share Extension (hero feature, ~2 weeks). Spec
-  in `LAUNCH.md` §C.
+- **Phases A + B + 0.5 merged to `main`** (A+B via PR #88, tip `9c81360`).
+  `src/app/actions.ts` is deleted — every former Server Action is now a
+  `/api/v1/*` route handler (Bearer-token auth, envelope contract) or a
+  helper in `src/lib/<domain>-server.ts` (see `src/app/CLAUDE.md`).
+  Capacitor 8 wraps the static `out/` bundle in native iOS + Android shells
+  (`ios/` + `android/`); native auth, FCM push, Universal Links, native
+  polish all in code. Owner manual setup in `PHASE-B-HANDOFF.md`.
+- **Active: Phase 0.7 — v3 iOS-native redesign** on `feat/v3-redesign`. A
+  screen-by-screen restyle to the downloaded Claude Design package, plus a
+  native-feel motion layer (haptics done; transitions/swipe-back next).
+  Tracker: **`PHASE-0.7-REDESIGN.md`**. Done: **Profile tab family**, **Search**
+  (0.7.3.6), and the **full Home / feed revamp** (0.7.3.1 a/b + R1/R2 — recomposed
+  to `ios-home.jsx`): `font-ui` system-sans; underline `for you·friends` tabs;
+  icon-only red pencil FAB; **discovery rails** (dig in [client-direct TMDB] · top
+  watchers [new `GET /api/v1/leaderboard`] · featured hero · from-the-community,
+  all real loved-lists/TMDB data); and the **borderless reel** (`DiaryEntry` +
+  `MovieCell`+`MediaGallery` + inline "because you liked X" poster rows). v3
+  primitives in `src/components/v3/*`. The home **feed is now posts-only**
+  (rated/reviewed dropped); captions are Bricolage. **The F-screen
+  interaction-surface Waves 1–6 are all DONE** (rail detail screens → movie-drawer
+  cluster + watch-log → create-a-post → threads + reviews wall → reel·player →
+  data-rail finish); see `PHASE-0.7-REDESIGN.md` § "0.7.3.2+". **Wave 7 so far:
+  notifications (2026-06-19) + onboarding & auth (2026-06-20) are v3.** The
+  onboarding flow was **reordered account-LAST** (welcome → name → letterboxd →
+  handle → email[create account] → importing → find-your-people; + login · forgot ·
+  check-email · reset). Name/letterboxd-handle/@handle are LOCAL state until the
+  email step creates the Firebase account, which then provisions the profile,
+  reserves the handle, and fires the import. New v3 kit: `v3/onboarding-kit.tsx` ·
+  `v3/poster-wall.tsx` · `v3/social-auth-row.tsx` + step components under
+  `onboarding/components/*`. The **letterboxd username scrape** is wired in
+  (cheap `/preview` "found" state → an **async, chunked import**:
+  `scrape/start` → poll `scrape/status` → `scrape/import` films-in-120-chunks
+  with concurrent TMDB matching + a **lovable progress UI** (a real poster wall
+  builds, counters tick, ETA, stat reveal), so a thousands-film library never
+  blows the serverless time budget. The import lives in a **store**
+  (`import-store.ts`) that survives navigation, so "continue in the app" hands off
+  to a background **progress pill** (+ resume-on-kill); rated/reviewed films import
+  as **Watched**. **Reviews import in the BACKGROUND** after onboarding via
+  `<PendingImportSync/>` + `/reviews/sync` (canonical `parentId:null` docs so they
+  show in the wall) — the browser actor is minutes-slow so it's never part of the
+  wait — and it degrades gracefully when `APIFY_TOKEN` is unset; **username login**
+  via secure
+  `/api/v1/auth/login` (custom token, email stays private). **Wave 7 remainder**
+  (settings · invite · add · list-settings) + **native motion slice 2** (push/pop
+  transitions + app-wide swipe-back) are DONE. **Story share (0.7.4) is DONE
+  (2026-06-23)** — see below; the only Phase 0.7 item left is the OPTIONAL
+  direct-to-IG pasteboard fast-follow (0.7.6.2/3), then Phase C.
+- **Story share — 0.7.4 DONE (2026-06-23):** "tap share on a post → a branded
+  9:16 card, ready for the Instagram story composer" (design screen 06), three
+  variants: **review·immersive · watched·paper · list·dark**. Renderer
+  `GET /api/v1/share/story` (`next/og`/Satori, `runtime='nodejs'`, 1080×1920) —
+  lives under `/api/v1` so the static export excludes it and the native app
+  fetches the PNG cross-origin (ACAO:* on the response). **No Firestore / no
+  auth:** the client serializes card content into query params
+  (`src/lib/story-card.ts`, pure helpers + wire contract) — quota-safe, and the
+  output is public anyway. Brand TTFs vendored in `public/fonts/**` (read via fs;
+  `outputFileTracingIncludes` bundles them); poster/avatar pre-fetched to
+  data-URIs with a timeout → deterministic colour-placeholder fallback. Delivery:
+  `@capacitor/share` + `@capacitor/filesystem` (write PNG → `Share.share({files})`
+  → IG Stories; web = `navigator.share`/download) in `src/lib/story-share.ts`. An
+  app-wide **`StoryShareProvider`** (root layout) exposes
+  `useStoryShare().open(payload)` + a Vaul preview sheet; wired on **post/reel**
+  (post-card → watched), **reviews wall** (review-react-overlay long-press →
+  review), and the **list header** (own + public → list). Verified: typecheck ·
+  build · build:static · `cap sync ios` (9 plugins) · audit 460/460 · all three
+  PNGs render + visually checked.
+- **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
+  quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
+  `softFallback` · lazy detail reads · no per-item N+1). **Deep read-reduction
+  pass (2026-06-16, see [[project_quota_read_reduction]]):** `useCachedAction`
+  now TTL-gates revalidation (`{staleTime}` + `isCachedActionFresh`) so repeat
+  navigations don't refetch; leaderboard uses `getFollowingIds` (no 200-profile
+  hydration); `getBlockSet`/collab/members/preview/unread-count/activity-author
+  all server-TTL-cached **with write-invalidation** (the cardinal rule — never
+  show the user stale data after their OWN action); unbounded queries capped;
+  bell poll 30s→120s+cached. Verified by a 9-agent read audit + 5-agent
+  adversarial cache-invalidation review (caught + fixed 3 stale-after-own-action
+  bugs). Repeat home nav ≈ 0 reads (was ~270); idle bell ~75% lower. Firestore
+  client persistence (`persistentLocalCache`) already mitigates the real-time
+  `onSnapshot` channel. Preview deploys call their **own** API so server changes
+  show on a preview.
+- **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
+  `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
+  Presentational — must not regress logic.
+- **0.7.3.2+ interaction waves (`PHASE-0.7-REDESIGN.md`):** **Wave 1** (rail
+  detail screens F15/F16/F17) ✅ + **Wave 2** (movie-drawer cluster) ✅ merged on
+  `feat/v3-redesign`. Wave 2 unified the two detail modals into one **`MovieDrawer`**
+  (`movie-drawer.tsx`, `{standalone|in-list}` context; old `public-`/`movie-details-modal.tsx`
+  are thin adapters) to the F01/F02 design — scores (IMDb/RT/Metacritic+awards),
+  where-to-watch (TMDB JustWatch), cast & crew, `v3/drag-to-rate.tsx`, light+dark.
+  New **`/users/{uid}/watches`** watch-log (`watches-server.ts` · `/api/v1/watches`
+  · F03 `v3/how-was-it-sheet.tsx`) powers `your history` + "how was it?".
+  **Wave 3** (create-a-post F04 + post-thread F21 + reel F22) ✅ — the composer
+  (`post-composer.tsx`, FAB) with film-optional / **text-required** rule, picker
+  sheets (`v3/film-picker-sheet` · `tag-friends-sheet` · `watched-on-sheet` ·
+  `visible-to-sheet`), the audience model (`canViewPost`, server-only
+  `/closeFriends/{uid}`), the X-style thread (no bottom nav, keyboard-riding
+  reply bar), and the forced-dark IG-style `v3/reel-viewer.tsx`.
+- **Theme + profile polish (2026-06-17):** light/dark/system is now a **visible**
+  top-right toggle on **every tab** — `ThemeToggle` gained `default` + `glass`
+  variants (home/lists bars + the profile hero) with an active-choice checkmark,
+  a Settings → **Appearance** `Segmented`, and a shared `DEFAULT_THEME` (from
+  `theme-provider.tsx`) so the pre-mount fallback can't drift; the avatar menu is
+  reverted to its original. Profile activity rows (`RecentRow`) + the
+  `EditProfileSheet` were brought up to the **v3 sizing standard** (see
+  `src/components/CLAUDE.md`). next-themes is client-side only (default = light;
+  the 0.7.1.4 spec's "system-default" is a one-line flip if wanted).
+- **Hot-take card (0.7.5.4, 2026-06-17):** the design's green quote card is now
+  built — `GET /api/v1/reviews/highlights` (`getReviewHighlights`) serves a
+  GLOBAL, 30-min-cached, index-free pool of short high-rated top-level reviews
+  (per-caller filtered for own/blocks; `softFallback: []`; empty hides it — real
+  data only); `HotTakeCard` is interleaved into the reel (`activity-feed.tsx`,
+  leads then every 8, for-you only, client block/mute/self filter). Tests:
+  `46-review-highlights`. **Home + feed are fully composed** (a 2026-06-17 sizing
+  pass took the search row to `h-12` and the post movie-cell poster to the
+  standard 48×72; leaderboard "view all" + profile top-5 also de-timidified).
+- **Reviews wall — Wave 4 F07 COMPLETE (2026-06-18):** `/movie/[tmdbId]/comments`
+  rebuilt as the **F12 reviews wall** (friends-framed score card + loved/liked/
+  fine/nope distribution + friends-seen rail + helpful/recent/highest sort +
+  featured most-helpful + review cards w/ score-badge-or-NOTE + 5 icon reactions
+  + threaded reply bubbles), **F13** rating-forward composer, **F14** long-press
+  react/action overlay, **F15** reply mode. New backend: a `reactions` map on
+  reviews (one-per-user) + `POST/DELETE /api/v1/reviews/[id]/react`;
+  `getReviewsWall` + **`GET /api/v1/movies/[tmdbId]/reviews-wall`** (publicApiRoute
+  optional-auth; ONE index-free scan → summary + grouped reviews/replies;
+  deliberately no-cache for no-stale-after-own-post; block-filtered). Shared pure
+  helpers `review-verdict.ts` + `review-reactions.ts`; v3 components
+  `reviews-summary-card` · `review-wall-card` · `review-composer-sheet` ·
+  `review-react-overlay` · `reaction-icon`. Tests: `47-reviews-wall-react`.
+  Reviewed by a 2-pass adversarial workflow (server + client) — fixed a
+  helpful-double-tap desync (debounce + treat 409 as success) + a stale-snapshot
+  overlay + long-press flag. **"add a still" on reviews is a tracked fast-follow.**
+- **Reconciled remaining UI/UX (see `PHASE-0.7-REDESIGN.md` § "Status snapshot"):**
+  core surfaces (home · search · lists + own list detail · **public list detail** ·
+  profile · movie drawer · create-post/thread/reel · **reviews wall** · data rails)
+  are **v3 done**. The editable + read-only lists now share ONE cell
+  (`movie-cell.tsx`) + `MovieList` (with a `publicReadOnly` mode) so they can't
+  drift again; the legacy "cards" view was retired. **Wave 7 is fully v3:**
+  notifications · onboarding · auth · **settings · invite · add · list-settings**
+  (2026-06-22) — the entire app is now v3, no v2 surfaces left.
+- **Native motion slice 2 (2026-06-23):** app-wide iOS-native page transitions +
+  edge-swipe-back via `<NativeTransitions>` (root layout, wraps `{children}`):
+  push → slide-in-from-right, pop → slide-in-from-left + parallax dim, tab↔tab →
+  instant, plus an interactive left-edge swipe-back everywhere. Direct-DOM
+  transforms CLEARED when idle (never leaves a transform on the tree → no
+  `fixed`/sticky breakage, the BodyStyleWatchdog class of bug); direction from a
+  pathname stack + popstate; gated to native/coarse-pointer + reduced-motion;
+  swipe suppressed on tab roots, `/movie/…/comments` (owns its `SwipeBackContainer`),
+  and under any covering fixed overlay (detected by walking up from the touch
+  target — no overlay opts in). **iOS native project synced** (`npx cap sync ios`):
+  `@capacitor/haptics` now registered in `CapApp-SPM/Package.swift` (was missing —
+  haptics now fire on a real build) + latest web bundle copied in.
+  Plus native motion (push/pop transitions + app-wide swipe-back) and the
+  story-share feature (`@vercel/og` + `@capacitor/share`).
+- **Share-link OpenGraph/Twitter cards (2026-06-23):** every shared link now
+  previews as a branded card. **`GET /api/v1/share/og`** renders a 1200×630
+  (1.91:1) link card (param-driven, no Firestore; same Satori/font infra as the
+  story card — extracted to `src/lib/og-shared.ts`). `generateMetadata` on
+  `/post/[id]`, `/profile/[username]`, `/profile/[username]/lists/[listId]` (+ a
+  site-wide default in `layout.tsx`) emits `openGraph` + `twitter:summary_large_image`
+  via `src/lib/share-meta.ts` (`deployOrigin()` → absolute URLs; the `_` static-shell
+  param + any private/missing entity fall back to brand defaults, so `build:static`
+  is safe). Crawlers hit the Vercel SSR deploy → dynamic per-entity cards. The
+  **story share sheet** also gained a **"send to a friend"** action (`sendToFriend`
+  in `story-share.ts` → OS share sheet with the image + a deep link → iMessage /
+  WhatsApp / AirDrop). **Preview-broken-image fix:** `storyImageUrl` now resolves
+  via `apiOrigin()` (same-origin on web/preview — so the route is reachable) not
+  `shareOrigin()` (which pointed at prod, 404 pre-merge).
+- **Owner actions:** ~~`firebase deploy --only firestore:indexes`~~ + ~~`--only
+  firestore:rules`~~ **(DONE 2026-06-23 — deployed to `studio-2541484065-75c27`)**;
+  ~~`npx cap sync`~~ (DONE 2026-06-23). **Remaining:** **set `APIFY_TOKEN` in
+  Vercel prod env** (lights up the onboarding letterboxd **username** import; until
+  set, that step degrades gracefully to skip) — user reports this is set. See
+  `PHASE-B-HANDOFF.md` §9.
+- **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
+  Spec in `LAUNCH.md` §C.
 
 ## Quick Reference
 
@@ -138,8 +300,17 @@ Build:       `npm run build` (Vercel) · `npm run build:static` (Capacitor `out/
 /ratings/{ratingId}  (format: {userId}_{tmdbId})
   ├── userId, tmdbId, mediaType
   ├── movieTitle, moviePosterUrl
-  ├── rating (1.0-10.0)
+  ├── rating (1.0-10.0)          # one canonical rating per user per film
   └── createdAt, updatedAt
+
+/users/{userId}/watches/{watchId}  (Phase 0.7 Wave 2 — the watch log)
+  ├── tmdbId, mediaType, movieTitle, moviePosterUrl
+  ├── watchedAt, rating (per-watch snapshot | null), note (| null)
+  ├── ordinal (1 = first watch, 2 = rewatch no. 2, …)
+  └── createdAt
+  # Server-only writes (logWatch) + owner-read. Powers the drawer's "your
+  # history". /ratings stays the canonical rating; the note becomes the
+  # user's single /reviews entry. Index-free reads (tmdbId equality).
 
 /notifications/{notificationId}
   ├── userId (recipient)

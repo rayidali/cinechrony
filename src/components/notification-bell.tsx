@@ -5,19 +5,36 @@ import Link from 'next/link';
 import { Bell } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
+import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
+
+// The badge tolerates lag — push notifications deliver the real-time signal and
+// the route's count() is server-cached. A 2-min poll + a remount-dedup gate
+// cuts the idle badge from ~120 reads/hour to ~30. [free-tier]
+const POLL_MS = 120_000;
+const COUNT_FRESH_MS = 30_000;
 
 export function NotificationBell() {
   const { user } = useUser();
-  const [unreadCount, setUnreadCount] = useState(0);
+  const countKey = user?.uid ? `notif-count:${user.uid}` : null;
+  const [unreadCount, setUnreadCount] = useState<number>(
+    () => (countKey ? readCachedAction<number>(countKey) ?? 0 : 0),
+  );
 
-  // Fetch unread count on mount and periodically
-  const fetchCount = useCallback(async () => {
+  const fetchCount = useCallback(async (force = false) => {
     if (!user?.uid) return;
+    const key = `notif-count:${user.uid}`;
+    // Skip the read if a recent poll (this or another mount) already has it.
+    if (!force && isCachedActionFresh(key, COUNT_FRESH_MS)) {
+      const c = readCachedAction<number>(key);
+      if (c !== undefined) setUnreadCount(c);
+      return;
+    }
     try {
       const { count } = await apiCall<{ count: number }>(
         'GET', '/api/v1/notifications/unread-count',
       );
       setUnreadCount(count || 0);
+      setCachedAction(key, count || 0);
     } catch (err) {
       console.error('Failed to fetch notification count:', err);
     }
@@ -25,8 +42,7 @@ export function NotificationBell() {
 
   useEffect(() => {
     fetchCount();
-    // Poll every 30 seconds for new notifications
-    const interval = setInterval(fetchCount, 30000);
+    const interval = setInterval(() => fetchCount(), POLL_MS);
     return () => clearInterval(interval);
   }, [fetchCount]);
 
@@ -39,7 +55,7 @@ export function NotificationBell() {
     >
       <Bell className="h-5 w-5" />
       {unreadCount > 0 && (
-        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold bg-red-500 text-white rounded-full">
+        <span className="absolute -top-0.5 -right-0.5 min-w-[18px] h-[18px] flex items-center justify-center px-1 text-[10px] font-bold bg-primary text-primary-foreground rounded-full">
           {unreadCount > 99 ? '99+' : unreadCount}
         </span>
       )}

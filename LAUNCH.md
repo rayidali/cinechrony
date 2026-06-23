@@ -241,6 +241,25 @@
 
 ---
 
+## Phase 0.7 — v3 iOS-native redesign + story share (▶ ACTIVE, 2026-06-13)
+
+> **Tracker: `PHASE-0.7-REDESIGN.md`** (repo root). The native-feel UI/UX
+> revamp (design package in `../cinechrony ios redesign june/`) — triggered by
+> repeat "still feels like a webapp" feedback, prioritized **ahead of Phase C**.
+> Supersedes the deferred 0.6.4 parallel-route tab shell (native transitions
+> handled here). Also ships the **Instagram-story share** feature.
+>
+> Locked decisions (2026-06-13): (1) restyle + native-feel everywhere **first**,
+> data-heavy rails (leaderboard / top-picks / featured) fast-follow; (2) the
+> presence pill shows **real activity data**, not a live-presence system;
+> (3) story share = **card renderer + system share sheet first** (web+iOS+
+> Android), free Meta App ID in parallel, **direct-to-Instagram** native layer
+> as the fast-follow with the share sheet as the permanent fallback. v3 is an
+> *evolution* of the v2 editorial system (same tokens/fonts/nav), so it's
+> additive. See the tracker for the phased build order + tests.
+
+---
+
 ## How we test (carries over from `AUDIT.md`)
 
 Same conventions as the audit tracker:
@@ -557,6 +576,14 @@ Same conventions as the audit tracker:
 > — orders of magnitude more signal than a single screenshot, which is
 > how "top 5 nolan films" reliably yields 5 films instead of just whatever
 > happens to be on screen when the user hits screenshot.
+>
+> **REDESIGNED (2026-06-12):** §C.1 below is **superseded by
+> `PHASE-C-PLAN.md`** (repo root) — Apify acquisition + Gemini
+> video-native analysis (reads on-screen text + audio + footage; Whisper
+> dropped) + per-film list assignment + source URL saved as the movie's
+> `socialLink`, built **web-first** (in-app paste-link UI ships before the
+> Swift extension). §C.2–C.7 still apply as written. Track Phase C
+> progress in PHASE-C-PLAN.md, not in C.1's checkboxes.
 
 ### C.1 — AI extraction backend (URL-first)
 
@@ -697,6 +724,13 @@ Same conventions as the audit tracker:
 - [ ] **D.0.1 — Block abusive users (§1.2, REQUIRED before submission).** Spec'd and pulled forward to **0.5.5** (posts depend on it). This line stays as the submission checkpoint — confirm 0.5.5 has shipped before you submit. The Report half (`reportContent`) is already done.
 - [ ] **D.0.2 — Error monitoring (Sentry).** At launch scale you need to know what's breaking. Sign up, get a DSN, wire `@sentry/nextjs`. ~1h once the DSN exists. (Replaces the audit's "no observability" gap.)
 - [ ] **D.0.3 — Moderation contact email** — a published address (e.g. `support@cinechrony.com`) for abuse reports; referenced by the privacy policy and §1.2.
+- [ ] **D.0.4 — Privacy policy update for Phase C processors** (added 2026-06-12). The extraction feature sends user-submitted video URLs to **Apify** and video content to **Google (Gemini)**. Name both as processors in `/privacy`; state that shared videos are processed transiently to extract film titles and are not republished. Must ship WITH Phase C, not after.
+- [ ] **D.0.5 — Analytics** (added 2026-06-12). Currently zero analytics. Decision: privacy-first tool (PostHog or Aptabase — NOT Firebase Analytics, keeps the App Privacy label clean). Minimal event taxonomy only: `signup_completed`, `movie_added`, `extraction_started/succeeded/saved`, `list_created`, `app_opened`. Declare honestly in D.2.4.
+- [ ] **D.0.6 — CI on PRs** (added 2026-06-12). GitHub Action running `typecheck` + `build` + `audit:test` on every PR. ~30 lines; nothing broken can merge.
+- [ ] **D.0.7 — Firestore backups** (added 2026-06-12). Enable point-in-time recovery (console toggle, 7-day rewind) + optional weekly scheduled export. Protects against bad-migration data loss, not just provider loss.
+- [ ] **D.0.8 — Cost alerts** (added 2026-06-12). Billing alerts in Google AI (Gemini), Apify, and Firebase consoles (~$25/mo warn threshold) — a looping extractor bug should email you, not surprise the card. Pairs with the 50/day extraction rate limit.
+- [ ] **D.0.9 — DMCA designated agent** (added 2026-06-12). Copyright/takedown section in `/terms` pointing at the support email + register a designated agent with the US Copyright Office ($6) for safe-harbor on user-uploaded media. (TMDB posters are covered by TMDB's terms — this is about user uploads.)
+- [ ] **D.0.10 — (post-launch) OTA updates for the Capacitor bundle** (added 2026-06-12). Capgo or Appflow to push JS-bundle updates to installed apps without App Store review (Apple-permitted for hybrid apps). Not before launch — one fewer moving part — but it's the long-term answer to "Xcode for every UI tweak."
 
 ### D.1 — Apple Developer account
 
@@ -856,3 +890,4 @@ curve + the unexpected.
 | 2026-05-25 | — | Polish | Same branch — first wave of native-feel: `SwipeBackContainer` component drives iOS-style edge-swipe-back on `/comments` (commit at >35% viewport OR fast flick, soft drop-shadow on the trailing edge, light haptic on commit). Tap-target sweep — every interactive icon I could find ≥40px (PostCard / ActivityCard / BookmarkButton like-row, comments header/send/spoiler/sort, modal glass back/more, MovieList view-mode switcher, ProfileOverflowMenu). PullToRefresh refactored to bind listeners ONCE via stable refs (the prior code re-bound on every touchmove frame). |
 | 2026-05-25 | 0.6 | Plan | Added Phase 0.6 — Speed & Native Feel. SWR caches for `getCollaborativeLists` / `getHomeFeed` / profile + a `useStableCollection` wrapper around `useCollection`. Prefetch on touch-start for nav links + movie tiles. Skeleton consistency. Optional parallel-route tab shell deferred to post-launch unless 0.6.1–0.6.3 don't get us there. |
 | 2026-05-25 | — | Decision | Hero feature direction confirmed: **share-URL → AI extract** (not screenshot OCR). User shares a TikTok/IG/YT URL via the iOS Share Extension; backend pulls transcript + caption + thumbnails, Claude extracts mentioned films, user picks the target list(s) or accepts a suggested new-list name (e.g. "top 5 nolan films"). Screenshot path becomes a fallback for URL-extraction failures. Updated C.1 pipeline in this plan to reflect the URL-first approach. |
+| 2026-06-12 | C | Decision | **Extraction backend redesigned + stack locked** — see `PHASE-C-PLAN.md` (now the Phase C tracker). Old text-only pipeline (oEmbed→yt-dlp→Whisper→Claude) couldn't read silent text-overlay TikToks (the most common format). New: Apify actor (owner's subscription) fetches the MP4 → **Gemini watches the video natively** (frames + audio + on-screen text, structured JSON out) → TMDB match-or-drop grounding → async job docs with cache by canonical URL. UX: per-film list picker in the confirm screen; source URL saved as the movie's existing `socialLink`. Build order: backend → **web paste-link UI** → iOS Share Extension → Android intent. |

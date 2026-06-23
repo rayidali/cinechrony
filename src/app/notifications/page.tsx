@@ -1,20 +1,85 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
-import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users } from 'lucide-react';
+import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users, Loader2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { Button } from '@/components/ui/button';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
-import { invalidateCachedAction } from '@/lib/use-cached-action';
+import { invalidateCachedAction, setCachedAction, readCachedAction } from '@/lib/use-cached-action';
 import { formatDistanceToNow } from 'date-fns';
-import { Loader2 } from 'lucide-react';
-import type { Notification } from '@/lib/types';
+import type { Notification, NotificationType } from '@/lib/types';
 import { PushNotificationPrompt } from '@/components/push-notification-prompt';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { useToast } from '@/hooks/use-toast';
+
+type NotifPage = { notifications: Notification[]; hasMore: boolean; nextCursor?: string };
+
+const POSTER = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+
+/** The per-type trailing glyph + its semantic (dark-mode-safe) colour. */
+function typeGlyph(type: NotificationType) {
+  switch (type) {
+    case 'mention':
+    case 'post_tag':
+      return <AtSign className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
+    case 'reply':
+    case 'post_comment':
+      return <MessageSquare className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
+    case 'like':
+    case 'list_like':
+    case 'post_like':
+      return <Heart className="h-[18px] w-[18px] text-primary fill-primary" strokeWidth={2} aria-hidden />;
+    case 'follow':
+      return <UserPlus className="h-[18px] w-[18px] text-success" strokeWidth={2} aria-hidden />;
+    case 'list_invite':
+      return <Users className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
+    default:
+      return null;
+  }
+}
+
+/** The notification's destination, or null if it can't be opened. */
+function notifTarget(n: Notification): string | null {
+  switch (n.type) {
+    case 'follow':
+      return n.fromUsername ? `/profile/${n.fromUsername}` : null;
+    case 'list_invite':
+      return '/lists';
+    case 'list_like':
+      return n.listId ? `/lists/${n.listId}` : null;
+    case 'post_tag':
+    case 'post_like':
+    case 'post_comment':
+      return n.postId ? `/post/${n.postId}` : null;
+    case 'mention':
+    case 'reply':
+    case 'like':
+      if (n.tmdbId && n.movieTitle && n.mediaType) {
+        const p = new URLSearchParams({ title: n.movieTitle, type: n.mediaType });
+        return `/movie/${n.tmdbId}/comments?${p.toString()}`;
+      }
+      return null;
+    default:
+      return null;
+  }
+}
+
+function RowSkeleton() {
+  return (
+    <div className="divide-y divide-hair">
+      {[0, 1, 2, 3, 4].map((i) => (
+        <div key={i} className="flex items-center gap-3 py-3.5">
+          <div className="h-10 w-10 flex-shrink-0 rounded-full bg-muted animate-pulse" />
+          <div className="flex-1 space-y-2">
+            <div className="h-3.5 w-3/4 rounded bg-muted animate-pulse" />
+            <div className="h-2.5 w-1/4 rounded bg-muted animate-pulse" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function NotificationsPage() {
   const router = useRouter();
@@ -22,374 +87,313 @@ export default function NotificationsPage() {
   const { toast } = useToast();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Track which invites are being processed (accepting or declining)
   const [processingInvites, setProcessingInvites] = useState<Record<string, 'accepting' | 'declining'>>({});
 
-  // Fetch notifications
-  useEffect(() => {
-    async function fetchNotifications() {
-      if (!user?.uid) return;
-      setIsLoading(true);
-      setError(null);
-      try {
-        const result = await apiCall<{ notifications: Notification[] }>(
-          'GET', '/api/v1/notifications',
-        );
-        setNotifications(result.notifications ?? []);
-      } catch (err) {
-        console.error('Failed to fetch notifications:', err);
-        setError(
-          err instanceof ApiClientError
-            ? err.message
-            : 'Failed to load notifications. Please try again.',
-        );
-      } finally {
-        setIsLoading(false);
-      }
+  // Initial load / retry — a stable callback so the error "try again" button
+  // re-runs the fetch instead of hard-reloading the WebView.
+  const loadNotifications = useCallback(async () => {
+    if (!user?.uid) return;
+    setIsLoading(true);
+    setError(null);
+    try {
+      const result = await apiCall<NotifPage>('GET', '/api/v1/notifications');
+      setNotifications(result.notifications ?? []);
+      setHasMore(!!result.hasMore);
+      setCursor(result.nextCursor ?? null);
+    } catch (err) {
+      console.error('Failed to fetch notifications:', err);
+      setError(err instanceof ApiClientError ? err.message : 'Failed to load notifications. Please try again.');
+    } finally {
+      setIsLoading(false);
     }
-    fetchNotifications();
   }, [user?.uid]);
 
-  // Pull-to-refresh handler
+  useEffect(() => {
+    loadNotifications();
+  }, [loadNotifications]);
+
+  // Pull-to-refresh — reset to page 1.
   const handleRefresh = useCallback(async () => {
     if (!user?.uid) return;
     try {
-      const result = await apiCall<{ notifications: Notification[] }>(
-        'GET', '/api/v1/notifications',
-      );
+      const result = await apiCall<NotifPage>('GET', '/api/v1/notifications');
       setNotifications(result.notifications ?? []);
+      setHasMore(!!result.hasMore);
+      setCursor(result.nextCursor ?? null);
     } catch (err) {
       console.error('Failed to refresh notifications:', err);
     }
   }, [user?.uid]);
 
-  // Redirect if not logged in
-  useEffect(() => {
-    if (!isUserLoading && !user) {
-      router.push('/login');
+  // Infinite scroll — load the next page only when the sentinel scrolls in
+  // (no eager fetch-all: quota-first on free-tier Firestore).
+  const loadMore = useCallback(async () => {
+    if (!user?.uid || !hasMore || isLoadingMore || !cursor) return;
+    setIsLoadingMore(true);
+    try {
+      const result = await apiCall<NotifPage>('GET', `/api/v1/notifications?cursor=${encodeURIComponent(cursor)}`);
+      setNotifications((prev) => [...prev, ...(result.notifications ?? [])]);
+      setHasMore(!!result.hasMore);
+      setCursor(result.nextCursor ?? null);
+    } catch (err) {
+      console.error('Failed to load more notifications:', err);
+    } finally {
+      setIsLoadingMore(false);
     }
+  }, [user?.uid, hasMore, isLoadingMore, cursor]);
+
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !hasMore) return;
+    const obs = new IntersectionObserver(
+      (entries) => { if (entries[0].isIntersecting) loadMore(); },
+      { rootMargin: '400px' },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [hasMore, loadMore]);
+
+  // Redirect if not logged in.
+  useEffect(() => {
+    if (!isUserLoading && !user) router.push('/login');
   }, [user, isUserLoading, router]);
 
-  // Mark all as read
   const handleMarkAllRead = async () => {
     if (!user?.uid) return;
     try {
       await apiCall('POST', '/api/v1/notifications/read');
-      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setCachedAction(`notif-count:${user.uid}`, 0);
     } catch (err) {
       console.error('Failed to mark as read:', err);
     }
   };
 
-  // Handle accepting a list invite from notification
-  const handleAcceptInvite = async (notification: Notification, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation
-    if (!user?.uid || !notification.inviteId) return;
+  const markOneRead = (id: string) => {
+    if (!user?.uid) return;
+    apiCall('POST', '/api/v1/notifications/read', { ids: [id] }).catch(console.error);
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    const k = `notif-count:${user.uid}`;
+    const cur = readCachedAction<number>(k);
+    if (typeof cur === 'number') setCachedAction(k, Math.max(0, cur - 1));
+    else invalidateCachedAction(k);
+  };
 
-    setProcessingInvites(prev => ({ ...prev, [notification.id]: 'accepting' }));
+  const removeNotif = (id: string) => setNotifications((prev) => prev.filter((n) => n.id !== id));
+
+  const handleAcceptInvite = async (n: Notification) => {
+    if (!user?.uid || !n.inviteId || processingInvites[n.id]) return;
+    setProcessingInvites((p) => ({ ...p, [n.id]: 'accepting' }));
     try {
       const result = await apiCall<{ listId: string; listOwnerId: string }>(
-        'POST',
-        '/api/v1/invites/accept',
-        { inviteId: notification.inviteId },
+        'POST', '/api/v1/invites/accept', { inviteId: n.inviteId },
       );
-      toast({
-        title: 'Invite Accepted!',
-        description: `You are now a collaborator on "${notification.listName}"`,
-      });
-      setNotifications(prev => prev.filter(n => n.id !== notification.id));
-      // The collaborative-lists cache is now stale (this list joined it).
+      toast({ title: 'invite accepted', description: `you're now a collaborator on "${n.listName}"` });
+      removeNotif(n.id);
       invalidateCachedAction(`collab-lists:${user.uid}`);
       router.push(`/lists/${result.listId}?owner=${result.listOwnerId}`);
     } catch (err) {
-      console.error('Failed to accept invite:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
-      });
+      // Already accepted / revoked → treat as success: clear the stale row.
+      if (err instanceof ApiClientError && (err.code === 'CONFLICT' || err.code === 'NOT_FOUND')) {
+        removeNotif(n.id);
+      } else {
+        console.error('Failed to accept invite:', err);
+        toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to accept invite' });
+      }
     } finally {
-      setProcessingInvites(prev => {
-        const updated = { ...prev };
-        delete updated[notification.id];
-        return updated;
-      });
+      setProcessingInvites((p) => { const u = { ...p }; delete u[n.id]; return u; });
     }
   };
 
-  // Handle declining a list invite from notification
-  const handleDeclineInvite = async (notification: Notification, e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent navigation
-    if (!user?.uid || !notification.inviteId) return;
-
-    setProcessingInvites(prev => ({ ...prev, [notification.id]: 'declining' }));
+  const handleDeclineInvite = async (n: Notification) => {
+    if (!user?.uid || !n.inviteId || processingInvites[n.id]) return;
+    setProcessingInvites((p) => ({ ...p, [n.id]: 'declining' }));
     try {
-      await apiCall('POST', `/api/v1/invites/${notification.inviteId}/decline`);
-      toast({
-        title: 'Invite Declined',
-        description: 'The invitation has been declined.',
-      });
-      // Remove this notification from the list
-      setNotifications(prev => prev.filter(n => n.id !== notification.id));
+      await apiCall('POST', `/api/v1/invites/${n.inviteId}/decline`);
+      toast({ title: 'invite declined' });
+      removeNotif(n.id);
     } catch (err) {
-      console.error('Failed to decline invite:', err);
-      toast({
-        variant: 'destructive',
-        title: 'Error',
-        description: err instanceof ApiClientError ? err.message : 'Failed to decline invite',
-      });
+      if (err instanceof ApiClientError && (err.code === 'CONFLICT' || err.code === 'NOT_FOUND')) {
+        removeNotif(n.id);
+      } else {
+        console.error('Failed to decline invite:', err);
+        toast({ variant: 'destructive', title: 'Error', description: err instanceof ApiClientError ? err.message : 'Failed to decline invite' });
+      }
     } finally {
-      setProcessingInvites(prev => {
-        const updated = { ...prev };
-        delete updated[notification.id];
-        return updated;
-      });
+      setProcessingInvites((p) => { const u = { ...p }; delete u[n.id]; return u; });
     }
   };
 
-  // Handle notification click - navigate to appropriate page
-  const handleNotificationClick = (notification: Notification) => {
-    // Mark as read
-    if (!notification.read && user?.uid) {
-      apiCall('POST', '/api/v1/notifications/read', { ids: [notification.id] })
-        .catch(console.error);
-      setNotifications(prev =>
-        prev.map(n => (n.id === notification.id ? { ...n, read: true } : n))
-      );
-    }
-
-    // Navigate based on notification type
-    switch (notification.type) {
-      case 'follow':
-        // Go to the follower's profile
-        if (notification.fromUsername) {
-          router.push(`/profile/${notification.fromUsername}`);
-        }
-        break;
-      case 'list_invite':
-        // Go to pending invites (lists page will show pending invites)
-        router.push('/lists');
-        break;
-      case 'list_like':
-        // Go to the liked list (the recipient is its owner)
-        if (notification.listId) {
-          router.push(`/lists/${notification.listId}`);
-        }
-        break;
-      case 'post_tag':
-      case 'post_like':
-      case 'post_comment':
-        // Go to the post
-        if (notification.postId) {
-          router.push(`/post/${notification.postId}`);
-        }
-        break;
-      case 'mention':
-      case 'reply':
-      case 'like':
-        // Go to movie comments
-        if (notification.tmdbId && notification.movieTitle && notification.mediaType) {
-          const params = new URLSearchParams({
-            title: notification.movieTitle,
-            type: notification.mediaType,
-          });
-          router.push(`/movie/${notification.tmdbId}/comments?${params.toString()}`);
-        }
-        break;
-    }
+  const handleOpen = (n: Notification) => {
+    const target = notifTarget(n);
+    if (!n.read) markOneRead(n.id);
+    if (target) router.push(target);
+    else toast({ description: "this notification can't be opened." });
   };
 
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src={POSTER} alt="" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
 
-  const unreadCount = notifications.filter(n => !n.read).length;
+  const unreadCount = notifications.filter((n) => !n.read).length;
+
+  const body = (n: Notification) => {
+    const who = n.fromDisplayName || n.fromUsername || 'Someone';
+    return (
+      <>
+        <span className="font-semibold">{who}</span>{' '}
+        {n.type === 'mention' && <>mentioned you in a comment on <span className="font-semibold">{n.movieTitle}</span></>}
+        {n.type === 'reply' && <>replied to your comment on <span className="font-semibold">{n.movieTitle}</span></>}
+        {n.type === 'like' && <>liked your comment on <span className="font-semibold">{n.movieTitle}</span></>}
+        {n.type === 'follow' && <>started following you</>}
+        {n.type === 'list_invite' && <>invited you to join <span className="font-semibold">{n.listName}</span></>}
+        {n.type === 'list_like' && <>liked your list <span className="font-semibold">{n.listName}</span></>}
+        {n.type === 'post_tag' && <>tagged you in a post</>}
+        {n.type === 'post_like' && <>liked your post</>}
+        {n.type === 'post_comment' && <>commented on your post</>}
+      </>
+    );
+  };
 
   return (
     <PullToRefresh onRefresh={handleRefresh}>
-      <main className="min-h-screen font-body text-foreground pb-8">
-        {/* Header */}
-        <header className="sticky top-0 z-10 bg-background border-b border-border">
-        <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => router.back()}
-              className="p-2 -ml-2 rounded-full hover:bg-secondary transition-colors"
-            >
-              <ArrowLeft className="h-5 w-5" />
-            </button>
-            <h1 className="text-xl font-headline font-bold">Notifications</h1>
+      <main className="min-h-screen text-foreground pb-[calc(2rem+env(safe-area-inset-bottom))]">
+        {/* Header — frosted, safe-area, lowercase Bricolage */}
+        <header
+          className="sticky top-0 z-20 border-b border-hair bg-background/90 backdrop-blur-md"
+          style={{ paddingTop: 'env(safe-area-inset-top)' }}
+        >
+          <div className="container mx-auto flex h-14 items-center justify-between px-4">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => router.back()}
+                aria-label="Back"
+                className="flex h-10 w-10 -ml-2 items-center justify-center rounded-full text-foreground transition-transform hover:bg-secondary active:scale-90"
+              >
+                <ArrowLeft className="h-[22px] w-[22px]" />
+              </button>
+              <h1 className="font-headline text-[22px] font-bold lowercase tracking-[-0.02em]">notifications</h1>
+            </div>
+            {unreadCount > 0 && (
+              <button
+                onClick={handleMarkAllRead}
+                className="flex min-h-[44px] items-center gap-1.5 px-2 font-ui text-[14px] font-semibold text-primary transition-transform active:scale-95"
+              >
+                <Check className="h-[18px] w-[18px]" strokeWidth={2.2} />
+                mark all read
+              </button>
+            )}
           </div>
+        </header>
 
-          {unreadCount > 0 && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleMarkAllRead}
-              className="text-primary"
-            >
-              <Check className="h-4 w-4 mr-1" />
-              Mark all read
-            </Button>
+        <div className="container mx-auto px-4 pt-3">
+          <PushNotificationPrompt variant="banner" />
+
+          {isLoading ? (
+            <RowSkeleton />
+          ) : error ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Bell className="mb-4 h-12 w-12 text-destructive" strokeWidth={1.5} />
+              <p className="font-headline text-[20px] font-bold lowercase tracking-tight text-destructive">couldn&apos;t load notifications</p>
+              <p className="mt-1.5 max-w-xs font-mono text-[12px] text-muted-foreground">{error}</p>
+              <button
+                onClick={loadNotifications}
+                className="mt-5 h-11 rounded-full bg-foreground px-5 font-headline text-[15px] font-bold lowercase text-background transition-transform active:scale-95"
+              >
+                try again
+              </button>
+            </div>
+          ) : notifications.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 text-center">
+              <Bell className="mb-4 h-12 w-12 text-muted-foreground" strokeWidth={1.5} />
+              <p className="font-headline text-[20px] font-bold lowercase tracking-tight">all caught up</p>
+              <p className="mt-1.5 max-w-xs font-body text-[14px] italic text-muted-foreground">
+                follows, likes, replies, and list invites will show up here.
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-hair">
+              {notifications.map((n) => {
+                const processing = processingInvites[n.id];
+                return (
+                  <div
+                    key={n.id}
+                    className={`relative rounded-[14px] transition-colors ${n.read ? '' : 'bg-primary/[0.06]'}`}
+                  >
+                    {/* The navigable surface — does NOT wrap the invite buttons */}
+                    <button
+                      onClick={() => handleOpen(n)}
+                      className="flex w-full items-start gap-3 rounded-[14px] px-2.5 py-3.5 text-left outline-none transition-colors hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/60 active:bg-foreground/[0.05]"
+                    >
+                      <ProfileAvatar
+                        photoURL={n.fromPhotoUrl}
+                        displayName={n.fromDisplayName}
+                        username={n.fromUsername}
+                        size="md"
+                        className="flex-shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-ui text-[15px] leading-snug text-foreground">
+                          {!n.read && <span className="sr-only">Unread. </span>}
+                          {body(n)}
+                        </p>
+                        {n.previewText && (
+                          <p className="mt-0.5 line-clamp-2 font-body text-[14px] italic text-muted-foreground">
+                            &ldquo;{n.previewText}&rdquo;
+                          </p>
+                        )}
+                        <p className="mt-1 font-mono text-[11px] tabular-nums text-muted-foreground">
+                          {formatDistanceToNow(new Date(n.createdAt), { addSuffix: true })}
+                        </p>
+                      </div>
+                      <span className="mt-0.5 flex flex-shrink-0 items-center gap-2">
+                        {typeGlyph(n.type)}
+                        {!n.read && <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />}
+                      </span>
+                    </button>
+
+                    {/* Invite actions — siblings of the nav surface (no nesting) */}
+                    {n.type === 'list_invite' && n.inviteId && (
+                      <div className="flex gap-2 pb-3.5 pl-[60px] pr-2.5">
+                        <button
+                          onClick={() => handleDeclineInvite(n)}
+                          disabled={!!processing}
+                          className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-hair bg-background px-4 font-ui text-[13px] font-semibold transition-colors hover:bg-secondary disabled:opacity-50"
+                        >
+                          {processing === 'declining' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'decline'}
+                        </button>
+                        <button
+                          onClick={() => handleAcceptInvite(n)}
+                          disabled={!!processing}
+                          className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-primary px-4 font-ui text-[13px] font-semibold text-primary-foreground transition-transform active:scale-95 disabled:opacity-50"
+                        >
+                          {processing === 'accepting' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'accept'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* infinite-scroll sentinel + loading-more spinner */}
+              {hasMore && <div ref={sentinelRef} className="h-px" />}
+              {isLoadingMore && (
+                <div className="flex justify-center py-5">
+                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                </div>
+              )}
+            </div>
           )}
         </div>
-      </header>
-
-      {/* Content */}
-      <div className="container mx-auto px-4 py-4">
-        {/* Push notification prompt - shows only if not enabled */}
-        <PushNotificationPrompt variant="banner" />
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-8 w-8 animate-spin" />
-          </div>
-        ) : error ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Bell className="h-12 w-12 text-destructive mb-4" />
-            <p className="text-destructive font-medium">Failed to load notifications</p>
-            <p className="text-sm text-muted-foreground mt-1 max-w-md">
-              {error}
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium"
-            >
-              Try again
-            </button>
-          </div>
-        ) : notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Bell className="h-12 w-12 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">No notifications yet</p>
-            <p className="text-sm text-muted-foreground mt-1">
-              When someone follows you, likes your comments, or invites you to a list, you&apos;ll see it here.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1">
-            {notifications.map(notification => (
-              <div
-                key={notification.id}
-                role="button"
-                tabIndex={0}
-                onClick={() => handleNotificationClick(notification)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    handleNotificationClick(notification);
-                  }
-                }}
-                className={`w-full cursor-pointer text-left flex items-start gap-3 p-3 rounded-xl transition-colors ${
-                  notification.read
-                    ? 'hover:bg-secondary/50'
-                    : 'bg-primary/5 hover:bg-primary/10'
-                }`}
-              >
-                {/* Avatar */}
-                <ProfileAvatar
-                  photoURL={notification.fromPhotoUrl}
-                  displayName={notification.fromDisplayName}
-                  username={notification.fromUsername}
-                  size="md"
-                />
-
-                {/* Content */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm">
-                    <span className="font-semibold">
-                      {notification.fromDisplayName || notification.fromUsername || 'Someone'}
-                    </span>
-                    {' '}
-                    {notification.type === 'mention' && (
-                      <>mentioned you in a comment on <span className="font-medium">{notification.movieTitle}</span></>
-                    )}
-                    {notification.type === 'reply' && (
-                      <>replied to your comment on <span className="font-medium">{notification.movieTitle}</span></>
-                    )}
-                    {notification.type === 'like' && (
-                      <>liked your comment on <span className="font-medium">{notification.movieTitle}</span></>
-                    )}
-                    {notification.type === 'follow' && (
-                      <>started following you</>
-                    )}
-                    {notification.type === 'list_invite' && (
-                      <>invited you to join <span className="font-medium">{notification.listName}</span></>
-                    )}
-                    {notification.type === 'list_like' && (
-                      <>liked your list <span className="font-medium">{notification.listName}</span></>
-                    )}
-                    {notification.type === 'post_tag' && <>tagged you in a post</>}
-                    {notification.type === 'post_like' && <>liked your post</>}
-                    {notification.type === 'post_comment' && <>commented on your post</>}
-                  </p>
-                  {notification.previewText && (
-                    <p className="text-sm text-muted-foreground mt-0.5 line-clamp-2">
-                      &ldquo;{notification.previewText}&rdquo;
-                    </p>
-                  )}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {formatDistanceToNow(new Date(notification.createdAt), { addSuffix: true })}
-                  </p>
-
-                  {/* Accept/Decline buttons for list invites */}
-                  {notification.type === 'list_invite' && notification.inviteId && (
-                    <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={(e) => handleDeclineInvite(notification, e)}
-                        disabled={!!processingInvites[notification.id]}
-                        className="px-3 py-1.5 text-xs font-medium rounded-full border border-border bg-background hover:bg-secondary transition-colors disabled:opacity-50"
-                      >
-                        {processingInvites[notification.id] === 'declining' ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          'Decline'
-                        )}
-                      </button>
-                      <button
-                        onClick={(e) => handleAcceptInvite(notification, e)}
-                        disabled={!!processingInvites[notification.id]}
-                        className="px-3 py-1.5 text-xs font-medium rounded-full bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-                      >
-                        {processingInvites[notification.id] === 'accepting' ? (
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        ) : (
-                          'Accept'
-                        )}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                {/* Type indicator */}
-                <div className="flex-shrink-0 mt-1">
-                  {notification.type === 'mention' && <AtSign className="h-4 w-4 text-primary" />}
-                  {notification.type === 'reply' && <MessageSquare className="h-4 w-4 text-primary" />}
-                  {notification.type === 'like' && <Heart className="h-4 w-4 text-red-500" />}
-                  {notification.type === 'list_like' && <Heart className="h-4 w-4 text-success fill-success" />}
-                  {notification.type === 'post_like' && <Heart className="h-4 w-4 text-success fill-success" />}
-                  {notification.type === 'follow' && <UserPlus className="h-4 w-4 text-green-500" />}
-                  {notification.type === 'list_invite' && <Users className="h-4 w-4 text-blue-500" />}
-                  {notification.type === 'post_tag' && <AtSign className="h-4 w-4 text-primary" />}
-                  {notification.type === 'post_comment' && <MessageSquare className="h-4 w-4 text-primary" />}
-                </div>
-
-                {/* Unread dot */}
-                {!notification.read && (
-                  <div className="flex-shrink-0 mt-2">
-                    <div className="w-2 h-2 rounded-full bg-primary" />
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
       </main>
     </PullToRefresh>
   );

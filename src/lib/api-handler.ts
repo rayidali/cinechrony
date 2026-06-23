@@ -161,6 +161,27 @@ export function mapUnknownError(err: unknown, req: Request): NextResponse {
   return envelopeError(new ApiError('INTERNAL', message), req);
 }
 
+// ─── Transient-infra detection (graceful degradation) ─────────────────────
+
+/**
+ * True for TRANSIENT infrastructure errors from Firestore (gRPC status codes):
+ *   8  RESOURCE_EXHAUSTED — daily read/write quota exceeded (free-tier cap)
+ *   14 UNAVAILABLE        — backend briefly unreachable
+ *   4  DEADLINE_EXCEEDED  — request timed out
+ * These are not logic bugs, so a non-critical read can degrade to empty data
+ * instead of 500-ing the whole page. Our own ApiError (auth/forbidden/etc.) and
+ * any other error are real and must surface.
+ */
+function isTransientInfraError(err: unknown): boolean {
+  if (err instanceof ApiError) return false;
+  const code = (err as { code?: unknown } | null)?.code;
+  if (typeof code === 'number') return code === 8 || code === 14 || code === 4;
+  if (typeof code === 'string') {
+    return code === 'RESOURCE_EXHAUSTED' || code === 'UNAVAILABLE' || code === 'DEADLINE_EXCEEDED';
+  }
+  return false;
+}
+
 // ─── Auth extraction ──────────────────────────────────────────────────────
 
 /**
@@ -208,6 +229,18 @@ type PublicHandler<P, R> = (
   ctx: { params: P; auth: VerifiedCaller | null },
 ) => Promise<R>;
 
+type RouteOptions<R> = {
+  /**
+   * When the handler throws a TRANSIENT infrastructure error (Firestore
+   * quota/unavailable/deadline — see `isTransientInfraError`), return this
+   * value as a normal 200 success instead of a 500. Use for non-critical
+   * reads (home rails, badge counts, cache hydrators) so a Firestore blip
+   * degrades to quiet/empty UI rather than breaking the page. Writes and
+   * critical reads omit it and fail loudly.
+   */
+  softFallback?: R;
+};
+
 /**
  * Wrap an authed route handler. Verifies the Bearer token before invocation,
  * envelopes the return value, maps ApiError throws to the right HTTP status.
@@ -222,6 +255,7 @@ type PublicHandler<P, R> = (
  */
 export function apiRoute<P = Record<string, string>, R = unknown>(
   handler: AuthedHandler<P, R>,
+  opts: RouteOptions<R> = {},
 ) {
   return async (req: NextRequest, ctx: RouteContext<P>): Promise<Response> => {
     try {
@@ -232,6 +266,10 @@ export function apiRoute<P = Record<string, string>, R = unknown>(
       if (result instanceof Response) return result;
       return envelopeSuccess(result, req);
     } catch (err) {
+      if (opts.softFallback !== undefined && isTransientInfraError(err)) {
+        console.error('[api] soft-degraded (transient infra error):', err);
+        return envelopeSuccess(opts.softFallback, req);
+      }
       return mapUnknownError(err, req);
     }
   };
@@ -244,6 +282,7 @@ export function apiRoute<P = Record<string, string>, R = unknown>(
  */
 export function publicApiRoute<P = Record<string, string>, R = unknown>(
   handler: PublicHandler<P, R>,
+  opts: RouteOptions<R> = {},
 ) {
   return async (req: NextRequest, ctx: RouteContext<P>): Promise<Response> => {
     try {
@@ -253,6 +292,10 @@ export function publicApiRoute<P = Record<string, string>, R = unknown>(
       if (result instanceof Response) return result;
       return envelopeSuccess(result, req);
     } catch (err) {
+      if (opts.softFallback !== undefined && isTransientInfraError(err)) {
+        console.error('[api] soft-degraded (transient infra error):', err);
+        return envelopeSuccess(opts.softFallback, req);
+      }
       return mapUnknownError(err, req);
     }
   };

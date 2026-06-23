@@ -2,53 +2,69 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Users, Bookmark } from 'lucide-react';
+import { Search, ScanLine } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
+import { useToast } from '@/hooks/use-toast';
+import { haptic } from '@/lib/haptics';
 import type { UserProfile } from '@/lib/types';
-import { UserAvatar } from '@/components/user-avatar';
-import { NotificationBell } from '@/components/notification-bell';
+import type { DigInCategory } from '@/lib/tmdb-client';
 import { BottomNav } from '@/components/bottom-nav';
-import { TrendingStrip } from '@/components/trending-strip';
+import { DigIn } from '@/components/dig-in';
+import { TopWatchers } from '@/components/top-watchers';
+import { FeaturedCarousel } from '@/components/featured-carousel';
+import { CommunityLists } from '@/components/community-lists';
+import { DigInAll } from '@/components/dig-in-all';
+import { TopWatchersAll } from '@/components/top-watchers-all';
+import { CommunityListsAll } from '@/components/community-lists-all';
 import { ActivityFeed } from '@/components/activity-feed';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
-import { FilterPills, type FilterPill } from '@/components/filter-pills';
 import { PostFab } from '@/components/post-fab';
+import { HomeTopBar, type HomeFilter } from '@/components/home-top-bar';
+import { PresencePill } from '@/components/presence-pill';
+import { Section } from '@/components/v3/section';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
 const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
-/** Tabular date — `23.11.25`. */
-function formatToday(): string {
-  const d = new Date();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yy = String(d.getFullYear()).slice(-2);
-  return `${dd}.${mm}.${yy}`;
-}
-
 /**
- * Home — the unified editorial feed (UX_PATTERNS.md "HOME").
+ * Home — the unified editorial feed, v3 iOS-native (Phase 0.7.3.1, `ios-home.jsx`).
  *
- * Topbar → search → filter pills → eyebrow/hairline/title → trending strip →
- * the feed. More feed sources (posts, recommendations) and more filter pills
- * (`saved`, `for you`, `trending`) fold in over the later Phase 0.5 steps.
+ * Frosted scroll-collapsing top bar (`for you · friends` underline tabs + bell +
+ * avatar) → search + `scan` row → discovery rail (`TrendingStrip`, for-you only)
+ * → "the reel" (presence pill + the `DiaryEntry` feed). The full discovery rails
+ * (dig in / leaderboard / featured / lists-for-you) land in slice c — they need
+ * the 0.7.5 backend; the feed below is the existing real-data `ActivityFeed`.
  */
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const { toast } = useToast();
 
   const [refreshKey, setRefreshKey] = useState(0);
   const [searchOpen, setSearchOpen] = useState(false);
-  const [feedFilter, setFeedFilter] = useState<'all' | 'saved' | 'friends'>('all');
+  const [feedFilter, setFeedFilter] = useState<HomeFilter>('all');
+  const [scrolled, setScrolled] = useState(false);
+  // Which rail "view all" detail screen is open (F15/F16/F17).
+  const [detail, setDetail] = useState<null | 'dig-in' | 'top-watchers' | 'community'>(null);
+  // The dig-in category to open the F15 grid on (a tile tap or "view all").
+  const [digInTab, setDigInTab] = useState<DigInCategory>('trending');
 
   useEffect(() => {
     if (!isUserLoading && !user) {
       router.push('/login');
     }
   }, [user, isUserLoading, router]);
+
+  // Chrome collapse — fade the top-bar tint + hairline in once the feed scrolls.
+  useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
   // Following set powers the `friends` filter — SWR cached so tab returns
   // paint the prior list synchronously and refresh in the background.
@@ -62,6 +78,7 @@ export default function HomePage() {
       );
       return (res.users ?? []).map((u) => u.uid);
     },
+    { staleTime: 300_000 }, // follow set changes rarely — 5 min
   );
   const followingIds = followingResult.data ?? [];
 
@@ -69,6 +86,14 @@ export default function HomePage() {
     setRefreshKey((prev) => prev + 1);
     await new Promise((resolve) => setTimeout(resolve, 500));
   }, []);
+
+  const handleScan = useCallback(() => {
+    haptic('selection');
+    toast({
+      title: 'scan — coming soon',
+      description: 'point at a poster or a screen to log a film. landing with the extractor.',
+    });
+  }, [toast]);
 
   if (isUserLoading || !user) {
     return (
@@ -78,73 +103,80 @@ export default function HomePage() {
     );
   }
 
-  const pills: FilterPill[] = [
-    { id: 'all', label: 'all' },
-    { id: 'saved', label: 'saved', icon: Bookmark },
-    { id: 'friends', label: 'friends', icon: Users },
-  ];
+  const isForYou = feedFilter === 'all';
 
   return (
     <MovieModalProvider returnPath="/home">
       <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
-        <main className="min-h-screen font-body text-foreground pb-28 md:pb-8 md:pt-20">
-          <div className="container mx-auto px-4 md:px-8 max-w-2xl">
-            {/* Topbar — sticky */}
-            <header className="sticky top-0 z-40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/70 -mx-4 px-4 md:-mx-8 md:px-8 border-b border-border/60">
-              <div
-                className="flex justify-between items-center"
-                style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.875rem)', paddingBottom: '0.875rem' }}
+        <main className="min-h-screen font-ui text-foreground pb-28 md:pb-8">
+          <div className="container mx-auto px-[18px] md:px-8 max-w-2xl">
+            <HomeTopBar filter={feedFilter} onSelect={setFeedFilter} scrolled={scrolled} />
+
+            {/* Search + scan — one rounded unit, scan is the Phase C hook */}
+            <div className="mt-1.5 flex items-center h-12 rounded-[14px] border border-hair bg-sunken overflow-hidden">
+              <button
+                onClick={() => setSearchOpen(true)}
+                className="flex-1 h-full flex items-center gap-2.5 px-[13px] text-left transition-colors active:bg-foreground/[0.03]"
               >
-                <div className="flex items-center gap-2.5">
-                  <img src={CINECHRONY_LOGO} alt="Cinechrony" className="h-8 w-8" />
-                  <span className="font-headline font-bold text-lg lowercase tracking-tight">
-                    cinechrony
+                <Search className="h-[18px] w-[18px] text-muted-foreground flex-shrink-0" strokeWidth={2} />
+                <span className="font-ui text-[16px] text-muted-foreground">
+                  films, tv, genres, people
+                </span>
+              </button>
+              <button
+                onClick={handleScan}
+                aria-label="Scan a poster"
+                className="h-full flex items-center gap-[5px] pl-2.5 pr-[13px] text-primary transition-colors active:bg-primary/5"
+              >
+                <ScanLine className="h-[15px] w-[15px]" strokeWidth={2} />
+                <span className="font-mono text-[9.5px] uppercase tracking-[0.12em] font-bold">
+                  scan
+                </span>
+              </button>
+            </div>
+
+            {/* Discovery rails — for-you only (real data; each rail hides when
+                empty). Order matches the design: dig in → top watchers →
+                featured hero → from the community. */}
+            {isForYou && (
+              <>
+                <div className="mt-5">
+                  <DigIn
+                    onViewAll={(cat) => {
+                      setDigInTab(cat ?? 'trending');
+                      setDetail('dig-in');
+                    }}
+                  />
+                </div>
+                <div className="mt-7">
+                  <TopWatchers onViewAll={() => setDetail('top-watchers')} />
+                </div>
+                <div className="mt-7">
+                  <FeaturedCarousel />
+                </div>
+                <div className="mt-7">
+                  <CommunityLists onViewAll={() => setDetail('community')} />
+                </div>
+              </>
+            )}
+
+            {/* The reel */}
+            <div className="mt-8 mb-4">
+              <Section
+                eyebrow="the reel"
+                title="watching lately"
+                trailing={
+                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-success">
+                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
+                    live
                   </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <NotificationBell />
-                  <UserAvatar />
-                </div>
-              </div>
-            </header>
-
-            {/* Search trigger */}
-            <button
-              onClick={() => setSearchOpen(true)}
-              className="mt-4 w-full flex items-center gap-2.5 h-11 px-4 bg-card border border-border rounded-full shadow-press text-left transition-colors hover:border-foreground/30"
-            >
-              <Search className="h-4 w-4 text-muted-foreground flex-shrink-0" strokeWidth={1.8} />
-              <span className="font-serif italic text-sm text-muted-foreground">
-                films, friends, lists…
-              </span>
-            </button>
-
-            {/* Feed filter pills */}
-            <div className="mt-3">
-              <FilterPills
-                pills={pills}
-                active={feedFilter}
-                onChange={(id) => setFeedFilter(id as 'all' | 'saved' | 'friends')}
+                }
               />
+              <div className="mt-3">
+                <PresencePill userId={user.uid} />
+              </div>
             </div>
 
-            {/* Page title block */}
-            <div className="mt-5 mb-6">
-              <div className="cc-eyebrow">{formatToday()}</div>
-              <div className="h-px bg-border my-2.5" />
-              <h1 className="font-headline font-bold text-[34px] leading-[0.92] lowercase tracking-tight">
-                home
-              </h1>
-            </div>
-
-            {/* Trending strip — films + loved lists, mixed */}
-            <TrendingStrip />
-
-            {/* The feed */}
-            <div className="mb-4">
-              <div className="cc-eyebrow">the feed</div>
-              <div className="h-px bg-border mt-2.5" />
-            </div>
             <ActivityFeed
               currentUserId={user.uid}
               refreshKey={refreshKey}
@@ -156,13 +188,19 @@ export default function HomePage() {
       </PullToRefresh>
 
       {/* Post FAB — tap to compose, long-press for the action sheet */}
-      {feedFilter !== 'saved' && <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />}
+      <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />
 
       {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
       <BottomNav />
 
       {/* Fullscreen search */}
       <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
+
+      {/* Rail "view all" detail screens (F15/F16/F17). Rendered OUTSIDE
+          PullToRefresh — a transform on an ancestor breaks their position:fixed. */}
+      <DigInAll isOpen={detail === 'dig-in'} initialTab={digInTab} onClose={() => setDetail(null)} />
+      <TopWatchersAll isOpen={detail === 'top-watchers'} onClose={() => setDetail(null)} />
+      <CommunityListsAll isOpen={detail === 'community'} onClose={() => setDetail(null)} />
     </MovieModalProvider>
   );
 }

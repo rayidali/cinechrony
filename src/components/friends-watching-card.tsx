@@ -68,21 +68,21 @@ export function FriendsWatchingCard({ card }: { card: FWCard }) {
         {/* glass + to a list */}
         <button
           onClick={() => setAddOpen(true)}
-          className="absolute top-3 right-3 h-7 inline-flex items-center gap-1.5 px-2.5 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-white cc-meta text-[10px] lowercase"
+          className="absolute top-2.5 right-2.5 h-11 inline-flex items-center gap-1.5 px-3 rounded-full bg-white/20 backdrop-blur-md border border-white/30 text-white cc-meta text-[11px] lowercase"
         >
-          <Plus className="h-3 w-3" strokeWidth={2.2} />
+          <Plus className="h-[14px] w-[14px]" strokeWidth={2.2} />
           to a list
         </button>
 
         {/* content */}
         <div className="absolute inset-x-0 bottom-0 p-3.5 pointer-events-none">
-          <span className="inline-block px-2 py-0.5 rounded-full border border-white/40 bg-black/20 backdrop-blur-sm text-white cc-eyebrow text-[8px]">
+          <span className="inline-block px-2 py-0.5 rounded-full border border-white/40 bg-black/20 backdrop-blur-sm text-white cc-eyebrow text-[10px]">
             your circle is watching
           </span>
           <h3 className="mt-1.5 font-headline font-bold text-lg lowercase tracking-tight text-white leading-tight">
             {card.movieTitle}
           </h3>
-          <div className="mt-0.5 cc-meta text-[10px] text-white/75">{meta}</div>
+          <div className="mt-0.5 cc-meta text-[11px] text-white/75">{meta}</div>
           <div className="mt-2 flex items-center">
             {card.friends.slice(0, 4).map((f, i) => (
               <div

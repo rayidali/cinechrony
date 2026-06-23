@@ -157,6 +157,10 @@ export type Movie = {
   notes?: Record<string, string>;
   // Denormalized note author info (populated when saving notes)
   noteAuthors?: Record<string, { username: string | null; displayName: string | null; photoURL: string | null }>;
+  // Per-note last-updated server timestamp (keyed by author userId). Added with
+  // the notes board so it can order + show relative times. Client SDK reads it
+  // as a Firestore Timestamp; notes saved before this exist without it.
+  noteUpdatedAt?: Record<string, unknown>;
   // Denormalized user data (populated at write time to avoid N+1 fetches)
   addedByDisplayName?: string | null;
   addedByPhotoURL?: string | null;
@@ -187,6 +191,15 @@ export type TMDBCast = {
   profile_path: string | null;
 };
 
+// TMDB movie credits (crew — director, writers, …)
+export type TMDBCrew = {
+  id: number;
+  name: string;
+  job: string; // 'Director', 'Writer', 'Screenplay', …
+  department: string;
+  profile_path: string | null;
+};
+
 // TMDB movie details response
 export type TMDBMovieDetails = {
   id: number;
@@ -199,8 +212,11 @@ export type TMDBMovieDetails = {
   backdrop_path: string | null;
   runtime: number | null;
   genres: Array<{ id: number; name: string }>;
+  production_companies?: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
   credits?: {
     cast: TMDBCast[];
+    crew?: TMDBCrew[];
   };
 };
 
@@ -256,9 +272,30 @@ export type TMDBTVDetails = {
   genres: Array<{ id: number; name: string }>;
   status: string;
   networks: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_companies?: Array<{ id: number; name: string; logo_path: string | null }>;
+  production_countries?: Array<{ iso_3166_1: string; name: string }>;
   credits?: {
     cast: TMDBCast[];
+    crew?: TMDBCrew[];
   };
+};
+
+// A single streaming/rental provider (normalized from TMDB watch/providers,
+// which is powered by JustWatch). `logoUrl` is a full TMDB image URL.
+export type WatchProvider = {
+  providerId: number;
+  name: string;
+  logoUrl: string | null;
+};
+
+// Normalized "where to watch" for one region (default US). TMDB returns
+// flatrate/rent/buy buckets + a JustWatch deep-link; prices are NOT in the
+// free API, so we surface providers without invented "from $X".
+export type WatchProviders = {
+  link: string | null;
+  stream: WatchProvider[];
+  rent: WatchProvider[];
+  buy: WatchProvider[];
 };
 
 // Movie review
@@ -281,6 +318,9 @@ export type Review = {
   replyCount: number; // Number of replies to this review
   // Author-flagged spoiler — body renders behind a "tap to reveal" shield.
   hasSpoiler?: boolean;
+  // F14 icon reactions — server-only map of { [uid]: ReactionType }. The wall
+  // API derives counts + the viewer's own reaction and never ships this map.
+  reactions?: Record<string, string>;
   createdAt: Date;
   updatedAt: Date;
 };
@@ -296,6 +336,23 @@ export type UserRating = {
   rating: number; // 1.0 - 10.0 with one decimal
   createdAt: Date;
   updatedAt: Date;
+};
+
+// A single viewing event — the watch-log behind the drawer's "your history".
+// One doc per watch under /users/{uid}/watches; the canonical rating still
+// lives in /ratings, the public review in /reviews.
+export type Watch = {
+  id: string;
+  userId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  watchedAt: Date;
+  rating: number | null; // snapshot for THIS watch (null = skipped)
+  note: string | null; // optional note/quote for this watch
+  ordinal: number; // 1 = first watch, 2 = rewatch no. 2, …
+  createdAt: Date;
 };
 
 // Notification types
@@ -416,6 +473,16 @@ export type TaggedUser = {
   photoURL: string | null;
 };
 
+// Who can see a post (F04 "visible to"). 'everyone' = public discovery feed;
+// 'friends' = the author's mutuals (follow-back); 'close_friends' = the author's
+// curated inner circle; 'only_me' = a private log. Restricted posts carry a
+// write-time `audienceUids` snapshot so the feed can filter in-memory (no
+// per-author relationship reads at read time).
+export type PostVisibility = 'everyone' | 'friends' | 'close_friends' | 'only_me';
+
+// Which viewing this post records (F04 "your watch").
+export type PostWatchType = 'first' | 'rewatch';
+
 // A Beli-style user post — free text + media, anchored to a film.
 export type Post = {
   id: string;
@@ -445,6 +512,15 @@ export type Post = {
   taggedUserIds?: string[];
   taggedUsers?: TaggedUser[];
   place: string | null; // Freeform venue text — never GPS
+  // F04 "your watch" — which viewing this post records + when it happened.
+  // Older posts (pre-v3) have these undefined.
+  watchType?: PostWatchType | null;
+  watchedOn?: Date | null;
+  // F04 "visible to". Missing/undefined = 'everyone' (every legacy post).
+  visibility?: PostVisibility;
+  // Write-time snapshot of who may see a RESTRICTED post (excludes the author,
+  // who can always see their own). Absent for 'everyone'. Empty for 'only_me'.
+  audienceUids?: string[];
   likes: number;
   likedBy: string[];
   commentCount: number;

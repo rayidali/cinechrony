@@ -80,6 +80,38 @@ async function attachAuthHeader(
  *     } else throw err;
  *   }
  */
+/**
+ * Resolve the origin that serves `/api/v1/*` for the current runtime.
+ *
+ *  1. NEXT_PUBLIC_API_BASE_URL — absolute override, always wins. The Capacitor
+ *     static bundle sets this to the live Vercel origin (the WebView's own
+ *     origin has no `/api`).
+ *  2. Vercel PREVIEW — by default the preview calls its OWN API (same-origin)
+ *     so a PR preview exercises its own backend, not production. Set
+ *     NEXT_PUBLIC_PREVIEW_API_TARGET=production to route preview API calls at
+ *     the public production origin instead (escape hatch).
+ *  3. Production / localhost / native-without-override — same-origin ('').
+ *
+ * Returns '' for same-origin (callers use a relative path), or an absolute base.
+ *
+ * NOTE: this is distinct from `shareOrigin()` in `lib/share.ts`. `shareOrigin`
+ * resolves the PUBLIC CANONICAL url to hand to other people (always prod); this
+ * resolves where the API is actually deployed for the *current* client — which
+ * for an image/data endpoint must be a deployment that HAS the route (the
+ * preview itself on a preview, not prod which may not have it yet).
+ */
+export function apiOrigin(): string {
+  const explicitBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const previewToProd =
+    typeof window !== 'undefined' &&
+    process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' &&
+    process.env.NEXT_PUBLIC_PREVIEW_API_TARGET === 'production' &&
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
+      : '';
+  return (explicitBase || previewToProd || '').replace(/\/$/, '');
+}
+
 export async function apiCall<T = unknown>(
   method: HttpMethod,
   path: string,
@@ -90,16 +122,27 @@ export async function apiCall<T = unknown>(
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   if (!opts.skipAuth) await attachAuthHeader(headers, opts.forceTokenRefresh === true);
 
-  // Phase A PR #17 — when the bundle is the static export (Capacitor or
-  // a separate static host), API calls must hit the Vercel-deployed API
-  // origin instead of `self`. `NEXT_PUBLIC_API_BASE_URL` is the override;
-  // unset (the default — and the only setting the Vercel deploy uses)
-  // means same-origin, which preserves Phase A pre-#17 behavior. Only
-  // `path`s starting with `/` get prefixed; absolute URLs pass through.
-  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL ?? '';
-  const url = apiBase && path.startsWith('/')
-    ? `${apiBase.replace(/\/$/, '')}${path}`
-    : path;
+  // ── API origin resolution ───────────────────────────────────────────────
+  // Only `path`s starting with `/` get prefixed; absolute URLs pass through.
+  const apiBase = apiOrigin();
+  const url = apiBase && path.startsWith('/') ? `${apiBase}${path}` : path;
+
+  // Credentials are scoped by request origin:
+  //  • SAME-ORIGIN (prod, localhost, preview→self) → `same-origin`: forwards
+  //    cookies, which carries the Vercel Deployment-Protection SSO cookie on a
+  //    preview so the preview's own API is reachable. Harmless elsewhere — auth
+  //    is Bearer and the server ignores cookies. (Same-origin requests aren't
+  //    subject to CORS, so the server's `Allow-Credentials: false` is moot.)
+  //  • CROSS-ORIGIN (Capacitor → prod, or the prod escape hatch) → `omit`:
+  //    cookie-less Bearer. Required — the CORS layer returns
+  //    `Access-Control-Allow-Credentials: false`, so a credentialed cross-origin
+  //    response would be blocked by the browser.
+  const isCrossOrigin =
+    !!apiBase &&
+    /^https?:\/\//.test(apiBase) &&
+    typeof window !== 'undefined' &&
+    !url.startsWith(window.location.origin);
+  const credentials: RequestCredentials = isCrossOrigin ? 'omit' : 'same-origin';
 
   let res: Response;
   try {
@@ -108,10 +151,7 @@ export async function apiCall<T = unknown>(
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: opts.signal,
-      // Bearer auth — no cookies needed. `same-origin` is fine for web; for
-      // Capacitor the request is cross-origin to the API host but cookies
-      // aren't used either way.
-      credentials: 'omit',
+      credentials,
     });
   } catch (err) {
     throw new ApiClientError(

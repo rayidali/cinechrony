@@ -5,64 +5,10 @@ import Image from 'next/image';
 import { Camera, Check, Loader2, Upload, X } from 'lucide-react';
 
 import { DEFAULT_AVATARS } from '@/lib/avatars';
+import { compressAvatar } from '@/lib/avatar-image';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { Button } from '@/components/ui/button';
-
-/**
- * Decode → downscale → re-encode as JPEG. Used to be a hard 2MB client
- * cap; phone photos are routinely 4–8MB, so we now accept any reasonable
- * input and shrink it ourselves.
- *
- * Why we use <Image> + canvas rather than the shared `compressImage`
- * (which uses createImageBitmap): we MUST produce a web-renderable
- * format. If `createImageBitmap` fails on a HEIC file in a non-Apple
- * browser, the shared helper silently returns the original — which
- * would upload as `.heic` and then fail to render in any browser that
- * later tries to display the avatar. The img-tag path throws cleanly
- * on decode failure, surfacing a user-friendly error instead.
- *
- * Output: 512px square-capped JPEG at q=0.85 → typically 50–150KB even
- * from a 12MP source.
- */
-async function compressAvatar(
-  file: File,
-): Promise<{ base64: string; mimeType: string; fileName: string }> {
-  const MAX_EDGE = 512; // an avatar is displayed at <=128px — 512 is plenty
-  const QUALITY = 0.85;
-
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const el = new window.Image();
-      el.onload = () => resolve(el);
-      el.onerror = () =>
-        reject(new Error("Couldn't read this image — please pick another."));
-      el.src = objectUrl;
-    });
-
-    const longest = Math.max(img.naturalWidth, img.naturalHeight);
-    const scale = Math.min(1, MAX_EDGE / longest);
-    const width = Math.round(img.naturalWidth * scale);
-    const height = Math.round(img.naturalHeight * scale);
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error("Couldn't prepare image — please try again.");
-    ctx.drawImage(img, 0, 0, width, height);
-
-    const dataUrl = canvas.toDataURL('image/jpeg', QUALITY);
-    const base64 = dataUrl.split(',')[1];
-    if (!base64) throw new Error("Couldn't process this image — please pick another.");
-
-    const fileName = file.name.replace(/\.[^.]+$/, '') + '.jpg';
-    return { base64, mimeType: 'image/jpeg', fileName };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
-  }
-}
 import {
   Dialog,
   DialogContent,

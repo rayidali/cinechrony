@@ -3,48 +3,106 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { Movie } from '@/lib/types';
-import { MovieCard } from './movie-card';
-import { MovieCardGrid } from './movie-card-grid';
-import { MovieCardList } from './movie-card-list';
-import { MovieCardAnnotated } from './movie-card-annotated';
+import { useUser } from '@/firebase';
+import { MovieCellGrid, MovieCellRow } from './movie-cell';
 import { MovieDetailsModal } from './movie-details-modal';
+import { PublicMovieDetailsModal } from './public-movie-details-modal';
+import { NotesBoard } from './v3/notes-board';
+import { NoteSheet } from './v3/note-sheet';
 import { GridViewHint } from './grid-view-hint';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Button } from '@/components/ui/button';
-import { Grid3X3, List, LayoutGrid, AlignLeft } from 'lucide-react';
+import { Segmented } from '@/components/v3/segmented';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
-import { ListControls } from './list-controls';
-import { arrangeListMovies, type ListSort } from '@/lib/list-sort';
+import { cn } from '@/lib/utils';
+import { apiCall, ApiClientError } from '@/lib/api-client';
+import { useToast } from '@/hooks/use-toast';
+import { arrangeListMovies, LIST_SORTS, type ListSort } from '@/lib/list-sort';
 
-type ViewMode = 'grid' | 'list' | 'cards' | 'annotated';
+type ViewMode = 'grid' | 'list';
+type Tab = 'To Watch' | 'Watched' | 'notes';
 
 type MovieListProps = {
   initialMovies: Movie[];
   isLoading: boolean;
   listId?: string;
   listOwnerId?: string;
+  listName?: string;
   canEdit?: boolean;
+  /**
+   * Read-only public list context (`/profile/[username]/lists/[listId]`). Opens
+   * the standalone drawer instead of the in-list one, persists its own view
+   * mode, and hides the notes tab (notes are owner/collaborator-only — and they
+   * are redirected to the editable page — so a public viewer never sees it).
+   */
+  publicReadOnly?: boolean;
+  /** Return path for the standalone drawer's comments round-trip (public). */
+  returnPath?: string;
+  /** Lifts the detail-drawer open state so the page can disable pull-to-refresh. */
+  onDrawerOpenChange?: (open: boolean) => void;
 };
 
-const VIEW_MODE_KEY = 'cinechrony-view-mode';
-
-export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEdit = true }: MovieListProps) {
+export function MovieList({
+  initialMovies,
+  isLoading,
+  listId,
+  listOwnerId,
+  listName,
+  canEdit = true,
+  publicReadOnly = false,
+  returnPath,
+  onDrawerOpenChange,
+}: MovieListProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [filter, setFilter] = useState<'To Watch' | 'Watched'>('To Watch');
+  const { user } = useUser();
+  const { toast } = useToast();
+  const [filter, setFilter] = useState<Tab>('To Watch');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<ListSort>('recent');
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [showSearch, setShowSearch] = useState(false);
+  // Notes-tab composer/editor state.
+  const [noteSheet, setNoteSheet] = useState<{ open: boolean; movie: Movie | null; text: string }>(
+    { open: false, movie: null, text: '' },
+  );
+  const [savingNote, setSavingNote] = useState(false);
+
+  // The collaborator-notes board is a first-class tab — owner/collaborator only.
+  const canViewNotes = canEdit && !publicReadOnly;
+  // Distinct persistence key per surface so the public grid/list choice can't
+  // collide with the editable view.
+  const viewModeKey = publicReadOnly ? 'cinechrony-public-view-mode' : 'cinechrony-view-mode';
+
+  const noteCount = useMemo(
+    () => initialMovies.reduce(
+      (n, m) => n + (m.notes ? Object.values(m.notes).filter(Boolean).length : 0),
+      0,
+    ),
+    [initialMovies],
+  );
 
   // Load view mode from localStorage on mount
   useEffect(() => {
-    const saved = localStorage.getItem(VIEW_MODE_KEY);
-    if (saved && ['grid', 'list', 'cards', 'annotated'].includes(saved)) {
-      setViewMode(saved as ViewMode);
-    }
-  }, []);
+    const saved = localStorage.getItem(viewModeKey);
+    if (saved === 'grid' || saved === 'list') setViewMode(saved);
+  }, [viewModeKey]);
+
+  // If notes access is lost mid-session (e.g. removed as a collaborator), bounce
+  // off the now-gone notes tab back to a visible film segment.
+  useEffect(() => {
+    if (filter === 'notes' && !canViewNotes) setFilter('To Watch');
+  }, [filter, canViewNotes]);
 
   // Handle openMovie query param - reopen modal when returning from comments page
   useEffect(() => {
@@ -56,34 +114,58 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
         setFilter(movieToOpen.status);
         setSelectedMovie(movieToOpen);
         setIsModalOpen(true);
+        onDrawerOpenChange?.(true);
         // Clear the query param to avoid reopening on refresh
         const newUrl = new URL(window.location.href);
         newUrl.searchParams.delete('openMovie');
         router.replace(newUrl.pathname + newUrl.search, { scroll: false });
       }
     }
-  }, [searchParams, initialMovies, isLoading, router]);
+  }, [searchParams, initialMovies, isLoading, router, onDrawerOpenChange]);
 
   // Save view mode to localStorage when it changes
   const handleViewModeChange = (mode: ViewMode) => {
     setViewMode(mode);
-    localStorage.setItem(VIEW_MODE_KEY, mode);
+    localStorage.setItem(viewModeKey, mode);
   };
 
   const handleOpenDetails = useCallback((movie: Movie) => {
     setSelectedMovie(movie);
     setIsModalOpen(true);
-  }, []);
+    onDrawerOpenChange?.(true);
+  }, [onDrawerOpenChange]);
 
   const handleCloseModal = useCallback(() => {
     setIsModalOpen(false);
     setSelectedMovie(null);
-  }, []);
+    onDrawerOpenChange?.(false);
+  }, [onDrawerOpenChange]);
 
-  // status tab + search + sort. A search query searches the whole list.
+  const saveNote = useCallback(async (movieId: string, text: string) => {
+    if (!listId || !listOwnerId) return;
+    setSavingNote(true);
+    try {
+      await apiCall('PATCH', `/api/v1/lists/${listOwnerId}/${listId}/movies/${movieId}`, { note: text });
+      toast({ title: text.trim() ? 'note saved' : 'note removed' });
+      setNoteSheet({ open: false, movie: null, text: '' });
+    } catch (err) {
+      toast({
+        variant: 'destructive',
+        title: 'Error',
+        description: err instanceof ApiClientError ? err.message : 'Failed to save note.',
+      });
+    } finally {
+      setSavingNote(false);
+    }
+  }, [listId, listOwnerId, toast]);
+
+  // status tab + search + sort. A search query searches the whole list. (Notes
+  // tab doesn't use this — the board flattens all movies itself.)
   const filteredMovies = useMemo(
-    () => arrangeListMovies(initialMovies, { query: search, status: filter, sort }),
-    [initialMovies, search, filter, sort]
+    () => (filter === 'notes'
+      ? []
+      : arrangeListMovies(initialMovies, { query: search, status: filter, sort })),
+    [initialMovies, search, filter, sort],
   );
 
   // Render grid view skeleton
@@ -91,7 +173,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
       {Array.from({ length: 12 }).map((_, i) => (
         <div key={i} className="aspect-[2/3]">
-          <Skeleton className="w-full h-full rounded-md border border-border" />
+          <Skeleton className="w-full h-full rounded-[14px] border border-hair" />
         </div>
       ))}
     </div>
@@ -101,16 +183,8 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const renderListSkeleton = () => (
     <div className="space-y-3">
       {Array.from({ length: 6 }).map((_, i) => (
-        <Skeleton key={i} className="h-[100px] rounded-lg border border-border" />
+        <Skeleton key={i} className="h-[98px] rounded-[16px] border border-hair" />
       ))}
-    </div>
-  );
-
-  // Render cards view skeleton (original)
-  const renderCardsSkeleton = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-      <Skeleton className="h-[500px] rounded-lg border border-border" />
-      <Skeleton className="h-[500px] rounded-lg border border-border" />
     </div>
   );
 
@@ -118,15 +192,15 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const renderEmptyState = () => {
     const searching = search.trim().length > 0;
     return (
-      <div className="text-center py-16 border border-dashed border-border rounded-lg bg-secondary">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Empty" className="h-12 w-12 mx-auto opacity-50 mb-4" />
+      <div className="text-center py-16 border border-dashed border-hair rounded-[20px] bg-secondary">
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="" className="h-12 w-12 mx-auto opacity-50 mb-4" />
         <h3 className="font-headline text-2xl font-bold lowercase">
           {searching ? 'nothing matches' : 'all clear'}
         </h3>
         <p className="text-muted-foreground mt-2">
           {searching
             ? `no films in this list match "${search.trim()}".`
-            : `There are no movies in the '${filter}' list.`}
+            : `no films in the '${(filter as string).toLowerCase()}' list.`}
         </p>
       </div>
     );
@@ -136,12 +210,11 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const renderGridView = () => (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
       {filteredMovies.map((movie) => (
-        <MovieCardGrid
+        // grid tile is view-only — no listId/canEdit (mutations live in the drawer)
+        <MovieCellGrid
           key={`${movie.id}-${movie.addedBy}`}
           movie={movie}
-          listId={listId}
           listOwnerId={listOwnerId}
-          canEdit={canEdit}
           onOpenDetails={handleOpenDetails}
         />
       ))}
@@ -152,7 +225,7 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
   const renderListView = () => (
     <div className="space-y-3">
       {filteredMovies.map((movie) => (
-        <MovieCardList
+        <MovieCellRow
           key={`${movie.id}-${movie.addedBy}`}
           movie={movie}
           listId={listId}
@@ -164,154 +237,171 @@ export function MovieList({ initialMovies, isLoading, listId, listOwnerId, canEd
     </div>
   );
 
-  // Render cards view (original full cards)
-  const renderCardsView = () => (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8">
-      {filteredMovies.map((movie) => (
-        <MovieCard
-          key={`${movie.id}-${movie.addedBy}`}
-          movie={movie}
-          listId={listId}
-          listOwnerId={listOwnerId}
-          canEdit={canEdit}
-        />
-      ))}
-    </div>
-  );
-
-  // Render annotated view (the reading mode — collaborator notes per movie)
-  const renderAnnotatedView = () => (
-    <div className="bg-card border border-border rounded-[20px] shadow-lift px-4">
-      {filteredMovies.map((movie) => (
-        <MovieCardAnnotated
-          key={`${movie.id}-${movie.addedBy}`}
-          movie={movie}
-          onOpenDetails={handleOpenDetails}
-        />
-      ))}
-    </div>
-  );
+  const isNotes = filter === 'notes' && canViewNotes;
 
   return (
     <div className="w-full">
-      {/* Header with filter tabs and view toggle */}
-      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-6">
-        {/* Filter tabs */}
-        <Tabs
-          value={filter}
-          onValueChange={(value) => setFilter(value as 'To Watch' | 'Watched')}
-          className="w-full sm:w-auto"
-        >
-          <TabsList className="grid w-full sm:w-auto grid-cols-2 bg-background border border-border rounded-full p-1 h-auto">
-            <TabsTrigger
-              value="To Watch"
-              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
-            >
-              to watch
-            </TabsTrigger>
-            <TabsTrigger
-              value="Watched"
-              className="rounded-full px-5 py-1.5 font-headline font-semibold text-sm lowercase tracking-tight data-[state=active]:bg-foreground data-[state=active]:text-background data-[state=active]:shadow-none"
-            >
-              watched
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-
-        {/* View mode toggle */}
-        <div className="flex items-center gap-1 border border-border rounded-full p-1 bg-background">
-          <Button
-            variant={viewMode === 'grid' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('grid')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Grid view"
-          >
-            <Grid3X3 className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'list' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('list')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="List view"
-          >
-            <List className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'cards' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('cards')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Full cards view"
-          >
-            <LayoutGrid className="h-4 w-4" />
-          </Button>
-          <Button
-            variant={viewMode === 'annotated' ? 'default' : 'ghost'}
-            size="sm"
-            onClick={() => handleViewModeChange('annotated')}
-            className="h-10 w-10 p-0 rounded-full active:scale-95 transition-transform"
-            title="Annotated view"
-          >
-            <AlignLeft className="h-4 w-4" />
-          </Button>
+      {/* Toolbar — segmented (+ notes tab) + search toggle + view/sort menu */}
+      <div className="mb-4 flex items-center gap-2">
+        <div className="flex-1">
+          <Segmented
+            value={filter}
+            onChange={(value) => {
+              // Don't bleed a film search into the notes board (or vice-versa).
+              setFilter(value as Tab);
+              setSearch('');
+              setShowSearch(false);
+            }}
+            options={[
+              { id: 'To Watch', label: 'to watch' },
+              { id: 'Watched', label: 'watched' },
+              ...(canViewNotes ? [{ id: 'notes', label: `notes · ${noteCount}` }] : []),
+            ]}
+          />
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowSearch((s) => !s)}
+          aria-label="Search this list"
+          aria-pressed={showSearch}
+          className={cn(
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-rule transition-colors',
+            showSearch ? 'bg-secondary text-foreground' : 'text-muted-foreground hover:text-foreground'
+          )}
+        >
+          <Search className="h-[18px] w-[18px]" strokeWidth={1.9} />
+        </button>
+
+        {/* view/sort menu — films only (notes have no grid/list/sort) */}
+        {!isNotes && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                aria-label="View and sort options"
+                className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-rule text-muted-foreground transition-colors hover:text-foreground"
+              >
+                <SlidersHorizontal className="h-[18px] w-[18px]" strokeWidth={1.9} />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-52">
+              <DropdownMenuLabel className="cc-eyebrow">view</DropdownMenuLabel>
+              <DropdownMenuRadioGroup
+                value={viewMode}
+                onValueChange={(v) => handleViewModeChange(v as ViewMode)}
+              >
+                <DropdownMenuRadioItem value="grid">grid</DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="list">list</DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuLabel className="cc-eyebrow">sort</DropdownMenuLabel>
+              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as ListSort)}>
+                {LIST_SORTS.map((o) => (
+                  <DropdownMenuRadioItem key={o.id} value={o.id}>
+                    {o.label}
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
 
-      {/* Search + sort */}
-      <ListControls
-        query={search}
-        onQueryChange={setSearch}
-        sort={sort}
-        onSortChange={setSort}
-      />
+      {/* Inline search — revealed by the search toggle (v3 search standard) */}
+      {showSearch && (
+        <div className="mb-4 flex h-12 items-center gap-2 rounded-[14px] border border-hair bg-sunken px-3.5">
+          <Search className="h-[18px] w-[18px] shrink-0 text-muted-foreground" strokeWidth={1.8} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={isNotes ? 'search notes…' : 'search this list…'}
+            autoFocus
+            autoComplete="off"
+            autoCorrect="off"
+            className="flex-1 border-0 bg-transparent font-body text-[15px] text-foreground outline-none placeholder:text-muted-foreground"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              setShowSearch(false);
+            }}
+            aria-label="Close search"
+            className="text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <X className="h-[18px] w-[18px]" strokeWidth={1.8} />
+          </button>
+        </div>
+      )}
 
-      {/* Movie count */}
-      <p className="cc-meta text-xs text-muted-foreground mb-4">
-        {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
-        {search.trim() ? ` matching “${search.trim()}”` : ''}
-      </p>
+      {/* Film count — films tabs only */}
+      {!isNotes && (
+        <p className="cc-meta text-xs text-muted-foreground mb-4">
+          {filteredMovies.length} {filteredMovies.length === 1 ? 'film' : 'films'}
+          {search.trim() ? ` matching “${search.trim()}”` : ''}
+        </p>
+      )}
 
-      {/* Movie display */}
-      {isLoading ? (
-        viewMode === 'grid' ? renderGridSkeleton() :
-        viewMode === 'cards' ? renderCardsSkeleton() :
-        renderListSkeleton()
+      {/* Content */}
+      {isNotes ? (
+        <NotesBoard
+          movies={initialMovies}
+          query={search}
+          onOpenFilm={handleOpenDetails}
+          onAddNote={() => setNoteSheet({ open: true, movie: null, text: '' })}
+          onEditNote={(movie, text) => setNoteSheet({ open: true, movie, text })}
+        />
+      ) : isLoading ? (
+        viewMode === 'grid' ? renderGridSkeleton() : renderListSkeleton()
       ) : filteredMovies.length > 0 ? (
-        viewMode === 'grid' ? renderGridView() :
-        viewMode === 'list' ? renderListView() :
-        viewMode === 'annotated' ? renderAnnotatedView() :
-        renderCardsView()
+        viewMode === 'grid' ? renderGridView() : renderListView()
       ) : (
         renderEmptyState()
       )}
 
-      {/* Movie details modal for grid/list views.
-       *
-       * `key` is bound to the selected movie's ID so the modal is a FRESH
-       * instance every time it opens. Without this, navigating
-       * `/lists/[id]` → `/movie/[id]/comments` → back can revive the list
-       * page from Next's router cache; the modal's internal state
-       * (`mediaDetails`, `isLoadingDetails`, the fetch effect's `cancelled`
-       * flag) survives the round-trip. The reopen via the `openMovie`
-       * query param flips state in a way where the prior cancel can
-       * discard the new fetch and we end up rendering the modal with no
-       * details — the "info doesn't load" bug. Tying the lifecycle to the
-       * movie id makes every open a clean mount: effects always run, the
-       * TMDB fetch always lands. */}
-      <MovieDetailsModal
-        key={selectedMovie?.id ?? 'no-movie-open'}
-        movie={selectedMovie}
-        isOpen={isModalOpen}
-        onClose={handleCloseModal}
-        listId={listId}
-        listOwnerId={listOwnerId}
-        canEdit={canEdit}
-      />
+      {/* Movie details drawer (see the round-trip comment above). Public
+       *  read-only lists use the STANDALONE drawer; editable lists the in-list one. */}
+      {publicReadOnly ? (
+        <PublicMovieDetailsModal
+          key={selectedMovie?.id ?? 'no-movie-open'}
+          movie={selectedMovie}
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          listId={listId}
+          listOwnerId={listOwnerId}
+          returnPath={returnPath}
+        />
+      ) : (
+        <MovieDetailsModal
+          key={selectedMovie?.id ?? 'no-movie-open'}
+          movie={selectedMovie}
+          isOpen={isModalOpen}
+          onClose={handleCloseModal}
+          listId={listId}
+          listOwnerId={listOwnerId}
+          listName={listName}
+          canEdit={canEdit}
+        />
+      )}
+
+      {/* Notes composer/editor (owner/collaborator) */}
+      {canViewNotes && (
+        <NoteSheet
+          isOpen={noteSheet.open}
+          films={initialMovies}
+          movie={noteSheet.movie}
+          initialText={noteSheet.text}
+          listName={listName}
+          currentUserId={user?.uid}
+          saving={savingNote}
+          onSave={saveNote}
+          onClose={() => setNoteSheet({ open: false, movie: null, text: '' })}
+        />
+      )}
 
       {/* One-time hint for grid view on mobile */}
-      {viewMode === 'grid' && <GridViewHint />}
+      {!isNotes && viewMode === 'grid' && <GridViewHint />}
     </div>
   );
 }

@@ -1,134 +1,181 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import { useAuth } from '@/firebase';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, ArrowLeft, Mail } from 'lucide-react';
-import { ThemeToggle } from '@/components/theme-toggle';
-import { useToast } from '@/hooks/use-toast';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { KeyRound, Mail, MailCheck } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
+import { useAuth } from '@/firebase';
+import { useToast } from '@/hooks/use-toast';
+import { haptic } from '@/lib/haptics';
+import {
+  FieldCard,
+  CtaButton,
+  StepHeader,
+  AuthTopBar,
+  IconTile,
+  filmRedCaret,
+} from '@/components/v3/onboarding-kit';
 
-const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
+const RESEND_SECONDS = 42;
 
+/**
+ * 007 · forgot your password? + 008 · check your email — Phase 0.7 Wave 7.
+ * Two states of one screen. AUDIT 2.10 preserved: a non-existent account is
+ * indistinguishable from a success (we advance to "check your email" either way).
+ */
 export default function ForgotPasswordPage() {
-  const [email, setEmail] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [emailSent, setEmailSent] = useState(false);
   const auth = useAuth();
+  const router = useRouter();
   const { toast } = useToast();
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setIsLoading(true);
+  const emailOk = /^\S+@\S+\.\S+$/.test(email.trim());
+
+  const send = async () => {
+    if (!emailOk || busy) return;
+    setBusy(true);
     try {
-      await sendPasswordResetEmail(auth, email);
-      setEmailSent(true);
-      toast({
-        title: "Email Sent",
-        description: "Check your inbox for password reset instructions.",
-      });
-    } catch (error: any) {
-      // AUDIT.md 2.10: never reveal whether an account exists. A non-existent
-      // account must be indistinguishable from a successful request.
-      if (error.code === 'auth/user-not-found') {
-        setEmailSent(true);
-        toast({
-          title: "Email Sent",
-          description: "Check your inbox for password reset instructions.",
-        });
+      await sendPasswordResetEmail(auth, email.trim());
+      haptic('success');
+      setSent(true);
+    } catch (err) {
+      // AUDIT 2.10 — don't reveal whether an account exists.
+      if ((err as { code?: string })?.code === 'auth/user-not-found') {
+        setSent(true);
       } else {
         toast({
-          variant: "destructive",
-          title: "Reset Failed",
+          variant: 'destructive',
+          title: 'could not send reset link',
           description:
-            error.code === 'auth/invalid-email'
-              ? "Please enter a valid email address."
-              : "An unexpected error occurred.",
+            (err as { code?: string })?.code === 'auth/invalid-email'
+              ? 'please enter a valid email address.'
+              : 'please try again.',
         });
       }
     } finally {
-      setIsLoading(false);
+      setBusy(false);
+    }
+  };
+
+  if (sent) return <CheckYourEmail email={email.trim()} onResend={send} onBack={() => setSent(false)} />;
+
+  return (
+    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+      <AuthTopBar eyebrow="account recovery" onBack={() => router.push('/login')} />
+
+      <div className="flex-1 overflow-y-auto px-5 pt-6">
+        <IconTile icon={KeyRound} />
+        <div className="mt-6">
+          <StepHeader
+            title="forgot your password?"
+            sub="happens to the best of us. drop your email and we'll send a reset link."
+          />
+        </div>
+        <div className="mt-8">
+          <FieldCard label="email">
+            <input
+              type="email"
+              inputMode="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="riley@gmail.com"
+              autoFocus
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="email"
+              spellCheck={false}
+              enterKeyHint="send"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') send();
+              }}
+              style={filmRedCaret}
+              className="w-full bg-transparent font-mono text-[20px] tracking-[-0.01em] text-foreground outline-none placeholder:text-muted-foreground/40"
+            />
+          </FieldCard>
+        </div>
+      </div>
+
+      <div className="px-5 pb-safe">
+        <div className="pb-4 pt-3">
+          <CtaButton label="send reset link" icon={Mail} onClick={send} disabled={!emailOk} loading={busy} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── 008 · check your email ───────────────────────────────────────────────────
+function CheckYourEmail({
+  email,
+  onResend,
+  onBack,
+}: {
+  email: string;
+  onResend: () => void;
+  onBack: () => void;
+}) {
+  const [secs, setSecs] = useState(RESEND_SECONDS);
+
+  useEffect(() => {
+    if (secs <= 0) return;
+    const t = setInterval(() => setSecs((s) => (s > 0 ? s - 1 : 0)), 1000);
+    return () => clearInterval(t);
+  }, [secs]);
+
+  const openMail = () => {
+    haptic('light');
+    // iOS Mail opens on message://; harmless no-op elsewhere.
+    try {
+      window.location.href = 'message://';
+    } catch {
+      /* ignore */
     }
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 relative">
-      <div className="absolute top-4 right-4 z-20">
-        <ThemeToggle />
-      </div>
+    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+      <AuthTopBar onBack={onBack} />
 
-      <div className="flex items-center gap-3 mb-6">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
-          cinechrony
+      <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+        <IconTile icon={MailCheck} accent className="mb-6" />
+        <h1
+          className="m-0 font-headline text-[30px] font-bold lowercase tracking-[-0.02em]"
+          style={{ fontVariationSettings: '"wdth" 95' }}
+        >
+          check your email
         </h1>
-      </div>
+        <p className="mt-2.5 font-serif text-[15px] font-light italic text-muted-foreground">
+          we sent a reset link to
+        </p>
+        <p className="mt-1 font-mono text-[15px] text-foreground">{email}</p>
 
-      <Card className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-photo">
-        <CardHeader>
-          <CardTitle className="font-headline">Reset Password</CardTitle>
-          <CardDescription>
-            {emailSent
-              ? "Check your email for a reset link."
-              : "Enter your email and we'll send you a reset link."
-            }
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {emailSent ? (
-            <div className="space-y-4">
-              <div className="flex items-center justify-center py-6">
-                <div className="w-16 h-16 bg-primary/10 rounded-full flex items-center justify-center">
-                  <Mail className="h-8 w-8 text-primary" />
-                </div>
-              </div>
-              <p className="text-center text-sm text-muted-foreground">
-                We sent a password reset link to <strong>{email}</strong>
-              </p>
-              <Button
-                onClick={() => setEmailSent(false)}
-                variant="outline"
-                className={`w-full ${retroButtonClass}`}
-              >
-                Try a different email
-              </Button>
-            </div>
+        <button
+          onClick={openMail}
+          className="mt-7 flex h-[52px] w-full max-w-[20rem] items-center justify-center gap-2 rounded-full border border-hair bg-card font-ui text-[15px] font-semibold text-foreground shadow-press transition-all active:scale-[0.98]"
+        >
+          <Mail className="h-[18px] w-[18px]" />
+          open mail app
+        </button>
+
+        <div className="mt-5 font-ui text-[14px] text-muted-foreground">
+          didn&apos;t get it?{' '}
+          {secs > 0 ? (
+            <span className="font-semibold text-primary">resend in 0:{String(secs).padStart(2, '0')}</span>
           ) : (
-            <form onSubmit={handleResetPassword} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  required
-                  className={retroInputClass}
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
-                {isLoading ? <Loader2 className="animate-spin" /> : 'Send Reset Link'}
-              </Button>
-            </form>
+            <button
+              onClick={() => {
+                onResend();
+                setSecs(RESEND_SECONDS);
+              }}
+              className="font-semibold text-primary"
+            >
+              resend
+            </button>
           )}
-          <p className="mt-6 text-center">
-            <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground hover:underline inline-flex items-center gap-1">
-              <ArrowLeft className="h-3 w-3" />
-              Back to login
-            </Link>
-          </p>
-        </CardContent>
-      </Card>
-    </main>
+        </div>
+      </div>
+    </div>
   );
 }

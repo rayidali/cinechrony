@@ -23,7 +23,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { randomInt } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
-import { MAX_LIST_MEMBERS } from '@/lib/lists-server';
+import { MAX_LIST_MEMBERS, invalidateCollaborativeLists, invalidateListMembers } from '@/lib/lists-server';
 import { sendPushToUser } from '@/lib/push-server';
 import type { ListInvite } from '@/lib/types';
 
@@ -498,6 +498,11 @@ export async function acceptInvite(
   });
 
   if (result.kind === 'err') throw result.error;
+
+  // The caller just joined — clear the caches so the list + its members show
+  // immediately (same-instance; the TTL backstops cross-instance).
+  invalidateCollaborativeLists(callerUid);
+  invalidateListMembers(result.listOwnerId, result.listId);
 
   // Best-effort: delete the matching list_invite notification for this user.
   try {

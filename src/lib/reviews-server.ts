@@ -31,6 +31,11 @@ import {
   createReplyNotification,
   createLikeNotification,
 } from '@/lib/notifications-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
+import { getMyBlockSet } from '@/lib/blocks-server';
+import { getFollowingIds } from '@/lib/follows-server';
+import { isReactionType, type ReactionType, type ReactionCounts } from '@/lib/review-reactions';
+import { verdictForRating, type Verdict } from '@/lib/review-verdict';
 import type { Review } from '@/lib/types';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -170,6 +175,7 @@ export async function createReview(
     parentId: input.parentId || null,
     replyCount: 0,
     hasSpoiler: !!input.hasSpoiler,
+    reactions: {},
     createdAt: FieldValue.serverTimestamp(),
     updatedAt: FieldValue.serverTimestamp(),
   };
@@ -476,4 +482,375 @@ export async function getUserReviewForMovie(
     .get();
   if (snap.empty) return null;
   return reviewFromDoc(snap.docs[0]);
+}
+
+// ─── Hot-takes (home "green quote card", 0.7.5.4) ──────────────────────────
+//
+// A "hot take" = a short, glowing, top-level review — surfaced as the green
+// quote card interleaved into the home reel. Real data only: an empty pool
+// hides the card (no fabrication), same contract as the discovery rails.
+//
+// Quota-first (free-tier Firestore is the binding constraint):
+//   - ONE GLOBAL pool, shared across all viewers, built from a single
+//     index-free `createdAt desc` scan (the automatic single-field index — no
+//     composite index to deploy) and held in a module TTL cache. On a warm
+//     Vercel (Fluid Compute) instance the scan runs at most once per TTL, so
+//     N home loads cost ~0 reads instead of N×scan.
+//   - Per-caller work is in-memory only: drop the caller's own takes + anyone
+//     in their block invisibility set (cached). The client additionally filters
+//     mutes/blocks, mirroring the main feed.
+//   - The long TTL is deliberate — great reviews are evergreen, and on the
+//     Spark plan a fresh-to-the-minute decorative card isn't worth the reads.
+//     If reviews ever grow huge, move the pool to the `/snapshots/home` doc
+//     (see `home-snapshot-server.ts`) like the leaderboard.
+
+export type HotTake = {
+  reviewId: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  text: string;
+  rating: number | null;
+  author: {
+    uid: string;
+    username: string | null;
+    displayName: string | null;
+    photoURL: string | null;
+  };
+};
+
+const HOT_TAKE_MIN_TEXT = 12;   // longer than a one-word "great"
+const HOT_TAKE_MAX_TEXT = 240;  // a punchy take, not an essay
+const HOT_TAKE_MIN_RATING = 8;  // a genuine rave
+const HOT_TAKE_SCAN = 200;      // recent reviews to consider per rebuild (wide
+                                // enough that replies/low-rated don't starve the
+                                // pool as the app grows; still one cheap read)
+const HOT_TAKE_POOL = 24;       // candidates kept (one per film, varied)
+
+// 30-min TTL — caps rebuilds at ~48/day per warm instance × HOT_TAKE_SCAN reads.
+const hotTakeCache = createTtlCache<HotTake[]>({ ttlMs: 1_800_000, maxEntries: 2 });
+
+async function buildHotTakePool(): Promise<HotTake[]> {
+  const db = getDb();
+  // Index-free: single-field `createdAt desc` only (no composite index needed).
+  const snap = await db
+    .collection('reviews')
+    .orderBy('createdAt', 'desc')
+    .limit(HOT_TAKE_SCAN)
+    .get();
+
+  const seenMovies = new Set<number>();
+  const pool: HotTake[] = [];
+  for (const doc of snap.docs) {
+    const r = doc.data() as {
+      parentId?: string | null;
+      text?: unknown;
+      ratingAtTime?: unknown;
+      tmdbId?: unknown;
+      mediaType?: unknown;
+      movieTitle?: unknown;
+      moviePosterUrl?: unknown;
+      userId?: unknown;
+      username?: unknown;
+      userDisplayName?: unknown;
+      userPhotoUrl?: unknown;
+    };
+    if (r.parentId) continue; // top-level reviews only (skip replies)
+    if (typeof r.tmdbId !== 'number') continue;
+    if (typeof r.userId !== 'string' || !r.userId) continue;
+    const rating = typeof r.ratingAtTime === 'number' ? r.ratingAtTime : null;
+    if (rating == null || rating < HOT_TAKE_MIN_RATING) continue;
+    const text = typeof r.text === 'string' ? r.text.trim() : '';
+    if (text.length < HOT_TAKE_MIN_TEXT || text.length > HOT_TAKE_MAX_TEXT) continue;
+    if (seenMovies.has(r.tmdbId)) continue; // one take per film keeps it varied
+    seenMovies.add(r.tmdbId);
+    pool.push({
+      reviewId: doc.id,
+      tmdbId: r.tmdbId,
+      mediaType: r.mediaType === 'tv' ? 'tv' : 'movie',
+      movieTitle: typeof r.movieTitle === 'string' ? r.movieTitle : '',
+      moviePosterUrl: typeof r.moviePosterUrl === 'string' ? r.moviePosterUrl : null,
+      text,
+      rating,
+      author: {
+        uid: r.userId,
+        username: typeof r.username === 'string' ? r.username : null,
+        displayName: typeof r.userDisplayName === 'string' ? r.userDisplayName : null,
+        photoURL: typeof r.userPhotoUrl === 'string' ? r.userPhotoUrl : null,
+      },
+    });
+    if (pool.length >= HOT_TAKE_POOL) break;
+  }
+  return pool;
+}
+
+/**
+ * Recent hot-takes for the home reel, filtered for one caller. Returns up to
+ * `limit`, excluding the caller's own takes and anyone in their block set.
+ * The shared pool is cached; per-caller filtering is in-memory.
+ */
+export async function getReviewHighlights(callerUid: string, limit = 8): Promise<HotTake[]> {
+  const [pool, blocked] = await Promise.all([
+    cached(hotTakeCache, 'pool', buildHotTakePool),
+    getMyBlockSet(callerUid).catch(() => new Set<string>()),
+  ]);
+  return pool
+    .filter((t) => t.author.uid !== callerUid && !blocked.has(t.author.uid))
+    .slice(0, limit);
+}
+
+// ─── Reactions (F14) ───────────────────────────────────────────────────────
+//
+// One reaction per user per review, stored as a `reactions: { [uid]: type }`
+// map on the review doc. Writes touch only the caller's key (dot-path), so two
+// users reacting concurrently never clobber each other.
+
+function countReactions(reactions: Record<string, unknown> | undefined): ReactionCounts {
+  const counts: ReactionCounts = {};
+  if (!reactions) return counts;
+  for (const t of Object.values(reactions)) {
+    if (isReactionType(t)) counts[t] = (counts[t] ?? 0) + 1;
+  }
+  return counts;
+}
+
+/** Set (or replace) the caller's reaction. Transactional so the count derived
+ *  for the response reflects the post-write map. */
+export async function reactReview(
+  callerUid: string,
+  reviewId: string,
+  type: ReactionType,
+): Promise<{ counts: ReactionCounts; myReaction: ReactionType }> {
+  if (!isReactionType(type)) throw new ReviewValidationError('Invalid reaction type.');
+  const db = getDb();
+  const ref = db.collection('reviews').doc(reviewId);
+
+  type TxOk = { kind: 'ok'; reactions: Record<string, unknown> };
+  type TxErr = { kind: 'err'; error: Error };
+  const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { kind: 'err' as const, error: new ReviewNotFoundError() };
+    const data = snap.data() || {};
+    const reactions: Record<string, unknown> = { ...(data.reactions || {}) };
+    reactions[callerUid] = type;
+    tx.update(ref, { [`reactions.${callerUid}`]: type });
+    return { kind: 'ok' as const, reactions };
+  });
+  if (result.kind === 'err') throw result.error;
+  return { counts: countReactions(result.reactions), myReaction: type };
+}
+
+/** Remove the caller's reaction (idempotent — removing a non-existent reaction
+ *  is a no-op, returns the current counts). */
+export async function unreactReview(
+  callerUid: string,
+  reviewId: string,
+): Promise<{ counts: ReactionCounts; myReaction: null }> {
+  const db = getDb();
+  const ref = db.collection('reviews').doc(reviewId);
+
+  type TxOk = { kind: 'ok'; reactions: Record<string, unknown> };
+  type TxErr = { kind: 'err'; error: Error };
+  const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return { kind: 'err' as const, error: new ReviewNotFoundError() };
+    const data = snap.data() || {};
+    const reactions: Record<string, unknown> = { ...(data.reactions || {}) };
+    delete reactions[callerUid];
+    tx.update(ref, { [`reactions.${callerUid}`]: FieldValue.delete() });
+    return { kind: 'ok' as const, reactions };
+  });
+  if (result.kind === 'err') throw result.error;
+  return { counts: countReactions(result.reactions), myReaction: null };
+}
+
+// ─── Reviews wall (F12) ──────────────────────────────────────────────────────
+//
+// The whole reviews surface for one film in ONE read: a capped, index-free
+// single-field scan (`tmdbId ==`) of every review + reply, grouped in memory
+// into top-level cards with their reply bubbles, plus the aggregate summary
+// (friends'-framed score + loved/liked/fine/nope distribution + friends-seen).
+//
+// Deliberately NOT cached: a film's reviews wall is opened interactively and the
+// author must see their own just-posted review immediately (the cardinal
+// no-stale-after-own-action rule). The sort tabs (helpful/recent/highest) sort
+// CLIENT-side off this single payload, so changing sort costs zero reads. The
+// per-caller reaction/helpful state is derived here; the raw reactions/likedBy
+// maps are never shipped.
+
+const WALL_SCAN = 250; // reviews+replies considered per film (plenty pre-scale)
+const WALL_REPLY_CAP = 40; // embedded reply bubbles per top-level review
+
+export type WallReview = {
+  id: string;
+  tmdbId: number;
+  mediaType: 'movie' | 'tv';
+  movieTitle: string;
+  moviePosterUrl: string | null;
+  userId: string;
+  username: string | null;
+  userDisplayName: string | null;
+  userPhotoUrl: string | null;
+  text: string;
+  ratingAtTime: number | null;
+  verdict: Verdict | null;
+  hasSpoiler: boolean;
+  parentId: string | null;
+  replyCount: number;
+  helpful: number; // = the existing "likes" count, surfaced as "helpful"
+  myHelpful: boolean;
+  reactionCounts: ReactionCounts;
+  myReaction: ReactionType | null;
+  createdAt: string; // ISO
+  replies?: WallReview[];
+};
+
+export type ReviewSeen = {
+  uid: string;
+  username: string | null;
+  displayName: string | null;
+  photoURL: string | null;
+};
+
+export type ReviewsSummary = {
+  score: number | null; // avg rating across rated top-level reviews
+  count: number; // top-level reviews (incl. ratingless notes)
+  ratedCount: number;
+  distribution: Record<Verdict, number>;
+  friendsSeen: ReviewSeen[]; // up to 5 avatars of reviewers you follow
+  friendsSeenCount: number;
+};
+
+export type ReviewsWall = {
+  summary: ReviewsSummary;
+  reviews: WallReview[]; // top-level, recent-first (client re-sorts)
+  truncated: boolean;
+};
+
+function isoOf(value: unknown): string {
+  const v = value as { toDate?: () => Date } | Date | undefined;
+  if (v && typeof (v as { toDate?: () => Date }).toDate === 'function') {
+    return (v as { toDate: () => Date }).toDate().toISOString();
+  }
+  if (v instanceof Date) return v.toISOString();
+  return new Date(0).toISOString();
+}
+
+function toWallReview(
+  id: string,
+  data: FirebaseFirestore.DocumentData,
+  callerUid: string | null,
+): WallReview {
+  const rating = typeof data.ratingAtTime === 'number' ? data.ratingAtTime : null;
+  const likedBy: string[] = Array.isArray(data.likedBy) ? data.likedBy : [];
+  const reactions = (data.reactions || {}) as Record<string, unknown>;
+  const myRaw = callerUid ? reactions[callerUid] : undefined;
+  return {
+    id,
+    tmdbId: data.tmdbId,
+    mediaType: data.mediaType === 'tv' ? 'tv' : 'movie',
+    movieTitle: typeof data.movieTitle === 'string' ? data.movieTitle : '',
+    moviePosterUrl: typeof data.moviePosterUrl === 'string' ? data.moviePosterUrl : null,
+    userId: typeof data.userId === 'string' ? data.userId : '',
+    username: data.username ?? null,
+    userDisplayName: data.userDisplayName ?? null,
+    userPhotoUrl: data.userPhotoUrl ?? null,
+    text: typeof data.text === 'string' ? data.text : '',
+    ratingAtTime: rating,
+    verdict: verdictForRating(rating),
+    hasSpoiler: !!data.hasSpoiler,
+    parentId: data.parentId ?? null,
+    replyCount: data.replyCount || 0,
+    helpful: data.likes || 0,
+    myHelpful: !!callerUid && likedBy.includes(callerUid),
+    reactionCounts: countReactions(reactions),
+    myReaction: isReactionType(myRaw) ? myRaw : null,
+    createdAt: isoOf(data.createdAt),
+  };
+}
+
+const wallTime = (r: WallReview) => Date.parse(r.createdAt) || 0;
+
+export async function getReviewsWall(
+  tmdbId: number,
+  callerUid: string | null,
+): Promise<ReviewsWall> {
+  const db = getDb();
+  // ONE index-free scan (single-field equality on tmdbId — no composite index to
+  // deploy, works on the free tier with zero owner action). NO orderBy on
+  // purpose: `tmdbId ==` + `orderBy createdAt` would need a (tmdbId, createdAt)
+  // composite the owner would have to deploy (and the wall would 500→empty until
+  // they did). Consequence: a film with MORE than WALL_SCAN reviews+replies
+  // returns an arbitrary (doc-id-ordered) subset, so the summary is only EXACT
+  // below the cap — `truncated` flags the overflow. Pre-scale that's every film;
+  // the scale-fix is a precomputed snapshot (like home-snapshot-server), tracked
+  // for later. Replies whose parent fell outside the window are harmlessly
+  // ignored (repliesByParent is consumed per present top-level review only).
+  const snap = await db.collection('reviews').where('tmdbId', '==', tmdbId).limit(WALL_SCAN).get();
+  const truncated = snap.size >= WALL_SCAN;
+
+  const [following, blocked] = await Promise.all([
+    callerUid ? getFollowingIds(callerUid, 2000).catch(() => [] as string[]) : Promise.resolve([] as string[]),
+    callerUid ? getMyBlockSet(callerUid).catch(() => new Set<string>()) : Promise.resolve(new Set<string>()),
+  ]);
+  const followSet = new Set(following);
+
+  const topLevel: WallReview[] = [];
+  const repliesByParent = new Map<string, WallReview[]>();
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    if (typeof data.userId === 'string' && blocked.has(data.userId)) continue; // block invisibility
+    const wr = toWallReview(doc.id, data, callerUid);
+    if (wr.parentId) {
+      const arr = repliesByParent.get(wr.parentId) ?? [];
+      arr.push(wr);
+      repliesByParent.set(wr.parentId, arr);
+    } else {
+      topLevel.push(wr);
+    }
+  }
+
+  // Attach reply bubbles (oldest-first, capped).
+  for (const r of topLevel) {
+    const reps = repliesByParent.get(r.id);
+    if (reps && reps.length) {
+      reps.sort((a, b) => wallTime(a) - wallTime(b));
+      r.replies = reps.slice(0, WALL_REPLY_CAP);
+    }
+  }
+  topLevel.sort((a, b) => wallTime(b) - wallTime(a)); // recent-first default
+
+  // Aggregate summary over top-level reviews.
+  const distribution: Record<Verdict, number> = { loved: 0, liked: 0, fine: 0, nope: 0 };
+  let sum = 0;
+  let ratedCount = 0;
+  const seen = new Map<string, ReviewSeen>();
+  for (const r of topLevel) {
+    if (r.ratingAtTime != null) {
+      sum += r.ratingAtTime;
+      ratedCount += 1;
+      if (r.verdict) distribution[r.verdict] += 1;
+    }
+    if (followSet.has(r.userId) && !seen.has(r.userId)) {
+      seen.set(r.userId, {
+        uid: r.userId,
+        username: r.username,
+        displayName: r.userDisplayName,
+        photoURL: r.userPhotoUrl,
+      });
+    }
+  }
+  const friendsSeenAll = [...seen.values()];
+
+  const summary: ReviewsSummary = {
+    score: ratedCount > 0 ? Math.round((sum / ratedCount) * 10) / 10 : null,
+    count: topLevel.length,
+    ratedCount,
+    distribution,
+    friendsSeen: friendsSeenAll.slice(0, 5),
+    friendsSeenCount: friendsSeenAll.length,
+  };
+
+  return { summary, reviews: topLevel, truncated };
 }

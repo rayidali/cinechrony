@@ -1,222 +1,212 @@
 'use client';
 
-import { useState, useEffect, Suspense } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useEffect, useState, Suspense } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { ArrowRight, Check, Circle, Eye, EyeOff, Loader2, XCircle } from 'lucide-react';
+import {
+  verifyPasswordResetCode,
+  confirmPasswordReset,
+  signInWithEmailAndPassword,
+} from 'firebase/auth';
 import { useAuth } from '@/firebase';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, CheckCircle, XCircle, KeyRound } from 'lucide-react';
-import { ThemeToggle } from '@/components/theme-toggle';
 import { useToast } from '@/hooks/use-toast';
-import { verifyPasswordResetCode, confirmPasswordReset } from 'firebase/auth';
+import { haptic } from '@/lib/haptics';
+import { cn } from '@/lib/utils';
+import {
+  FieldCard,
+  CtaButton,
+  StepHeader,
+  AuthTopBar,
+  filmRedCaret,
+} from '@/components/v3/onboarding-kit';
 
-const retroInputClass = "border border-border rounded-2xl shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200 bg-card";
-const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
+const rules = (pw: string) => ({
+  length: pw.length >= 8,
+  number: /\d/.test(pw),
+  symbol: /[^A-Za-z0-9]/.test(pw),
+});
 
+/**
+ * 010 · set a new password — Phase 0.7 Wave 7. Reached from the email reset
+ * link (`?oobCode=`). Live requirement chips (8 chars / number / symbol), reveal
+ * toggle, then reset + auto-login → home.
+ */
 function ResetPasswordContent() {
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isVerifying, setIsVerifying] = useState(true);
-  const [isValid, setIsValid] = useState(false);
-  const [isSuccess, setIsSuccess] = useState(false);
-  const [email, setEmail] = useState('');
-  const [error, setError] = useState('');
-
   const auth = useAuth();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { toast } = useToast();
+  const oobCode = useSearchParams().get('oobCode');
 
-  const oobCode = searchParams.get('oobCode');
+  const [phase, setPhase] = useState<'verifying' | 'invalid' | 'form'>('verifying');
+  const [email, setEmail] = useState('');
+  const [error, setError] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPw, setShowPw] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  // Verify the reset code on mount
   useEffect(() => {
-    async function verifyCode() {
+    let alive = true;
+    (async () => {
       if (!oobCode) {
-        setError('Invalid or missing reset link.');
-        setIsVerifying(false);
+        setError('invalid or missing reset link.');
+        setPhase('invalid');
         return;
       }
-
       try {
-        const userEmail = await verifyPasswordResetCode(auth, oobCode);
-        setEmail(userEmail);
-        setIsValid(true);
-      } catch (err: any) {
-        if (err.code === 'auth/expired-action-code') {
-          setError('This reset link has expired. Please request a new one.');
-        } else if (err.code === 'auth/invalid-action-code') {
-          setError('This reset link is invalid or has already been used.');
-        } else {
-          setError('Something went wrong. Please try again.');
-        }
-      } finally {
-        setIsVerifying(false);
+        const verifiedEmail = await verifyPasswordResetCode(auth, oobCode);
+        if (!alive) return;
+        setEmail(verifiedEmail);
+        setPhase('form');
+      } catch (err) {
+        if (!alive) return;
+        const code = (err as { code?: string })?.code;
+        setError(
+          code === 'auth/expired-action-code'
+            ? 'this reset link has expired. request a new one.'
+            : code === 'auth/invalid-action-code'
+              ? 'this reset link is invalid or already used.'
+              : 'something went wrong. try again.',
+        );
+        setPhase('invalid');
       }
-    }
-
-    verifyCode();
+    })();
+    return () => {
+      alive = false;
+    };
   }, [auth, oobCode]);
 
-  const handleResetPassword = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const r = rules(password);
+  const canSubmit = r.length && r.number && r.symbol && !busy;
 
-    if (password !== confirmPassword) {
-      toast({
-        variant: 'destructive',
-        title: 'Passwords do not match',
-        description: 'Please make sure both passwords are the same.',
-      });
-      return;
-    }
-
-    if (password.length < 6) {
-      toast({
-        variant: 'destructive',
-        title: 'Password too short',
-        description: 'Password must be at least 6 characters.',
-      });
-      return;
-    }
-
-    setIsLoading(true);
+  const submit = async () => {
+    if (!canSubmit || !oobCode) return;
+    setBusy(true);
     try {
-      await confirmPasswordReset(auth, oobCode!, password);
-      setIsSuccess(true);
-      toast({
-        title: 'Password Reset!',
-        description: 'Your password has been successfully changed.',
-      });
-    } catch (err: any) {
-      let message = 'Failed to reset password. Please try again.';
-      if (err.code === 'auth/weak-password') {
-        message = 'Password is too weak. Please choose a stronger password.';
+      await confirmPasswordReset(auth, oobCode, password);
+      // "reset & log in" — sign straight in with the new password.
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+        haptic('success');
+        router.push('/home');
+      } catch {
+        // Reset succeeded but auto-login failed — send them to log in manually.
+        haptic('success');
+        router.push('/login');
       }
+    } catch (err) {
       toast({
         variant: 'destructive',
-        title: 'Reset Failed',
-        description: message,
+        title: 'could not reset password',
+        description:
+          (err as { code?: string })?.code === 'auth/weak-password'
+            ? 'choose a stronger password.'
+            : 'the link may have expired. request a new one.',
       });
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
   };
 
-  return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-4 relative">
-      <div className="absolute top-4 right-4 z-20">
-        <ThemeToggle />
+  if (phase === 'verifying') {
+    return (
+      <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+        <AuthTopBar eyebrow="almost there" onBack={() => router.push('/login')} />
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-muted-foreground">
+          <Loader2 className="h-7 w-7 animate-spin" />
+          <span className="font-mono text-[12px] uppercase tracking-[0.14em]">verifying link…</span>
+        </div>
       </div>
+    );
+  }
 
-      <div className="flex items-center gap-3 mb-6">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Cinechrony" className="h-12 w-12" />
-        <h1 className="text-4xl md:text-5xl font-headline font-bold tracking-tight lowercase">
-          cinechrony
-        </h1>
-      </div>
-
-      <Card className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-photo">
-        <CardHeader>
-          <CardTitle className="font-headline flex items-center gap-2">
-            <KeyRound className="h-5 w-5" />
-            Reset Password
-          </CardTitle>
-          <CardDescription>
-            {isVerifying && 'Verifying your reset link...'}
-            {!isVerifying && isValid && !isSuccess && `Enter a new password for ${email}`}
-            {!isVerifying && !isValid && 'Unable to reset password'}
-            {isSuccess && 'Your password has been reset!'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isVerifying ? (
-            <div className="flex flex-col items-center py-8">
-              <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <p className="mt-4 text-sm text-muted-foreground">Verifying reset link...</p>
-            </div>
-          ) : isSuccess ? (
-            <div className="space-y-4">
-              <div className="flex flex-col items-center py-6">
-                <div className="w-16 h-16 bg-green-100 dark:bg-green-900/30 rounded-full flex items-center justify-center">
-                  <CheckCircle className="h-8 w-8 text-green-600" />
-                </div>
-                <p className="mt-4 text-center text-sm text-muted-foreground">
-                  Your password has been successfully reset. You can now log in with your new password.
-                </p>
-              </div>
-              <Button
-                onClick={() => router.push('/login')}
-                className="w-full"
-              >
-                Go to Login
-              </Button>
-            </div>
-          ) : !isValid ? (
-            <div className="space-y-4">
-              <div className="flex flex-col items-center py-6">
-                <div className="w-16 h-16 bg-red-100 dark:bg-red-900/30 rounded-full flex items-center justify-center">
-                  <XCircle className="h-8 w-8 text-red-600" />
-                </div>
-                <p className="mt-4 text-center text-sm text-muted-foreground">
-                  {error}
-                </p>
-              </div>
-              <Button
-                onClick={() => router.push('/forgot-password')}
-                className="w-full"
-              >
-                Request New Link
-              </Button>
-            </div>
-          ) : (
-            <form onSubmit={handleResetPassword} className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="password">New Password</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="At least 6 characters"
-                  required
-                  minLength={6}
-                  className={retroInputClass}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="confirmPassword">Confirm Password</Label>
-                <Input
-                  id="confirmPassword"
-                  type="password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Re-enter your password"
-                  required
-                  className={retroInputClass}
-                />
-              </div>
-              <Button
-                type="submit"
-                className="w-full"
-                disabled={isLoading}
-              >
-                {isLoading ? <Loader2 className="animate-spin" /> : 'Reset Password'}
-              </Button>
-            </form>
-          )}
-
-          <p className="mt-6 text-center">
-            <Link href="/login" className="text-sm text-muted-foreground hover:text-foreground hover:underline">
-              Back to login
-            </Link>
+  if (phase === 'invalid') {
+    return (
+      <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+        <AuthTopBar eyebrow="almost there" onBack={() => router.push('/login')} />
+        <div className="flex flex-1 flex-col items-center justify-center px-8 text-center">
+          <XCircle className="h-12 w-12 text-destructive" strokeWidth={1.5} />
+          <p className="mt-4 max-w-[18rem] font-serif text-[15px] font-light italic text-muted-foreground">
+            {error}
           </p>
-        </CardContent>
-      </Card>
-    </main>
+          <button
+            onClick={() => router.push('/forgot-password')}
+            className="mt-7 flex h-[52px] w-full max-w-[20rem] items-center justify-center rounded-full bg-primary font-ui text-[15px] font-semibold text-primary-foreground shadow-fab transition-all active:scale-[0.98]"
+          >
+            request a new link
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-[100dvh] flex-col bg-background text-foreground">
+      <AuthTopBar eyebrow="almost there" onBack={() => router.push('/login')} />
+
+      <div className="flex-1 overflow-y-auto px-5 pt-8">
+        <StepHeader
+          title="set a new password"
+          sub="make it something your group chat could never guess."
+        />
+
+        <div className="mt-8 space-y-4">
+          <FieldCard
+            label="new password"
+            trailing={
+              <button
+                type="button"
+                onClick={() => setShowPw((s) => !s)}
+                aria-label={showPw ? 'hide password' : 'show password'}
+                className="text-muted-foreground transition-opacity active:opacity-60"
+              >
+                {showPw ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+              </button>
+            }
+          >
+            <input
+              type={showPw ? 'text' : 'password'}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="••••••••"
+              autoFocus
+              autoComplete="new-password"
+              enterKeyHint="go"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && canSubmit) submit();
+              }}
+              style={filmRedCaret}
+              className="w-full bg-transparent font-mono text-[20px] tracking-[-0.01em] text-foreground outline-none placeholder:text-muted-foreground/40"
+            />
+          </FieldCard>
+
+          <div className="flex flex-wrap gap-2">
+            <Req ok={r.length} label="at least 8 characters" />
+            <Req ok={r.number} label="one number" />
+            <Req ok={r.symbol} label="one symbol" />
+          </div>
+        </div>
+      </div>
+
+      <div className="px-5 pb-safe">
+        <div className="pb-4 pt-3">
+          <CtaButton label="reset & log in" icon={ArrowRight} onClick={submit} disabled={!canSubmit} loading={busy} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Req({ ok, label }: { ok: boolean; label: string }) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-1.5 rounded-full border px-3 py-1.5 font-ui text-[13px] transition-colors',
+        ok ? 'border-success/30 bg-success/10 text-success' : 'border-hair bg-card text-muted-foreground',
+      )}
+    >
+      {ok ? <Check className="h-[14px] w-[14px]" strokeWidth={3} /> : <Circle className="h-[14px] w-[14px]" />}
+      {label}
+    </div>
   );
 }
 
@@ -224,9 +214,9 @@ export default function ResetPasswordPage() {
   return (
     <Suspense
       fallback={
-        <main className="flex min-h-screen flex-col items-center justify-center p-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        </main>
+        <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+          <Loader2 className="h-7 w-7 animate-spin text-primary" />
+        </div>
       }
     >
       <ResetPasswordContent />

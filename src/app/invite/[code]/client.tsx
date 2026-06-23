@@ -3,17 +3,23 @@
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from 'next/navigation';
 import Link from 'next/link';
-import { Loader2, Check, X, Users, List } from 'lucide-react';
+import { Loader2, Check, X, Users, ListPlus } from 'lucide-react';
 import { useUser } from '@/firebase';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
+import { haptic } from '@/lib/haptics';
+import { PosterWall } from '@/components/v3/poster-wall';
+import { CtaButton, IconTile } from '@/components/v3/onboarding-kit';
 import type { ListInvite } from '@/lib/types';
 
-const retroButtonClass = "border border-border rounded-full shadow-lift transition-all duration-200";
+const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
 
+/**
+ * Invite acceptance — v3 (Phase 0.7 Wave 7). Cinematic poster-wall hero + the
+ * collaboration ask. All logic preserved: AUDIT 2.9 auth-gated preview, accept →
+ * collab-cache invalidation → list. Light + dark via tokens.
+ */
 export default function InvitePage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
@@ -33,15 +39,13 @@ export default function InvitePage() {
         setIsLoading(false);
         return;
       }
-      // AUDIT.md 2.9: invite preview now requires auth. If the user isn't
-      // signed in yet, don't load — the "Sign in to view invite" gate below
-      // handles that case. We re-run this effect once the user is set.
+      // AUDIT.md 2.9: invite preview requires auth. If not signed in, don't load —
+      // the sign-in gate handles it. Re-runs once the user is set.
       if (isUserLoading) return;
       if (!user) {
         setIsLoading(false);
         return;
       }
-
       try {
         const { invite: previewInvite } = await apiCall<{ invite: ListInvite }>(
           'GET',
@@ -55,13 +59,11 @@ export default function InvitePage() {
         setIsLoading(false);
       }
     }
-
     loadInvite();
   }, [inviteCode, user, isUserLoading]);
 
   const handleAccept = async () => {
     if (!user || !invite) return;
-
     setIsAccepting(true);
     try {
       const result = await apiCall<{ listId: string; listOwnerId: string }>(
@@ -69,19 +71,16 @@ export default function InvitePage() {
         '/api/v1/invites/accept',
         { inviteCode },
       );
-      toast({
-        title: 'Invite Accepted!',
-        description: `You are now a collaborator on "${invite.listName}"`,
-      });
-      // The collaborative-lists cache is now stale.
+      haptic('success');
+      toast({ title: 'invite accepted', description: `you're now a collaborator on "${invite.listName}".` });
       invalidateCachedAction(`collab-lists:${user.uid}`);
       router.push(`/lists/${result.listId}?owner=${result.listOwnerId}`);
     } catch (err) {
       console.error('Failed to accept invite:', err);
       toast({
         variant: 'destructive',
-        title: 'Error',
-        description: err instanceof ApiClientError ? err.message : 'Failed to accept invite',
+        title: 'could not accept',
+        description: err instanceof ApiClientError ? err.message : 'failed to accept invite',
       });
     } finally {
       setIsAccepting(false);
@@ -90,111 +89,93 @@ export default function InvitePage() {
 
   if (isLoading || isUserLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+        <img src={APP_ICON} alt="Loading" className="h-12 w-12 animate-pulse" />
       </div>
     );
   }
 
-  // AUDIT.md 2.9: unauthenticated users see the sign-in gate, NOT the
-  // error screen — the lack of invite data here is by design.
+  // ── sign-in gate (AUDIT 2.9) ──
   if (!user) {
     return (
-      <main className="min-h-screen font-body text-foreground">
-        <div className="container mx-auto p-4 md:p-8">
-          <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
-              <CardHeader className="text-center">
-                <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border border-border">
-                  <Users className="h-8 w-8 text-primary-foreground" />
-                </div>
-                <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
-                <CardDescription>
-                  Sign in to view and accept this invite.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <Link href={`/login?redirect=/invite/${inviteCode}`} className="block">
-                  <Button className={`${retroButtonClass} w-full bg-primary text-primary-foreground font-bold`}>
-                    Sign In to View Invite
-                  </Button>
-                </Link>
-              </CardContent>
-            </Card>
-          </div>
+      <Shell>
+        <IconTile icon={Users} accent className="mb-6" />
+        <Headline title="you're invited" sub="sign in to view and accept this collaboration." />
+        <div className="mt-8 w-full max-w-[20rem]">
+          <Link href={`/login?redirect=/invite/${inviteCode}`}>
+            <CtaButton label="sign in to view" />
+          </Link>
         </div>
-      </main>
+      </Shell>
     );
   }
 
+  // ── invalid / expired ──
   if (error || !invite) {
     return (
-      <main className="min-h-screen font-body text-foreground">
-        <div className="container mx-auto p-4 md:p-8">
-          <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <div className="h-16 w-16 rounded-full bg-destructive/10 flex items-center justify-center mb-4 border border-border">
-              <X className="h-8 w-8 text-destructive" />
-            </div>
-            <h1 className="text-2xl font-headline font-bold mb-2">Invalid Invite</h1>
-            <p className="text-muted-foreground mb-4 text-center">
-              {error || 'This invite link is invalid or has expired.'}
-            </p>
-            <Link href="/lists">
-              <Button className={`${retroButtonClass} bg-primary text-primary-foreground font-bold`}>Go to My Lists</Button>
-            </Link>
-          </div>
+      <Shell muted>
+        <IconTile icon={X} className="mb-6" />
+        <Headline title="invite unavailable" sub={error || 'this invite link is invalid or has expired.'} />
+        <div className="mt-8 w-full max-w-[20rem]">
+          <Link href="/lists">
+            <CtaButton label="go to my lists" />
+          </Link>
         </div>
-      </main>
+      </Shell>
     );
   }
 
+  // ── the invite ──
   return (
-    <main className="min-h-screen font-body text-foreground">
-      <div className="container mx-auto p-4 md:p-8">
-        <div className="flex flex-col items-center justify-center min-h-[50vh]">
-          <Card className="w-full max-w-md border border-border rounded-2xl shadow-photo">
-            <CardHeader className="text-center">
-              <div className="mx-auto h-16 w-16 rounded-full bg-primary flex items-center justify-center mb-4 border border-border">
-                <Users className="h-8 w-8 text-primary-foreground" />
-              </div>
-              <CardTitle className="text-2xl font-headline">You&apos;re Invited!</CardTitle>
-              <CardDescription>
-                @{invite.inviterUsername} has invited you to collaborate on
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-3 p-4 bg-secondary rounded-2xl border border-border">
-                <List className="h-6 w-6 text-primary" />
-                <span className="font-bold text-lg">{invite.listName}</span>
-              </div>
-              <p className="text-center text-sm text-muted-foreground">
-                As a collaborator, you&apos;ll be able to add and remove movies from this list.
-              </p>
-              <div className="flex gap-3">
-                <Link href="/lists" className="flex-1">
-                  <Button variant="outline" className="w-full border border-border rounded-full">
-                    Decline
-                  </Button>
-                </Link>
-                <Button
-                  onClick={handleAccept}
-                  disabled={isAccepting}
-                  className={`${retroButtonClass} flex-1 bg-primary text-primary-foreground font-bold`}
-                >
-                  {isAccepting ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="h-4 w-4 mr-2" />
-                      Accept
-                    </>
-                  )}
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+    <Shell>
+      <IconTile icon={Users} accent className="mb-6" />
+      <Headline title="you're invited" sub={`@${invite.inviterUsername} wants you on a shared watchlist.`} />
+
+      <div className="mt-7 flex w-full max-w-[20rem] items-center gap-3 rounded-[18px] border border-hair bg-card px-4 py-3.5 shadow-press">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-primary/12 text-primary">
+          <ListPlus className="h-[20px] w-[20px]" />
+        </div>
+        <div className="min-w-0 text-left">
+          <div className="truncate font-headline text-[17px] font-bold lowercase text-foreground">
+            {invite.listName}
+          </div>
+          <div className="font-mono text-[11px] text-muted-foreground">you can add &amp; remove films</div>
         </div>
       </div>
+
+      <div className="mt-7 w-full max-w-[20rem] space-y-1.5">
+        <CtaButton label="accept invite" icon={Check} onClick={handleAccept} loading={isAccepting} />
+        <Link href="/lists" className="block">
+          <button className="w-full py-3 text-center font-ui text-[15px] font-semibold text-muted-foreground transition-opacity active:opacity-60">
+            decline
+          </button>
+        </Link>
+      </div>
+    </Shell>
+  );
+}
+
+function Shell({ children, muted }: { children: React.ReactNode; muted?: boolean }) {
+  return (
+    <main className="relative flex min-h-[100dvh] flex-col items-center justify-center overflow-hidden bg-background px-6 text-center text-foreground">
+      {!muted && <PosterWall rows={5} cols={4} seed="invite" />}
+      <div className="relative z-[1] flex w-full flex-col items-center pb-safe pt-safe">{children}</div>
     </main>
+  );
+}
+
+function Headline({ title, sub }: { title: string; sub: string }) {
+  return (
+    <>
+      <h1
+        className="m-0 font-headline text-[32px] font-bold leading-[1.04] tracking-[-0.02em] lowercase text-foreground"
+        style={{ fontVariationSettings: '"wdth" 95' }}
+      >
+        {title}
+      </h1>
+      <p className="mt-2.5 max-w-[20rem] font-serif text-[15px] font-light italic leading-[1.5] text-muted-foreground">
+        {sub}
+      </p>
+    </>
   );
 }

@@ -102,6 +102,6 @@ export const GET = publicApiRoute(async (req) => {
     cursor,
   });
   return result;
-});
+}, { softFallback: { reviews: [], hasMore: false } });
 
 export const OPTIONS = optionsHandler;

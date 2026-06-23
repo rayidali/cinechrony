@@ -22,13 +22,6 @@ let alice: TestUser, bob: TestUser;
 
 before(() => { setupTestEnv(); });
 
-async function seedActivity(id: string, userId: string, atMs: number) {
-  await adminDb().collection('activities').doc(id).set({
-    userId, type: 'rated', tmdbId: 1, movieTitle: id, moviePosterUrl: null,
-    movieYear: '2024', mediaType: 'movie', likes: 0, likedBy: [],
-    createdAt: new Date(atMs),
-  });
-}
 async function seedPost(id: string, authorId: string, atMs: number) {
   await adminDb().collection('posts').doc(id).set({
     id, authorId, authorUsername: authorId, text: id, media: [],
@@ -59,36 +52,35 @@ beforeEach(async () => {
 
 after(async () => { await clearFirestore(); await clearAuth(); });
 
-test('home-feed merges activities + posts newest-first', async () => {
-  await seedActivity('act-old', bob.uid, 1_000);
+test('home-feed returns posts newest-first', async () => {
+  await seedPost('post-old', bob.uid, 1_000);
   await seedPost('post-mid', bob.uid, 2_000);
-  await seedActivity('act-new', bob.uid, 3_000);
+  await seedPost('post-new', bob.uid, 3_000);
 
   const res = await feedAs(alice);
   if (res.body.ok !== true) return assert.fail('expected ok');
   const items = res.body.data.items;
   assert.equal(items.length, 3);
-  assert.equal(items[0].kind, 'activity');
-  assert.equal(items[0].activity?.id, 'act-new');
-  assert.equal(items[1].kind, 'post');
+  assert.ok(items.every((i) => i.kind === 'post'), 'feed is posts-only');
+  assert.equal(items[0].post?.id, 'post-new');
   assert.equal(items[1].post?.id, 'post-mid');
-  assert.equal(items[2].activity?.id, 'act-old');
+  assert.equal(items[2].post?.id, 'post-old');
 });
 
 test('home-feed drops a blocked author', async () => {
   await seedPost('bobs-post', bob.uid, 5_000);
-  await seedActivity('alice-act', alice.uid, 4_000);
+  await seedPost('alice-post', alice.uid, 4_000);
   await blockUserAs(alice, bob.uid);
 
   const res = await feedAs(alice);
   if (res.body.ok !== true) return assert.fail('expected ok');
-  const ids = res.body.data.items.map((i) => i.kind === 'post' ? i.post!.id : i.activity!.id);
+  const ids = res.body.data.items.map((i) => i.post!.id);
   assert.ok(!ids.includes('bobs-post'), "blocked bob's post is hidden");
-  assert.ok(ids.includes('alice-act'));
+  assert.ok(ids.includes('alice-post'));
 });
 
 test('home-feed paginates with a timestamp cursor', async () => {
-  for (let i = 0; i < 5; i++) await seedActivity(`a${i}`, bob.uid, 1_000 + i * 1_000);
+  for (let i = 0; i < 5; i++) await seedPost(`p${i}`, bob.uid, 1_000 + i * 1_000);
   const page1 = await feedAs(alice, { limit: 3 });
   if (page1.body.ok !== true) return assert.fail('expected ok');
   assert.equal(page1.body.data.items.length, 3);
@@ -137,7 +129,7 @@ test('a forged token cannot like a post', async () => {
   assert.equal(res.status, 401);
 });
 
-test('home-feed carries only rated/reviewed activities — not added/watched', async () => {
+test('home-feed excludes ALL system activities (posts-only reel)', async () => {
   const seedTyped = (id: string, type: string, atMs: number) =>
     adminDb().collection('activities').doc(id).set({
       userId: bob.uid, type, tmdbId: 1, movieTitle: id, moviePosterUrl: null,
@@ -148,13 +140,12 @@ test('home-feed carries only rated/reviewed activities — not added/watched', a
   await seedTyped('reviewed-act', 'reviewed', 3_000);
   await seedTyped('added-act', 'added', 2_000);
   await seedTyped('watched-act', 'watched', 1_000);
+  await seedPost('a-post', bob.uid, 5_000);
 
   const res = await feedAs(alice);
   if (res.body.ok !== true) return assert.fail('expected ok');
-  const ids = res.body.data.items
-    .filter((i) => i.kind === 'activity')
-    .map((i) => i.activity!.id);
-  assert.ok(ids.includes('rated-act') && ids.includes('reviewed-act'));
-  assert.ok(!ids.includes('added-act'), 'added activities stay out of the feed');
-  assert.ok(!ids.includes('watched-act'), 'watched activities stay out of the feed');
+  const items = res.body.data.items;
+  assert.ok(items.every((i) => i.kind === 'post'), 'no system activities appear in the feed');
+  assert.equal(items.length, 1, 'only the post survives');
+  assert.equal(items[0].post?.id, 'a-post');
 });

@@ -57,9 +57,16 @@ src/app/
     │   ├── users/search                   # Search by username
     │   ├── movies/{trending,similar,…}    # TMDB/OMDB proxies
     │   ├── recommendations                # Personal recs
+    │   ├── leaderboard                    # Weekly top watchers (follow graph)
     │   ├── bookmarks/…  mutes/…  blocks/… reports/…
     │   ├── friends-watching               # Friends activity hero card
-    │   ├── imports/letterboxd/…           # Letterboxd parse/import
+    │   ├── share/story                    # next/og 1080×1920 story-card PNG (route.tsx;
+    │   │                                   #   no auth/no Firestore, params-driven; 0.7.4)
+    │   ├── share/og                       # next/og 1200×630 link-preview PNG for OG/Twitter
+    │   │                                   #   cards (params-driven). generateMetadata on
+    │   │                                   #   post/profile/list pages + layout default → it.
+    │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
+    │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph
     │   └── admin/…                        # adminRoute-wrapped backfills
     └── cron/weekly-digest                 # Vercel cron (web-push)
@@ -214,11 +221,20 @@ All four are no-ops on web.
 - Uses Vaul drawer for movie details modal
 - Real-time subscription to movies collection
 - Filter tabs: "To Watch" / "Watched"
-- View modes: Grid / List / Cards
+- View modes: Grid / List / Notes (the legacy "Cards" view was retired in 0.7)
 - Extended FAB button: `[+ Add]` for adding movies (pill shape with label)
 - Add movie modal uses fullscreen text input for social links (iOS fix)
 - Pull-to-refresh support (disabled when add movie modal is open)
 - **Security**: Permission check verifies user's UID is actually in `collaboratorIds` array, not just that the list data is readable
+
+### `/profile/[username]/lists/[listId]` Page (public read-only list)
+- v3 to parity with the editable list: cinematic `Hero` (cover/gradient + glass
+  back) → owner attribution + follow → `ListHeader` (read-only: description +
+  collaborator stack + like, no manage pill) → `MovieList publicReadOnly canEdit={false}`.
+- Reuses the SAME `MovieList` (toolbar, shared cells, openMovie round-trip) as
+  the owner page — `publicReadOnly` swaps to the standalone drawer and hides the
+  notes view (collaborators are redirected to the editable page, so a public
+  viewer never has notes access). No more `public-movie-*` fork.
 
 ### `/profile/[username]` Page
 - Public profile view (no auth required)
@@ -252,10 +268,66 @@ All four are no-ops on web.
 - Pull-to-refresh support
 - Notifications auto-deleted when invite is accepted/declined
 
-### `/onboarding` Flow
-- Multi-step onboarding for new users
-- Letterboxd import with 5-step screenshot guide
-- File upload for ZIP export from Letterboxd
+### `/onboarding` Flow (v3, Wave 7 — 2026-06-20)
+- **Account-LAST** state machine in `onboarding/page.tsx`: welcome → name →
+  letterboxd → handle → email(create account) → importing → find-friends →
+  complete → `/home`. Name / letterboxd-handle / @handle are **local state**;
+  nothing hits Firestore until the email step runs
+  `createUserWithEmailAndPassword` (or apple/google) then `POST /api/v1/me/profile`
+  (provisions profile + reserves handle; a 409 bounces back to the handle step).
+- **Letterboxd USERNAME import** (not the ZIP guide): the letterboxd step calls
+  `POST /api/v1/imports/letterboxd/preview` (cheap, Apify-free, public) for the
+  "found" state. The real import runs after the account exists as an **async,
+  chunked pipeline** the importing screen drives (no single request can hold a
+  thousands-film scrape + TMDB match):
+  - `POST /imports/letterboxd/scrape/start { username }` → `{ runId, datasetId }`
+    (Apify cheerio run, **reviews skipped** — the browser actor is minutes-slow).
+  - `GET /imports/letterboxd/scrape/status?runId&datasetId` → `{ status, itemCount,
+    library? }` (client polls ~4s; on SUCCEEDED returns the normalized+deduped
+    `{ films, lists, favorites }`).
+  - `POST /imports/letterboxd/scrape/import { phase }` → `films` (a ~120-film
+    chunk, **concurrent** TMDB match, returns sample posters for the wall) ·
+    `list` · `favorites` · `finalize` (recount + **kick the background reviews
+    run**). The client loops chunks with a live progress bar.
+  - **Reviews import in the BACKGROUND** (the reviews browser-actor is
+    minutes-slow — never part of the wait): `finalize` starts the reviews run +
+    stashes `{ runId, datasetId }` on `users_private/{uid}.pendingReviews`; the
+    importing screen sets a `cc-pending-reviews` device flag; the mount-once
+    `<PendingImportSync/>` (root layout) polls `POST /imports/letterboxd/reviews/sync`
+    until it lands, imports the reviews (deterministic `lb_{uid}_{tmdbId}` ids →
+    idempotent), clears the flag, and quietly toasts. Zero network unless the flag
+    is set.
+  Helpers in `src/lib/letterboxd-username-import-server.ts` (over the decoupled
+  Apify run helpers + `normalizeRows` in `letterboxd-scrape-server.ts`). Graceful
+  skip when `APIFY_TOKEN` is unset. (Distinct from `/imports/letterboxd/import`,
+  the paste importer.)
+  - **The import runs in a store, not the screen** — `src/lib/import-store.ts` is
+    a module singleton that owns the whole lifecycle, so it SURVIVES navigation.
+    The importing screen (`importing-step.tsx`) is a VIEW: a building poster wall
+    (chunks return sample posters), `useCountUp` counters, an **accurate ETA**
+    (from elapsed/done rate), then a stat reveal. After ~9s a **"continue in the
+    app"** button hands off to a global progress **pill** (`import-progress-pill.tsx`,
+    root layout) that finishes in the background + toasts. The store also
+    **resumes** an import interrupted by an app kill (re-fetches the finished
+    Apify dataset, idempotent writes — persisted run in `localStorage cc-import-run`).
+  - **Smart status**: any film with a rating or review imports as **Watched**
+    (never left in "to watch"); reviewed films are upserted Watched on review sync.
+  The old ZIP-upload screens
+  (`import-letterboxd-*`, `import-paste-*`, `signup-screen`, `username-screen`,
+  `splash-screen`, `import-options-screen`) are **orphaned** (safe to delete
+  later; the ZIP `/parse` + `/full` routes still back the settings importer).
+- Step components live in `onboarding/components/*` (welcome · name · letterboxd ·
+  handle · account · importing) over the `v3/onboarding-kit.tsx` chrome.
+
+### `(auth)` — v3 (Wave 7 — 2026-06-20)
+- `login` (006): poster-wall hero + email-OR-@username + password + apple/google.
+  Email logs in via the Web SDK; **@username** routes through
+  `POST /api/v1/auth/login` (returns a Firebase **custom token** the client
+  exchanges — email stays private; all failures collapse to a generic 401).
+- `forgot-password` (007) + its "check your email" success state (008) in one
+  page; AUDIT 2.10 non-disclosure preserved. `reset-password` (010): `?oobCode`
+  verify → live requirement chips → `confirmPasswordReset` + auto-login → `/home`.
+- `signup` still redirects to `/onboarding?skip_splash=true` (jumps to the name step).
 
 ### `/invite/[code]` Page
 - Validates invite code
@@ -325,3 +397,23 @@ RootLayout (layout.tsx)
   pins `Content-Type: application/json` on both via `headers()`.
 - Owner manual setup (Apple Developer, Firebase Console iOS/Android,
   APNs key, signing): `PHASE-B-HANDOFF.md` at repo root.
+
+---
+
+## Phase 0.7 — Wave 3: create-a-post (F04) (2026-06-16)
+
+- **Post visibility / audience** is enforced server-side in every read path via
+  `canViewPost` (see `src/lib/CLAUDE.md`) — posts are server-only, so there are
+  no client-side rules to add for audience. `firestore.rules` adds
+  `/closeFriends/{uid}` (server-only, the inner-circle list).
+- **New routes**:
+  - `GET/PUT /api/v1/me/close-friends` — the caller's close-friends list.
+  - `GET /api/v1/watches/recent` — recently-watched distinct films (the film
+    picker's "recently watched" rail).
+- `POST /api/v1/posts` + `PATCH /api/v1/posts/[id]` now accept
+  `{ watchType, watchedOn, visibility, taggedUserIds }` in addition to the
+  existing fields; create also logs a watch + snapshots the audience.
+- The `/post/[postId]` thread + the composer (`post-composer.tsx`, FAB
+  destination) were restyled — see `src/components/CLAUDE.md` Wave 3.
+- **Composer product rules**: a post requires **text** (a written take); a film
+  is **optional** (its watch/rating sections appear only when attached).

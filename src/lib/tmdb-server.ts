@@ -14,6 +14,7 @@
  */
 
 import { getUserRatings as getUserRatingsLib } from '@/lib/ratings-server';
+import { createTtlCache, cached } from '@/lib/server-cache';
 
 // ─── Shared types ─────────────────────────────────────────────────────────
 
@@ -91,11 +92,19 @@ async function fetchImdbRating(
 
 export type ImdbRating = {
   imdbRating?: string;
-  metascore?: string;
+  metascore?: string; // Metacritic critic score, 0–100
+  rottenTomatoes?: string; // e.g. "96%" — from OMDB's Ratings array
+  awards?: string; // e.g. "Won 1 Oscar. 3 nominations total"
   imdbVotes?: string;
   rated?: string;
   runtime?: string;
 };
+
+/** Pull the Rotten Tomatoes "NN%" value out of OMDB's Ratings array. */
+function extractRottenTomatoes(data: { Ratings?: Array<{ Source?: string; Value?: string }> }): string | undefined {
+  const rt = data.Ratings?.find((r) => r.Source === 'Rotten Tomatoes');
+  return rt?.Value && rt.Value !== 'N/A' ? rt.Value : undefined;
+}
 
 export class ImdbConfigError extends Error {
   constructor(message = 'OMDB API key not configured') {
@@ -126,6 +135,8 @@ export async function getImdbRating(imdbId: string): Promise<ImdbRating> {
   return {
     imdbRating: data.imdbRating !== 'N/A' ? data.imdbRating : undefined,
     metascore: data.Metascore !== 'N/A' ? data.Metascore : undefined,
+    rottenTomatoes: extractRottenTomatoes(data),
+    awards: data.Awards && data.Awards !== 'N/A' ? data.Awards : undefined,
     imdbVotes: data.imdbVotes !== 'N/A' ? data.imdbVotes : undefined,
     rated: data.Rated !== 'N/A' ? data.Rated : undefined,
     runtime: data.Runtime !== 'N/A' ? data.Runtime : undefined,
@@ -223,9 +234,15 @@ export async function getSimilarMovies(
  * up to 2) → the single most-recent rating, so cautious raters still get
  * something.
  */
+// Per-caller cache — recs read the viewer's ratings then fan out to TMDB
+// `similar` per basis. 5 min staleness is fine (taste doesn't shift by the
+// minute) and spares both Firestore reads and TMDB calls on repeated loads.
+const recommendationsCache = createTtlCache<{ sets: RecommendationSet[] }>({ ttlMs: 600_000 });
+
 export async function getRecommendationsForUser(
   callerUid: string,
 ): Promise<{ sets: RecommendationSet[] }> {
+  return cached(recommendationsCache, callerUid, async () => {
   const { ratings } = await getUserRatingsLib(callerUid, { limit: 40 });
   const seen = new Set<number>();
   const rated = (ratings || []).filter((r) => {
@@ -234,11 +251,28 @@ export async function getRecommendationsForUser(
     return true;
   });
 
+  // Tiered so cautious raters still get something: loved (>=8, up to 3 bases)
+  // → liked (>=6.5, up to 2) → the single most-recent rating. The tier sets
+  // the per-card reason voice ("you loved …" / "because you liked …").
+  let tier: 'loved' | 'liked' | 'recent' = 'loved';
   let bases = rated.filter((r) => r.rating >= 8).slice(0, 3);
-  if (bases.length === 0) bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
-  if (bases.length === 0) bases = rated.slice(0, 1);
+  if (bases.length === 0) {
+    bases = rated.filter((r) => r.rating >= 6.5).slice(0, 2);
+    tier = 'liked';
+  }
+  if (bases.length === 0) {
+    bases = rated.slice(0, 1);
+    tier = 'recent';
+  }
 
   if (bases.length === 0) return { sets: [] };
+
+  const reasonFor = (title: string) => {
+    const t = (title || 'it').toLowerCase();
+    if (tier === 'loved') return `you loved ${t}`;
+    if (tier === 'liked') return `because you liked ${t}`;
+    return `because you watched ${t}`;
+  };
 
   const sets = await Promise.all(
     bases.map(async (b): Promise<RecommendationSet> => {
@@ -247,10 +281,11 @@ export async function getRecommendationsForUser(
         basisTmdbId: b.tmdbId,
         basisTitle: b.movieTitle || 'a film you loved',
         basisMediaType: (b.mediaType || 'movie') as 'movie' | 'tv',
-        reason: `more films in the orbit of ${(b.movieTitle || 'it').toLowerCase()}.`,
+        reason: reasonFor(b.movieTitle || ''),
         recommendations: movies,
       };
     }),
   );
   return { sets: sets.filter((s) => s.recommendations.length > 0) };
+  });
 }
