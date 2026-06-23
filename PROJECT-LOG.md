@@ -437,16 +437,26 @@ then the rest of the deferred data rails.
 
 ## Chapter 9 — Where we are, and what's next
 
-### Now (2026-06-14)
+### Now (2026-06-23)
 
-- Phases 0 → B + 0.5 **merged to `main`** (A+B via PR #88, tip `9c81360`).
-  **403/403 tests**, both builds green.
-- **Phase 0.7 redesign active** on `feat/v3-redesign` — profile tab family
-  complete; Search + Home + motion slice 2 next. Builds green per PR.
+- Phases 0 → B + 0.5 **and Phase 0.7** are **all merged to `main`** (A+B via
+  PR #88 tip `9c81360`; **Phase 0.7 merged 2026-06-23, merge `e26871c`**).
+  **460/460 tests**, both builds green.
+- **Phase 0.7 redesign is COMPLETE.** The whole app is v3 (no v2 surfaces);
+  native motion (haptics + push/pop page transitions + app-wide edge-swipe-back)
+  ships; the **share-to-Instagram-story** feature (a branded 9:16 card rendered
+  by `next/og`, handed to the iOS share sheet → Stories, plus "send to a friend"
+  via iMessage/WhatsApp) ships; and **every shareable link now has an OpenGraph /
+  Twitter card** (a `next/og` 1200×630 renderer + `generateMetadata` on
+  post/profile/list pages). Firestore rules + indexes were deployed to
+  `studio-2541484065-75c27`, and `npx cap sync ios` registered the new
+  share/filesystem/haptics plugins.
 - Owner threads still open: `PHASE-B-HANDOFF.md` manual setup; the
-  `firestore:indexes` deploy (activities) + `npx cap sync` (haptics) from
-  the profile work; and the `movienight-kappa` vs `cinechrony.vercel.app`
-  domain discrepancy to resolve before TestFlight.
+  `movienight-kappa` vs `cinechrony.vercel.app` **domain discrepancy** to resolve
+  before TestFlight (the iOS build's `NEXT_PUBLIC_API_BASE_URL` must point at the
+  real prod domain that serves the routes); `APIFY_TOKEN` in Vercel prod env (the
+  Letterboxd username import); and the OPTIONAL direct-to-IG pasteboard plugin if
+  we want the tappable link sticker. **Next: Phase C — the Share Extension.**
 
 ### Phase C — the Share Extension (the whole point, ~2 weeks)
 

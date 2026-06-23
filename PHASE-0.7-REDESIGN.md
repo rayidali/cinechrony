@@ -1,10 +1,17 @@
 # Phase 0.7 — v3 iOS-Native Redesign + Story Share
 
-> **Status: planning locked 2026-06-13.** The working tracker for the
-> native-feel UI/UX revamp and the Instagram-story share feature.
-> Triggered by repeat "still feels like a webapp" feedback. Supersedes the
-> deferred LAUNCH.md 0.6.4 (parallel-route tab shell) — native transitions
-> are handled here. Convention from AUDIT.md: **every shippable item has a Test.**
+> **Status: ✅ COMPLETE — merged to `main` 2026-06-23 (merge `e26871c`).**
+> The entire app is v3; native motion (haptics + push/pop transitions + app-wide
+> swipe-back) ships; story share (9:16 card renderer + share sheet + send-to-a-
+> friend) + share-link OG/Twitter cards ship. The ONLY deferred item is the
+> OPTIONAL direct-to-IG pasteboard plugin (0.7.6.2/3 — native Swift for the
+> tappable link sticker; the share-sheet path already satisfies the design).
+> **Next: Phase C — iOS Share Extension (`LAUNCH.md` §C).**
+>
+> _(Planning locked 2026-06-13.)_ Triggered by repeat "still feels like a webapp"
+> feedback. Superseded the deferred LAUNCH.md 0.6.4 (parallel-route tab shell) —
+> native transitions handled here. Convention from AUDIT.md: **every shippable
+> item has a Test.**
 
 ## Source of truth
 

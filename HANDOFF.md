@@ -1,6 +1,6 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-06-17. Project: a social movie-watchlist app
+> Last updated 2026-06-23. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 
@@ -8,18 +8,21 @@
 
 ## TL;DR — where things stand
 
-**Phases A, B, and 0.5 are all merged to `main`** (A+B via PR #88, tip
-`9c81360`; Phase 0.5 Discover rebuild before that). `src/app/actions.ts`
+**Phases A, B, 0.5, AND 0.7 are all merged to `main`** (A+B via PR #88 tip
+`9c81360`; **Phase 0.7 merged 2026-06-23, merge `e26871c`**). `src/app/actions.ts`
 is **deleted** — server logic lives in `src/lib/<domain>-server.ts` behind
 `/api/v1/**` route handlers. Capacitor 8 wraps the static `out/` bundle in
 native iOS + Android shells (`ios/` + `android/`).
 
-**Active work: Phase 0.7 — v3 iOS-native redesign** on branch
-`feat/v3-redesign` (branched off the merged `main`). A screen-by-screen
-restyle to the downloaded Claude Design package
-(`../cinechrony ios redesign june/`), triggered by repeat "still feels like
-a webapp" feedback. Tracker: **`PHASE-0.7-REDESIGN.md`** (every item has a
-Test, same convention as AUDIT.md).
+**Phase 0.7 — v3 iOS-native redesign: COMPLETE.** The entire app is v3 (no v2
+surfaces left); native motion (haptics + push/pop transitions + app-wide
+swipe-back) ships; the **share-to-Instagram-story** feature (9:16 card renderer +
+share sheet + send-to-a-friend) and **share-link OpenGraph/Twitter cards** ship.
+Firestore rules + indexes deployed to `studio-2541484065-75c27` (2026-06-23).
+Tracker: **`PHASE-0.7-REDESIGN.md`**. The only deferred item is the OPTIONAL
+direct-to-IG pasteboard plugin (0.7.6.2/3, native Swift — the share-sheet path
+already satisfies the design). **Next: Phase C — iOS Share Extension** (`LAUNCH.md`
+§C; plan in `PHASE-C-PLAN.md`).
 
 **What's done in 0.7 so far:**
 - **Foundation primitives** — `Frost`, `GlassBtn`, `Segmented`, `NavBar`,

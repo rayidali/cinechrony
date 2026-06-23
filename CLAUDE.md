@@ -2,18 +2,21 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-17)
+## Current state (2026-06-23)
 
-- **Phases A + B + 0.5 merged to `main`** (A+B via PR #88, tip `9c81360`).
+- **Phases A + B + 0.5 + 0.7 all merged to `main`** (A+B via PR #88 tip `9c81360`;
+  **Phase 0.7 merged 2026-06-23, merge `e26871c`** — `feat/v3-redesign` is fully
+  integrated; the entire app is v3, no v2 surfaces left).
   `src/app/actions.ts` is deleted — every former Server Action is now a
   `/api/v1/*` route handler (Bearer-token auth, envelope contract) or a
   helper in `src/lib/<domain>-server.ts` (see `src/app/CLAUDE.md`).
   Capacitor 8 wraps the static `out/` bundle in native iOS + Android shells
   (`ios/` + `android/`); native auth, FCM push, Universal Links, native
   polish all in code. Owner manual setup in `PHASE-B-HANDOFF.md`.
-- **Active: Phase 0.7 — v3 iOS-native redesign** on `feat/v3-redesign`. A
-  screen-by-screen restyle to the downloaded Claude Design package, plus a
-  native-feel motion layer (haptics done; transitions/swipe-back next).
+- **Phase 0.7 — v3 iOS-native redesign: COMPLETE & merged to `main`** (2026-06-23).
+  A screen-by-screen restyle to the downloaded Claude Design package, plus a
+  native-feel motion layer (haptics + push/pop transitions + app-wide swipe-back
+  all done).
   Tracker: **`PHASE-0.7-REDESIGN.md`**. Done: **Profile tab family**, **Search**
   (0.7.3.6), and the **full Home / feed revamp** (0.7.3.1 a/b + R1/R2 — recomposed
   to `ios-home.jsx`): `font-ui` system-sans; underline `for you·friends` tabs;
@@ -46,11 +49,13 @@
   show in the wall) — the browser actor is minutes-slow so it's never part of the
   wait — and it degrades gracefully when `APIFY_TOKEN` is unset; **username login**
   via secure
-  `/api/v1/auth/login` (custom token, email stays private). **Wave 7 remainder**
-  (settings · invite · add · list-settings) + **native motion slice 2** (push/pop
-  transitions + app-wide swipe-back) are DONE. **Story share (0.7.4) is DONE
-  (2026-06-23)** — see below; the only Phase 0.7 item left is the OPTIONAL
-  direct-to-IG pasteboard fast-follow (0.7.6.2/3), then Phase C.
+  `/api/v1/auth/login` (custom token, email stays private). **Wave 7** (settings ·
+  invite · add · list-settings), **native motion slice 2** (push/pop transitions +
+  app-wide swipe-back), **story share (0.7.4)**, and **share-link OG/Twitter cards**
+  are all DONE & merged. The ONLY deferred Phase 0.7 item is the OPTIONAL
+  direct-to-IG pasteboard path (0.7.6.2/3 — a native Swift plugin for the tappable
+  link sticker; the share-sheet path ships and satisfies the design). **Next: Phase
+  C — iOS Share Extension.**
 - **Story share — 0.7.4 DONE (2026-06-23):** "tap share on a post → a branded
   9:16 card, ready for the Instagram story composer" (design screen 06), three
   variants: **review·immersive · watched·paper · list·dark**. Renderer
@@ -85,9 +90,9 @@
   client persistence (`persistentLocalCache`) already mitigates the real-time
   `onSnapshot` channel. Preview deploys call their **own** API so server changes
   show on a preview.
-- **Verification (every 0.7 PR):** typecheck ✓ · `npm run build` (Vercel) ✓ ·
-  `npm run build:static` (Capacitor) ✓ · audit suite green (403+/403+).
-  Presentational — must not regress logic.
+- **Verification (every 0.7 PR + the final 0.7 merge):** typecheck ✓ · `npm run
+  build` (Vercel) ✓ · `npm run build:static` (Capacitor) ✓ · audit suite green
+  (**460/460**). Presentational — must not regress logic.
 - **0.7.3.2+ interaction waves (`PHASE-0.7-REDESIGN.md`):** **Wave 1** (rail
   detail screens F15/F16/F17) ✅ + **Wave 2** (movie-drawer cluster) ✅ merged on
   `feat/v3-redesign`. Wave 2 unified the two detail modals into one **`MovieDrawer`**
@@ -178,8 +183,9 @@
   Vercel prod env** (lights up the onboarding letterboxd **username** import; until
   set, that step degrades gracefully to skip) — user reports this is set. See
   `PHASE-B-HANDOFF.md` §9.
-- **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
-  Spec in `LAUNCH.md` §C.
+- **NOW (Phase 0.7 done):** Phase C — iOS Share Extension (hero feature, ~2 weeks).
+  Spec in `LAUNCH.md` §C. Optional 0.7 carry-over: the direct-to-IG pasteboard
+  plugin (0.7.6.2/3).
 
 ## Quick Reference
 
@@ -220,16 +226,17 @@ Build:       `npm run build` (Vercel) · `npm run build:static` (Capacitor `out/
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                     SERVER (Next.js Server Actions)              │
+│        SERVER — /api/v1/* route handlers (Phase A, 2026-06)      │
 ├─────────────────────────────────────────────────────────────────┤
-│  src/app/actions.ts (~3000 lines)                               │
+│  src/app/api/v1/**/route.ts  (actions.ts is DELETED)            │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │  Server Actions (Firebase Admin SDK)                      │   │
-│  │  • User management (profiles, usernames, follows)        │   │
-│  │  • List operations (CRUD, collaborators, invites)        │   │
-│  │  • Movie operations (add, remove, status, notes)         │   │
-│  │  • Reviews & Ratings (create, update, like/unlike)       │   │
-│  │  • File uploads (avatars → R2, covers → R2)              │   │
+│  │  apiRoute/publicApiRoute wrappers (Bearer auth, envelope) │   │
+│  │  → src/lib/<domain>-server.ts helpers (Firebase Admin SDK)│   │
+│  │  • profiles · lists · movies · invites · follows          │   │
+│  │  • reviews · ratings · watches · activities · posts        │   │
+│  │  • notifications + push · bookmarks/mutes/blocks/reports   │   │
+│  │  • TMDB/OMDB proxies · letterboxd import · share/story+og  │   │
+│  │  • File uploads (avatars → R2, covers → R2, post media)    │   │
 │  └──────────────────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────────────────┘
                               │
@@ -400,17 +407,20 @@ src/
 
 ## Key Patterns & Conventions
 
-### 1. Server Actions Pattern
-All mutations go through `src/app/actions.ts` using Next.js Server Actions with Firebase Admin SDK:
+### 1. API Route Pattern (Phase A — Server Actions retired)
+All mutations go through `/api/v1/*` route handlers. The client calls
+`apiCall<T>(method, path, body?)` (`src/lib/api-client.ts`, Bearer token
+auto-attached); the route wrapper verifies the token + serializes the
+`{ ok, data | error }` envelope, then delegates to a pure helper in
+`src/lib/<domain>-server.ts`. `src/app/actions.ts` no longer exists.
 
 ```typescript
-'use server';
-export async function createList(userId: string, name: string) {
-  const db = getDb(); // Firebase Admin Firestore
-  // ... validation and write logic
-  revalidatePath('/lists');
-  return { success: true, listId };
-}
+// src/app/api/v1/lists/route.ts
+export const POST = apiRoute(async (req, { auth }) => {
+  const { name } = await req.json();
+  return createList(auth.uid, name); // helper in src/lib/lists-server.ts
+});
+export const OPTIONS = optionsHandler;
 ```
 
 ### 2. Real-time Data Pattern
@@ -648,7 +658,9 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: January 2025*
+*Last updated: 2026-06-23 — Phase 0.7 complete & merged to `main` (`e26871c`).
+The "Current state" section at the top of this file is the authoritative
+status; the dated sections below are a historical changelog.*
 
 ## Recent Changes (January 2025)
 
