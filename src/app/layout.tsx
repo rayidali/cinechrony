@@ -17,6 +17,7 @@ import { NativeShellInit } from '@/components/native-shell-init';
 import { PendingImportSync } from '@/components/pending-import-sync';
 import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
+import { StoryShareProvider } from '@/components/story-share-provider';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -108,7 +109,9 @@ export default function RootLayout({
                         <DeepLinkHandler />
                         <PendingImportSync />
                         <ImportProgressPill />
-                        <NativeTransitions>{children}</NativeTransitions>
+                        <StoryShareProvider>
+                          <NativeTransitions>{children}</NativeTransitions>
+                        </StoryShareProvider>
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>
                   </UserBookmarksCacheProvider>

@@ -717,6 +717,17 @@ in. The bespoke `swipe-back-container.tsx` stays for the `fixed inset-0`
 `/comments` page; the two compose (comments slides its own content off while the
 revealed page slides in via the global pop).
 
+**`story-share-provider.tsx`** (`<StoryShareProvider>`, root layout) is the
+app-wide "share to Instagram story" surface (0.7.4). Any screen calls
+`useStoryShare().open(payload)` to mount a Vaul sheet with a LIVE preview of the
+branded 9:16 card (an `<img>` of `GET /api/v1/share/story`) + a primary "share to
+story" action (hands the PNG to `shareStory()` in `src/lib/story-share.ts` → OS
+share sheet → IG Stories on native; Web Share / download on web) + copy-link.
+Centralizing it means each entry point only builds a payload — wired on
+`post-card` (film note → watched), `review-react-overlay` (long-press → review),
+and `list-header` (own + public → list). The card layouts + colours + wire
+contract live in `src/lib/story-card.ts`; see `src/lib/CLAUDE.md`.
+
 ## Phase 0.7 — Wave 7 stragglers now v3 (2026-06-22)
 
 The last v2 screens were restyled to v3 (logic untouched, haptics added):

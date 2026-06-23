@@ -193,6 +193,7 @@ export default function PublicListPage() {
                   isOwner={false}
                   isCollaborator={false}
                   movieCount={movies.length}
+                  posters={movies.map((m) => m.posterUrl).filter(Boolean).slice(0, 3)}
                   hideOwnerInStack
                 />
               </div>

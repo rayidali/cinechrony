@@ -60,6 +60,8 @@ src/app/
     │   ├── leaderboard                    # Weekly top watchers (follow graph)
     │   ├── bookmarks/…  mutes/…  blocks/… reports/…
     │   ├── friends-watching               # Friends activity hero card
+    │   ├── share/story                    # next/og 1080×1920 story-card PNG (route.tsx;
+    │   │                                   #   no auth/no Firestore, params-driven; 0.7.4)
     │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
     │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph

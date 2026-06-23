@@ -10,6 +10,7 @@ import { ReviewsSummaryCard } from '@/components/v3/reviews-summary-card';
 import { ReviewWallCard } from '@/components/v3/review-wall-card';
 import { ReviewComposerSheet, type ComposerFilm } from '@/components/v3/review-composer-sheet';
 import { ReviewReactOverlay } from '@/components/v3/review-react-overlay';
+import { useStoryShare } from '@/components/story-share-provider';
 import { useUser, useFirestore } from '@/firebase';
 import { doc, getDoc } from 'firebase/firestore';
 import { apiCall, ApiClientError } from '@/lib/api-client';
@@ -115,6 +116,7 @@ function CommentsPageContent() {
   const firestore = useFirestore();
   const { toast } = useToast();
   const { getRating } = useUserRatingsCache();
+  const story = useStoryShare();
 
   const tmdbId = Number(params.tmdbId);
   const movieTitle = searchParams.get('title') || 'this film';
@@ -567,6 +569,18 @@ function CommentsPageContent() {
         onHelpful={() => { if (liveReactReview) handleHelpful(liveReactReview.id, !liveReactReview.myHelpful); }}
         onReply={() => { if (liveReactReview) startReply(liveReactReview); }}
         onCopy={() => { if (liveReactReview) handleCopy(liveReactReview.text); }}
+        onShareStory={liveReactReview ? () => {
+          story.open({
+            kind: 'review',
+            user: liveReactReview.username || liveReactReview.userDisplayName || 'someone',
+            avatar: liveReactReview.userPhotoUrl,
+            title: movieTitle,
+            year: filmMeta.year,
+            director: filmMeta.director,
+            rating: liveReactReview.ratingAtTime,
+            quote: liveReactReview.text,
+          });
+        } : undefined}
         onReportOrDelete={() => { if (liveReactReview) handleReportOrDelete(liveReactReview); }}
       />
     </SwipeBackContainer>

@@ -353,6 +353,7 @@ export default function ListDetailPage() {
                   isOwner={isOwner}
                   isCollaborator={isCollaborator}
                   movieCount={movies?.length}
+                  posters={(movies || []).map((m) => m.posterUrl).filter(Boolean).slice(0, 3)}
                 />
               ) : (
                 <div className="space-y-3" aria-label="Loading list header">

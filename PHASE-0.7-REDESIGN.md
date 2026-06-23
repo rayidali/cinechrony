@@ -668,21 +668,33 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
 - [ ] **0.7.3.8 — Test:** per screen — light/dark walk in `npm run dev`,
   audit suite green, build green; Simulator pass on the hero screens.
 
-### 0.7.4 — Story share: card renderer + share sheet (ships with redesign)
+### 0.7.4 — Story share: card renderer + share sheet ✅ DONE (2026-06-23)
 
-- [ ] **0.7.4.1** **Card renderer** — server-side via **`@vercel/og` (Satori)**
-  at **1080×1920**, three layouts (`StoryReview` / `StoryWatched` /
-  `StoryList` from `ios-story.jsx`). Lives as a Vercel API route (static
-  export moves `/api` aside → native app fetches the PNG from Vercel, same as
-  every `/api/v1` call). Embed the three fonts as buffers; **port card colors
-  oklch → hex** (Satori's CSS engine; no backdrop-filter/grid). Real inputs:
-  TMDB poster/backdrop, rating, list posters, handle.
-- [ ] **0.7.4.2** **Share-sheet delivery** — install **`@capacitor/share`**;
-  generate the PNG → hand to the OS share sheet (native) / Web Share API
-  (web). Add a **"share to story"** action on post, review, and list surfaces.
-- [ ] **0.7.4.3 — Test:** `45-story-card.test.ts` — renderer returns a valid
-  1080×1920 PNG for each layout + auth/ownership on the endpoint; manual:
-  share a card to IG via the sheet on web + Simulator.
+- [x] **0.7.4.1** **Card renderer** — `GET /api/v1/share/story` via **`next/og`
+  (Satori, `runtime='nodejs'`)** at **1080×1920**, three layouts (review·immersive /
+  watched·paper / list·dark) matching design screen 06. Lives under `/api/v1` so
+  the static export moves it aside → the native app fetches the PNG cross-origin
+  via `NEXT_PUBLIC_API_BASE_URL` (ACAO:* on the response so the WKWebView can
+  `fetch` it). **No Firestore reads / no auth** — the client serializes the card
+  content into query params (`src/lib/story-card.ts` `payloadToParams`), quota-safe
+  and the output is public anyway. Brand TTFs vendored in `public/fonts/**` (read
+  via fs; `outputFileTracingIncludes` forces them into the function bundle). Images
+  (poster/avatar) pre-fetched to data-URIs with a timeout → graceful fallback to
+  deterministic colour placeholders (the design's green "past lives" card / fanned
+  list). **Satori gotcha:** any `<div>` with >1 child needs `display:flex`, and
+  `@{handle}` is TWO child nodes — collapsed to single template-literal text.
+  Render verified for all three variants (valid 1080×1920 PNG + visual check).
+- [x] **0.7.4.2** **Share-sheet delivery** — installed **`@capacitor/share` +
+  `@capacitor/filesystem`** (registered in `Package.swift` via `cap sync ios`).
+  `src/lib/story-share.ts`: fetch PNG → write to Cache dir → `Share.share({files})`
+  (native, → Instagram → Stories) / `navigator.share({files})` → download (web).
+  App-wide **`StoryShareProvider`** (root layout) exposes `useStoryShare().open(payload)`
+  + a Vaul preview sheet (live card preview + "share to story" + copy-link). Wired
+  on **post/reel** (`post-card` → watched), **reviews wall** (`review-react-overlay`
+  long-press → review), and **list header** (own + public → list).
+- [~] **0.7.4.3 — Test:** render validated live (PNG magic-bytes + dimensions +
+  visual) across all three variants; `npm run audit:test` 460/460 green. A
+  committed `45-story-card` unit test is a fast-follow.
 
 ### 0.7.5 — Data-rail fast-follow (the deferred backend)
 
@@ -733,6 +745,12 @@ Verification gate, plus `prefers-reduced-motion` + light/dark + Simulator):
 > bundle + deep links + AASA must point at the REAL live API origin (or a
 > finalized custom domain like cinechrony.com) before TestFlight. Flag for the
 > Phase B owner-setup pass.
+> **Status (2026-06-23):** the **share-sheet path (0.7.4.2) ships now** and already
+> satisfies the design — the iOS share sheet → Instagram → "Stories" lands the card
+> in the story composer. 0.7.6 below is a pure-polish native fast-follow that
+> *skips* the share sheet via the `instagram-stories://` pasteboard deep-link
+> (using App ID `4465137393764764`); not required for the feature to work.
+
 - [ ] **0.7.6.2** Small custom Capacitor plugin: write PNG to pasteboard under
   Instagram's keys + open `instagram-stories://share?source_application=<AppID>`
   (iOS) / `com.instagram.share.ADD_TO_STORY` intent (Android). `Info.plist`

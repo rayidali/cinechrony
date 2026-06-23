@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ThumbsUp, CornerUpLeft, Copy, Flag, Trash2 } from 'lucide-react';
+import { ThumbsUp, CornerUpLeft, Copy, Flag, Trash2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ReactionIcon } from '@/components/v3/reaction-icon';
 import { haptic } from '@/lib/haptics';
@@ -29,6 +29,7 @@ export function ReviewReactOverlay({
   onHelpful,
   onReply,
   onCopy,
+  onShareStory,
   onReportOrDelete,
 }: {
   isOpen: boolean;
@@ -40,6 +41,7 @@ export function ReviewReactOverlay({
   onHelpful: () => void;
   onReply: () => void;
   onCopy: () => void;
+  onShareStory?: () => void;
   onReportOrDelete: () => void;
 }) {
   const [vh, setVh] = useState(0);
@@ -126,6 +128,7 @@ export function ReviewReactOverlay({
           )}
           <MenuRow icon={CornerUpLeft} label="reply" onClick={act(onReply)} />
           <MenuRow icon={Copy} label="copy text" onClick={act(onCopy)} />
+          {onShareStory && <MenuRow icon={Share} label="share to story" onClick={act(onShareStory)} />}
           {isOwn ? (
             <MenuRow icon={Trash2} label="delete" destructive onClick={act(onReportOrDelete)} last />
           ) : (

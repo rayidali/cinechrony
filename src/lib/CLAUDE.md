@@ -88,7 +88,17 @@ src/lib/
 ├── cache-config.ts           # Registers localStorage-mirrored keys
 ├── list-detail-seed.ts       # sessionStorage seed for list page chrome
 ├── native-auth.ts            # ★ Capacitor Google/Apple sign-in router
-└── native-push.ts            # ★ Capacitor FCM token registration
+├── native-push.ts            # ★ Capacitor FCM token registration
+├── story-card.ts             # Story-share PURE helpers + wire contract: the
+│                              # StorySharePayload union (review|watched|list),
+│                              # payloadToParams / paramsToModel, rating→hex,
+│                              # deterministic gradient/placeholder colours,
+│                              # quote/meta formatting. Shared by the renderer
+│                              # route + the client. No React/Node/DOM.
+└── story-share.ts            # CLIENT glue: storyImageUrl(payload) →
+                               # `${shareOrigin()}/api/v1/share/story?…`; shareStory()
+                               # fetches the PNG → @capacitor/share+filesystem
+                               # (native → IG Stories) / navigator.share / download (web)
 ```
 
 > **★** = new in Phase B (2026-06-08). The native-* helpers detect

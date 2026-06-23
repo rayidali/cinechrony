@@ -23,6 +23,7 @@ import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
 import { AddToListSheet } from '@/components/add-to-list-sheet';
 import { ReelViewer } from '@/components/v3/reel-viewer';
+import { useStoryShare } from '@/components/story-share-provider';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { cn } from '@/lib/utils';
 import type { Post, Movie, SearchResult } from '@/lib/types';
@@ -58,6 +59,7 @@ export const PostCard = memo(function PostCard({
   const [, startTransition] = useTransition();
 
   const { openMovie } = useMovieModal();
+  const story = useStoryShare();
   const [isLiked, setIsLiked] = useState(
     currentUserId ? post.likedBy?.includes(currentUserId) : false,
   );
@@ -128,6 +130,22 @@ export const PostCard = memo(function PostCard({
 
   const handleShare = async () => {
     haptic('light');
+    // A film note → the branded 9:16 story card (the hero share). A post with no
+    // tagged film can't become a film card, so it falls back to a plain link.
+    const film = post.taggedMovie;
+    if (film) {
+      story.open({
+        kind: 'watched',
+        user: post.authorUsername || post.authorDisplayName || 'someone',
+        avatar: post.authorPhotoURL,
+        title: film.title,
+        year: film.year || null,
+        rating: post.rating ?? null,
+        poster: film.posterUrl || null,
+        quote: post.text || null,
+      });
+      return;
+    }
     const url = `${shareOrigin()}/post/${post.id}`;
     const text = post.text ? post.text.slice(0, 140) : 'a film note on cinechrony';
     try {

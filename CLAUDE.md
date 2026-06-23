@@ -46,10 +46,30 @@
   show in the wall) — the browser actor is minutes-slow so it's never part of the
   wait — and it degrades gracefully when `APIFY_TOKEN` is unset; **username login**
   via secure
-  `/api/v1/auth/login` (custom token, email stays private). **What's left in
-  0.7: Wave 7 remainder** (settings · invite · add · list-settings) → **native
-  motion slice 2** (push/pop transitions + app-wide swipe-back) → **story share**
-  (0.7.4 card renderer → 0.7.6 direct-to-IG).
+  `/api/v1/auth/login` (custom token, email stays private). **Wave 7 remainder**
+  (settings · invite · add · list-settings) + **native motion slice 2** (push/pop
+  transitions + app-wide swipe-back) are DONE. **Story share (0.7.4) is DONE
+  (2026-06-23)** — see below; the only Phase 0.7 item left is the OPTIONAL
+  direct-to-IG pasteboard fast-follow (0.7.6.2/3), then Phase C.
+- **Story share — 0.7.4 DONE (2026-06-23):** "tap share on a post → a branded
+  9:16 card, ready for the Instagram story composer" (design screen 06), three
+  variants: **review·immersive · watched·paper · list·dark**. Renderer
+  `GET /api/v1/share/story` (`next/og`/Satori, `runtime='nodejs'`, 1080×1920) —
+  lives under `/api/v1` so the static export excludes it and the native app
+  fetches the PNG cross-origin (ACAO:* on the response). **No Firestore / no
+  auth:** the client serializes card content into query params
+  (`src/lib/story-card.ts`, pure helpers + wire contract) — quota-safe, and the
+  output is public anyway. Brand TTFs vendored in `public/fonts/**` (read via fs;
+  `outputFileTracingIncludes` bundles them); poster/avatar pre-fetched to
+  data-URIs with a timeout → deterministic colour-placeholder fallback. Delivery:
+  `@capacitor/share` + `@capacitor/filesystem` (write PNG → `Share.share({files})`
+  → IG Stories; web = `navigator.share`/download) in `src/lib/story-share.ts`. An
+  app-wide **`StoryShareProvider`** (root layout) exposes
+  `useStoryShare().open(payload)` + a Vaul preview sheet; wired on **post/reel**
+  (post-card → watched), **reviews wall** (review-react-overlay long-press →
+  review), and the **list header** (own + public → list). Verified: typecheck ·
+  build · build:static · `cap sync ios` (9 plugins) · audit 460/460 · all three
+  PNGs render + visually checked.
 - **⚠ Free-tier Firestore (no Blaze — owner budget):** locked decision 4 — build
   quota-first (client-direct TMDB · `server-cache.ts` TTL caches · route
   `softFallback` · lazy detail reads · no per-item N+1). **Deep read-reduction

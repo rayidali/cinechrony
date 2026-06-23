@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { Settings2 } from 'lucide-react';
+import { Settings2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
+import { useStoryShare } from '@/components/story-share-provider';
+import { haptic } from '@/lib/haptics';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useListMembersCache } from '@/contexts/list-members-cache';
@@ -18,6 +20,8 @@ interface ListHeaderProps {
   isCollaborator?: boolean;
   /** Film count shown in the collaborators row ("N collaborators · N films"). */
   movieCount?: number;
+  /** Up to 3 poster URLs for the share-to-story card fan (from the list's films). */
+  posters?: string[];
   /**
    * Drop the owner from the avatar stack — the public list page already shows
    * the owner in its own attribution row above this, so including them here is
@@ -33,8 +37,10 @@ export function ListHeader({
   isOwner,
   isCollaborator,
   movieCount,
+  posters,
   hideOwnerInStack = false,
 }: ListHeaderProps) {
+  const story = useStoryShare();
   // Build settings URL with owner param for collaborators
   const settingsUrl = isOwner
     ? `/lists/${listId}/settings`
@@ -111,6 +117,22 @@ export function ListHeader({
 
   const memberCountLabel = `${members.length > 1 ? `${members.length} collaborators · ` : ''}${movieCount ?? 0} films`;
 
+  // Owner attribution for the share card — the curator pill on the story.
+  const owner = sortedMembers.find((m) => m.role === 'owner');
+  const canShareStory = !!listData && (movieCount ?? 0) > 0;
+  const handleShareStory = () => {
+    if (!listData) return;
+    haptic('light');
+    story.open({
+      kind: 'list',
+      user: owner?.username || owner?.displayName || 'someone',
+      avatar: owner?.photoURL ?? null,
+      name: listData.name || 'a list',
+      count: movieCount ?? 0,
+      posters: (posters ?? []).filter(Boolean).slice(0, 3),
+    });
+  };
+
   return (
     <div className="flex flex-col">
       {/* Description — serif italic lead */}
@@ -162,6 +184,18 @@ export function ListHeader({
           {memberCountLabel}
         </span>
         <span className="flex-1" />
+        {canShareStory && (
+          <button
+            onClick={handleShareStory}
+            aria-label="Share to story"
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-rule px-3 text-foreground transition-colors hover:bg-secondary active:scale-95"
+          >
+            <Share className="h-[14px] w-[14px] text-muted-foreground" strokeWidth={1.9} />
+            <span className="font-headline text-[12.5px] font-semibold lowercase tracking-tight">
+              share
+            </span>
+          </button>
+        )}
         {(isOwner || isCollaborator) && (
           <Link
             href={settingsUrl}
