@@ -712,6 +712,14 @@ async function hydrateListCards(
 // home load via both the featured carousel and the community rail.
 const lovedListsCache = createTtlCache<{ lists: LovedListCard[]; gated: boolean }>({ ttlMs: 600_000 });
 
+// Editorial quality bar for FEATURING a verified-account (official cinechrony)
+// list at the front of the community showcase. A verified list only gets the
+// front-of-rail boost if it looks polished — enough films AND a real cover image
+// — and never more than FEATURED_MAX lead the rail. Verified lists that don't
+// clear the bar simply rank like any other community list (no boost). Tune here.
+const FEATURED_MIN_MOVIES = 5;
+const FEATURED_MAX = 3;
+
 export async function getLovedLists(
   limit = 12,
   opts: { rich?: boolean } = {},
@@ -754,11 +762,12 @@ export async function getLovedLists(
         return bm - am;
       });
 
-    // 3. Float verified-account (official cinechrony) lists to the FRONT of the
-    //    community showcase. Fetch verified owners' public non-empty lists
-    //    EXPLICITLY so they're candidates even if they fell outside the 80-doc
-    //    scan above, then stable-partition so verified-owned lists lead while the
-    //    rest keep their trending order.
+    // 3. FEATURE polished verified-account (official cinechrony) lists at the
+    //    FRONT of the showcase. A verified list is feature-worthy only if it has
+    //    >= FEATURED_MIN_MOVIES films AND a cover image; at most FEATURED_MAX lead
+    //    the rail. We fetch verified owners' public lists EXPLICITLY so a
+    //    feature-worthy list is found even if it fell outside the 80-doc scan.
+    //    Non-featured verified lists just rank normally (no boost).
     const ranked = [...liked, ...fresh];
     const verifiedUids = new Set(await getVerifiedUids(now));
     if (verifiedUids.size > 0) {
@@ -773,9 +782,21 @@ export async function getLovedLists(
         .filter((d) => !rankedPaths.has(d.ref.path) && (d.data().movieCount || 0) > 0);
       ranked.push(...extra);
     }
-    const verifiedOwned = ranked.filter((d) => verifiedUids.has(d.data().ownerId));
-    const others = ranked.filter((d) => !verifiedUids.has(d.data().ownerId));
-    const top = [...verifiedOwned, ...others].slice(0, limit);
+
+    const featured = ranked
+      .filter((doc) => {
+        const d = doc.data();
+        return (
+          verifiedUids.has(d.ownerId) &&
+          (d.movieCount || 0) >= FEATURED_MIN_MOVIES &&
+          typeof d.coverImageUrl === 'string' &&
+          d.coverImageUrl.trim().length > 0
+        );
+      })
+      .slice(0, FEATURED_MAX);
+    const featuredPaths = new Set(featured.map((d) => d.ref.path));
+    const rest = ranked.filter((d) => !featuredPaths.has(d.ref.path));
+    const top = [...featured, ...rest].slice(0, limit);
     if (top.length === 0) return { lists: [], gated: true };
 
     const lists = await hydrateListCards(db, top, { rich });
