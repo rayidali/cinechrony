@@ -7,6 +7,8 @@ import {
   formatRating,
   immersiveGradient,
   placeholderColor,
+  verdictFlavor,
+  truncate,
   type StoryCardModel,
 } from '@/lib/story-card';
 import {
@@ -374,6 +376,165 @@ function ListCard({ m, avatar, posters }: { m: StoryCardModel; avatar: string | 
   );
 }
 
+// ── "shared a post" card ─────────────────────────────────────────────────────
+
+const svgUri = (svg: string) => 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+const HEART_RED = svgUri(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e8543a"><path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.49 4.04 3 5.5l7 7Z"/></svg>',
+);
+const COMMENT_ICON = svgUri(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#9a8f7e" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"/></svg>',
+);
+const STAR_ACCENT = svgUri(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#e8543a"><path d="M11.48 3.5a.6.6 0 0 1 1.04 0l2.39 4.84 5.34.78a.6.6 0 0 1 .33 1.02l-3.86 3.76.91 5.32a.6.6 0 0 1-.87.63L12 17.77l-4.78 2.51a.6.6 0 0 1-.87-.63l.91-5.32-3.86-3.76a.6.6 0 0 1 .33-1.02l5.34-.78z"/></svg>',
+);
+const PLAY_WHITE = svgUri('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff"><path d="M8 5v14l11-7z"/></svg>');
+
+function PostCard({ m, avatar, poster }: { m: StoryCardModel; avatar: string | null; poster: string | null }) {
+  const [g0, g1] = immersiveGradient(m.title || m.caption || m.user);
+  const verdict = verdictFlavor(m.rating);
+  const ratingStr = formatRating(m.rating);
+  const rHex = ratingHex(m.rating);
+  const meta = composeMeta([m.director ? `dir. ${m.director.toLowerCase()}` : null, m.year]);
+  const caption = m.caption ? truncate(m.caption, 130) : null;
+  const hasFilm = !!m.title;
+  const CARD = '#f3efe6';
+  const INK = '#1a1714';
+  const MUTED = '#9a8f7e';
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        width: W,
+        height: H,
+        padding: '96px 72px 80px',
+        background: `linear-gradient(165deg, ${g0} 0%, ${g1} 88%)`,
+      }}
+    >
+      {/* top bar */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+        <Wordmark dark />
+        <Eyebrow text="shared a post" color="rgba(255,255,255,0.5)" />
+      </div>
+
+      {/* media / play affordance */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {m.hasMedia ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 132,
+              height: 132,
+              borderRadius: 132,
+              backgroundColor: 'rgba(255,255,255,0.14)',
+              border: '2px solid rgba(255,255,255,0.45)',
+            }}
+          >
+            <img src={PLAY_WHITE} width={52} height={52} style={{ marginLeft: 6 }} />
+          </div>
+        ) : null}
+      </div>
+
+      {/* the post card */}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          backgroundColor: CARD,
+          borderRadius: 32,
+          padding: 40,
+          boxShadow: '0 30px 70px rgba(0,0,0,0.32)',
+        }}
+      >
+        {/* byline */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
+          <Avatar src={avatar} name={m.user} size={66} bg="#c9beac" />
+          <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontFamily: DISPLAY, fontWeight: 800, fontSize: 34, color: INK, letterSpacing: -0.8 }}>{`@${m.user}`}</div>
+              {verdict ? (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <img src={STAR_ACCENT} width={26} height={26} />
+                  <div style={{ fontFamily: MONO, fontWeight: 700, fontSize: 20, letterSpacing: 1.5, textTransform: 'uppercase', color: FILM_RED }}>{verdict}</div>
+                </div>
+              ) : null}
+            </div>
+            {m.timeAgo ? <div style={{ display: 'flex', fontFamily: MONO, fontSize: 20, color: MUTED, marginTop: 4 }}>{m.timeAgo}</div> : null}
+          </div>
+        </div>
+
+        {/* caption */}
+        {caption ? (
+          <div style={{ display: 'flex', fontFamily: DISPLAY, fontWeight: 700, fontSize: 38, lineHeight: 1.32, color: INK, letterSpacing: -0.5, marginTop: 26 }}>
+            {caption}
+          </div>
+        ) : null}
+
+        {/* movie cell */}
+        {hasFilm ? (
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 22,
+              marginTop: 28,
+              padding: 22,
+              borderRadius: 22,
+              backgroundColor: '#eae4d6',
+            }}
+          >
+            {poster ? (
+              <img src={poster} width={96} height={144} style={{ borderRadius: 12, objectFit: 'cover' }} />
+            ) : (
+              <div style={{ display: 'flex', width: 96, height: 144, borderRadius: 12, background: `linear-gradient(150deg, ${placeholderColor(m.title || 'x')}, ${shade(placeholderColor(m.title || 'x'), -0.34)})` }} />
+            )}
+            <div style={{ display: 'flex', flexDirection: 'column', flex: 1 }}>
+              <div style={{ display: 'flex', fontFamily: DISPLAY, fontWeight: 700, fontSize: 40, lineHeight: 1.05, color: INK, letterSpacing: -1 }}>{m.title!.toLowerCase()}</div>
+              {meta ? <div style={{ display: 'flex', fontFamily: MONO, fontSize: 22, color: MUTED, marginTop: 10 }}>{meta}</div> : null}
+            </div>
+            {ratingStr ? (
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '14px 22px',
+                  borderRadius: 16,
+                  backgroundColor: rHex,
+                  fontFamily: DISPLAY,
+                  fontWeight: 800,
+                  fontSize: 40,
+                  color: '#fff',
+                }}
+              >
+                {ratingStr}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        {/* footer stats */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 30, marginTop: 28 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src={HEART_RED} width={32} height={32} />
+            <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 30, color: INK }}>{String(m.likes)}</div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <img src={COMMENT_ICON} width={30} height={30} />
+            <div style={{ fontFamily: DISPLAY, fontWeight: 700, fontSize: 30, color: MUTED }}>{String(m.comments)}</div>
+          </div>
+          <div style={{ flex: 1, display: 'flex' }} />
+          <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 700, fontSize: 20, letterSpacing: 2, textTransform: 'uppercase', color: MUTED }}>tap to open</div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── handler ─────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request): Promise<Response> {
@@ -395,7 +556,7 @@ export async function GET(req: Request): Promise<Response> {
     // Pre-fetch remote images to data URIs (graceful: null → placeholder).
     const [avatar, poster, p0, p1, p2] = await Promise.all([
       fetchDataUri(m.avatar),
-      m.kind === 'watched' ? fetchDataUri(m.poster) : Promise.resolve(null),
+      m.kind === 'watched' || m.kind === 'post' ? fetchDataUri(m.poster) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[0] ?? null) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[1] ?? null) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[2] ?? null) : Promise.resolve(null),
@@ -406,6 +567,8 @@ export async function GET(req: Request): Promise<Response> {
         <ReviewCard m={m} avatar={avatar} />
       ) : m.kind === 'list' ? (
         <ListCard m={m} avatar={avatar} posters={[p0, p1, p2]} />
+      ) : m.kind === 'post' ? (
+        <PostCard m={m} avatar={avatar} poster={poster} />
       ) : (
         <WatchedCard m={m} avatar={avatar} poster={poster} />
       );

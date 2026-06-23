@@ -25,10 +25,11 @@
  * re-render fresh.
  *   v1 → original (hand-drawn clapper mark)
  *   v2 → real cinechrony popcorn logo
+ *   v3 → "post" card variant
  */
-export const CARD_VERSION = '2';
+export const CARD_VERSION = '3';
 
-export type StoryCardKind = 'review' | 'watched' | 'list';
+export type StoryCardKind = 'review' | 'watched' | 'list' | 'post';
 
 export type StorySharePayload =
   | {
@@ -63,6 +64,23 @@ export type StorySharePayload =
       name: string;
       count: number;
       posters?: (string | null)[];
+    }
+  | {
+      // "shared a post" — recreates the feed post as a card.
+      kind: 'post';
+      user: string;
+      avatar?: string | null;
+      caption?: string | null; // the post text (raw, not quote-wrapped)
+      timeAgo?: string | null; // "5h ago"
+      likes?: number;
+      comments?: number;
+      hasMedia?: boolean; // show the play affordance
+      // optional tagged film
+      title?: string | null;
+      director?: string | null;
+      year?: string | null;
+      rating?: number | null;
+      poster?: string | null;
     };
 
 /** Normalized, defaulted shape the renderer consumes. */
@@ -80,6 +98,12 @@ export type StoryCardModel = {
   poster: string | null;
   posters: string[];
   count: number;
+  // post-only
+  caption: string | null;
+  timeAgo: string | null;
+  likes: number;
+  comments: number;
+  hasMedia: boolean;
 };
 
 const MAX_QUOTE = 150;
@@ -179,6 +203,19 @@ export function payloadToParams(p: StorySharePayload): URLSearchParams {
     if (posters.length) q.set('ps', posters.join('|'));
     return q;
   }
+  if (p.kind === 'post') {
+    if (p.title) q.set('ti', truncate(p.title, MAX_TITLE));
+    if (p.director) q.set('di', truncate(p.director, 40));
+    if (p.year) q.set('yr', String(p.year));
+    if (p.rating != null) q.set('ra', String(p.rating));
+    if (p.poster) q.set('po', p.poster);
+    if (p.caption) q.set('cap', truncate(p.caption, 180));
+    if (p.timeAgo) q.set('tm', truncate(p.timeAgo, 20));
+    if (p.likes) q.set('lk', String(Math.max(0, Math.floor(p.likes))));
+    if (p.comments) q.set('cm', String(Math.max(0, Math.floor(p.comments))));
+    if (p.hasMedia) q.set('md', '1');
+    return q;
+  }
   // review | watched
   q.set('ti', truncate(p.title, MAX_TITLE));
   if (p.director) q.set('di', truncate(p.director, 40));
@@ -196,13 +233,15 @@ export function payloadToParams(p: StorySharePayload): URLSearchParams {
 
 export function paramsToModel(q: URLSearchParams): StoryCardModel {
   const rawKind = q.get('t');
-  const kind: StoryCardKind = rawKind === 'list' || rawKind === 'review' || rawKind === 'watched' ? rawKind : 'watched';
+  const kind: StoryCardKind =
+    rawKind === 'list' || rawKind === 'review' || rawKind === 'watched' || rawKind === 'post' ? rawKind : 'watched';
   const ratingRaw = q.get('ra');
   const rating = ratingRaw != null && ratingRaw !== '' ? Number(ratingRaw) : null;
   const verbExplicit = q.get('vb');
   const verb =
     verbExplicit ||
-    (kind === 'list' ? 'a list' : kind === 'review' ? (q.get('q') ? 'just reviewed' : 'just rated') : 'just watched');
+    (kind === 'list' ? 'a list' : kind === 'post' ? 'shared a post' : kind === 'review' ? (q.get('q') ? 'just reviewed' : 'just rated') : 'just watched');
+  const intOf = (key: string) => Math.max(0, Math.floor(Number(q.get(key) || 0)) || 0);
   return {
     kind,
     user: truncate(q.get('u') || 'someone', 24),
@@ -216,6 +255,21 @@ export function paramsToModel(q: URLSearchParams): StoryCardModel {
     verb: kind === 'review' && !verbExplicit && rating == null ? 'just reviewed' : verb,
     poster: q.get('po') || null,
     posters: (q.get('ps') || '').split('|').map((s) => s.trim()).filter(Boolean).slice(0, 3),
-    count: Math.max(0, Math.floor(Number(q.get('ct') || 0)) || 0),
+    count: intOf('ct'),
+    caption: q.get('cap') || null,
+    timeAgo: q.get('tm') || null,
+    likes: intOf('lk'),
+    comments: intOf('cm'),
+    hasMedia: q.get('md') === '1',
   };
+}
+
+/** Flavor verdict label from a rating (the "a masterpiece" line on the post card). */
+export function verdictFlavor(rating: number | null | undefined): string | null {
+  if (rating == null || Number.isNaN(rating)) return null;
+  if (rating >= 8.5) return 'a masterpiece';
+  if (rating >= 7.5) return 'loved it';
+  if (rating >= 6.5) return 'liked it';
+  if (rating >= 5) return 'it was fine';
+  return 'not for me';
 }

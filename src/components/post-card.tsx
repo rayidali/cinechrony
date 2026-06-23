@@ -18,7 +18,6 @@ import { useAuth, useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
-import { shareOrigin } from '@/lib/share';
 import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
 import { AddToListSheet } from '@/components/add-to-list-sheet';
@@ -131,34 +130,23 @@ export const PostCard = memo(function PostCard({
 
   const handleShare = async () => {
     haptic('light');
-    // A film note → the branded 9:16 story card (the hero share). A post with no
-    // tagged film can't become a film card, so it falls back to a plain link.
+    // Recreate the post as a branded 9:16 "shared a post" story card. Film is
+    // optional — text/photo posts still render (byline + caption + stats).
     const film = post.taggedMovie;
-    if (film) {
-      story.open({
-        kind: 'watched',
-        user: post.authorUsername || post.authorDisplayName || 'someone',
-        avatar: post.authorPhotoURL,
-        title: film.title,
-        year: film.year || null,
-        rating: post.rating ?? null,
-        poster: film.posterUrl || null,
-        quote: post.text || null,
-      });
-      return;
-    }
-    const url = `${shareOrigin()}/post/${post.id}`;
-    const text = post.text ? post.text.slice(0, 140) : 'a film note on cinechrony';
-    try {
-      if (typeof navigator !== 'undefined' && navigator.share) {
-        await navigator.share({ title: 'cinechrony', text, url });
-      } else if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(url);
-        toast({ title: 'link copied' });
-      }
-    } catch {
-      /* user dismissed the share sheet — no-op */
-    }
+    story.open({
+      kind: 'post',
+      user: post.authorUsername || post.authorDisplayName || 'someone',
+      avatar: post.authorPhotoURL,
+      caption: post.text || null,
+      timeAgo: timeAgo ? `${timeAgo} ago` : null,
+      likes: likeCount,
+      comments: post.commentCount || 0,
+      hasMedia: (post.media?.length || 0) > 0,
+      title: film?.title || null,
+      year: film?.year || null,
+      rating: post.rating ?? null,
+      poster: film?.posterUrl || null,
+    });
   };
 
   const customRows: OverflowRow[] = isOwn
