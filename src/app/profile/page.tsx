@@ -7,6 +7,7 @@ import {
   Eye, EyeOff, ImageIcon, Settings, Share2,
 } from 'lucide-react';
 import { PullToRefresh } from '@/components/pull-to-refresh';
+import { VerifiedBadge } from '@/components/verified-badge';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc, where, limit, getDocs } from 'firebase/firestore';
@@ -292,8 +293,9 @@ export default function MyProfilePage() {
               critic · @{userProfile?.username || '…'}
               {memberSince ? ` · since ${memberSince}` : ''}
             </div>
-            <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
-              {userProfile?.displayName || user.displayName || 'user'}
+            <h1 className="mt-1.5 flex items-center gap-1.5 font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
+              <span className="truncate">{userProfile?.displayName || user.displayName || 'user'}</span>
+              <VerifiedBadge verified={userProfile?.verified} size={24} className="[filter:drop-shadow(0_1px_4px_rgba(0,0,0,0.4))]" />
             </h1>
             {userProfile?.bio && (
               <p className="mt-1.5 line-clamp-2 max-w-full font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">

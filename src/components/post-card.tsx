@@ -24,6 +24,7 @@ import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-m
 import { AddToListSheet } from '@/components/add-to-list-sheet';
 import { ReelViewer } from '@/components/v3/reel-viewer';
 import { useStoryShare } from '@/components/story-share-provider';
+import { VerifiedBadge } from '@/components/verified-badge';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { cn } from '@/lib/utils';
 import type { Post, Movie, SearchResult } from '@/lib/types';
@@ -210,9 +211,10 @@ export const PostCard = memo(function PostCard({
           <div className="flex-1 min-w-0">
             <Link
               href={profileUrl}
-              className="font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline truncate block w-fit max-w-full"
+              className="inline-flex items-center gap-1 font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline w-fit max-w-full"
             >
-              {handle}
+              <span className="truncate">{handle}</span>
+              <VerifiedBadge uid={post.authorId} />
             </Link>
             <p className="font-mono text-[10px] text-muted-foreground mt-0.5 tabular-nums">
               {timeAgo ? `${timeAgo} ago` : ''}

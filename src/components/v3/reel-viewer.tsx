@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, Play, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { FollowButton } from '@/components/follow-button';
+import { VerifiedBadge } from '@/components/verified-badge';
 import { haptic } from '@/lib/haptics';
 import type { PostMedia } from '@/lib/types';
 
@@ -158,7 +159,10 @@ export function ReelViewer({
       <div className="flex-shrink-0 px-4 pt-3" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.75rem)' }}>
         <div className="flex items-center gap-2.5">
           <ProfileAvatar photoURL={author.photoURL} displayName={author.displayName} username={author.username} size="sm" />
-          <span className="flex-1 min-w-0 font-mono font-bold text-[13px] text-white truncate">{handle}</span>
+          <span className="flex-1 min-w-0 inline-flex items-center gap-1 font-mono font-bold text-[13px] text-white">
+            <span className="truncate">{handle}</span>
+            <VerifiedBadge uid={author.uid} size={14} />
+          </span>
           {!isOwn && author.username && (
             <FollowButton targetUserId={author.uid} targetUsername={author.username} size="sm" />
           )}

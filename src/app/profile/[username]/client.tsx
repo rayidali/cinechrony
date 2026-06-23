@@ -9,6 +9,7 @@ import { useUser, useFirestore } from '@/firebase';
 import { collection, query, where, orderBy, limit, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { FollowButton } from '@/components/follow-button';
+import { VerifiedBadge } from '@/components/verified-badge';
 import { ListLikeButton } from '@/components/list-like-button';
 import { ProfileOverflowMenu } from '@/components/profile-overflow-menu';
 import { BottomNav } from '@/components/bottom-nav';
@@ -280,8 +281,9 @@ export default function UserProfilePage() {
             critic · @{profile.username}
             {memberSince ? ` · since ${memberSince}` : ''}
           </div>
-          <h1 className="mt-1.5 truncate font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
-            {profile.displayName || profile.username}
+          <h1 className="mt-1.5 flex items-center gap-1.5 font-headline text-[34px] font-bold lowercase leading-[0.95] tracking-tight text-white [text-shadow:0_2px_10px_rgba(0,0,0,0.4)]">
+            <span className="truncate">{profile.displayName || profile.username}</span>
+            <VerifiedBadge verified={profile.verified} size={24} className="[filter:drop-shadow(0_1px_4px_rgba(0,0,0,0.4))]" />
           </h1>
           {profile.bio && (
             <p className="mt-1.5 line-clamp-2 font-serif text-[15px] italic leading-snug text-white/90 [text-shadow:0_1px_6px_rgba(0,0,0,0.5)]">

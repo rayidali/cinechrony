@@ -159,6 +159,7 @@ export async function getUserByUsername(username: string): Promise<{ user: UserP
       createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
       followersCount: data.followersCount || 0,
       followingCount: data.followingCount || 0,
+      verified: data.verified === true,
     } as UserProfile,
   };
 }

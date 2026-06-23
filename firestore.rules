@@ -100,9 +100,14 @@ service cloud.firestore {
       // public read no longer leaks PII.)
       allow read: if true;
 
-      // Only owner can create/update/delete their profile
-      allow create: if isOwner(userId);
-      allow update: if isOwner(userId);
+      // Only owner can create/update/delete their profile.
+      // `verified` is the official-account flag — it must NEVER be client-writable
+      // (only the Admin SDK grant in scripts/grant-verified.ts sets it, and that
+      // bypasses rules). Block self-verification on both create and update.
+      allow create: if isOwner(userId)
+        && (!('verified' in request.resource.data) || request.resource.data.verified == false);
+      allow update: if isOwner(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['verified']);
       allow delete: if isOwner(userId);
 
       // ------------------------------------------------------------------------

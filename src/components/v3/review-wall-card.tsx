@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ThumbsUp, CornerUpLeft, SmilePlus, EyeOff, MoreHorizontal } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ReactionIcon } from '@/components/v3/reaction-icon';
+import { VerifiedBadge } from '@/components/verified-badge';
 import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 import { REACTION_TYPES, REACTION_META, type ReactionType } from '@/lib/review-reactions';
@@ -148,9 +149,10 @@ function ReviewBody({
           <Link
             href={profileUrl}
             onClick={(e) => e.stopPropagation()}
-            className="block w-fit font-ui text-[16px] font-bold tracking-[-0.01em] text-foreground hover:underline"
+            className="inline-flex w-fit items-center gap-1 font-ui text-[16px] font-bold tracking-[-0.01em] text-foreground hover:underline"
           >
             {handle}
+            <VerifiedBadge uid={review.userId} />
           </Link>
           <div className="mt-0.5 font-mono text-[11px] text-muted-foreground">
             {verdictLabel} · {rel(review.createdAt)}
@@ -267,7 +269,10 @@ function ReplyBubble({
       </Link>
       <div ref={rootRef} {...handlers} className="min-w-0 flex-1 rounded-[16px] bg-secondary px-3.5 py-2.5">
         <div className="flex items-baseline gap-2">
-          <span className="font-ui text-[14px] font-bold tracking-[-0.01em] text-foreground">{handle}</span>
+          <span className="inline-flex items-center gap-1 font-ui text-[14px] font-bold tracking-[-0.01em] text-foreground">
+            {handle}
+            <VerifiedBadge uid={reply.userId} size={13} />
+          </span>
           <span className="font-mono text-[10px] text-muted-foreground">{rel(reply.createdAt)}</span>
         </div>
         <p className="mt-0.5 font-ui text-[15px] leading-[1.45] text-foreground whitespace-pre-wrap">{reply.text}</p>

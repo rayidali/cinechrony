@@ -8,6 +8,7 @@ import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
 import { apiCall } from '@/lib/api-client';
 import { useUserProfile } from '@/contexts/user-profile-cache';
+import { VerifiedBadge } from '@/components/verified-badge';
 import { cn, getRatingStyle } from '@/lib/utils';
 import { BookmarkButton } from './bookmark-button';
 import { CardOverflowMenu } from './card-overflow-menu';
@@ -123,9 +124,10 @@ export const ActivityCard = memo(function ActivityCard({
           <div className="flex items-center gap-2 flex-wrap">
             <Link
               href={profileUrl}
-              className="font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline truncate"
+              className="inline-flex items-center gap-1 font-ui font-bold text-[15px] text-foreground tracking-[-0.01em] hover:underline truncate"
             >
               {handle}
+              <VerifiedBadge uid={activity.userId} />
             </Link>
             <ActivityBadge type={activity.type} />
           </div>

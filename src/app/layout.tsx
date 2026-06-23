@@ -10,6 +10,7 @@ import { UserProfileCacheProvider } from '@/contexts/user-profile-cache';
 import { UserBookmarksCacheProvider } from '@/contexts/user-bookmarks-cache';
 import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
 import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
+import { UserVerifiedCacheProvider } from '@/contexts/user-verified-cache';
 import { BodyStyleWatchdog } from '@/components/body-style-watchdog';
 import { NativePushRegistration } from '@/components/native-push-registration';
 import { DeepLinkHandler } from '@/components/deep-link-handler';
@@ -124,6 +125,7 @@ export default function RootLayout({
                   <UserBookmarksCacheProvider>
                     <UserMutesCacheProvider>
                       <UserBlocksCacheProvider>
+                       <UserVerifiedCacheProvider>
                         <NativeShellInit />
                         <NativePushRegistration />
                         <DeepLinkHandler />
@@ -132,6 +134,7 @@ export default function RootLayout({
                         <StoryShareProvider>
                           <NativeTransitions>{children}</NativeTransitions>
                         </StoryShareProvider>
+                       </UserVerifiedCacheProvider>
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>
                   </UserBookmarksCacheProvider>

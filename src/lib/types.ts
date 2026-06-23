@@ -14,6 +14,8 @@ export type UserProfile = {
   followingCount: number;
   favoriteMovies?: FavoriteMovie[]; // Top 5 favorite movies
   onboardingComplete?: boolean; // Whether user has completed onboarding
+  verified?: boolean; // Official/verified account — badge next to the handle.
+                      // Server/admin-write only (firestore.rules + custom claim).
 };
 
 // Onboarding step types
