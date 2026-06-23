@@ -121,9 +121,9 @@
   profile · movie drawer · create-post/thread/reel · **reviews wall** · data rails)
   are **v3 done**. The editable + read-only lists now share ONE cell
   (`movie-cell.tsx`) + `MovieList` (with a `publicReadOnly` mode) so they can't
-  drift again; the legacy "cards" view was retired. **Wave 7 now v3:**
-  notifications · **onboarding · auth**. Still on v2: **settings · invite · add ·
-  list-settings**.
+  drift again; the legacy "cards" view was retired. **Wave 7 is fully v3:**
+  notifications · onboarding · auth · **settings · invite · add · list-settings**
+  (2026-06-22) — the entire app is now v3, no v2 surfaces left.
   Plus native motion (push/pop transitions + app-wide swipe-back) and the
   story-share feature (`@vercel/og` + `@capacitor/share`).
 - **Owner actions pending:** `firebase deploy --only firestore:indexes

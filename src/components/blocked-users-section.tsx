@@ -52,10 +52,12 @@ export function BlockedUsersSection() {
   };
 
   return (
-    <section className="mb-8 pt-8 border-t border-border">
-      <div className="flex items-center gap-3 mb-4">
-        <Ban className="h-6 w-6 text-muted-foreground" />
-        <h2 className="text-xl font-headline font-bold">Blocked Users</h2>
+    <section>
+      <div className="mb-3 flex items-center gap-2">
+        <Ban className="h-[18px] w-[18px] text-muted-foreground" />
+        <span className="font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          blocked
+        </span>
       </div>
 
       {isLoading ? (
@@ -63,33 +65,27 @@ export function BlockedUsersSection() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
       ) : users.length === 0 ? (
-        <p className="text-sm text-muted-foreground">
-          You haven&apos;t blocked anyone.
-        </p>
+        <p className="font-ui text-[13px] text-muted-foreground">you haven&apos;t blocked anyone.</p>
       ) : (
-        <ul className="divide-y divide-border rounded-xl border border-border overflow-hidden">
+        <ul className="space-y-2">
           {users.map((u) => (
-            <li key={u.uid} className="flex items-center gap-3 p-3">
-              <ProfileAvatar
-                photoURL={u.photoURL}
-                displayName={u.displayName}
-                username={u.username}
-                size="md"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-medium truncate">{u.displayName || u.username}</p>
-                <p className="text-sm text-muted-foreground truncate">@{u.username}</p>
+            <li
+              key={u.uid}
+              className="flex items-center gap-3 rounded-[16px] border border-hair bg-card px-4 py-3"
+            >
+              <ProfileAvatar photoURL={u.photoURL} displayName={u.displayName} username={u.username} size="md" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-ui text-[15px] font-semibold text-foreground">
+                  {u.displayName || u.username}
+                </p>
+                <p className="truncate font-mono text-[11px] text-muted-foreground">@{u.username}</p>
               </div>
               <button
                 onClick={() => handleUnblock(u.uid)}
                 disabled={unblockingId === u.uid}
-                className="px-3 py-1.5 text-sm font-medium rounded-full border border-border hover:bg-secondary transition-colors disabled:opacity-50"
+                className="rounded-full border border-hair bg-card px-3.5 py-1.5 font-ui text-[13px] font-semibold text-foreground transition-all active:scale-[0.97] disabled:opacity-50"
               >
-                {unblockingId === u.uid ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  'Unblock'
-                )}
+                {unblockingId === u.uid ? <Loader2 className="h-4 w-4 animate-spin" /> : 'unblock'}
               </button>
             </li>
           ))}

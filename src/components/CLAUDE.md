@@ -698,6 +698,25 @@ account, independent across accounts (no cross-account dedup). The old ZIP-impor
 (safe to delete later). The legacy `auth/social-sign-in-buttons.tsx` (vertical
 "Continue with Google") stays for any v2 caller but the v3 screens use the new row.
 
+## Phase 0.7 — Wave 7 stragglers now v3 (2026-06-22)
+
+The last v2 screens were restyled to v3 (logic untouched, haptics added):
+- **`settings/page.tsx`** — sticky `Frost` header + grouped sections (eyebrow →
+  lowercase title → `FieldCard`-ish cards): appearance (`Segmented`), letterboxd
+  ZIP import (dropzone + stat lines + v3 toggle option rows + `CtaButton`),
+  notifications (push toggle + v3 `Toggle` rows), blocked users, danger zone +
+  the delete-account modal (v3). `blocked-users-section.tsx` restyled to match
+  (eyebrow + v3 rows; dropped its own border so settings owns the divider).
+- **`lists/[listId]/settings/client.tsx`** — `Frost` header + cover tile + big
+  Bricolage name + serif description + collaborators card + visibility v3 toggle
+  + v3 delete/leave + sticky `CtaButton` save. shadcn AlertDialogs kept (themed).
+- **`add/page.tsx`** — v3 search row (`h-12 bg-sunken`) + 48×72 result rows +
+  restyled shadcn `Select` triggers + v3 selected-film add form (poster + list
+  select + social link + film-red add button).
+- **`invite/[code]/client.tsx`** — `PosterWall` hero + `IconTile` + lowercase
+  headline + list card + `CtaButton` accept; all three states (sign-in gate /
+  invalid / invite) v3.
+
 ## v3 sizing standard (build to this by default)
 
 New v3 surfaces must match the **home search overlay's** confidence — not a

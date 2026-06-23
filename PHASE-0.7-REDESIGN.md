@@ -76,9 +76,14 @@ weekly movement, dig-in/top-picks, featured, community, **hot-take card** (Wave 
 **username** import · login · forgot/check-email/reset).
 
 **⬜ Remaining UI/UX — the "what's next" list:**
-1. **Wave 7 (remainder) — settings · invite · add · list-settings** — still v2
-   (Card/Input). Settings has only the v3 theme Segmented so far. (notifications +
-   onboarding + auth are now v3 ✅.)
+1. ✅ **Wave 7 — DONE (2026-06-22).** notifications · onboarding · auth · **settings ·
+   invite · add · list-settings** are all v3. The entire app is now v3 — no v2
+   surfaces remain. Settings (frosted header + grouped FieldCard sections + the
+   appearance Segmented + v3 toggles + restyled delete modal + v3 blocked-users),
+   list-settings (frosted header + cover/name + collaborators + visibility toggle +
+   CtaButton save; shadcn AlertDialogs kept), add (v3 search row + 48×72 result rows
+   + restyled Select + v3 add form), invite (poster-wall hero + IconTile + CtaButton).
+   All logic preserved; haptics added.
 2. **Native motion** — page push/pop transitions (0.7.2.2) + app-wide
    edge-swipe-back generalization (0.7.2.4 — today only on `/comments`).
 3. **Story-share** (0.7.4.x) + **direct-to-IG** (0.7.6.x) — `@vercel/og` card

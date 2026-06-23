@@ -5,18 +5,13 @@ import { useRouter, useParams, useSearchParams } from 'next/navigation';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
-  X,
+  ChevronLeft,
   Camera,
   Plus,
   Trash2,
   Loader2,
-  Crown,
-  UserMinus,
   LogOut,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Switch } from '@/components/ui/switch';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +24,10 @@ import {
 } from '@/components/ui/alert-dialog';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { InviteCollaboratorModal } from '@/components/invite-collaborator-modal';
+import { Frost } from '@/components/v3/frost';
+import { CtaButton } from '@/components/v3/onboarding-kit';
+import { haptic } from '@/lib/haptics';
+import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
 import { useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { useListMembersCache } from '@/contexts/list-members-cache';
@@ -338,8 +337,8 @@ export default function ListSettingsPage() {
   // Show loading spinner while user or list is loading
   if (isUserLoading || isLoadingList) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-pulse" />
       </div>
     );
   }
@@ -347,49 +346,55 @@ export default function ListSettingsPage() {
   // Show not found only after loading completes
   if (!listData) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-muted-foreground">List not found</p>
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background">
+        <p className="font-ui text-[15px] text-muted-foreground">list not found</p>
       </div>
     );
   }
 
   return (
-    <main className="min-h-screen bg-background">
-      {/* Header with X button */}
-      <div className="sticky top-0 z-10 bg-background/80 backdrop-blur-sm border-b border-border">
-        <div className="flex items-center justify-between p-4">
-          <div className="w-10" />
-          <h1 className="text-lg font-semibold">List Settings</h1>
-          <button
-            onClick={() => router.back()}
-            aria-label="Close"
-            className="p-2 -mr-2 rounded-full hover:bg-secondary transition-colors"
-          >
-            <X className="h-6 w-6" />
-          </button>
+    <main className="min-h-[100dvh] bg-background text-foreground">
+      {/* sticky frosted header */}
+      <Frost className="sticky top-0 z-40 border-b border-hair" tint="var(--cc-chrome)">
+        <div className="px-4 pt-safe">
+          <div className="flex items-center gap-2 py-2.5">
+            <button
+              onClick={() => { haptic('light'); router.back(); }}
+              aria-label="back"
+              className="-ml-1 flex h-9 w-9 items-center justify-center rounded-full text-foreground transition-opacity active:opacity-60"
+            >
+              <ChevronLeft className="h-[22px] w-[22px]" />
+            </button>
+            <h1
+              className="font-headline text-[22px] font-bold lowercase tracking-[-0.02em]"
+              style={{ fontVariationSettings: '"wdth" 95' }}
+            >
+              list settings
+            </h1>
+          </div>
         </div>
-      </div>
+      </Frost>
 
-      <div className="p-4 pb-32 space-y-6 max-w-lg mx-auto">
+      <div className="mx-auto max-w-lg space-y-7 px-5 pb-36 pt-6">
         {/* Cover + Name */}
-        <div className="flex gap-4 items-start">
+        <div className="flex items-start gap-4">
           {/* Cover Image */}
           <button
             type="button"
             onClick={() => !isProcessingImage && fileInputRef.current?.click()}
             disabled={isProcessingImage}
             aria-label="Change cover image"
-            className="relative w-28 h-28 rounded-xl border border-border bg-secondary flex items-center justify-center cursor-pointer hover:bg-secondary/70 transition-colors overflow-hidden flex-shrink-0 disabled:opacity-70 disabled:cursor-wait"
+            className="relative flex h-28 w-28 shrink-0 items-center justify-center overflow-hidden rounded-[16px] border border-hair bg-sunken transition-colors active:scale-[0.98] disabled:cursor-wait disabled:opacity-70"
           >
             {isProcessingImage ? (
               <div className="flex flex-col items-center gap-1">
                 <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                <span className="text-xs text-muted-foreground">Processing...</span>
+                <span className="font-mono text-[10px] text-muted-foreground">processing…</span>
               </div>
             ) : coverPreview ? (
               <>
                 <Image src={coverPreview} alt="Cover" fill className="object-cover" />
-                <div className="absolute inset-0 bg-black/40 flex items-center justify-center">
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
                   <Camera className="h-6 w-6 text-white" />
                 </div>
               </>
@@ -397,29 +402,23 @@ export default function ListSettingsPage() {
               <Camera className="h-8 w-8 text-muted-foreground" />
             )}
           </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*"
-            onChange={handleCoverSelect}
-            className="hidden"
-          />
+          <input ref={fileInputRef} type="file" accept="image/*" onChange={handleCoverSelect} className="hidden" />
 
           {/* Name + Description Input */}
-          <div className="flex-1 pt-2">
-            <Input
+          <div className="flex-1 pt-1">
+            <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="List name..."
-              className="text-2xl font-bold border-none bg-transparent p-0 h-auto focus-visible:ring-0"
+              placeholder="list name…"
+              className="w-full bg-transparent font-headline text-[24px] font-bold tracking-[-0.01em] text-foreground outline-none placeholder:text-muted-foreground/40"
               style={{ fontSize: '24px' }}
               maxLength={50}
             />
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="describe this list..."
-              className="w-full mt-2 text-muted-foreground bg-transparent border-none resize-none p-0 focus:outline-none focus:text-foreground placeholder:text-muted-foreground/70"
+              placeholder="describe this list…"
+              className="mt-2 w-full resize-none border-none bg-transparent p-0 font-serif text-muted-foreground outline-none placeholder:text-muted-foreground/50 focus:text-foreground"
               style={{ fontSize: '16px' }}
               rows={2}
               maxLength={200}
@@ -427,9 +426,11 @@ export default function ListSettingsPage() {
           </div>
         </div>
 
-        {/* Collaborators Section */}
-        <div className="bg-secondary/50 rounded-2xl p-4 space-y-4">
-          <h3 className="font-semibold text-sm">Collaborators</h3>
+        {/* Collaborators */}
+        <div className="rounded-[18px] border border-hair bg-card p-4">
+          <h3 className="mb-3 font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+            collaborators
+          </h3>
 
           {isLoadingMembers ? (
             <div className="flex justify-center py-4">
@@ -439,107 +440,94 @@ export default function ListSettingsPage() {
             <div className="space-y-3">
               {members.map((member) => (
                 <div key={member.uid} className="flex items-center justify-between">
-                  <Link
-                    href={`/profile/${member.username}`}
-                    className="flex items-center gap-3 flex-1 hover:opacity-80 transition-opacity"
-                  >
-                    <ProfileAvatar
-                      photoURL={member.photoURL}
-                      displayName={member.displayName}
-                      username={member.username}
-                      size="md"
-                    />
-                    <div>
-                      <p className="font-medium">
-                        {member.uid === user?.uid ? 'You' : member.displayName || member.username}
+                  <Link href={`/profile/${member.username}`} className="flex flex-1 items-center gap-3 transition-opacity active:opacity-70">
+                    <ProfileAvatar photoURL={member.photoURL} displayName={member.displayName} username={member.username} size="md" />
+                    <div className="min-w-0">
+                      <p className="truncate font-ui text-[15px] font-semibold text-foreground">
+                        {member.uid === user?.uid ? 'you' : member.displayName || member.username}
                       </p>
-                      <p className="text-sm text-muted-foreground">@{member.username}</p>
+                      <p className="truncate font-mono text-[11px] text-muted-foreground">@{member.username}</p>
                     </div>
                   </Link>
 
                   {member.role === 'owner' ? (
-                    <span className="text-sm text-muted-foreground">Owner</span>
+                    <span className="font-mono text-[11px] uppercase tracking-[0.1em] text-muted-foreground">owner</span>
                   ) : isOwner ? (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-destructive border-destructive/30 hover:bg-destructive/10"
-                      onClick={() => {
-                        setMemberToRemove(member);
-                        setIsRemoveOpen(true);
-                      }}
+                    <button
+                      onClick={() => { setMemberToRemove(member); setIsRemoveOpen(true); }}
+                      className="rounded-full border border-destructive/30 px-3.5 py-1.5 font-ui text-[13px] font-semibold text-destructive transition-all active:scale-[0.97]"
                     >
-                      Remove
-                    </Button>
+                      remove
+                    </button>
                   ) : null}
                 </div>
               ))}
             </div>
           )}
 
-          {/* Add Collaborators Button */}
-          <Button
-            onClick={() => setIsInviteOpen(true)}
-            className="w-full h-12 rounded-full border border-border bg-primary text-primary-foreground font-semibold shadow-lift transition-all"
+          {/* Add Collaborators */}
+          <button
+            onClick={() => { haptic('light'); setIsInviteOpen(true); }}
+            className="mt-4 flex h-12 w-full items-center justify-center gap-2 rounded-full bg-primary font-ui text-[15px] font-semibold text-primary-foreground shadow-fab transition-all active:scale-[0.98]"
           >
-            <Plus className="h-5 w-5 mr-2" />
-            Add Collaborators
-          </Button>
+            <Plus className="h-5 w-5" />
+            add collaborators
+          </button>
         </div>
 
-        {/* Visibility Toggle - Owner only */}
+        {/* Visibility - Owner only */}
         {isOwner && (
-          <div className="bg-secondary/50 rounded-2xl p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="font-semibold">{isPublic ? 'Public List' : 'Private List'}</p>
-                <p className="text-sm text-muted-foreground">
-                  {isPublic ? 'Visible to everyone' : 'Only you and collaborators can see'}
-                </p>
-              </div>
-              <Switch
-                checked={isPublic}
-                onCheckedChange={setIsPublic}
-              />
+          <div className="flex items-center justify-between gap-3 rounded-[18px] border border-hair bg-card p-4">
+            <div>
+              <p className="font-ui text-[15px] font-semibold lowercase text-foreground">
+                {isPublic ? 'public list' : 'private list'}
+              </p>
+              <p className="font-ui text-[12px] text-muted-foreground">
+                {isPublic ? 'visible to everyone' : 'only you and collaborators can see'}
+              </p>
             </div>
+            <button
+              onClick={() => { haptic('selection'); setIsPublic((v) => !v); }}
+              role="switch"
+              aria-checked={isPublic}
+              className={cn('relative h-[30px] w-[50px] shrink-0 rounded-full transition-colors', isPublic ? 'bg-primary' : 'bg-foreground/15')}
+            >
+              <span className={cn('absolute top-[3px] h-6 w-6 rounded-full bg-white shadow transition-transform duration-200', isPublic ? 'translate-x-[23px]' : 'translate-x-[3px]')} />
+            </button>
           </div>
         )}
 
-        {/* Delete Button - Owner only */}
+        {/* Delete - Owner only */}
         {isOwner && listData && !listData.isDefault && (
           <button
-            onClick={() => setIsDeleteOpen(true)}
-            className="w-full flex items-center justify-center gap-2 text-destructive py-3 hover:bg-destructive/10 rounded-xl transition-colors"
+            onClick={() => { haptic('warning'); setIsDeleteOpen(true); }}
+            className="flex w-full items-center justify-center gap-2 rounded-[14px] py-3 font-ui text-[15px] font-semibold text-destructive transition-colors active:bg-destructive/10"
           >
             <Trash2 className="h-5 w-5" />
-            <span className="font-medium">delete this list</span>
+            delete this list
           </button>
         )}
 
-        {/* Leave Button - Collaborator only.
-            Owners cannot leave (would orphan the list); the server enforces
-            this too, but the UI hides the option so it's never offered. */}
+        {/* Leave - Collaborator only */}
         {!isOwner && listData && (
           <button
-            onClick={() => setIsLeaveOpen(true)}
-            className="w-full flex items-center justify-center gap-2 text-destructive py-3 hover:bg-destructive/10 rounded-xl transition-colors"
+            onClick={() => { haptic('warning'); setIsLeaveOpen(true); }}
+            className="flex w-full items-center justify-center gap-2 rounded-[14px] py-3 font-ui text-[15px] font-semibold text-destructive transition-colors active:bg-destructive/10"
           >
             <LogOut className="h-5 w-5" />
-            <span className="font-medium">leave this list</span>
+            leave this list
           </button>
         )}
       </div>
 
       {/* Fixed Save Button */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-background border-t border-border pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
-        <Button
+      <div className="fixed inset-x-0 bottom-0 border-t border-hair bg-background/95 px-5 pt-3 backdrop-blur-xl pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))]">
+        <CtaButton
+          label={isProcessingImage ? 'processing…' : 'save'}
           onClick={handleSave}
           disabled={isSaving || isProcessingImage || !hasChanges}
-          className="w-full h-14 text-lg font-semibold rounded-full bg-foreground text-background hover:bg-foreground/90"
-          size="lg"
-        >
-          {isSaving ? <Loader2 className="h-5 w-5 animate-spin" /> : isProcessingImage ? 'Processing...' : 'save'}
-        </Button>
+          loading={isSaving}
+        />
       </div>
 
       {/* Invite Modal */}
