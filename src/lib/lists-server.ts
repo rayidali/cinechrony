@@ -14,6 +14,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import type { ListMember } from '@/lib/types';
 import { createTtlCache, cached } from '@/lib/server-cache';
+import { getVerifiedUids } from '@/lib/verified-server';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
@@ -753,7 +754,28 @@ export async function getLovedLists(
         return bm - am;
       });
 
-    const top = [...liked, ...fresh].slice(0, limit);
+    // 3. Float verified-account (official cinechrony) lists to the FRONT of the
+    //    community showcase. Fetch verified owners' public non-empty lists
+    //    EXPLICITLY so they're candidates even if they fell outside the 80-doc
+    //    scan above, then stable-partition so verified-owned lists lead while the
+    //    rest keep their trending order.
+    const ranked = [...liked, ...fresh];
+    const verifiedUids = new Set(await getVerifiedUids(now));
+    if (verifiedUids.size > 0) {
+      const rankedPaths = new Set(ranked.map((d) => d.ref.path));
+      const extraSnaps = await Promise.all(
+        [...verifiedUids].map((uid) =>
+          db.collection('users').doc(uid).collection('lists').where('isPublic', '==', true).get(),
+        ),
+      );
+      const extra = extraSnaps
+        .flatMap((s) => s.docs)
+        .filter((d) => !rankedPaths.has(d.ref.path) && (d.data().movieCount || 0) > 0);
+      ranked.push(...extra);
+    }
+    const verifiedOwned = ranked.filter((d) => verifiedUids.has(d.data().ownerId));
+    const others = ranked.filter((d) => !verifiedUids.has(d.data().ownerId));
+    const top = [...verifiedOwned, ...others].slice(0, limit);
     if (top.length === 0) return { lists: [], gated: true };
 
     const lists = await hydrateListCards(db, top, { rich });
