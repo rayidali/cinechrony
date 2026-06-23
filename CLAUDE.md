@@ -158,15 +158,26 @@
   haptics now fire on a real build) + latest web bundle copied in.
   Plus native motion (push/pop transitions + app-wide swipe-back) and the
   story-share feature (`@vercel/og` + `@capacitor/share`).
-- **Owner actions pending:** `firebase deploy --only firestore:indexes
-  --project studio-2541484065-75c27` (activities index for profile
-  recent/activity); **`firebase deploy --only firestore:rules`** (publishes the
-  new `/users/{uid}/watches` owner-read rule — non-blocking, the route uses Admin
-  SDK); ~~`npx cap sync`~~ (DONE 2026-06-23 — haptics now in `Package.swift`);
-  **set `APIFY_TOKEN` in
-  Vercel prod env** (lights up the onboarding letterboxd **username** import —
-  `/api/v1/imports/letterboxd/scrape-import`; until set, that step degrades
-  gracefully to skip). See `PHASE-B-HANDOFF.md` §9.
+- **Share-link OpenGraph/Twitter cards (2026-06-23):** every shared link now
+  previews as a branded card. **`GET /api/v1/share/og`** renders a 1200×630
+  (1.91:1) link card (param-driven, no Firestore; same Satori/font infra as the
+  story card — extracted to `src/lib/og-shared.ts`). `generateMetadata` on
+  `/post/[id]`, `/profile/[username]`, `/profile/[username]/lists/[listId]` (+ a
+  site-wide default in `layout.tsx`) emits `openGraph` + `twitter:summary_large_image`
+  via `src/lib/share-meta.ts` (`deployOrigin()` → absolute URLs; the `_` static-shell
+  param + any private/missing entity fall back to brand defaults, so `build:static`
+  is safe). Crawlers hit the Vercel SSR deploy → dynamic per-entity cards. The
+  **story share sheet** also gained a **"send to a friend"** action (`sendToFriend`
+  in `story-share.ts` → OS share sheet with the image + a deep link → iMessage /
+  WhatsApp / AirDrop). **Preview-broken-image fix:** `storyImageUrl` now resolves
+  via `apiOrigin()` (same-origin on web/preview — so the route is reachable) not
+  `shareOrigin()` (which pointed at prod, 404 pre-merge).
+- **Owner actions:** ~~`firebase deploy --only firestore:indexes`~~ + ~~`--only
+  firestore:rules`~~ **(DONE 2026-06-23 — deployed to `studio-2541484065-75c27`)**;
+  ~~`npx cap sync`~~ (DONE 2026-06-23). **Remaining:** **set `APIFY_TOKEN` in
+  Vercel prod env** (lights up the onboarding letterboxd **username** import; until
+  set, that step degrades gracefully to skip) — user reports this is set. See
+  `PHASE-B-HANDOFF.md` §9.
 - **After 0.7:** Phase C — iOS Share Extension (hero feature, ~2 weeks).
   Spec in `LAUNCH.md` §C.
 

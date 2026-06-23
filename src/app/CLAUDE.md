@@ -62,6 +62,9 @@ src/app/
     │   ├── friends-watching               # Friends activity hero card
     │   ├── share/story                    # next/og 1080×1920 story-card PNG (route.tsx;
     │   │                                   #   no auth/no Firestore, params-driven; 0.7.4)
+    │   ├── share/og                       # next/og 1200×630 link-preview PNG for OG/Twitter
+    │   │                                   #   cards (params-driven). generateMetadata on
+    │   │                                   #   post/profile/list pages + layout default → it.
     │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
     │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph

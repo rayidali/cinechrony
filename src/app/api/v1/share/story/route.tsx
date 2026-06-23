@@ -1,7 +1,5 @@
 /* eslint-disable @next/next/no-img-element, jsx-a11y/alt-text */
 import { ImageResponse } from 'next/og';
-import { readFileSync } from 'fs';
-import { join } from 'path';
 import {
   paramsToModel,
   composeMeta,
@@ -11,6 +9,17 @@ import {
   placeholderColor,
   type StoryCardModel,
 } from '@/lib/story-card';
+import {
+  loadBrandFonts,
+  fetchImageDataUri as fetchDataUri,
+  shade,
+  DISPLAY,
+  MONO,
+  SERIF,
+  FILM_RED,
+  CLAPPER_SVG,
+  IMG_HEADERS,
+} from '@/lib/og-shared';
 
 /**
  * GET /api/v1/share/story — renders a branded 9:16 (1080×1920) PNG for sharing
@@ -27,64 +36,7 @@ export const dynamic = 'force-dynamic';
 
 const W = 1080;
 const H = 1920;
-
-const FONT_DIR = join(process.cwd(), 'public', 'fonts');
-// public/fonts/** is force-included in this function's bundle via
-// next.config.ts → outputFileTracingIncludes (Vercel wouldn't trace it otherwise).
-
-type FontSpec = { name: string; file: string; weight: 400 | 500 | 600 | 700 | 800; style: 'normal' | 'italic' };
-const FONT_SPECS: FontSpec[] = [
-  { name: 'Bricolage Grotesque', file: 'BricolageGrotesque-SemiBold.ttf', weight: 600, style: 'normal' },
-  { name: 'Bricolage Grotesque', file: 'BricolageGrotesque-Bold.ttf', weight: 700, style: 'normal' },
-  { name: 'Bricolage Grotesque', file: 'BricolageGrotesque-ExtraBold.ttf', weight: 800, style: 'normal' },
-  { name: 'Space Mono', file: 'SpaceMono-Regular.ttf', weight: 400, style: 'normal' },
-  { name: 'Space Mono', file: 'SpaceMono-Bold.ttf', weight: 700, style: 'normal' },
-  { name: 'Newsreader', file: 'Newsreader-Italic.ttf', weight: 500, style: 'italic' },
-  { name: 'Newsreader', file: 'Newsreader-SemiBoldItalic.ttf', weight: 600, style: 'italic' },
-];
-
-type LoadedFont = { name: string; data: Buffer; weight: FontSpec['weight']; style: FontSpec['style'] };
-let _fonts: LoadedFont[] | null = null;
-function loadFonts(): LoadedFont[] {
-  if (_fonts) return _fonts;
-  _fonts = FONT_SPECS.map((f) => ({ name: f.name, data: readFileSync(join(FONT_DIR, f.file)), weight: f.weight, style: f.style }));
-  return _fonts;
-}
-
-const DISPLAY = '"Bricolage Grotesque"';
-const MONO = '"Space Mono"';
-const SERIF = '"Newsreader"';
-
-// The cinechrony clapperboard mark (lucide "clapperboard"), white strokes, as a
-// data-URI SVG so Satori draws it crisply inside the red app square.
-const CLAPPER_SVG =
-  'data:image/svg+xml;utf8,' +
-  encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>`,
-  );
-
-const FILM_RED = '#e8543a';
-
-/** Fetch a remote image and inline it as a data URI; null on any failure/timeout
- *  so a dead poster/avatar URL degrades to a placeholder instead of 500-ing. */
-async function fetchDataUri(url: string | null, timeoutMs = 2800): Promise<string | null> {
-  if (!url || !/^https?:\/\//i.test(url)) return null;
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    if (!res.ok) return null;
-    const type = res.headers.get('content-type') || 'image/jpeg';
-    if (!type.startsWith('image/')) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength === 0 || buf.byteLength > 4_000_000) return null;
-    return `data:${type};base64,${buf.toString('base64')}`;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
+const loadFonts = loadBrandFonts;
 
 // ── shared atoms ────────────────────────────────────────────────────────────
 
@@ -171,19 +123,6 @@ function PosterPlaceholder({ title, w, h, seed, fontSize }: { title: string; w: 
       {title}
     </div>
   );
-}
-
-/** crude hex shade for placeholder gradients */
-function shade(hex: string, amt: number): string {
-  const m = hex.replace('#', '');
-  const n = parseInt(m, 16);
-  let r = (n >> 16) & 255;
-  let g = (n >> 8) & 255;
-  let b = n & 255;
-  r = Math.max(0, Math.min(255, Math.round(r + amt * 255)));
-  g = Math.max(0, Math.min(255, Math.round(g + amt * 255)));
-  b = Math.max(0, Math.min(255, Math.round(b + amt * 255)));
-  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, '0')}`;
 }
 
 // ── card variants ───────────────────────────────────────────────────────────
@@ -443,11 +382,8 @@ export async function GET(req: Request): Promise<Response> {
 
   // Public content; ACAO:* lets the native WKWebView (capacitor://localhost)
   // fetch() the PNG cross-origin. A simple GET (no custom request headers) needs
-  // no preflight, so this header alone is sufficient.
-  const headers = {
-    'Cache-Control': 'public, max-age=3600, s-maxage=86400',
-    'Access-Control-Allow-Origin': '*',
-  };
+  // no preflight, so IMG_HEADERS' ACAO:* alone is sufficient.
+  const headers = IMG_HEADERS;
 
   try {
     const fonts = loadFonts();

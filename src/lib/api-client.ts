@@ -80,6 +80,38 @@ async function attachAuthHeader(
  *     } else throw err;
  *   }
  */
+/**
+ * Resolve the origin that serves `/api/v1/*` for the current runtime.
+ *
+ *  1. NEXT_PUBLIC_API_BASE_URL — absolute override, always wins. The Capacitor
+ *     static bundle sets this to the live Vercel origin (the WebView's own
+ *     origin has no `/api`).
+ *  2. Vercel PREVIEW — by default the preview calls its OWN API (same-origin)
+ *     so a PR preview exercises its own backend, not production. Set
+ *     NEXT_PUBLIC_PREVIEW_API_TARGET=production to route preview API calls at
+ *     the public production origin instead (escape hatch).
+ *  3. Production / localhost / native-without-override — same-origin ('').
+ *
+ * Returns '' for same-origin (callers use a relative path), or an absolute base.
+ *
+ * NOTE: this is distinct from `shareOrigin()` in `lib/share.ts`. `shareOrigin`
+ * resolves the PUBLIC CANONICAL url to hand to other people (always prod); this
+ * resolves where the API is actually deployed for the *current* client — which
+ * for an image/data endpoint must be a deployment that HAS the route (the
+ * preview itself on a preview, not prod which may not have it yet).
+ */
+export function apiOrigin(): string {
+  const explicitBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
+  const previewToProd =
+    typeof window !== 'undefined' &&
+    process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' &&
+    process.env.NEXT_PUBLIC_PREVIEW_API_TARGET === 'production' &&
+    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
+      : '';
+  return (explicitBase || previewToProd || '').replace(/\/$/, '');
+}
+
 export async function apiCall<T = unknown>(
   method: HttpMethod,
   path: string,
@@ -92,29 +124,7 @@ export async function apiCall<T = unknown>(
 
   // ── API origin resolution ───────────────────────────────────────────────
   // Only `path`s starting with `/` get prefixed; absolute URLs pass through.
-  //
-  //  1. NEXT_PUBLIC_API_BASE_URL — absolute override, always wins. The
-  //     Capacitor static bundle sets this to the live Vercel origin (the
-  //     WebView's own origin has no `/api`).
-  //  2. Vercel PREVIEW — by default the preview now calls its OWN API
-  //     (same-origin) so a PR preview faithfully exercises its own backend, not
-  //     production. Deployment Protection is satisfied by the Vercel SSO cookie
-  //     the browser already holds (you authenticated to load the preview),
-  //     which we forward via `credentials: 'same-origin'` below. Set
-  //     NEXT_PUBLIC_PREVIEW_API_TARGET=production to instead route preview API
-  //     calls at the public production origin (cross-origin + Bearer, which the
-  //     CORS allowlist permits) — an escape hatch if a stricter protection mode
-  //     ever blocks the cookie path.
-  //  3. Production / localhost / native-without-override — same-origin.
-  const explicitBase = process.env.NEXT_PUBLIC_API_BASE_URL?.trim();
-  const previewToProd =
-    typeof window !== 'undefined' &&
-    process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview' &&
-    process.env.NEXT_PUBLIC_PREVIEW_API_TARGET === 'production' &&
-    process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_PROJECT_PRODUCTION_URL}`
-      : '';
-  const apiBase = (explicitBase || previewToProd || '').replace(/\/$/, '');
+  const apiBase = apiOrigin();
   const url = apiBase && path.startsWith('/') ? `${apiBase}${path}` : path;
 
   // Credentials are scoped by request origin:

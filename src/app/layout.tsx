@@ -18,6 +18,7 @@ import { PendingImportSync } from '@/components/pending-import-sync';
 import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
+import { deployOrigin, ogImageUrl } from '@/lib/share-meta';
 
 // Design system v2 — editorial cinema.
 // Bricolage Grotesque is the UI default + display face (--font-headline).
@@ -63,10 +64,29 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
+const _ogOrigin = deployOrigin();
+
 export const metadata: Metadata = {
+  // Resolves relative OG image URLs + silences the Next metadataBase warning.
+  ...(_ogOrigin ? { metadataBase: new URL(_ogOrigin) } : {}),
   title: 'Cinechrony',
   description: 'A social movie watchlist app for you and your friends.',
   manifest: '/manifest.json',
+  // Default OG / Twitter card so any page without its own metadata still
+  // previews as a professional, branded link (per-page metadata overrides this).
+  openGraph: {
+    title: 'cinechrony',
+    description: 'a social movie watchlist for you and your friends.',
+    siteName: 'cinechrony',
+    type: 'website',
+    images: [{ url: ogImageUrl({ t: 'profile', ti: 'cinechrony', sub: 'a social movie watchlist for friends', eb: 'a social movie watchlist' }), width: 1200, height: 630 }],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'cinechrony',
+    description: 'a social movie watchlist for you and your friends.',
+    images: [ogImageUrl({ t: 'profile', ti: 'cinechrony', sub: 'a social movie watchlist for friends', eb: 'a social movie watchlist' })],
+  },
   icons: {
     icon: [
       { url: 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png', sizes: '32x32', type: 'image/png' },

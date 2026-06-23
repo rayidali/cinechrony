@@ -95,10 +95,20 @@ src/lib/
 │                              # deterministic gradient/placeholder colours,
 │                              # quote/meta formatting. Shared by the renderer
 │                              # route + the client. No React/Node/DOM.
-└── story-share.ts            # CLIENT glue: storyImageUrl(payload) →
-                               # `${shareOrigin()}/api/v1/share/story?…`; shareStory()
-                               # fetches the PNG → @capacitor/share+filesystem
-                               # (native → IG Stories) / navigator.share / download (web)
+├── story-share.ts            # CLIENT glue: storyImageUrl(payload) →
+│                              # `${apiOrigin()}/api/v1/share/story?…` (same-origin on
+│                              # web/preview so the route is reachable — NOT shareOrigin);
+│                              # shareStory() (image → IG Stories) + sendToFriend() (image +
+│                              # deep link → iMessage/etc.) via @capacitor/share+filesystem /
+│                              # navigator.share / download (web)
+├── og-shared.ts              # SERVER-only render infra shared by both image routes
+│                              # (/share/story + /share/og): loadBrandFonts() (public/fonts
+│                              # TTFs), fetchImageDataUri (timeout → null), clapper SVG, shade,
+│                              # font-family consts, IMG_HEADERS (ACAO:*). Route handlers only.
+└── share-meta.ts             # SERVER-side OG/Twitter metadata: deployOrigin() (absolute
+                               # URLs, no headers() → static-export-safe), ogImageUrl() →
+                               # /api/v1/share/og?…, pageMetadata() + defaultShareMetadata().
+                               # Used by generateMetadata on post/profile/list pages + layout.
 ```
 
 > **★** = new in Phase B (2026-06-08). The native-* helpers detect

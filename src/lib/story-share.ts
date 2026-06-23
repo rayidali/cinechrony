@@ -1,16 +1,21 @@
 /**
- * story-share — client glue for "share to Instagram story".
+ * story-share — client glue for sharing a branded card.
  *
- * Flow: build the renderer URL from a payload → fetch the PNG → hand it to the
- * platform's share sheet (native) or Web Share / download (web). The iOS share
- * sheet's "Instagram → Stories" lands the card directly in the story composer,
- * which is the design's intent.
+ * Two destinations from the same rendered PNG:
+ *   • shareStory()   → the OS share sheet biased for "Instagram → Stories"
+ *                       (image only) — the 9:16 card lands in the story composer.
+ *   • sendToFriend() → the OS share sheet with the IMAGE + a tappable cinechrony
+ *                       deep link, for iMessage / WhatsApp / AirDrop to a person.
  *
- * The renderer lives at `${shareOrigin()}/api/v1/share/story` — on native,
- * shareOrigin() resolves to the prod Vercel origin (the static bundle has no API
- * routes of its own), exactly like the rest of the app's API calls.
+ * The renderer is `<apiOrigin()>/api/v1/share/story` — i.e. the SAME deployment
+ * that serves the rest of the API for this client (same-origin on web/preview,
+ * the prod Vercel origin on native). This is deliberately NOT `shareOrigin()`:
+ * that resolves the public *canonical* (prod) url for links you hand to other
+ * people, but the image endpoint must hit a deployment that actually HAS the
+ * route (a preview serves its own; prod may not have it yet).
  */
 import { Capacitor } from '@capacitor/core';
+import { apiOrigin } from '@/lib/api-client';
 import { shareOrigin } from '@/lib/share';
 import { payloadToParams, type StorySharePayload } from '@/lib/story-card';
 
@@ -18,14 +23,17 @@ export type { StorySharePayload } from '@/lib/story-card';
 
 export type ShareResult = 'shared' | 'downloaded' | 'copied' | 'dismissed' | 'unsupported';
 
+/** Absolute (native) / same-origin (web) URL of the rendered card PNG. */
 export function storyImageUrl(payload: StorySharePayload): string {
-  return `${shareOrigin()}/api/v1/share/story?${payloadToParams(payload).toString()}`;
+  return `${apiOrigin()}/api/v1/share/story?${payloadToParams(payload).toString()}`;
 }
 
-/** Public link to attach as the "swipe up" / caption when sharing. */
+/** Public, canonical (prod) deep link to send to a friend — opens the web page
+ *  AND the app via Universal Links, with a rich OG/Twitter preview. */
 export function storyDeepLink(payload: StorySharePayload): string {
   const origin = shareOrigin();
-  if (payload.kind === 'list') return `${origin}/profile/${payload.user}`;
+  // We don't carry the entity id in the payload, so the best stable target is
+  // the author/curator profile. (Post/list pages set their own OG cards.)
   return `${origin}/profile/${payload.user}`;
 }
 
@@ -48,57 +56,77 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-/**
- * Render + share. Throws on a real failure (network / render) so callers can
- * surface a toast; returns the chosen path otherwise.
- */
-export async function shareStory(payload: StorySharePayload): Promise<ShareResult> {
-  const url = storyImageUrl(payload);
-  const res = await fetch(url, { cache: 'no-store' });
+/** Render the card to a Blob (throws on network/render failure). */
+async function renderCard(payload: StorySharePayload): Promise<Blob> {
+  const res = await fetch(storyImageUrl(payload), { cache: 'no-store' });
   if (!res.ok) throw new Error(`story render failed (${res.status})`);
-  const blob = await res.blob();
-
-  if (isNative()) {
-    return shareNative(blob);
-  }
-  return shareWeb(blob);
+  return res.blob();
 }
 
-async function shareNative(blob: Blob): Promise<ShareResult> {
-  const [{ Filesystem, Directory }, { Share }] = await Promise.all([
-    import('@capacitor/filesystem'),
-    import('@capacitor/share'),
-  ]);
+/** Write a PNG blob to the native Cache dir and return its file:// uri. */
+async function blobToNativeFileUri(blob: Blob): Promise<string> {
+  const [{ Filesystem, Directory }] = await Promise.all([import('@capacitor/filesystem')]);
   const base64 = await blobToBase64(blob);
   const fileName = `cinechrony-story-${Date.now()}.png`;
-  // Write to the Cache dir so the OS can purge it; we don't need it after.
   await Filesystem.writeFile({ path: fileName, data: base64, directory: Directory.Cache });
   const { uri } = await Filesystem.getUri({ path: fileName, directory: Directory.Cache });
-  try {
-    await Share.share({
-      title: 'share to your story',
-      // `files` is what makes iOS offer Instagram → Stories with the card as the
-      // background (a bare `url` would share a link instead).
-      files: [uri],
-      dialogTitle: 'share to your story',
-    });
-    return 'shared';
-  } catch (err) {
-    // iOS throws on cancel — treat as a dismiss, not an error.
-    if (err instanceof Error && /cancel|dismiss/i.test(err.message)) return 'dismissed';
-    throw err;
-  }
+  return uri;
 }
 
-async function shareWeb(blob: Blob): Promise<ShareResult> {
-  const file = new File([blob], 'cinechrony-story.png', { type: 'image/png' });
-  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
-  if (nav?.canShare?.({ files: [file] }) && nav.share) {
+const isCancel = (err: unknown) =>
+  err instanceof Error && (/cancel|dismiss/i.test(err.message) || err.name === 'AbortError');
+
+/** Share to a story (Instagram-biased): the image alone. */
+export async function shareStory(payload: StorySharePayload): Promise<ShareResult> {
+  const blob = await renderCard(payload);
+  if (isNative()) {
+    const uri = await blobToNativeFileUri(blob);
+    const { Share } = await import('@capacitor/share');
     try {
-      await nav.share({ files: [file], title: 'cinechrony' });
+      await Share.share({ title: 'share to your story', files: [uri], dialogTitle: 'share to your story' });
       return 'shared';
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') return 'dismissed';
+      if (isCancel(err)) return 'dismissed';
+      throw err;
+    }
+  }
+  return shareWeb(blob, undefined);
+}
+
+/** Send to a friend: the image + a tappable deep link (iMessage / WhatsApp / …). */
+export async function sendToFriend(payload: StorySharePayload): Promise<ShareResult> {
+  const blob = await renderCard(payload);
+  const link = storyDeepLink(payload);
+  const text = captionFor(payload);
+  if (isNative()) {
+    const uri = await blobToNativeFileUri(blob);
+    const { Share } = await import('@capacitor/share');
+    try {
+      await Share.share({ title: 'cinechrony', text, url: link, files: [uri], dialogTitle: 'send to a friend' });
+      return 'shared';
+    } catch (err) {
+      if (isCancel(err)) return 'dismissed';
+      throw err;
+    }
+  }
+  return shareWeb(blob, { text, url: link });
+}
+
+function captionFor(p: StorySharePayload): string {
+  if (p.kind === 'list') return `@${p.user}'s list "${p.name}" on cinechrony`;
+  return `@${p.user} on cinechrony — ${p.title}`;
+}
+
+async function shareWeb(blob: Blob, extra: { text?: string; url?: string } | undefined): Promise<ShareResult> {
+  const file = new File([blob], 'cinechrony-story.png', { type: 'image/png' });
+  const nav = typeof navigator !== 'undefined' ? navigator : undefined;
+  const data: ShareData = { files: [file], title: 'cinechrony', ...(extra || {}) };
+  if (nav?.canShare?.({ files: [file] }) && nav.share) {
+    try {
+      await nav.share(data);
+      return 'shared';
+    } catch (err) {
+      if (isCancel(err)) return 'dismissed';
       // fall through to download
     }
   }

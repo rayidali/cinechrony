@@ -2,10 +2,10 @@
 
 import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { Drawer } from 'vaul';
-import { Instagram, Loader2, Copy, Check } from 'lucide-react';
+import { Instagram, Loader2, Copy, Check, Send } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
-import { storyImageUrl, storyDeepLink, shareStory, type StorySharePayload } from '@/lib/story-share';
+import { storyImageUrl, storyDeepLink, shareStory, sendToFriend, type StorySharePayload } from '@/lib/story-share';
 
 /**
  * StoryShareProvider — the app-wide "share to Instagram story" surface (Phase
@@ -60,19 +60,20 @@ function StoryShareSheet({
   onClose: () => void;
 }) {
   const { toast } = useToast();
-  const [working, setWorking] = useState(false);
+  const [working, setWorking] = useState<null | 'story' | 'friend'>(null);
   const [imgLoaded, setImgLoaded] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
   const [copied, setCopied] = useState(false);
   const copyResetRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const previewUrl = payload ? storyImageUrl(payload) : '';
 
-  const handleShare = async () => {
+  const run = async (which: 'story' | 'friend') => {
     if (!payload || working) return;
     haptic('medium');
-    setWorking(true);
+    setWorking(which);
     try {
-      const result = await shareStory(payload);
+      const result = which === 'story' ? await shareStory(payload) : await sendToFriend(payload);
       if (result === 'downloaded') {
         toast({ title: 'image saved', description: 'open instagram and add it to your story' });
       } else if (result === 'unsupported') {
@@ -82,7 +83,7 @@ function StoryShareSheet({
     } catch {
       toast({ title: "couldn't create the card", description: 'check your connection and try again', variant: 'destructive' });
     } finally {
-      setWorking(false);
+      setWorking(null);
     }
   };
 
@@ -106,6 +107,7 @@ function StoryShareSheet({
         if (!o) {
           onClose();
           setImgLoaded(false);
+          setImgFailed(false);
         }
       }}
     >
@@ -126,12 +128,18 @@ function StoryShareSheet({
               className="relative rounded-[20px] overflow-hidden bg-sunken shadow-photo"
               style={{ aspectRatio: '9 / 16', height: 'min(54vh, 460px)' }}
             >
-              {!imgLoaded && (
+              {!imgLoaded && !imgFailed && (
                 <div className="absolute inset-0 flex items-center justify-center">
                   <Loader2 className="h-7 w-7 text-muted-foreground/50 animate-spin" strokeWidth={2} />
                 </div>
               )}
-              {previewUrl && (
+              {imgFailed && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-6 text-center">
+                  <p className="font-headline font-bold text-[15px] lowercase text-foreground">preview unavailable</p>
+                  <p className="font-mono text-[10px] text-muted-foreground">the card still sends fine</p>
+                </div>
+              )}
+              {previewUrl && !imgFailed && (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img
                   key={previewUrl}
@@ -139,8 +147,8 @@ function StoryShareSheet({
                   alt="story card preview"
                   className="h-full w-full object-cover transition-opacity duration-300"
                   style={{ opacity: imgLoaded ? 1 : 0 }}
-                  onLoad={() => setImgLoaded(true)}
-                  onError={() => setImgLoaded(true)}
+                  onLoad={() => { setImgLoaded(true); setImgFailed(false); }}
+                  onError={() => { setImgLoaded(true); setImgFailed(true); }}
                 />
               )}
             </div>
@@ -149,23 +157,36 @@ function StoryShareSheet({
           {/* actions */}
           <div className="px-5 pt-1" style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)' }}>
             <button
-              onClick={handleShare}
-              disabled={working}
+              onClick={() => run('story')}
+              disabled={!!working}
               className="w-full h-[54px] rounded-[16px] bg-primary text-primary-foreground font-headline font-bold text-[17px] lowercase tracking-[-0.01em] flex items-center justify-center gap-2.5 shadow-fab active:scale-[0.98] transition-transform disabled:opacity-70"
             >
-              {working ? (
+              {working === 'story' ? (
                 <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2.5} />
               ) : (
                 <Instagram className="h-[19px] w-[19px]" strokeWidth={2.2} />
               )}
-              {working ? 'preparing…' : 'share to story'}
+              {working === 'story' ? 'preparing…' : 'share to story'}
+            </button>
+
+            <button
+              onClick={() => run('friend')}
+              disabled={!!working}
+              className="w-full h-[52px] mt-2 rounded-[16px] bg-sunken text-foreground font-headline font-bold text-[16px] lowercase tracking-[-0.01em] flex items-center justify-center gap-2.5 active:bg-muted transition-colors disabled:opacity-70"
+            >
+              {working === 'friend' ? (
+                <Loader2 className="h-5 w-5 animate-spin" strokeWidth={2.5} />
+              ) : (
+                <Send className="h-[17px] w-[17px]" strokeWidth={2.1} />
+              )}
+              {working === 'friend' ? 'preparing…' : 'send to a friend'}
             </button>
 
             <button
               onClick={handleCopyLink}
-              className="w-full h-12 mt-2 rounded-[16px] bg-sunken text-foreground font-ui font-semibold text-[15px] flex items-center justify-center gap-2 active:bg-muted transition-colors"
+              className="w-full h-11 mt-1.5 rounded-[16px] text-muted-foreground font-ui font-semibold text-[14px] flex items-center justify-center gap-2 active:text-foreground transition-colors"
             >
-              {copied ? <Check className="h-[17px] w-[17px] text-success" strokeWidth={2.4} /> : <Copy className="h-[17px] w-[17px]" strokeWidth={2} />}
+              {copied ? <Check className="h-[16px] w-[16px] text-success" strokeWidth={2.4} /> : <Copy className="h-[16px] w-[16px]" strokeWidth={2} />}
               {copied ? 'link copied' : 'copy link'}
             </button>
           </div>
