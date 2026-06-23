@@ -56,9 +56,14 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-/** Render the card to a Blob (throws on network/render failure). */
+/** Render the card to a Blob (throws on network/render failure).
+ *
+ *  Uses the default HTTP cache (NOT no-store): the share sheet's live preview
+ *  already loaded this exact URL into the browser cache, and the renderer sets
+ *  `Cache-Control: max-age`, so this fetch usually returns instantly instead of
+ *  paying for a second server-side Satori render. */
 async function renderCard(payload: StorySharePayload): Promise<Blob> {
-  const res = await fetch(storyImageUrl(payload), { cache: 'no-store' });
+  const res = await fetch(storyImageUrl(payload));
   if (!res.ok) throw new Error(`story render failed (${res.status})`);
   return res.blob();
 }

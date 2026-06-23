@@ -2,7 +2,7 @@
 
 import { useRef, useState } from 'react';
 import Link from 'next/link';
-import { ThumbsUp, CornerUpLeft, SmilePlus, EyeOff } from 'lucide-react';
+import { ThumbsUp, CornerUpLeft, SmilePlus, EyeOff, MoreHorizontal } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ReactionIcon } from '@/components/v3/reaction-icon';
 import { cn } from '@/lib/utils';
@@ -168,6 +168,14 @@ function ReviewBody({
             note
           </span>
         )}
+        {/* explicit ⋯ affordance — same overlay as long-press (discoverable) */}
+        <button
+          onClick={(e) => { e.stopPropagation(); haptic('light'); onLongPress(review, rootRef.current?.getBoundingClientRect().top ?? 120); }}
+          aria-label="Review options"
+          className="-mr-1 -mt-1 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors active:bg-foreground/[0.06]"
+        >
+          <MoreHorizontal className="h-[18px] w-[18px]" strokeWidth={2} />
+        </button>
       </div>
 
       {/* body */}
