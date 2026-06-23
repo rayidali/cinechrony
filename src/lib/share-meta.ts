@@ -8,6 +8,7 @@
  * export): explicit env → Vercel production project url → current deployment url.
  */
 import type { Metadata } from 'next';
+import { CARD_VERSION } from '@/lib/story-card';
 
 const SITE_NAME = 'cinechrony';
 const SITE_DESC = 'a social movie watchlist for you and your friends.';
@@ -34,6 +35,7 @@ type OgParams = {
 
 export function ogImageUrl(p: OgParams): string {
   const q = new URLSearchParams();
+  q.set('v', CARD_VERSION); // cache-buster — bump CARD_VERSION on any design change
   q.set('t', p.t);
   q.set('ti', p.ti.slice(0, 80));
   if (p.sub) q.set('sub', p.sub.slice(0, 90));

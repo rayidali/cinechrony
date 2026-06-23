@@ -16,6 +16,18 @@
  * is safe to import from both the route handler and client code.
  */
 
+/**
+ * Cache-buster for the rendered cards. The renderer sets `Cache-Control` (CDN
+ * ~1 day, browser ~1 hour) keyed on the URL, so identical params would keep
+ * serving a STALE render after a design change. Every card URL carries `v` —
+ * BUMP THIS whenever the card design changes (logo, layout, colours…) so every
+ * cache key changes and the share sheet, native share, and OG link previews all
+ * re-render fresh.
+ *   v1 → original (hand-drawn clapper mark)
+ *   v2 → real cinechrony popcorn logo
+ */
+export const CARD_VERSION = '2';
+
 export type StoryCardKind = 'review' | 'watched' | 'list';
 
 export type StorySharePayload =
@@ -156,6 +168,7 @@ export function formatRating(rating: number | null | undefined): string {
 
 export function payloadToParams(p: StorySharePayload): URLSearchParams {
   const q = new URLSearchParams();
+  q.set('v', CARD_VERSION); // cache-buster — applies to every branch incl. list
   q.set('t', p.kind);
   q.set('u', p.user.replace(/^@/, ''));
   if (p.avatar) q.set('av', p.avatar);
