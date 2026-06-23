@@ -173,18 +173,18 @@ export function CardOverflowMenu({
       <Drawer.Root open={open} onOpenChange={setOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none">
+          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-[22px] bg-card outline-none">
             <Drawer.Title className="sr-only">Card actions</Drawer.Title>
-            <div className="mx-auto mt-3 mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
-            <div className="px-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <div className="mx-auto mt-2.5 mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
+            <div className="px-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">
               {rows.map((row, i) => (
-                <OverflowRowButton key={`${row.label}_${i}`} row={row} />
+                <OverflowRowButton key={`${row.label}_${i}`} row={row} last={i === rows.length - 1 && destructive.length === 0} />
               ))}
               {destructive.length > 0 && (
                 <>
-                  <div className="h-px bg-border my-1 mx-2" />
+                  <div className="h-px bg-hair my-1 mx-2" />
                   {destructive.map((row, i) => (
-                    <OverflowRowButton key={`d_${row.label}_${i}`} row={row} />
+                    <OverflowRowButton key={`d_${row.label}_${i}`} row={row} last={i === destructive.length - 1} />
                   ))}
                 </>
               )}
@@ -196,18 +196,19 @@ export function CardOverflowMenu({
   );
 }
 
-function OverflowRowButton({ row }: { row: OverflowRow }) {
+function OverflowRowButton({ row, last }: { row: OverflowRow; last?: boolean }) {
   const Icon = row.icon;
   return (
     <button
       onClick={row.onSelect}
       className={cn(
-        'w-full flex items-center gap-3 px-2 py-3 rounded-lg text-left transition-colors hover:bg-muted',
-        row.destructive ? 'text-destructive' : 'text-foreground',
+        'w-full flex items-center gap-3.5 px-3 py-3.5 text-left transition-colors active:bg-foreground/[0.05]',
+        !last && 'border-b border-hair',
+        row.destructive ? 'text-primary' : 'text-foreground',
       )}
     >
-      <Icon className="h-[18px] w-[18px]" strokeWidth={1.7} />
-      <span className="font-serif text-[15px] lowercase">{row.label}</span>
+      <Icon className="h-[19px] w-[19px]" strokeWidth={2} />
+      <span className="font-ui text-[16px] font-semibold lowercase tracking-[-0.01em]">{row.label}</span>
     </button>
   );
 }

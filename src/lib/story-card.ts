@@ -26,8 +26,9 @@
  *   v1 → original (hand-drawn clapper mark)
  *   v2 → real cinechrony popcorn logo
  *   v3 → "post" card variant
+ *   v4 → post card shows real media hero (was a lone play button)
  */
-export const CARD_VERSION = '3';
+export const CARD_VERSION = '4';
 
 export type StoryCardKind = 'review' | 'watched' | 'list' | 'post';
 
@@ -74,7 +75,8 @@ export type StorySharePayload =
       timeAgo?: string | null; // "5h ago"
       likes?: number;
       comments?: number;
-      hasMedia?: boolean; // show the play affordance
+      media?: string | null; // first media: image url, or a video's thumbnail
+      isVideo?: boolean; // overlay a play badge on the media hero
       // optional tagged film
       title?: string | null;
       director?: string | null;
@@ -103,7 +105,8 @@ export type StoryCardModel = {
   timeAgo: string | null;
   likes: number;
   comments: number;
-  hasMedia: boolean;
+  media: string | null;
+  isVideo: boolean;
 };
 
 const MAX_QUOTE = 150;
@@ -213,7 +216,8 @@ export function payloadToParams(p: StorySharePayload): URLSearchParams {
     if (p.timeAgo) q.set('tm', truncate(p.timeAgo, 20));
     if (p.likes) q.set('lk', String(Math.max(0, Math.floor(p.likes))));
     if (p.comments) q.set('cm', String(Math.max(0, Math.floor(p.comments))));
-    if (p.hasMedia) q.set('md', '1');
+    if (p.media) q.set('mi', p.media);
+    if (p.isVideo) q.set('vd', '1');
     return q;
   }
   // review | watched
@@ -260,7 +264,8 @@ export function paramsToModel(q: URLSearchParams): StoryCardModel {
     timeAgo: q.get('tm') || null,
     likes: intOf('lk'),
     comments: intOf('cm'),
-    hasMedia: q.get('md') === '1',
+    media: q.get('mi') || null,
+    isVideo: q.get('vd') === '1',
   };
 }
 

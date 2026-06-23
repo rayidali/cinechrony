@@ -390,7 +390,7 @@ const STAR_ACCENT = svgUri(
 );
 const PLAY_WHITE = svgUri('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff"><path d="M8 5v14l11-7z"/></svg>');
 
-function PostCard({ m, avatar, poster }: { m: StoryCardModel; avatar: string | null; poster: string | null }) {
+function PostCard({ m, avatar, poster, media }: { m: StoryCardModel; avatar: string | null; poster: string | null; media: string | null }) {
   const [g0, g1] = immersiveGradient(m.title || m.caption || m.user);
   const verdict = verdictFlavor(m.rating);
   const ratingStr = formatRating(m.rating);
@@ -419,22 +419,34 @@ function PostCard({ m, avatar, poster }: { m: StoryCardModel; avatar: string | n
         <Eyebrow text="shared a post" color="rgba(255,255,255,0.5)" />
       </div>
 
-      {/* media / play affordance */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        {m.hasMedia ? (
-          <div
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 132,
-              height: 132,
-              borderRadius: 132,
-              backgroundColor: 'rgba(255,255,255,0.14)',
-              border: '2px solid rgba(255,255,255,0.45)',
-            }}
-          >
-            <img src={PLAY_WHITE} width={52} height={52} style={{ marginLeft: 6 }} />
+      {/* media hero — the post's first photo (or a video's thumbnail). Only shown
+          when the post HAS media; otherwise the gradient breathes above the card. */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 0 }}>
+        {media ? (
+          <div style={{ display: 'flex', position: 'relative', alignItems: 'center', justifyContent: 'center' }}>
+            <img
+              src={media}
+              width={936}
+              height={640}
+              style={{ borderRadius: 26, objectFit: 'cover', border: '1px solid rgba(255,255,255,0.1)', boxShadow: '0 24px 60px rgba(0,0,0,0.4)' }}
+            />
+            {m.isVideo ? (
+              <div
+                style={{
+                  position: 'absolute',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  width: 116,
+                  height: 116,
+                  borderRadius: 116,
+                  backgroundColor: 'rgba(0,0,0,0.42)',
+                  border: '2px solid rgba(255,255,255,0.7)',
+                }}
+              >
+                <img src={PLAY_WHITE} width={46} height={46} style={{ marginLeft: 5 }} />
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
@@ -531,6 +543,9 @@ function PostCard({ m, avatar, poster }: { m: StoryCardModel; avatar: string | n
           <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 700, fontSize: 20, letterSpacing: 2, textTransform: 'uppercase', color: MUTED }}>tap to open</div>
         </div>
       </div>
+
+      {/* No media → balance the empty space so the card reads as centered. */}
+      {media ? null : <div style={{ flex: 1, display: 'flex' }} />}
     </div>
   );
 }
@@ -554,9 +569,10 @@ export async function GET(req: Request): Promise<Response> {
     const fonts = loadFonts();
 
     // Pre-fetch remote images to data URIs (graceful: null → placeholder).
-    const [avatar, poster, p0, p1, p2] = await Promise.all([
+    const [avatar, poster, media, p0, p1, p2] = await Promise.all([
       fetchDataUri(m.avatar),
       m.kind === 'watched' || m.kind === 'post' ? fetchDataUri(m.poster) : Promise.resolve(null),
+      m.kind === 'post' ? fetchDataUri(m.media) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[0] ?? null) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[1] ?? null) : Promise.resolve(null),
       m.kind === 'list' ? fetchDataUri(m.posters[2] ?? null) : Promise.resolve(null),
@@ -568,7 +584,7 @@ export async function GET(req: Request): Promise<Response> {
       ) : m.kind === 'list' ? (
         <ListCard m={m} avatar={avatar} posters={[p0, p1, p2]} />
       ) : m.kind === 'post' ? (
-        <PostCard m={m} avatar={avatar} poster={poster} />
+        <PostCard m={m} avatar={avatar} poster={poster} media={media} />
       ) : (
         <WatchedCard m={m} avatar={avatar} poster={poster} />
       );

@@ -133,6 +133,12 @@ export const PostCard = memo(function PostCard({
     // Recreate the post as a branded 9:16 "shared a post" story card. Film is
     // optional — text/photo posts still render (byline + caption + stats).
     const film = post.taggedMovie;
+    const firstMedia = post.media?.[0];
+    const mediaImg = firstMedia
+      ? firstMedia.type === 'image'
+        ? firstMedia.url
+        : firstMedia.thumbnailUrl || null
+      : null;
     story.open({
       kind: 'post',
       user: post.authorUsername || post.authorDisplayName || 'someone',
@@ -141,7 +147,8 @@ export const PostCard = memo(function PostCard({
       timeAgo: timeAgo ? `${timeAgo} ago` : null,
       likes: likeCount,
       comments: post.commentCount || 0,
-      hasMedia: (post.media?.length || 0) > 0,
+      media: mediaImg,
+      isVideo: firstMedia?.type === 'video',
       title: film?.title || null,
       year: film?.year || null,
       rating: post.rating ?? null,
