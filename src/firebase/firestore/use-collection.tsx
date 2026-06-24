@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   Query,
   onSnapshot,
@@ -60,22 +60,38 @@ export function useCollection<T = any>(
   const [data, setData] = useState<StateDataType>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
+  // Self-heal: a Firestore listener is DEAD after an error (token expiry / dropped
+  // WebChannel after backgrounding). Re-subscribe with backoff so the UI recovers
+  // without an app restart, and keep last-known data so it doesn't blank meanwhile.
+  const [retryTick, setRetryTick] = useState(0);
+  const attemptRef = useRef(0);
+  const lastRefRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!memoizedTargetRefOrQuery) {
       setData(null);
       setIsLoading(false);
       setError(null);
+      attemptRef.current = 0;
+      lastRefRef.current = null;
       return;
     }
 
-    setIsLoading(true);
+    if (lastRefRef.current !== memoizedTargetRefOrQuery) {
+      lastRefRef.current = memoizedTargetRefOrQuery;
+      attemptRef.current = 0;
+      setIsLoading(true); // fresh query → loading; retries keep stale data
+    }
     setError(null);
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Directly use memoizedTargetRefOrQuery as it's assumed to be the final query
     const unsubscribe = onSnapshot(
       memoizedTargetRefOrQuery,
       (snapshot: QuerySnapshot<DocumentData>) => {
+        if (cancelled) return;
         const results: ResultItemType[] = [];
         for (const doc of snapshot.docs) {
           results.push({ ...(doc.data() as T), id: doc.id });
@@ -83,8 +99,10 @@ export function useCollection<T = any>(
         setData(results);
         setError(null);
         setIsLoading(false);
+        attemptRef.current = 0; // recovered → reset backoff
       },
-      (error: FirestoreError) => {
+      (err: FirestoreError) => {
+        if (cancelled) return;
         // This logic extracts the path from either a ref or a query
         const path: string =
           memoizedTargetRefOrQuery.type === 'collection'
@@ -97,16 +115,21 @@ export function useCollection<T = any>(
         })
 
         setError(contextualError)
-        setData(null)
         setIsLoading(false)
-
-        // trigger global error propagation
-        errorEmitter.emit('permission-error', contextualError);
+        // Keep last-known data (no blank flash); surface the error once per streak.
+        if (attemptRef.current === 0) errorEmitter.emit('permission-error', contextualError);
+        const n = (attemptRef.current = Math.min(attemptRef.current + 1, 6));
+        const backoff = Math.min(30000, 1500 * 2 ** (n - 1)); // 1.5s,3,6,12,24,30…
+        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, backoff);
       }
     );
 
-    return () => unsubscribe();
-  }, [memoizedTargetRefOrQuery]); // Re-run if the target query/reference changes.
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      unsubscribe();
+    };
+  }, [memoizedTargetRefOrQuery, retryTick]); // re-subscribe on query change OR a scheduled retry
   if(memoizedTargetRefOrQuery && !memoizedTargetRefOrQuery.__memo) {
     throw new Error(memoizedTargetRefOrQuery + ' was not properly memoized using useMemoFirebase');
   }

@@ -1,6 +1,6 @@
 'use client';
     
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   DocumentReference,
   onSnapshot,
@@ -46,48 +46,71 @@ export function useDoc<T = any>(
   const [data, setData] = useState<StateDataType>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<FirestoreError | Error | null>(null);
+  // A Firestore onSnapshot listener is DEAD after its error callback fires (token
+  // expiry / dropped WebChannel after the app is backgrounded). Bumping this tick
+  // re-runs the effect to re-subscribe, so the UI self-heals without an app
+  // restart. attemptRef drives the backoff; lastRefRef distinguishes a real ref
+  // change from a retry of the same ref.
+  const [retryTick, setRetryTick] = useState(0);
+  const attemptRef = useRef(0);
+  const lastRefRef = useRef<DocumentReference<DocumentData> | null>(null);
 
   useEffect(() => {
     if (!memoizedDocRef) {
       setData(null);
       setIsLoading(false);
       setError(null);
+      attemptRef.current = 0;
+      lastRefRef.current = null;
       return;
     }
 
-    setIsLoading(true);
+    if (lastRefRef.current !== memoizedDocRef) {
+      lastRefRef.current = memoizedDocRef;
+      attemptRef.current = 0;
+      setIsLoading(true); // fresh target → show loading; retries keep stale data
+    }
     setError(null);
-    // Optional: setData(null); // Clear previous data instantly
+
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
     const unsubscribe = onSnapshot(
       memoizedDocRef,
       (snapshot: DocumentSnapshot<DocumentData>) => {
+        if (cancelled) return;
         if (snapshot.exists()) {
           setData({ ...(snapshot.data() as T), id: snapshot.id });
         } else {
-          // Document does not exist
           setData(null);
         }
-        setError(null); // Clear any previous error on successful snapshot (even if doc doesn't exist)
+        setError(null);
         setIsLoading(false);
+        attemptRef.current = 0; // recovered → reset backoff
       },
-      (error: FirestoreError) => {
+      (err: FirestoreError) => {
+        if (cancelled) return;
         const contextualError = new FirestorePermissionError({
           operation: 'get',
           path: memoizedDocRef.path,
-        })
-
-        setError(contextualError)
-        setData(null)
-        setIsLoading(false)
-
-        // trigger global error propagation
-        errorEmitter.emit('permission-error', contextualError);
-      }
+        });
+        setError(contextualError);
+        setIsLoading(false);
+        // Keep the last-known data (no blank flash). Surface the error only on the
+        // FIRST failure of a streak so retries don't spam the global toast.
+        if (attemptRef.current === 0) errorEmitter.emit('permission-error', contextualError);
+        const n = (attemptRef.current = Math.min(attemptRef.current + 1, 6));
+        const backoff = Math.min(30000, 1500 * 2 ** (n - 1)); // 1.5s,3,6,12,24,30…
+        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, backoff);
+      },
     );
 
-    return () => unsubscribe();
-  }, [memoizedDocRef]); // Re-run if the memoizedDocRef changes.
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      unsubscribe();
+    };
+  }, [memoizedDocRef, retryTick]); // re-subscribe on ref change OR a scheduled retry
 
   return { data, isLoading, error };
 }
