@@ -9,7 +9,7 @@
  */
 import { Resend } from 'resend';
 
-const FROM = process.env.RESEND_FROM || 'cinechrony <hello@cinechrony.com>';
+const FROM = process.env.RESEND_FROM || 'cinechrony <noreply@cinechrony.com>';
 const REPLY_TO = process.env.RESEND_REPLY_TO || undefined;
 
 // Public, hosted brand logo for emails (data-URIs are unreliable across mail
