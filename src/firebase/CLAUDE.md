@@ -124,6 +124,23 @@ const listRef = useMemoFirebase(
 const { data: list, isLoading } = useDoc<MovieList>(listRef);
 ```
 
+### Self-healing listeners (2026-06-23)
+`useDoc` + `useCollection` are **resilient to listener death**. A Firestore
+`onSnapshot` listener is permanently dead after its error callback fires — and
+the auth token expiry (~1 hr) or a dropped WebChannel (after the native app sits
+backgrounded) makes *every* listener error at once. The old hooks did
+`setData(null)` and never re-subscribed, so the profile + lists pages went blank
+until a full app quit/relaunch. Now, on error each hook:
+- **keeps the last-known data** (no blank flash),
+- **re-subscribes with capped exponential backoff** (1.5s→30s) so a refreshed
+  token recovers within seconds — no restart,
+- resets the backoff on the next good snapshot,
+- emits the global `permission-error` only **once per failure streak** (no toast
+  spam), and distinguishes a real ref/query change (shows loading) from a retry
+  (keeps stale data). No tight re-subscribe loop — retries are delayed + guarded.
+
+If you write a new real-time read, just use these hooks — the resilience is free.
+
 ### useMemoFirebase (CRITICAL!)
 **Always** use this instead of `useMemo` for Firestore references:
 

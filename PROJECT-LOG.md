@@ -451,6 +451,19 @@ then the rest of the deferred data rails.
   post/profile/list pages). Firestore rules + indexes were deployed to
   `studio-2541484065-75c27`, and `npx cap sync ios` registered the new
   share/filesystem/haptics plugins.
+- **Post-0.7 launch-prep (also done, 2026-06-23):**
+  - **Official accounts.** A verified-account system (the big-tech split: an
+    `admin` *capability* via a Firebase custom claim + a `verified` *display flag*).
+    `@cinechrony` is verified; its badge shows app-wide, and its lists (≥5 films +
+    a cover) get featured at the top of the community rail.
+  - **Story-share got real.** The cards use the actual popcorn logo; there's now a
+    "shared a post" card that recreates a feed post (with the post's photo as a
+    hero); you can send a card to a friend over iMessage, not just to a story.
+  - **Bugs squashed.** The biggest: profile + lists pages would randomly go blank
+    until you force-quit the app — a Firestore listener dies after an error (token
+    expiry on background) and the old hooks never re-subscribed. The real-time
+    hooks now self-heal (keep data + reconnect with backoff). Also fixed: a toggle
+    knob overflowing its track, and the ⋯ menu using the wrong (serif) font.
 - Owner threads still open: `PHASE-B-HANDOFF.md` manual setup; the
   `movienight-kappa` vs `cinechrony.vercel.app` **domain discrepancy** to resolve
   before TestFlight (the iOS build's `NEXT_PUBLIC_API_BASE_URL` must point at the

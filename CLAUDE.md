@@ -177,15 +177,47 @@
   WhatsApp / AirDrop). **Preview-broken-image fix:** `storyImageUrl` now resolves
   via `apiOrigin()` (same-origin on web/preview — so the route is reachable) not
   `shareOrigin()` (which pointed at prod, 404 pre-merge).
+- **Post-0.7 launch-prep (all merged to `main`, 2026-06-23):**
+  - **Verified / official accounts (RBAC + badge).** `users/{uid}.verified` (the
+    public flag, auto-indexed single-field) + a `{verified, admin}` Auth custom
+    claim, granted by **`scripts/grant-verified.ts <username>`** (Admin SDK).
+    `firestore.rules` BLOCKS clients from self-setting `verified`.
+    **`GET /api/v1/verified`** serves the tiny public uid set; `UserVerifiedCacheProvider`
+    (root layout) loads it once for O(1) `isVerified(uid)`. `<VerifiedBadge uid|verified>`
+    (film-red ✓) is rendered on post + activity bylines, review cards + replies, the
+    reel, and both profile headers. `src/lib/verified-server.ts`. **`@cinechrony` is
+    granted** (the official account). Pure web/Firebase — no native dep.
+  - **Featured official lists.** `getLovedLists` floats verified-owner lists to the
+    FRONT of the community rail, gated on quality (`FEATURED_MIN_MOVIES = 5` films
+    AND a cover image, capped at `FEATURED_MAX = 3`); non-qualifying verified lists
+    rank normally. Tunable constants in `lists-server.ts`.
+  - **Story-share polish.** Real cinechrony **popcorn logo** on the cards (bundled
+    `public/brand/cinechrony-logo.png`, read via `logoDataUri()` in `og-shared.ts`;
+    drawn clapper only as fallback). New **`kind:'post'`** variant — recreates a
+    feed post (byline + star verdict + caption + film cell + ♥/💬 stats + the post's
+    real media as a hero, video → thumbnail+play badge; text posts center the card).
+    `post-card` share now always uses it (film optional). `CARD_VERSION` cache-buster
+    (now `v4`) on every card URL — **bump it on any card design change**.
+  - **Bug fixes.** `card-overflow-menu` (the ⋯ sheet) restyled serif→`font-ui` v3.
+    The custom **Toggle** knob no longer overflows the track (explicit `left` +
+    `border-0 p-0`; was UA button-padding) — settings + list-settings.
+    **Self-healing real-time hooks** (`useDoc` + `useCollection`): a Firestore
+    listener is dead after an error (token expiry / dropped WebChannel on
+    background) — both hooks now KEEP last-known data + RE-SUBSCRIBE with backoff,
+    so profile/lists no longer go blank-until-restart. See `src/firebase/CLAUDE.md`.
+  - **Admin scripts:** `scripts/grant-verified.ts`, `scripts/set-display-name.ts`
+    (both Admin SDK, load `.env.local`, run via `npx tsx`).
 - **Owner actions:** ~~`firebase deploy --only firestore:indexes`~~ + ~~`--only
-  firestore:rules`~~ **(DONE 2026-06-23 — deployed to `studio-2541484065-75c27`)**;
-  ~~`npx cap sync`~~ (DONE 2026-06-23). **Remaining:** **set `APIFY_TOKEN` in
-  Vercel prod env** (lights up the onboarding letterboxd **username** import; until
-  set, that step degrades gracefully to skip) — user reports this is set. See
-  `PHASE-B-HANDOFF.md` §9.
+  firestore:rules`~~ **(DONE — deployed to `studio-2541484065-75c27`)**;
+  ~~`npx cap sync`~~ (DONE). **Remaining:** **set `APIFY_TOKEN` in Vercel prod env**
+  (letterboxd username import; degrades gracefully if unset) — user reports set.
+  Pre-TestFlight: resolve the **`movienight-kappa` vs `cinechrony.vercel.app`
+  domain discrepancy** (the iOS `NEXT_PUBLIC_API_BASE_URL` must point at the real
+  prod origin). See `PHASE-B-HANDOFF.md` §9.
 - **NOW (Phase 0.7 done):** Phase C — iOS Share Extension (hero feature, ~2 weeks).
-  Spec in `LAUNCH.md` §C. Optional 0.7 carry-over: the direct-to-IG pasteboard
-  plugin (0.7.6.2/3).
+  Spec in `LAUNCH.md` §C. Optional carry-overs: direct-to-IG pasteboard plugin
+  (0.7.6.2/3, needs a native build) + an `@cinechrony` admin/moderation console if
+  wanted (the `admin` claim is already provisioned).
 
 ## Quick Reference
 

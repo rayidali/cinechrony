@@ -19,10 +19,25 @@ surfaces left); native motion (haptics + push/pop transitions + app-wide
 swipe-back) ships; the **share-to-Instagram-story** feature (9:16 card renderer +
 share sheet + send-to-a-friend) and **share-link OpenGraph/Twitter cards** ship.
 Firestore rules + indexes deployed to `studio-2541484065-75c27` (2026-06-23).
-Tracker: **`PHASE-0.7-REDESIGN.md`**. The only deferred item is the OPTIONAL
-direct-to-IG pasteboard plugin (0.7.6.2/3, native Swift — the share-sheet path
-already satisfies the design). **Next: Phase C — iOS Share Extension** (`LAUNCH.md`
-§C; plan in `PHASE-C-PLAN.md`).
+Tracker: **`PHASE-0.7-REDESIGN.md`**.
+
+**Post-0.7 launch-prep (also on `main`, 2026-06-23):**
+- **Verified / official accounts** — `users/{uid}.verified` flag + `{verified,admin}`
+  custom claim, granted by `scripts/grant-verified.ts`; rules block self-verify;
+  `GET /api/v1/verified` + `UserVerifiedCacheProvider` → `<VerifiedBadge>` app-wide.
+  **`@cinechrony` is granted.** Verified-owner lists (≥5 films + cover, cap 3) are
+  featured at the front of the community rail.
+- **Story-share polish** — real popcorn logo on the cards, a new `kind:'post'`
+  variant (recreates a feed post, with its real media as a hero), send-to-a-friend,
+  `CARD_VERSION` cache-buster.
+- **Fixes** — ⋯ overflow menu → v3 fonts; toggle-knob overflow (settings +
+  list-settings); **self-healing real-time hooks** (`useDoc`/`useCollection` now
+  re-subscribe on listener death so profile/lists no longer go blank-until-restart).
+- **Admin scripts** — `grant-verified.ts`, `set-display-name.ts` (Admin SDK, `npx tsx`).
+
+The only deferred 0.7 item is the OPTIONAL direct-to-IG pasteboard plugin
+(0.7.6.2/3, native Swift — the share-sheet path already satisfies the design).
+**Next: Phase C — iOS Share Extension** (`LAUNCH.md` §C; plan in `PHASE-C-PLAN.md`).
 
 **What's done in 0.7 so far:**
 - **Foundation primitives** — `Frost`, `GlassBtn`, `Segmented`, `NavBar`,

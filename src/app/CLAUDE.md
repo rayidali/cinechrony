@@ -65,6 +65,8 @@ src/app/
     │   ├── share/og                       # next/og 1200×630 link-preview PNG for OG/Twitter
     │   │                                   #   cards (params-driven). generateMetadata on
     │   │                                   #   post/profile/list pages + layout default → it.
+    │   ├── verified                       # tiny public set of verified uids (cached) →
+    │   │                                   #   UserVerifiedCacheProvider → <VerifiedBadge>
     │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
     │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph

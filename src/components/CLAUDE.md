@@ -724,9 +724,20 @@ branded 9:16 card (an `<img>` of `GET /api/v1/share/story`) + a primary "share t
 story" action (hands the PNG to `shareStory()` in `src/lib/story-share.ts` → OS
 share sheet → IG Stories on native; Web Share / download on web) + copy-link.
 Centralizing it means each entry point only builds a payload — wired on
-`post-card` (film note → watched), `review-react-overlay` (long-press → review),
-and `list-header` (own + public → list). The card layouts + colours + wire
-contract live in `src/lib/story-card.ts`; see `src/lib/CLAUDE.md`.
+`post-card` (**shares a "post" card** recreating the feed post — byline + star
+verdict + caption + film cell + ♥/💬 stats + the post's real media as a hero),
+`review-react-overlay` (long-press → review), and `list-header` (own + public →
+list). The card layouts + colours + wire contract live in `src/lib/story-card.ts`
+(`kind: review | watched | list | post`; `CARD_VERSION` cache-buster); see
+`src/lib/CLAUDE.md`.
+
+**`verified-badge.tsx`** (`<VerifiedBadge uid|verified>`) is the official/verified
+✓ shown next to a handle. Self-contained: give it the author uid and it renders
+nothing unless that uid is in the global verified set (O(1) via
+`UserVerifiedCacheProvider`), or pass an explicit `verified` for pages that
+already hold the flag (profile headers). Wired on post + activity bylines, review
+cards + reply bubbles, the reel, and both profile headers. Backend +
+`scripts/grant-verified.ts` in `src/lib/verified-server.ts` — see `src/lib/CLAUDE.md`.
 
 ## Phase 0.7 — Wave 7 stragglers now v3 (2026-06-22)
 
