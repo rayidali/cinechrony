@@ -18,6 +18,13 @@ src/lib/
 ├── auth-login-server.ts      # loginWithIdentifier (email-or-@username → custom
 │                              # token; resolves handle→email server-side, verifies
 │                              # password via Identity Toolkit REST; Wave 7)
+├── email-server.ts           # Transactional email via Resend (verified domain
+│                              # cinechrony.com). isEmailConfigured() + sendEmail()
+│                              # degrade gracefully when RESEND_API_KEY is unset;
+│                              # branded HTML shell + sendPasswordResetEmail(to,link).
+│                              # Backs POST /api/v1/auth/forgot-password (Admin SDK
+│                              # generatePasswordResetLink → Resend; client falls
+│                              # back to Firebase's own email when unconfigured).
 ├── rate-limit.ts             # checkRateLimit(uid, bucket) — review/like/follow/…
 │
 ├─── Server-side domain helpers (consumed by /api/v1/* routes) ──────

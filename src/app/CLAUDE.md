@@ -68,6 +68,8 @@ src/app/
     │   ├── verified                       # tiny public set of verified uids (cached) →
     │   │                                   #   UserVerifiedCacheProvider → <VerifiedBadge>
     │   ├── auth/login                     # email-or-@username → custom token (Wave 7)
+    │   ├── auth/forgot-password           # branded reset email via Resend (Admin SDK
+    │   │                                   #   link); Firebase fallback; non-disclosure
     │   ├── imports/letterboxd/…           # ZIP parse/import + username preview/scrape-import
     │   ├── follow/{status,by-username,…}  # Follow graph
     │   └── admin/…                        # adminRoute-wrapped backfills

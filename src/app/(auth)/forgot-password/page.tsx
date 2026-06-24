@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { KeyRound, Mail, MailCheck } from 'lucide-react';
 import { sendPasswordResetEmail } from 'firebase/auth';
 import { useAuth } from '@/firebase';
-import { useToast } from '@/hooks/use-toast';
+import { apiCall } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
 import {
   FieldCard,
@@ -26,7 +26,6 @@ const RESEND_SECONDS = 42;
 export default function ForgotPasswordPage() {
   const auth = useAuth();
   const router = useRouter();
-  const { toast } = useToast();
   const [email, setEmail] = useState('');
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -36,27 +35,24 @@ export default function ForgotPasswordPage() {
   const send = async () => {
     if (!emailOk || busy) return;
     setBusy(true);
+    const addr = email.trim();
     try {
-      await sendPasswordResetEmail(auth, email.trim());
-      haptic('success');
-      setSent(true);
-    } catch (err) {
-      // AUDIT 2.10 — don't reveal whether an account exists.
-      if ((err as { code?: string })?.code === 'auth/user-not-found') {
-        setSent(true);
-      } else {
-        toast({
-          variant: 'destructive',
-          title: 'could not send reset link',
-          description:
-            (err as { code?: string })?.code === 'auth/invalid-email'
-              ? 'please enter a valid email address.'
-              : 'please try again.',
-        });
+      // Prefer the branded Resend email (server route). It returns
+      // `method: 'firebase'` when Resend isn't configured → fall back to
+      // Firebase's own reset email. Both keep AUDIT 2.10 non-disclosure.
+      const res = await apiCall<{ method?: string }>(
+        'POST', '/api/v1/auth/forgot-password', { email: addr }, { skipAuth: true },
+      );
+      if (res?.method !== 'resend') {
+        await sendPasswordResetEmail(auth, addr).catch(() => {});
       }
-    } finally {
-      setBusy(false);
+    } catch {
+      // Route unreachable → fall back to Firebase directly so reset still works.
+      await sendPasswordResetEmail(auth, addr).catch(() => {});
     }
+    haptic('success');
+    setSent(true); // always advance (non-disclosure)
+    setBusy(false);
   };
 
   if (sent) return <CheckYourEmail email={email.trim()} onResend={send} onBack={() => setSent(false)} />;
