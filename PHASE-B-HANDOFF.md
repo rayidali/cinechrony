@@ -193,6 +193,38 @@ the token to light the feature up; no redeploy of the app binary needed (it's a
 Vercel-side route). Cost is only incurred when a user who reaches the step
 actually finishes onboarding (account-last).
 
+### 9c. `RESEND_API_KEY` — branded transactional email (optional but recommended)
+
+Forgot-password (and a future welcome) email is sent via **Resend** from the
+verified `cinechrony.com` domain. Set a **server-side** env var in Vercel prod:
+
+```
+RESEND_API_KEY=re_xxxxxxxxxxxxxxxxxxxxxxxx
+# optional override (defaults to "cinechrony <noreply@cinechrony.com>"):
+# RESEND_FROM=cinechrony <noreply@cinechrony.com>
+```
+
+**Owner reports the key is added** → **redeploy** so the route picks it up, then
+test: app → *forgot password* → enter your email → expect a branded email (popcorn
+logo, film-red "reset password" button) from `noreply@cinechrony.com`. **Until it's
+set, password reset still works** — the client falls back to Firebase's own reset
+email (`src/lib/email-server.ts` `isEmailConfigured()` gates it). Firebase still
+mints the secure link (Admin `generatePasswordResetLink`); only delivery+design
+moved to Resend. The Firebase custom action URL was verified to already point at
+`<prod-origin>/reset-password` — no Console change needed.
+
+### 9d. `cinechrony.com` domain + `/privacy` + `/support` (pre-TestFlight)
+
+**Decision (2026-06-24):** before TestFlight, point **`cinechrony.com` at Vercel**
+and make it the ONE production origin — this finally resolves the
+`movienight-kappa` vs `cinechrony.vercel.app` discrepancy flagged at the top of
+this doc. Once the domain is live, use that single value everywhere:
+`NEXT_PUBLIC_API_BASE_URL` (§9), `capacitor.config.ts`, the `applinks:` Associated
+Domain (§2), and the AASA / assetlinks files (§3, §5). Also add minimal **`/privacy`
+and `/support`** pages — **App Store Connect requires a privacy-policy URL and a
+support URL to submit** (even for external TestFlight). The full marketing site is
+a later, parallel effort during the beta.
+
 **Import design (time-safe):** the import is async + chunked so it never blows a
 function's time budget. The client starts the scrape (`scrape/start`), polls
 (`scrape/status`, showing "N found"), then imports films in ~120-film chunks

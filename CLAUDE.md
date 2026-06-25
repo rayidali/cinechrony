@@ -2,7 +2,7 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-23)
+## Current state (2026-06-24)
 
 - **Phases A + B + 0.5 + 0.7 all merged to `main`** (A+B via PR #88 tip `9c81360`;
   **Phase 0.7 merged 2026-06-23, merge `e26871c`** — `feat/v3-redesign` is fully
@@ -207,17 +207,44 @@
     so profile/lists no longer go blank-until-restart. See `src/firebase/CLAUDE.md`.
   - **Admin scripts:** `scripts/grant-verified.ts`, `scripts/set-display-name.ts`
     (both Admin SDK, load `.env.local`, run via `npx tsx`).
+- **Branded transactional email — Resend (2026-06-23, on `main`):** forgot-password
+  emails are now **branded** (popcorn logo, film-red CTA, table-based HTML that
+  renders across mail clients) and sent via **Resend** (`cinechrony.com` is the
+  verified sender domain). `src/lib/email-server.ts` — `isEmailConfigured()`
+  (`!!RESEND_API_KEY`), `sendEmail()`, `renderShell()`, `sendPasswordResetEmail()`;
+  `FROM = 'cinechrony <noreply@cinechrony.com>'` (override with `RESEND_FROM`).
+  **`POST /api/v1/auth/forgot-password`** (`publicApiRoute`, `skipAuth`) mints the
+  secure link via Firebase Admin `generatePasswordResetLink(email)` (Firebase still
+  owns the oobCode/token — only delivery+design move to Resend) and emails it; per-
+  email 60s throttle + AUDIT 2.10 non-disclosure (always returns success-shaped).
+  **Graceful fallback:** if `RESEND_API_KEY` is unset OR the route is unreachable,
+  the client (`(auth)/forgot-password/page.tsx`) falls back to Firebase's own
+  `sendPasswordResetEmail` — reset always works. **Verified from terminal:** the
+  Firebase custom action URL ALREADY points at `movienight-kappa.vercel.app/reset-password`
+  (no Console change needed). The module also supports a future welcome-on-signup email.
+- **Website sequencing — DECISION (2026-06-24):** make `cinechrony.com` "professional"
+  is **NOT a blocker for the next steps** — do a *thin slice first, full marketing
+  site later*. Must-do-before-TestFlight: (1) point `cinechrony.com` → Vercel and
+  make it the single prod origin (resolves the `movienight-kappa` vs
+  `cinechrony.vercel.app` discrepancy that iOS auth / Universal Links / AASA all
+  depend on); (2) ship minimal `/privacy` + `/support` pages (App Store Connect
+  REQUIRES a privacy-policy URL + support URL to submit). The polished marketing
+  landing page (hero, App Store screenshots + badge, feature sections) can be built
+  **during the TestFlight beta window** — it gates public launch, not the beta.
 - **Owner actions:** ~~`firebase deploy --only firestore:indexes`~~ + ~~`--only
   firestore:rules`~~ **(DONE — deployed to `studio-2541484065-75c27`)**;
-  ~~`npx cap sync`~~ (DONE). **Remaining:** **set `APIFY_TOKEN` in Vercel prod env**
-  (letterboxd username import; degrades gracefully if unset) — user reports set.
-  Pre-TestFlight: resolve the **`movienight-kappa` vs `cinechrony.vercel.app`
-  domain discrepancy** (the iOS `NEXT_PUBLIC_API_BASE_URL` must point at the real
-  prod origin). See `PHASE-B-HANDOFF.md` §9.
-- **NOW (Phase 0.7 done):** Phase C — iOS Share Extension (hero feature, ~2 weeks).
-  Spec in `LAUNCH.md` §C. Optional carry-overs: direct-to-IG pasteboard plugin
-  (0.7.6.2/3, needs a native build) + an `@cinechrony` admin/moderation console if
-  wanted (the `admin` claim is already provisioned).
+  ~~`npx cap sync`~~ (DONE); ~~`APIFY_TOKEN` in Vercel~~ (user reports set);
+  ~~`RESEND_API_KEY` in Vercel~~ (user reports added — **redeploy to pick it up,
+  then test forgot-password**). **Remaining (pre-TestFlight):** point
+  **`cinechrony.com` → Vercel** as the single prod origin + set the iOS
+  `NEXT_PUBLIC_API_BASE_URL` to it (see `PHASE-B-HANDOFF.md` §9); add `/privacy` +
+  `/support` pages.
+- **NOW (Phase 0.7 done):** thin website slice (domain + privacy/support) → then
+  **Phase C — iOS Share Extension** (hero feature, ~2 weeks; spec in `LAUNCH.md` §C).
+  The polished `cinechrony.com` marketing site runs in parallel during the TestFlight
+  beta. Optional carry-overs: direct-to-IG pasteboard plugin (0.7.6.2/3, needs a
+  native build); welcome-on-signup email (module already there); an `@cinechrony`
+  admin/moderation console (the `admin` claim is already provisioned).
 
 ## Quick Reference
 
@@ -690,7 +717,8 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-06-23 — Phase 0.7 complete & merged to `main` (`e26871c`).
+*Last updated: 2026-06-24 — Phase 0.7 complete & merged to `main` (`e26871c`);
+post-0.7 launch-prep + Resend email on `main`; website-sequencing decision logged.
 The "Current state" section at the top of this file is the authoritative
 status; the dated sections below are a historical changelog.*
 

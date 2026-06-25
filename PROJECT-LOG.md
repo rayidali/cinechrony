@@ -437,7 +437,7 @@ then the rest of the deferred data rails.
 
 ## Chapter 9 — Where we are, and what's next
 
-### Now (2026-06-23)
+### Now (2026-06-24)
 
 - Phases 0 → B + 0.5 **and Phase 0.7** are **all merged to `main`** (A+B via
   PR #88 tip `9c81360`; **Phase 0.7 merged 2026-06-23, merge `e26871c`**).
@@ -464,12 +464,24 @@ then the rest of the deferred data rails.
     expiry on background) and the old hooks never re-subscribed. The real-time
     hooks now self-heal (keep data + reconnect with backoff). Also fixed: a toggle
     knob overflowing its track, and the ⋯ menu using the wrong (serif) font.
-- Owner threads still open: `PHASE-B-HANDOFF.md` manual setup; the
-  `movienight-kappa` vs `cinechrony.vercel.app` **domain discrepancy** to resolve
-  before TestFlight (the iOS build's `NEXT_PUBLIC_API_BASE_URL` must point at the
-  real prod domain that serves the routes); `APIFY_TOKEN` in Vercel prod env (the
-  Letterboxd username import); and the OPTIONAL direct-to-IG pasteboard plugin if
-  we want the tappable link sticker. **Next: Phase C — the Share Extension.**
+- **Branded email via Resend (2026-06-23).** Forgot-password mail is no longer
+  Firebase's plain default — it's a branded email (popcorn logo, film-red button)
+  sent from `noreply@cinechrony.com` via Resend. Firebase still mints the secure
+  reset link (we only took over delivery + design), and it falls back to Firebase's
+  own email if the key is missing — so reset can never break. The same module is
+  ready for a welcome-on-signup email. Owner just needs to redeploy + test.
+- **Website decision (2026-06-24).** Asked whether to make `cinechrony.com`
+  "professional" before or after the next steps, we split it: a *thin slice now*
+  (point the domain at Vercel as the one prod origin; add minimal `/privacy` +
+  `/support` pages — the only web assets App Store submission actually requires),
+  and the *full marketing site later*, built during the TestFlight beta when we'll
+  have real screenshots and a live store link. The domain move also finally kills
+  the `movienight-kappa` vs `cinechrony.vercel.app` discrepancy.
+- Owner threads still open: `PHASE-B-HANDOFF.md` native setup; **redeploy Vercel**
+  for `RESEND_API_KEY` + test reset; the **thin website slice** (domain →
+  `cinechrony.com` + `/privacy` + `/support`) which also resolves the domain
+  discrepancy before TestFlight; and the OPTIONAL direct-to-IG pasteboard plugin.
+  **Next: the website slice → Phase C — the Share Extension.**
 
 ### Phase C — the Share Extension (the whole point, ~2 weeks)
 
