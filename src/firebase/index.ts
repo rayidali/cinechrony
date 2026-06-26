@@ -1,7 +1,8 @@
 'use client';
 
 import { initializeApp, getApps, getApp, type FirebaseApp, type FirebaseOptions } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, initializeAuth, indexedDBLocalPersistence, type Auth } from 'firebase/auth';
+import { Capacitor } from '@capacitor/core';
 import {
   getFirestore,
   initializeFirestore,
@@ -62,6 +63,14 @@ function resolveFirestore(firebaseApp: FirebaseApp): Firestore {
       localCache: persistentLocalCache({
         tabManager: persistentMultipleTabManager(),
       }),
+      // On a native Capacitor WKWebView, Firestore's default streaming
+      // "WebChannel" transport can't establish a connection — every
+      // onSnapshot silently hangs, so reads come back empty and the cache
+      // never warms (a raw REST fetch to the same doc works, proving it's the
+      // transport, not auth/rules). Forcing long-polling makes real-time
+      // reads work inside the WebView. Transport-only change; the data and
+      // web behaviour are untouched (web keeps the faster default).
+      ...(Capacitor.isNativePlatform() ? { experimentalForceLongPolling: true } : {}),
     });
   } catch {
     // Already initialized — return the existing instance.
@@ -69,10 +78,37 @@ function resolveFirestore(firebaseApp: FirebaseApp): Firestore {
   }
 }
 
+/**
+ * Resolve the Auth instance.
+ *
+ * On a native Capacitor WebView, `getAuth()` HANGS: its initialization awaits
+ * the popup/redirect resolver, which loads a hidden iframe from the authDomain
+ * (`<project>.firebaseapp.com`). That iframe never settles inside the iOS/
+ * Android WKWebView, so `onAuthStateChanged` never fires its first event and the
+ * app is stuck on the splash spinner forever (isUserLoading stays true).
+ *
+ * Native Google/Apple sign-in goes through @capacitor-firebase/authentication
+ * (→ `signInWithCredential`), so the web popup/redirect resolver is never needed
+ * natively. Initializing WITHOUT a resolver lets auth settle immediately from
+ * IndexedDB persistence. Web keeps the default `getAuth()` so its popup sign-in
+ * still works.
+ */
+function resolveAuth(firebaseApp: FirebaseApp): Auth {
+  if (Capacitor.isNativePlatform()) {
+    try {
+      return initializeAuth(firebaseApp, { persistence: indexedDBLocalPersistence });
+    } catch {
+      // Already initialized (HMR / second call) — return the existing instance.
+      return getAuth(firebaseApp);
+    }
+  }
+  return getAuth(firebaseApp);
+}
+
 export function getSdks(firebaseApp: FirebaseApp) {
   return {
     firebaseApp,
-    auth: getAuth(firebaseApp),
+    auth: resolveAuth(firebaseApp),
     firestore: resolveFirestore(firebaseApp),
     storage: getStorage(firebaseApp),
   };
