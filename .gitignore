@@ -49,5 +49,9 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+# Firebase native config — a public client identifier, but kept out of the repo
+# to avoid secret-scanner noise. Present locally for the iOS/Android build.
+ios/App/App/GoogleService-Info.plist
+android/app/google-services.json
 # claude code local settings
 .claude/settings.local.json
