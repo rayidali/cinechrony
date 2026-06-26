@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 import { seededGradient } from '@/lib/seeded-gradient';

@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { Section, ViewAll } from '@/components/v3/section';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { useLovedLists } from '@/components/featured-carousel';

@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useRouter, useParams, useSearchParams } from 'next/navigation';
+import { useRouter, useParams, useSearchParams } from '@/lib/native-nav';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import {
   ChevronLeft,
   Camera,

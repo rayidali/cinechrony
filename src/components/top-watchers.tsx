@@ -1,6 +1,6 @@
 'use client';
 
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { Section, ViewAll } from '@/components/v3/section';

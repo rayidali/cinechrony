@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { Search, X } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';

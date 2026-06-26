@@ -3,7 +3,7 @@
 import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import {
   Heart,
   MessageCircle,

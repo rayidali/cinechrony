@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import Link from 'next/link';
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
   Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award,

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams } from '@/lib/native-nav';
 import Link from 'next/link';
 import { Loader2, Check, X, Users, ListPlus } from 'lucide-react';
 import { useUser } from '@/firebase';

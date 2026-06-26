@@ -1,8 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback, useTransition } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { useParams, useRouter } from '@/lib/native-nav';
+import { Link } from '@/lib/native-nav';
 import { ChevronLeft, Heart, Loader2, ArrowUp, X, Trash2 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { useUser } from '@/firebase';

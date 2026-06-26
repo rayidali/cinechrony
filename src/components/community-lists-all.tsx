@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { Globe, Loader2 } from 'lucide-react';
 import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';

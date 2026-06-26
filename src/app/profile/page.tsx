@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import {
   Pencil, MoreVertical, LogOut,
   Eye, EyeOff, ImageIcon, Settings, Share2,

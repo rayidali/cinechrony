@@ -8,7 +8,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';
 import type { UserProfile } from '@/lib/types';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 
 const retroInputClass = "border border-border rounded-lg shadow-lift focus:shadow-press focus:border-primary transition-shadow duration-200";
 

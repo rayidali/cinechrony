@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 
 /**
  * Renders nothing. On native runtimes (Capacitor iOS/Android), listens

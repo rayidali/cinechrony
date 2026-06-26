@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users, Loader2 } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser } from '@/firebase';

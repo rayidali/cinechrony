@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, memo, useMemo } from 'react';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import {
   Heart,
   MoreHorizontal,

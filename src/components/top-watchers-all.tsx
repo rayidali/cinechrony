@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { Loader2 } from 'lucide-react';
 import { apiCall } from '@/lib/api-client';
 import { useUser } from '@/firebase';

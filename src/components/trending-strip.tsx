@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import Image from 'next/image';
 import { Film } from 'lucide-react';
 import type { LovedListCard } from '@/lib/lists-server';

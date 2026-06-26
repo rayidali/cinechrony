@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useMemo, useCallback } from 'react';
-import { useRouter, useParams } from 'next/navigation';
+import { useRouter, useParams } from '@/lib/native-nav';
 import Link from 'next/link';
 import { ChevronLeft, Share2 } from 'lucide-react';
 import Image from 'next/image';

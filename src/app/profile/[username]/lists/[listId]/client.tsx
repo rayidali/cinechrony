@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { useRouter, useParams } from 'next/navigation';
-import Link from 'next/link';
+import { useRouter, useParams } from '@/lib/native-nav';
+import { Link } from '@/lib/native-nav';
 import { ArrowLeft, Lock } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { Settings2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
