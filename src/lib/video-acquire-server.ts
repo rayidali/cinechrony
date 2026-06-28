@@ -24,7 +24,8 @@ export type AcquiredVideo =
 
 const ACQUIRE_TIMEOUT_SECS = 120;
 const ACQUIRE_MEMORY_MB = 1024;
-const ACQUIRE_MAX_ATTEMPTS = 2; // these downloaders are flaky; a retry rotates the proxy
+const ACQUIRE_MAX_ATTEMPTS = 3; // these downloaders are flaky; each retry rotates the proxy
+const ACQUIRE_RETRY_DELAY_MS = 1200; // brief gap between attempts so the proxy/rate-limit cools
 
 type Parsed = { videoUrl: string | null; caption: string | null };
 type ActorAdapter = {
@@ -118,6 +119,7 @@ export async function acquireVideo(
   // "did we get a video URL".
   let lastItem: Record<string, unknown> = {};
   for (let attempt = 0; attempt < ACQUIRE_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) await new Promise((r) => setTimeout(r, ACQUIRE_RETRY_DELAY_MS));
     const items = await runActorItems(actorId, adapter.buildInput(canonicalUrl), token, params);
     lastItem = (items[0] ?? {}) as Record<string, unknown>;
     const { videoUrl, caption } = adapter.parse(lastItem);
