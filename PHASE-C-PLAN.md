@@ -232,12 +232,16 @@ Screen spec (editorial v2 language, lowercase headline):
 
 ### C.1 — Extraction backend (Claude, ~4 small PRs)
 
-- [ ] **C.1a** Job scaffolding: routes (`POST /extractions`, `GET /[jobId]`),
-  `extraction-server.ts` skeleton, canonicalizer, `extraction_jobs` +
-  `extraction_cache` collections + deny rules, `extraction` rate-limit
-  bucket, `waitUntil` wiring. Pipeline stubbed (returns fixture films).
-  **Test:** `44-extractions-auth.test.ts` — unauth 401; foreign jobId 403;
-  rate limit 429; cache hit returns done instantly; job lifecycle states.
+- [x] **C.1a** ✅ DONE (2026-06-27, branch `feat/phase-c-extraction`). Job
+  scaffolding: routes (`POST /extractions`, `GET /[jobId]`),
+  `src/lib/extraction-server.ts` + `extraction-types.ts`, URL canonicalizer +
+  provider classification, `extraction_jobs` + `extraction_cache` collections +
+  deny rules, `extraction` (5/min) + `extractionDaily` (50/day) rate buckets,
+  `next/server` `after()` wiring (inline fallback gated off under the test
+  emulator). Pipeline stubbed (3 fixture TMDB films + suggestedListName, writes
+  the shared cache). **Test `44-extractions-auth.test.ts`: 10/10 green** (unauth
+  401, foreign jobId 403, missing 404, bad/unsupported URL 400, rate-limit 429,
+  cache-hit done). typecheck + vercel build clean; full audit 470/470.
 - [ ] **C.1b** Acquisition: Apify adapter (+ failover slot + circuit-breaker
   counter), oEmbed/YouTube-metadata degraded tier, provider classification.
   **Test:** adapter unit tests with recorded fixtures; tier fallthrough on
