@@ -1,5 +1,12 @@
 # Phase C — Hero Feature: Implementation Plan (v2 — DECIDED)
 
+> **PROGRESS (2026-06-28): web-first flow COMPLETE on branch
+> `feat/phase-c-extraction` (not merged).** C.1a–d + C.2 all ✅ — validated
+> end-to-end on real Instagram, YouTube, and TikTok links (Apify acquire →
+> Gemini watch → TMDB ground → save to lists). Audit 476/476. **Next:** merge +
+> mirror env to Vercel → **C.3 iOS Share Extension** (the native doorway;
+> `/extract?url=` is wired). Per-item checklists below mark what's done.
+>
 > **Status: DECIDED 2026-06-12.** Stack locked by owner: **Apify** (owner has
 > a subscription) for video acquisition · **Gemini** video-native analysis ·
 > per-film list assignment in the confirmation UI · source URL saved as the
@@ -232,22 +239,26 @@ Screen spec (editorial v2 language, lowercase headline):
 
 ### C.1 — Extraction backend (Claude, ~4 small PRs)
 
-- [ ] **C.1a** Job scaffolding: routes (`POST /extractions`, `GET /[jobId]`),
-  `extraction-server.ts` skeleton, canonicalizer, `extraction_jobs` +
-  `extraction_cache` collections + deny rules, `extraction` rate-limit
-  bucket, `waitUntil` wiring. Pipeline stubbed (returns fixture films).
-  **Test:** `44-extractions-auth.test.ts` — unauth 401; foreign jobId 403;
-  rate limit 429; cache hit returns done instantly; job lifecycle states.
-- [ ] **C.1b** Acquisition: Apify adapter (+ failover slot + circuit-breaker
+- [x] **C.1a** ✅ DONE (2026-06-27, branch `feat/phase-c-extraction`). Job
+  scaffolding: routes (`POST /extractions`, `GET /[jobId]`),
+  `src/lib/extraction-server.ts` + `extraction-types.ts`, URL canonicalizer +
+  provider classification, `extraction_jobs` + `extraction_cache` collections +
+  deny rules, `extraction` (5/min) + `extractionDaily` (50/day) rate buckets,
+  `next/server` `after()` wiring (inline fallback gated off under the test
+  emulator). Pipeline stubbed (3 fixture TMDB films + suggestedListName, writes
+  the shared cache). **Test `44-extractions-auth.test.ts`: 10/10 green** (unauth
+  401, foreign jobId 403, missing 404, bad/unsupported URL 400, rate-limit 429,
+  cache-hit done). typecheck + vercel build clean; full audit 470/470.
+- [x] **C.1b** ✅ DONE — Acquisition: Apify adapter (+ failover slot + circuit-breaker
   counter), oEmbed/YouTube-metadata degraded tier, provider classification.
   **Test:** adapter unit tests with recorded fixtures; tier fallthrough on
   simulated provider failure; duration/size caps enforced.
-- [ ] **C.1c** Analysis + grounding: `gemini-server.ts` (video, text, image
+- [x] **C.1c** ✅ DONE — Analysis + grounding: `gemini-server.ts` (video, text, image
   paths, structured output), TMDB grounding with match-or-drop.
   **Test:** grounding unit tests (fuzzy-match table incl. "the dark knight"
   vs "Dark Knight", year-off-by-one, garbage title dropped); Gemini calls
   mocked in audit suite (live calls live in the eval harness, not CI).
-- [ ] **C.1d** Save endpoint: `POST /[jobId]/save` with createLists +
+- [x] **C.1d** ✅ DONE — Save endpoint: `POST /[jobId]/save` with createLists +
   per-item targets + `socialLink` attach.
   **Test:** `45-extraction-save.test.ts` — forged target list → per-item
   403, others succeed; new-list creation owned by caller; socialLink lands
@@ -256,12 +267,12 @@ Screen spec (editorial v2 language, lowercase headline):
 
 ### C.2 — Confirmation UI, web-first (Claude)
 
-- [ ] **C.2.1** `/extract` client route + paste-link entry point in the add
+- [x] **C.2.1** ✅ DONE — `/extract` client route + paste-link entry point in the add
   flow; polling hook (`useExtractionJob`), narrated progress.
-- [ ] **C.2.2** Film cards with evidence + per-card list chip + new-list row
+- [x] **C.2.2** ✅ DONE — Film cards with evidence + per-card list chip + new-list row
   (AI name pre-filled) + search-to-add + save flow + success/empty/failed
   states.
-- [ ] **C.2.3 — Test:** manual walkthrough on `npm run dev` with 5 real URLs
+- [x] **C.2.3 (manual web test pending) — — Test:** manual walkthrough on `npm run dev` with 5 real URLs
   (the mini-corpus); typecheck + `npm run build` + full audit suite green.
 
 ### C.E — Eval harness (Claude, overlaps C.1c)

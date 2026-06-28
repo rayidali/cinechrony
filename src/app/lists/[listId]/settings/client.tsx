@@ -12,16 +12,7 @@ import {
   Loader2,
   LogOut,
 } from 'lucide-react';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { ConfirmSheet } from '@/components/ui/confirm-sheet';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { InviteCollaboratorModal } from '@/components/invite-collaborator-modal';
 import { Frost } from '@/components/v3/frost';
@@ -541,70 +532,40 @@ export default function ListSettingsPage() {
         onMembersUpdate={handleMembersUpdate}
       />
 
-      {/* Remove Collaborator Confirmation */}
-      <AlertDialog open={isRemoveOpen} onOpenChange={setIsRemoveOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove Collaborator</AlertDialogTitle>
-            <AlertDialogDescription>
-              Remove @{memberToRemove?.username} from this list?
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleRemoveCollaborator}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Remove collaborator */}
+      <ConfirmSheet
+        open={isRemoveOpen}
+        onOpenChange={setIsRemoveOpen}
+        title="remove collaborator?"
+        description={<>remove @{memberToRemove?.username} from this list?</>}
+        confirmLabel="remove"
+        destructive
+        onConfirm={handleRemoveCollaborator}
+      />
 
-      {/* Delete Confirmation */}
-      <AlertDialog open={isDeleteOpen} onOpenChange={setIsDeleteOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete List</AlertDialogTitle>
-            <AlertDialogDescription>
-              Are you sure you want to delete &quot;{listData?.name}&quot;? This cannot be undone.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Delete'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Delete list */}
+      <ConfirmSheet
+        open={isDeleteOpen}
+        onOpenChange={setIsDeleteOpen}
+        title="delete this list?"
+        description={<>“{listData?.name}” and everything in it will be gone for good. this can’t be undone.</>}
+        confirmLabel="delete list"
+        destructive
+        loading={isDeleting}
+        onConfirm={handleDelete}
+      />
 
-      {/* Leave Confirmation (collaborator-only) */}
-      <AlertDialog open={isLeaveOpen} onOpenChange={(open) => !isLeaving && setIsLeaveOpen(open)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Leave List</AlertDialogTitle>
-            <AlertDialogDescription>
-              Leave &quot;{listData?.name}&quot;? You&apos;ll lose access to the list and will need a new invite to rejoin.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isLeaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleLeave}
-              disabled={isLeaving}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isLeaving ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Leave'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {/* Leave list (collaborator-only) */}
+      <ConfirmSheet
+        open={isLeaveOpen}
+        onOpenChange={(open) => !isLeaving && setIsLeaveOpen(open)}
+        title="leave this list?"
+        description={<>you’ll lose access to “{listData?.name}” and need a new invite to rejoin.</>}
+        confirmLabel="leave list"
+        destructive
+        loading={isLeaving}
+        onConfirm={handleLeave}
+      />
     </main>
   );
 }

@@ -435,3 +435,23 @@ real id must go through the **`src/lib/native-nav.ts`** shim — import `useRout
 carrying ids in the query and resolves `_` params back. Without it, tapping into
 any detail screen crashes the WebView ("failed provisional navigation:
 index.txt"). See `src/lib/CLAUDE.md`.
+
+---
+
+## Phase C — extraction routes + /extract UI (2026-06-28)
+
+Branch `feat/phase-c-extraction`. The AI "share a video → extract films" feature.
+
+- **`POST /api/v1/extractions`** `{ url }` → `{ jobId, status }` — validate +
+  canonicalize (TikTok/IG/YouTube; others 400), cache-hit or create job + kick
+  the pipeline. Rate-limited (`extraction` 5/min + `extractionDaily` 50/day).
+- **`GET /api/v1/extractions/[jobId]`** → owner-only job view (status/stage/films).
+- **`POST /api/v1/extractions/[jobId]/save`** `{ createLists?, items[] }` →
+  per-item results — create caller-owned lists + `addMovieToList` per film with
+  the source video as `socialLink`. Per-item `canEditList`, idempotent, integrity.
+- **`/extract`** (`page.tsx` Suspense + `client.tsx`) — paste/share a link →
+  narrated progress → film cards (poster · year · AI receipt quote · per-film
+  destination chip via Vaul `SheetMenu` · remove) + editable AI new-list name →
+  save → summary. Empty/failed/auto-`?url=` (native share doorway) states. Static
+  route; the home **"scan" button** routes here. Server logic in
+  `src/lib/extraction-server.ts` (see `src/lib/CLAUDE.md`).

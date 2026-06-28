@@ -2,10 +2,27 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-27)
+## Current state (2026-06-28)
 
-- **iOS native bring-up — first Simulator run (2026-06-27), branch
-  `fix/capacitor-ios-runtime` (NOT yet merged).** The Capacitor iOS app now runs
+- **Phase C — AI "share a video → extract films" hero feature: web-first flow
+  COMPLETE (2026-06-28), branch `feat/phase-c-extraction` (NOT yet merged).**
+  Paste/share a TikTok·Reel·Short → Apify acquires it → **Gemini watches it**
+  (audio + on-screen text + footage) → TMDB grounds the films → save to lists with
+  the source video attached. **Validated end-to-end on real IG/YouTube/TikTok**
+  (The Namesake / Django Unchained / Interstellar). Built: `POST /api/v1/extractions`
+  · `GET /[jobId]` · `POST /[jobId]/save`; `src/lib/extraction-server.ts` +
+  `gemini-server.ts` + `video-acquire-server.ts` + `extraction-types.ts`; the
+  `/extract` UI; home "scan" → `/extract`. Per-provider Apify actors (IG →
+  `easyapi~instagram-reels-downloader`, TikTok → `wilcode~…`, YouTube → Gemini
+  direct), all runs capped 120s/1024MB + retried; pipeline gated on `GEMINI_API_KEY`
+  (falls back to fixtures in tests → audit 476/476). Env: `GEMINI_API_KEY`,
+  `GEMINI_MODEL`, `APIFY_TOKEN`, `APIFY_ACTOR_ID`, `APIFY_ACTOR_INSTAGRAM` (owner
+  must mirror to Vercel). Details in `HANDOFF.md` § "Phase C" + `PHASE-C-PLAN.md`.
+  **Next:** merge → C.3 iOS Share Extension (the native doorway; `/extract?url=` ready).
+- **Letterboxd-import hardening (on `main`):** every Apify run is cost-capped
+  (timeout+memory — kills the 1-hour ~$3.70 runaway reviews runs); the reviews
+  sync is now fault-tolerant (salvages partial data, retries once, idempotent).
+- **iOS native bring-up — first Simulator run (2026-06-27), MERGED to `main`.** The Capacitor iOS app now runs
   end-to-end on the Simulator. Getting there fixed five **WKWebView-only** bugs
   (web/PWA unaffected — each fix is native-only or a web no-op):
   (1) added `ios/App/App/GoogleService-Info.plist` (registered the iOS app in

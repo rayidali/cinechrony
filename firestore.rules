@@ -356,6 +356,15 @@ service cloud.firestore {
     match /ratings/{ratingId} {
       allow read, write: if false;
     }
+    // Phase C — AI film extraction. Jobs are uid-scoped + read via the
+    // authed /api/v1/extractions/[jobId] route; the cache is shared results
+    // only. Both server-only (Admin SDK) — clients never touch them directly.
+    match /extraction_jobs/{jobId} {
+      allow read, write: if false;
+    }
+    match /extraction_cache/{urlHash} {
+      allow read, write: if false;
+    }
     // Precomputed home-rail snapshot (leaderboard + friends-watching). Built +
     // read server-side only; clients reach it via the cached API rails.
     match /snapshots/{snapshotId} {

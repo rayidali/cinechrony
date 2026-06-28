@@ -37,6 +37,10 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   pushSubscribe: { limit: 10, windowMs: 60_000 },
   report:        { limit: 10, windowMs: 60_000 },
   post:          { limit: 15, windowMs: 60_000 },
+  // Phase C — AI film extraction. Each fresh extraction can cost an Apify run +
+  // a Gemini call, so cap both a burst AND a daily total per user.
+  extraction:      { limit: 5,  windowMs: 60_000 },
+  extractionDaily: { limit: 50, windowMs: 24 * 60 * 60_000 },
 };
 
 /**

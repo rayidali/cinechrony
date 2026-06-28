@@ -37,8 +37,10 @@ to make that feature possible and safe to ship.
 | May 26 – Jun 2 | **Phase A** — Server Actions → real API routes (18 PRs) | ✅ merged |
 | Jun 3–8 | **Phase B** — Capacitor wrap: native iOS/Android shells | ✅ merged |
 | Jun 13–24 | **Phase 0.7** — v3 iOS-native redesign + motion + story share | ✅ merged |
-| Jun 27 | **iOS native bring-up** — first Simulator run; fixed 5 WebView-only bugs | 🔧 `fix/capacitor-ios-runtime` |
-| After | **Phase C** — iOS Share Extension (the hero feature) | ⏳ |
+| Jun 27 | **iOS native bring-up** — Simulator + real device; 5 WebView bugs, app icon, Vaul menus, keyboard, swipe-back | ✅ merged |
+| Jun 27 | **Letterboxd import hardening** — Apify cost-cap + reviews fault-tolerance | ✅ merged |
+| Jun 28 | **Phase C (web-first)** — AI share-a-video → extract films → save to lists | 🔧 `feat/phase-c-extraction` |
+| After | **Phase C (native)** — iOS Share Extension + Android intent | ⏳ |
 | After | **Phase D** — App Store + Play Store submission | ⏳ |
 | Parallel | **Phase E** — TikTok/IG marketing automation | ⏳ |
 
@@ -591,7 +593,41 @@ of this lives on `fix/capacitor-ios-runtime`, not yet merged.
 
 ---
 
+## Chapter — The hero feature, working (Jun 28)
+
+This is the one that makes someone download Cinechrony instead of Letterboxd:
+you're watching a TikTok "top 5 sci-fi films," you tap **Share → Cinechrony**, and
+the app *watches the video* and adds all five films to a list — with the TikTok
+attached so it plays right on each film's card later.
+
+We'd locked the plan back on Jun 12 (Apify to fetch the video, Google's Gemini to
+watch it, TMDB to confirm each film is real). This week we built the whole
+web-first flow and — the important part — **proved it on real links**:
+
+- An **Instagram reel** about *The Namesake*: Gemini read the caption, *recognized
+  Irrfan Khan and Tabu on screen*, AND heard the dialogue — three independent
+  confirmations, matched to the real film.
+- A **YouTube Short**: nailed *Django Unchained* from a Samuel L. Jackson scene.
+- A **TikTok**: *Interstellar*, from on-screen text + "Don't let me leave, Murph."
+
+Things we learned the hard way (and hardened against):
+- **Instagram blocks logged-out downloads** — generic downloaders fail on it. Fix:
+  a dedicated Instagram actor; different platforms now use different downloaders.
+- **The downloaders are flaky** (empty one run, fine the next) and **Gemini gets
+  overloaded** (503s). Fix: retries on every flaky surface.
+- **Cost discipline:** the same week we found an old Letterboxd-import scraper had
+  been running for a full hour at ~$3.70 a pop (no timeout set). Every external
+  job — old and new — is now hard-capped on time and memory.
+
+The result: paste a link → watch the progress → see the films it found with the
+exact "receipt" of where each came from → tap which list → save. It's on a branch,
+validated end-to-end, and the next step is the native **Share → Cinechrony** button
+(the web `/extract` page is already wired to receive shared links).
+
+---
+
 *Companion docs: `CLAUDE.md` (architecture reference) · `AUDIT.md` (every
 security/integrity item + progress log) · `LAUNCH.md` (the full phase plan,
-C–E specs) · `PHASE-B-HANDOFF.md` (owner's manual-setup checklist) ·
-`HANDOFF.md` (session snapshot, gitignored).*
+C–E specs) · `PHASE-C-PLAN.md` (the decided Phase C tracker) ·
+`PHASE-B-HANDOFF.md` (owner's manual-setup checklist) ·
+`HANDOFF.md` (session snapshot).*
