@@ -46,7 +46,7 @@ export function TopWatchers({ onViewAll }: { onViewAll?: () => void }) {
               <div className="w-[76px] h-[76px] rounded-[26px] overflow-hidden bg-muted">
                 {e.photoURL ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={e.photoURL} alt="" className="w-full h-full object-cover" />
+                  <img loading="lazy" decoding="async" src={e.photoURL} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <span
                     className="flex w-full h-full items-center justify-center font-headline font-bold text-2xl text-white"

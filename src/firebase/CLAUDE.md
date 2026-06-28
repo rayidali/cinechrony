@@ -330,3 +330,26 @@ updateDocumentNonBlocking(movieDocRef, { status: 'Watched' });
 3. **Non-blocking writes** don't throw - check FirebaseErrorListener for errors
 4. **Server actions** use Admin SDK, not client SDK
 5. **Real-time listeners** auto-update - no need to refetch manually
+
+---
+
+## Capacitor WKWebView init (2026-06-27, branch `fix/capacitor-ios-runtime`)
+
+Two native-only init fixes in `src/firebase/index.ts` (web behaviour unchanged):
+
+- **`resolveAuth(app)`** — on native, `getAuth()` HANGS: it awaits the
+  popup/redirect resolver, which loads a hidden iframe from the authDomain that
+  never settles in a WKWebView, so `onAuthStateChanged` never fires its first
+  event and the app sticks on the splash spinner. Native uses
+  `initializeAuth(app, { persistence: indexedDBLocalPersistence })` (no resolver
+  — native Google/Apple go through `@capacitor-firebase/authentication`, which
+  doesn't need it); web keeps `getAuth(app)`.
+- **`resolveFirestore(app)`** — adds `experimentalForceLongPolling: true` on
+  native. Firestore's default streaming WebChannel transport can't establish in
+  the WKWebView, so every `onSnapshot` silently returns empty (a raw REST GET of
+  the same doc returns 200 — proving it's transport, not rules/auth). Long-polling
+  works in the WebView. Transport-only; data + web behaviour untouched.
+
+Both gate on `Capacitor.isNativePlatform()`. `GoogleService-Info.plist` lives at
+`ios/App/App/` (gitignored — public client id) and is required or
+`FirebaseApp.configure()` crashes the native app at launch.

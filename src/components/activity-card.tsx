@@ -2,7 +2,7 @@
 
 import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { Heart, Star, Eye, Plus, MessageCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';

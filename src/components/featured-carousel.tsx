@@ -55,7 +55,7 @@ export function FeaturedCarousel() {
     >
       {cover && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
+        <img loading="lazy" decoding="async" src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
       )}
 
       {/* ghost title */}

@@ -421,3 +421,17 @@ RootLayout (layout.tsx)
   destination) were restyled — see `src/components/CLAUDE.md` Wave 3.
 - **Composer product rules**: a post requires **text** (a written take); a film
   is **optional** (its watch/rating sections appear only when attached).
+
+---
+
+## Static-export dynamic routes on native (2026-06-27)
+
+Dynamic `[param]` routes use a single `_` placeholder shell (generateStaticParams
++ `<Suspense>`). On the web that's invisible (the deployment serves the real
+route); inside the Capacitor static export there is no server, so navigation to a
+real id must go through the **`src/lib/native-nav.ts`** shim — import `useRouter`/
+`useParams` from `@/lib/native-nav` (not `next/navigation`) and `Link` from it
+(not `next/link`). The shim is a web no-op; on native it routes to the `_` shell
+carrying ids in the query and resolves `_` params back. Without it, tapping into
+any detail screen crashes the WebView ("failed provisional navigation:
+index.txt"). See `src/lib/CLAUDE.md`.

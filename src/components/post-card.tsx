@@ -2,7 +2,7 @@
 
 import { memo, useState, useTransition } from 'react';
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { useRouter } from '@/lib/native-nav';
 import {
   Heart,
@@ -195,7 +195,7 @@ export const PostCard = memo(function PostCard({
             <span className="h-10 w-10 rounded-full overflow-hidden bg-muted inline-flex items-center justify-center">
               {post.authorPhotoURL ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={post.authorPhotoURL} alt="" className="h-full w-full object-cover" />
+                <img loading="lazy" decoding="async" src={post.authorPhotoURL} alt="" className="h-full w-full object-cover" />
               ) : (
                 <span className="font-headline font-bold text-sm text-muted-foreground">
                   {avatarLetter}
@@ -409,7 +409,7 @@ function MediaGallery({ media, onOpenReel }: { media: Post['media']; onOpenReel:
             <>
               {hero.thumbnailUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={hero.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                <img loading="lazy" decoding="async" src={hero.thumbnailUrl} alt="" className="w-full h-full object-cover" />
               ) : (
                 <span className="block w-full h-full bg-foreground/85" />
               )}
@@ -421,7 +421,7 @@ function MediaGallery({ media, onOpenReel }: { media: Post['media']; onOpenReel:
             </>
           ) : (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={hero.url} alt="" className="w-full h-full object-cover" />
+            <img loading="lazy" decoding="async" src={hero.url} alt="" className="w-full h-full object-cover" />
           )}
         </div>
         {n > 1 && (
@@ -443,13 +443,13 @@ function MediaGallery({ media, onOpenReel }: { media: Post['media']; onOpenReel:
               {m.type === 'video' ? (
                 m.thumbnailUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={m.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                  <img loading="lazy" decoding="async" src={m.thumbnailUrl} alt="" className="w-full h-full object-cover" />
                 ) : (
                   <span className="block w-full h-full bg-foreground/80" />
                 )
               ) : (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={m.url} alt="" className="w-full h-full object-cover" />
+                <img loading="lazy" decoding="async" src={m.url} alt="" className="w-full h-full object-cover" />
               )}
               {m.type === 'video' && (
                 <span className="absolute inset-0 flex items-center justify-center">

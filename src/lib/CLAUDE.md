@@ -516,3 +516,25 @@ account's `friends` audience isn't capped at 200); `getCloseFriendIds` /
 
 **New endpoints**: `GET/PUT /api/v1/me/close-friends`, `GET /api/v1/watches/recent`.
 **firestore.rules**: `/closeFriends/{uid}` server-only.
+
+---
+
+## `native-nav.ts` — static-export dynamic-route shim (2026-06-27)
+
+`src/lib/native-nav.ts` makes dynamic routes work inside the Capacitor static
+export. Static export ships ONE `_` placeholder shell per dynamic route
+(`generateStaticParams` → `[{listId:'_'}]`), so `/lists/<realId>` has no file: in
+the WKWebView Next fetches its RSC `.txt`, 404s, hard-navigates, and the WebView
+can't find it → "failed provisional navigation". The shim is a **web no-op** that:
+- overrides **`useRouter`** — `push`/`replace`/`prefetch` rewrite a real dynamic
+  path to its shell + query on native (`/lists/abc` → `/lists/_?listId=abc`);
+- overrides **`useParams`** — resolves a `'_'` path segment back from the query;
+- exports a patched **`Link`** that rewrites string hrefs the same way;
+- re-exports `useSearchParams` unchanged.
+
+Client files that navigate to / read params of dynamic routes import from
+`@/lib/native-nav` instead of `next/navigation`; `<Link>` importers use
+`{ Link }` from it instead of `next/link`. Route table covers all 7 dynamic
+routes (lists/[listId](+settings), profile/[username](+/lists/[listId]),
+post/[postId], movie/[tmdbId]/comments, invite/[code]). On web every export is
+identical to Next's — only native rewrites.

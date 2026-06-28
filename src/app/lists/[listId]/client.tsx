@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useRouter, useParams, useSearchParams } from '@/lib/native-nav';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
 import { BottomNav } from '@/components/bottom-nav';

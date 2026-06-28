@@ -51,7 +51,7 @@ export function CommunityLists({ onViewAll }: { onViewAll?: () => void }) {
               >
                 {cover && (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
+                  <img loading="lazy" decoding="async" src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
                 )}
                 {/* dark wash for the editorial card look + legibility */}
                 <div
@@ -107,7 +107,7 @@ function AvatarCluster({ members }: { members: ListMemberAvatar[] }) {
         >
           {m.photoURL ? (
             // eslint-disable-next-line @next/next/no-img-element
-            <img src={m.photoURL} alt="" className="w-full h-full object-cover" />
+            <img loading="lazy" decoding="async" src={m.photoURL} alt="" className="w-full h-full object-cover" />
           ) : (
             <span className="font-headline font-bold text-[11px] text-white">
               {(m.username || '?').charAt(0).toUpperCase()}

@@ -103,7 +103,7 @@ function PosterFan({ posters }: { posters: string[] }) {
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={it.src} alt="" className="w-full h-full object-cover" />
+          <img loading="lazy" decoding="async" src={it.src} alt="" className="w-full h-full object-cover" />
         </span>
       ))}
     </>

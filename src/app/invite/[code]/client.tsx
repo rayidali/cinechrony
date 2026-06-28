@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter, useParams } from '@/lib/native-nav';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { Loader2, Check, X, Users, ListPlus } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';

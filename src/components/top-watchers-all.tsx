@@ -127,7 +127,7 @@ export function TopWatchersAll({ isOpen, onClose }: { isOpen: boolean; onClose: 
 function Avatar({ entry, size }: { entry: LeaderboardEntry; size: number }) {
   if (entry.photoURL) {
     // eslint-disable-next-line @next/next/no-img-element
-    return <img src={entry.photoURL} alt="" className="w-full h-full object-cover" />;
+    return <img loading="lazy" decoding="async" src={entry.photoURL} alt="" className="w-full h-full object-cover" />;
   }
   return (
     <span

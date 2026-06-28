@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo, type ReactNode } from 'react';
 import { Loader2, Film, Users, Bookmark } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-server';
 import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';

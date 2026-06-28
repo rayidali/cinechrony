@@ -1,4 +1,5 @@
 import type { CapacitorConfig } from '@capacitor/cli';
+import { KeyboardResize } from '@capacitor/keyboard';
 
 // Capacitor wraps the static `out/` bundle in a native iOS/Android shell.
 // Static export is produced by `npm run build:static`.
@@ -70,6 +71,16 @@ const config: CapacitorConfig = {
     FirebaseAuthentication: {
       skipNativeAuth: true,
       providers: ['google.com', 'apple.com'],
+    },
+    // Keep the WKWebView frame FIXED when the keyboard opens. The default
+    // (`resize: native`) resizes the whole webview as the keyboard animates,
+    // which — with the drifting poster-wall background + iOS scroll-into-view —
+    // reads as violent shaking on input focus. With `none`, iOS just scrolls
+    // the focused field into view inside a stable webview; surfaces that need to
+    // ride above the keyboard already pin themselves via `visualViewport`
+    // (which still reports the inset regardless of resize mode).
+    Keyboard: {
+      resize: KeyboardResize.None,
     },
   },
 };

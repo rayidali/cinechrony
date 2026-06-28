@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { ExternalLink, Play } from 'lucide-react';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import Script from 'next/script';
 import { parseVideoUrl, getProviderDisplayName, type ParsedVideo } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';

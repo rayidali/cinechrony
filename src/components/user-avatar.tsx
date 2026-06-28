@@ -1,18 +1,10 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter } from '@/lib/native-nav';
 import { useAuth, useUser, useFirestore, useDoc, useMemoFirebase } from '@/firebase';
 import { doc } from 'firebase/firestore';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Button } from './ui/button';
+import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
 import { LogOut, User, Search } from 'lucide-react';
 import type { UserProfile } from '@/lib/types';
 
@@ -34,16 +26,15 @@ export function UserAvatar() {
     return null;
   }
 
-  const handleSignOut = () => {
-    auth.signOut();
-  };
-
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          className="relative h-10 w-10 rounded-full p-0 border border-border shadow-lift transition-all duration-200 overflow-hidden"
+    <SheetMenu
+      title="my account"
+      trigger={(open) => (
+        <button
+          type="button"
+          onClick={open}
+          aria-label="My account"
+          className="relative h-10 w-10 overflow-hidden rounded-full border border-border p-0 shadow-lift transition-all duration-200 active:scale-95"
         >
           <ProfileAvatar
             photoURL={userProfile?.photoURL}
@@ -53,32 +44,23 @@ export function UserAvatar() {
             size="md"
             className="border-0 shadow-none"
           />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="w-56 border border-border" align="end" forceMount>
-        <DropdownMenuLabel className="font-normal">
-          <div className="flex flex-col space-y-1">
-            <p className="text-sm font-medium leading-none">My Account</p>
-            <p className="text-xs leading-none text-muted-foreground">
-              {user.email}
-            </p>
-          </div>
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push('/profile')}>
-          <User className="mr-2 h-4 w-4" />
-          <span>My Profile</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => router.push('/profile')}>
-          <Search className="mr-2 h-4 w-4" />
-          <span>Find Friends</span>
-        </DropdownMenuItem>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={handleSignOut}>
-          <LogOut className="mr-2 h-4 w-4" />
-          <span>Log out</span>
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+        </button>
+      )}
+    >
+      {(close) => (
+        <>
+          <SheetMenuLabel>{user.email}</SheetMenuLabel>
+          <SheetMenuItem icon={User} onSelect={() => { close(); router.push('/profile'); }}>
+            my profile
+          </SheetMenuItem>
+          <SheetMenuItem icon={Search} onSelect={() => { close(); router.push('/profile'); }}>
+            find friends
+          </SheetMenuItem>
+          <SheetMenuItem icon={LogOut} destructive onSelect={() => { close(); auth.signOut(); }}>
+            log out
+          </SheetMenuItem>
+        </>
+      )}
+    </SheetMenu>
   );
 }

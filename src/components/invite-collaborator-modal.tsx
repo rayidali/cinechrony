@@ -17,6 +17,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
+import { shareOrigin } from '@/lib/share';
 import type { ListMember, ListInvite, UserProfile } from '@/lib/types';
 
 interface InviteCollaboratorModalProps {
@@ -157,7 +158,7 @@ export function InviteCollaboratorModal({
         'POST',
         `/api/v1/lists/${listOwnerId}/${listId}/invite-link`,
       );
-      const link = `${window.location.origin}/invite/${result.inviteCode}`;
+      const link = `${shareOrigin()}/invite/${result.inviteCode}`;
       setInviteLink(link);
     } catch (error) {
       console.error('Failed to create link:', error);

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from '@/lib/native-nav';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { ChevronLeft, Loader2, ArrowUp, X, Star } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { SwipeBackContainer } from '@/components/swipe-back-container';

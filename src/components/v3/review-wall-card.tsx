@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { ThumbsUp, CornerUpLeft, SmilePlus, EyeOff, MoreHorizontal } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ReactionIcon } from '@/components/v3/reaction-icon';

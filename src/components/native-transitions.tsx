@@ -56,6 +56,11 @@ export function NativeTransitions({ children }: { children: ReactNode }) {
   const stackRef = useRef<string[]>([]);
   const popFlagRef = useRef(false);
   const enabledRef = useRef(false);
+  // `reduced` gates only the DECORATIVE slide — NOT the swipe-back gesture.
+  // Swipe-to-go-back is a navigation affordance iOS keeps even under Reduce
+  // Motion; gating the whole layer off (the old behaviour) made the app feel
+  // non-native for every Reduce-Motion user.
+  const reducedRef = useRef(false);
   const cleanupAnimRef = useRef<(() => void) | null>(null);
 
   // Resolve capabilities once on the client.
@@ -64,7 +69,8 @@ export function NativeTransitions({ children }: { children: ReactNode }) {
     const native = cap?.isNativePlatform?.() === true;
     const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
-    enabledRef.current = !reduced && (native || coarse);
+    enabledRef.current = native || coarse;
+    reducedRef.current = reduced;
   }, []);
 
   // OS / browser back sets a one-shot pop flag the direction classifier reads.
@@ -92,7 +98,11 @@ export function NativeTransitions({ children }: { children: ReactNode }) {
     el.style.filter = '';
     el.style.willChange = '';
 
-    if (!enabledRef.current || dir === 'none' || dir === 'lateral') return;
+    // Skip the slide when disabled, under Reduce Motion, or for non-directional
+    // changes — but the pathname stack was already updated above, so the
+    // swipe-back gesture still knows its parent. (Reduce-Motion users get an
+    // instant cut, like iOS.)
+    if (!enabledRef.current || reducedRef.current || dir === 'none' || dir === 'lateral') return;
 
     const startX = dir === 'push' ? '100%' : '-22%';
     el.style.transform = `translate3d(${startX}, 0, 0)`;

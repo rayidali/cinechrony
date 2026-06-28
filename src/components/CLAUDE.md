@@ -844,3 +844,20 @@ post/react/reply) + `POST/DELETE /api/v1/reviews/[id]/react`. The existing revie
 **like = "helpful"**; the 5 reactions are separate. Helpful toggles are
 debounced per-review + treat a 409 as success (no double-tap desync). The old
 `review-card.tsx` / `reviews-list.tsx` are now orphaned (safe to delete later).
+
+---
+
+## Native menus — Radix popovers don't open in the WKWebView (2026-06-27)
+
+Radix poppers (`DropdownMenu`, `Select`, `Popover`) open on `pointerdown`, which
+the iOS Capacitor WKWebView doesn't deliver in a way Radix accepts — the menu
+never appears natively (a plain `onClick` still fires, which is how we know it's
+the popover, not the tap). **Use `src/components/ui/sheet-menu.tsx` instead** for
+any in-app menu: a Vaul bottom sheet (`SheetMenu` + `SheetMenuItem` +
+`SheetMenuLabel`) opened from an explicit `onClick` — Vaul is proven to work
+natively throughout the app. All 6 Radix menus were converted (theme-toggle,
+user-avatar, profile list-options, movie-list view/sort, movie-drawer actions,
+add-page list Select). `theme-toggle.tsx` is now a `SheetMenu` (not a
+DropdownMenu) — the rest of the "Theme switcher" notes above still apply.
+Prefer Vaul (or `SheetMenu`) over Radix poppers for anything that must work on
+native.

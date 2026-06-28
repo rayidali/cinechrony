@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { ArrowRight, ChevronLeft, Eye, EyeOff } from 'lucide-react';
 import { signInWithEmailAndPassword, signInWithCustomToken } from 'firebase/auth';
 import { useAuth } from '@/firebase';

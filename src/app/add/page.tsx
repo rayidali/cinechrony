@@ -3,20 +3,14 @@
 import { useState, useTransition, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import { Search, Loader2, Plus, Instagram, Youtube, Film, Tv, Check, List, Users } from 'lucide-react';
+import { Search, Loader2, Plus, Instagram, Youtube, Film, Tv, Check, List, Users, ChevronDown } from 'lucide-react';
 import { TiktokIcon } from '@/components/icons';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
 import { BottomNav } from '@/components/bottom-nav';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
 import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
@@ -349,51 +343,58 @@ export default function AddPage() {
         {!selectedMovie && (
           <div className="mb-5">
             <label className="mb-2 block font-mono text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground">add to list</label>
-            <Select value={selectedListId} onValueChange={handleListChange}>
-              <SelectTrigger className={selectTrigger}>
-                <SelectValue placeholder="select a list" />
-              </SelectTrigger>
-              <SelectContent className="rounded-[14px] border border-hair">
-                {(isLoadingLists || isLoadingCollab) ? (
-                  <SelectItem value="loading" disabled>loading lists…</SelectItem>
+            <SheetMenu
+              title="add to list"
+              trigger={(open) => (
+                <button type="button" onClick={open} className={`${selectTrigger} flex items-center justify-between`}>
+                  <span className={selectedListId ? '' : 'text-muted-foreground'}>
+                    {allLists.find((l) => l.id === selectedListId)?.name ?? 'select a list'}
+                  </span>
+                  <ChevronDown className="h-4 w-4 opacity-60" />
+                </button>
+              )}
+            >
+              {(close) =>
+                (isLoadingLists || isLoadingCollab) ? (
+                  <SheetMenuItem disabled onSelect={() => {}}>loading lists…</SheetMenuItem>
                 ) : allLists.length > 0 ? (
                   <>
                     {lists && lists.length > 0 && (
                       <>
-                        <div className="px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">my lists</div>
+                        <SheetMenuLabel>my lists</SheetMenuLabel>
                         {lists.map((list) => (
-                          <SelectItem key={list.id} value={list.id}>
-                            <div className="flex items-center gap-2">
-                              <List className="h-4 w-4" />
-                              {list.name}
-                              {list.isDefault && (
-                                <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">default</span>
-                              )}
-                            </div>
-                          </SelectItem>
+                          <SheetMenuItem
+                            key={list.id}
+                            icon={List}
+                            active={selectedListId === list.id}
+                            onSelect={() => { handleListChange(list.id); close(); }}
+                          >
+                            {list.name}{list.isDefault ? ' · default' : ''}
+                          </SheetMenuItem>
                         ))}
                       </>
                     )}
                     {collaborativeLists.length > 0 && (
                       <>
-                        <div className="mt-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">shared lists</div>
+                        <SheetMenuLabel>shared lists</SheetMenuLabel>
                         {collaborativeLists.map((list) => (
-                          <SelectItem key={`collab-${list.id}`} value={list.id}>
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              {list.name}
-                              {list.ownerUsername && <span className="ml-1 text-xs text-muted-foreground">by @{list.ownerUsername}</span>}
-                            </div>
-                          </SelectItem>
+                          <SheetMenuItem
+                            key={`collab-${list.id}`}
+                            icon={Users}
+                            active={selectedListId === list.id}
+                            onSelect={() => { handleListChange(list.id); close(); }}
+                          >
+                            {list.name}{list.ownerUsername ? ` · by @${list.ownerUsername}` : ''}
+                          </SheetMenuItem>
                         ))}
                       </>
                     )}
                   </>
                 ) : (
-                  <SelectItem value="none" disabled>no lists found</SelectItem>
-                )}
-              </SelectContent>
-            </Select>
+                  <SheetMenuItem disabled onSelect={() => {}}>no lists found</SheetMenuItem>
+                )
+              }
+            </SheetMenu>
           </div>
         )}
 
@@ -482,46 +483,53 @@ export default function AddPage() {
 
                 <div className="mt-4">
                   <label className="mb-1 block font-mono text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground">adding to</label>
-                  <Select value={selectedListId} onValueChange={handleListChange}>
-                    <SelectTrigger className={selectTrigger}>
-                      <SelectValue>
+                  <SheetMenu
+                    title="adding to"
+                    trigger={(open) => (
+                      <button type="button" onClick={open} className={`${selectTrigger} flex items-center justify-between`}>
                         <span className="flex items-center gap-2 font-semibold">
                           {allLists.find(l => l.id === selectedListId)?.isCollaborative ? <Users className="h-4 w-4" /> : <List className="h-4 w-4" />}
                           {allLists.find(l => l.id === selectedListId)?.name || 'select a list'}
                         </span>
-                      </SelectValue>
-                    </SelectTrigger>
-                    <SelectContent className="rounded-[14px] border border-hair">
-                      {lists && lists.length > 0 && (
-                        <>
-                          <div className="px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">my lists</div>
-                          {lists.map((list) => (
-                            <SelectItem key={list.id} value={list.id}>
-                              <div className="flex items-center gap-2">
-                                <List className="h-4 w-4" />
-                                {list.name}
-                                {list.isDefault && <span className="ml-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] text-primary-foreground">default</span>}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </>
-                      )}
-                      {collaborativeLists.length > 0 && (
-                        <>
-                          <div className="mt-2 px-2 py-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">shared lists</div>
-                          {collaborativeLists.map((list) => (
-                            <SelectItem key={`collab-confirm-${list.id}`} value={list.id}>
-                              <div className="flex items-center gap-2">
-                                <Users className="h-4 w-4" />
-                                {list.name}
-                                {list.ownerUsername && <span className="ml-1 text-xs text-muted-foreground">by @{list.ownerUsername}</span>}
-                              </div>
-                            </SelectItem>
-                          ))}
-                        </>
-                      )}
-                    </SelectContent>
-                  </Select>
+                        <ChevronDown className="h-4 w-4 opacity-60" />
+                      </button>
+                    )}
+                  >
+                    {(close) => (
+                      <>
+                        {lists && lists.length > 0 && (
+                          <>
+                            <SheetMenuLabel>my lists</SheetMenuLabel>
+                            {lists.map((list) => (
+                              <SheetMenuItem
+                                key={list.id}
+                                icon={List}
+                                active={selectedListId === list.id}
+                                onSelect={() => { handleListChange(list.id); close(); }}
+                              >
+                                {list.name}{list.isDefault ? ' · default' : ''}
+                              </SheetMenuItem>
+                            ))}
+                          </>
+                        )}
+                        {collaborativeLists.length > 0 && (
+                          <>
+                            <SheetMenuLabel>shared lists</SheetMenuLabel>
+                            {collaborativeLists.map((list) => (
+                              <SheetMenuItem
+                                key={`collab-confirm-${list.id}`}
+                                icon={Users}
+                                active={selectedListId === list.id}
+                                onSelect={() => { handleListChange(list.id); close(); }}
+                              >
+                                {list.name}{list.ownerUsername ? ` · by @${list.ownerUsername}` : ''}
+                              </SheetMenuItem>
+                            ))}
+                          </>
+                        )}
+                      </>
+                    )}
+                  </SheetMenu>
                 </div>
               </div>
             </div>

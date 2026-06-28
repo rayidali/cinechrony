@@ -149,11 +149,11 @@ export function SignUpScreen({ onComplete, onLogin }: SignUpScreenProps) {
               standard pattern Apple accepts. */}
           <p className="mt-3 text-center text-[11px] text-muted-foreground leading-snug">
             By creating an account you agree to our{' '}
-            <a href="/terms" target="_blank" rel="noopener noreferrer" className="underline">
+            <a href="/terms" className="underline">
               Terms of Service
             </a>{' '}
             and{' '}
-            <a href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+            <a href="/privacy" className="underline">
               Privacy Policy
             </a>
             .

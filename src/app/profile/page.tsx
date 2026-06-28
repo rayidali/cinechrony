@@ -11,12 +11,7 @@ import { VerifiedBadge } from '@/components/verified-badge';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase, useDoc, useAuth } from '@/firebase';
 import { collection, orderBy, query, doc, where, limit, getDocs } from 'firebase/firestore';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { SheetMenu, SheetMenuItem } from '@/components/ui/sheet-menu';
 import { ListTile } from '@/components/v3/list-tile';
 import { RecentRow } from '@/components/v3/recent-row';
 import { useActivitiesVersion } from '@/lib/activity-events';
@@ -448,40 +443,39 @@ export default function MyProfilePage() {
                             router.push(`/lists/${list.id}`);
                           }}
                           overlay={
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
+                            <SheetMenu
+                              title="list options"
+                              trigger={(open) => (
                                 <button
+                                  onClick={open}
                                   className="flex h-7 w-7 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm"
                                   aria-label="List options"
                                 >
                                   <MoreVertical className="h-4 w-4" />
                                 </button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="rounded-xl border border-border">
-                                <DropdownMenuItem
-                                  onSelect={() => {
-                                    setSelectedList(list);
-                                    setIsCoverPickerOpen(true);
-                                  }}
-                                >
-                                  <ImageIcon className="mr-2 h-4 w-4" />
-                                  Set Cover
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onSelect={() => handleToggleVisibility(list.id, !!list.isPublic)}>
-                                  {list.isPublic ? (
-                                    <>
-                                      <EyeOff className="mr-2 h-4 w-4" />
-                                      Make Private
-                                    </>
-                                  ) : (
-                                    <>
-                                      <Eye className="mr-2 h-4 w-4" />
-                                      Make Public
-                                    </>
-                                  )}
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
+                              )}
+                            >
+                              {(close) => (
+                                <>
+                                  <SheetMenuItem
+                                    icon={ImageIcon}
+                                    onSelect={() => {
+                                      close();
+                                      setSelectedList(list);
+                                      setIsCoverPickerOpen(true);
+                                    }}
+                                  >
+                                    set cover
+                                  </SheetMenuItem>
+                                  <SheetMenuItem
+                                    icon={list.isPublic ? EyeOff : Eye}
+                                    onSelect={() => { close(); handleToggleVisibility(list.id, !!list.isPublic); }}
+                                  >
+                                    {list.isPublic ? 'make private' : 'make public'}
+                                  </SheetMenuItem>
+                                </>
+                              )}
+                            </SheetMenu>
                           }
                         />
                       );

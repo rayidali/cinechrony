@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import Link from 'next/link';
+import { Link } from '@/lib/native-nav';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from '@/lib/native-nav';
 import {
@@ -14,9 +14,7 @@ import type { Movie, TMDBCast, TMDBCrew, Review, SearchResult, WatchProvider, Wa
 import { format } from 'date-fns';
 import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { SheetMenu, SheetMenuItem } from '@/components/ui/sheet-menu';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
 import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
@@ -607,24 +605,26 @@ export function MovieDrawer({
                       <Bookmark className="h-[19px] w-[19px]" strokeWidth={1.9} />
                     </button>
                     {canEdit && (
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button className={GLASS_BTN} aria-label="More options">
+                      <SheetMenu
+                        trigger={(open) => (
+                          <button onClick={open} className={GLASS_BTN} aria-label="More options">
                             <MoreHorizontal className="h-[22px] w-[22px]" strokeWidth={2} />
                           </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="border border-hair rounded-xl">
-                          <DropdownMenuItem onSelect={() => setShowSocialLinkEditor(true)}>
-                            <Link2 className="h-4 w-4 mr-2" />
-                            {newSocialLink ? 'edit video link' : 'add video link'}
-                          </DropdownMenuItem>
-                          {listId && (
-                            <DropdownMenuItem onSelect={handleRemove} className="text-destructive" disabled={isPending}>
-                              <Trash2 className="h-4 w-4 mr-2" />remove from list
-                            </DropdownMenuItem>
-                          )}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        )}
+                      >
+                        {(close) => (
+                          <>
+                            <SheetMenuItem icon={Link2} onSelect={() => { close(); setShowSocialLinkEditor(true); }}>
+                              {newSocialLink ? 'edit video link' : 'add video link'}
+                            </SheetMenuItem>
+                            {listId && (
+                              <SheetMenuItem icon={Trash2} destructive disabled={isPending} onSelect={() => { close(); handleRemove(); }}>
+                                remove from list
+                              </SheetMenuItem>
+                            )}
+                          </>
+                        )}
+                      </SheetMenu>
                     )}
                   </div>
                 </div>

@@ -11,15 +11,7 @@ import { NotesBoard } from './v3/notes-board';
 import { NoteSheet } from './v3/note-sheet';
 import { GridViewHint } from './grid-view-hint';
 import { Segmented } from '@/components/v3/segmented';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuLabel,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
 import { Search, X, SlidersHorizontal } from 'lucide-react';
 import { Skeleton } from './ui/skeleton';
 import { cn } from '@/lib/utils';
@@ -275,36 +267,33 @@ export function MovieList({
 
         {/* view/sort menu — films only (notes have no grid/list/sort) */}
         {!isNotes && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <SheetMenu
+            title="view & sort"
+            trigger={(open) => (
               <button
                 type="button"
+                onClick={open}
                 aria-label="View and sort options"
                 className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-rule text-muted-foreground transition-colors hover:text-foreground"
               >
                 <SlidersHorizontal className="h-[18px] w-[18px]" strokeWidth={1.9} />
               </button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-52">
-              <DropdownMenuLabel className="cc-eyebrow">view</DropdownMenuLabel>
-              <DropdownMenuRadioGroup
-                value={viewMode}
-                onValueChange={(v) => handleViewModeChange(v as ViewMode)}
-              >
-                <DropdownMenuRadioItem value="grid">grid</DropdownMenuRadioItem>
-                <DropdownMenuRadioItem value="list">list</DropdownMenuRadioItem>
-              </DropdownMenuRadioGroup>
-              <DropdownMenuSeparator />
-              <DropdownMenuLabel className="cc-eyebrow">sort</DropdownMenuLabel>
-              <DropdownMenuRadioGroup value={sort} onValueChange={(v) => setSort(v as ListSort)}>
+            )}
+          >
+            {(close) => (
+              <>
+                <SheetMenuLabel>view</SheetMenuLabel>
+                <SheetMenuItem active={viewMode === 'grid'} onSelect={() => { handleViewModeChange('grid'); close(); }}>grid</SheetMenuItem>
+                <SheetMenuItem active={viewMode === 'list'} onSelect={() => { handleViewModeChange('list'); close(); }}>list</SheetMenuItem>
+                <SheetMenuLabel>sort</SheetMenuLabel>
                 {LIST_SORTS.map((o) => (
-                  <DropdownMenuRadioItem key={o.id} value={o.id}>
+                  <SheetMenuItem key={o.id} active={sort === o.id} onSelect={() => { setSort(o.id as ListSort); close(); }}>
                     {o.label}
-                  </DropdownMenuRadioItem>
+                  </SheetMenuItem>
                 ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              </>
+            )}
+          </SheetMenu>
         )}
       </div>
 

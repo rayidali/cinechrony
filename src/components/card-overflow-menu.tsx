@@ -16,6 +16,7 @@ import { useUserBookmarksCache } from '@/contexts/user-bookmarks-cache';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { shareOrigin } from '@/lib/share';
 
 export type OverflowRow = {
   label: string;
@@ -69,7 +70,7 @@ export function CardOverflowMenu({
 
   const shareUrl =
     typeof window !== 'undefined' && movieTmdbId
-      ? `${window.location.origin}/movie/${movieTmdbId}/comments?title=${encodeURIComponent(
+      ? `${shareOrigin()}/movie/${movieTmdbId}/comments?title=${encodeURIComponent(
           movieTitle ?? '',
         )}&type=${mediaType ?? 'movie'}`
       : '';

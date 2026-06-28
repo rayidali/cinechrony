@@ -84,7 +84,7 @@ function ListCard({ list, onOpen }: { list: LovedListCard; onOpen: () => void })
       >
         {cover ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
+          <img loading="lazy" decoding="async" src={cover} alt="" className="absolute inset-0 w-full h-full object-cover" />
         ) : posters.length > 0 ? (
           <CoverFan posters={posters} />
         ) : null}
@@ -124,7 +124,7 @@ function CoverFan({ posters }: { posters: string[] }) {
           }}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={it.src} alt="" className="w-full h-full object-cover" />
+          <img loading="lazy" decoding="async" src={it.src} alt="" className="w-full h-full object-cover" />
         </span>
       ))}
     </>
