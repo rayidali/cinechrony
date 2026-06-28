@@ -89,11 +89,8 @@ export default function HomePage() {
 
   const handleScan = useCallback(() => {
     haptic('selection');
-    toast({
-      title: 'scan — coming soon',
-      description: 'point at a poster or a screen to log a film. landing with the extractor.',
-    });
-  }, [toast]);
+    router.push('/extract');
+  }, [router]);
 
   if (isUserLoading || !user) {
     return (
