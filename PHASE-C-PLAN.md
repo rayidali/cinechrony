@@ -251,7 +251,7 @@ Screen spec (editorial v2 language, lowercase headline):
   **Test:** grounding unit tests (fuzzy-match table incl. "the dark knight"
   vs "Dark Knight", year-off-by-one, garbage title dropped); Gemini calls
   mocked in audit suite (live calls live in the eval harness, not CI).
-- [ ] **C.1d** Save endpoint: `POST /[jobId]/save` with createLists +
+- [x] **C.1d** ✅ DONE — Save endpoint: `POST /[jobId]/save` with createLists +
   per-item targets + `socialLink` attach.
   **Test:** `45-extraction-save.test.ts` — forged target list → per-item
   403, others succeed; new-list creation owned by caller; socialLink lands
@@ -260,12 +260,12 @@ Screen spec (editorial v2 language, lowercase headline):
 
 ### C.2 — Confirmation UI, web-first (Claude)
 
-- [ ] **C.2.1** `/extract` client route + paste-link entry point in the add
+- [x] **C.2.1** ✅ DONE — `/extract` client route + paste-link entry point in the add
   flow; polling hook (`useExtractionJob`), narrated progress.
-- [ ] **C.2.2** Film cards with evidence + per-card list chip + new-list row
+- [x] **C.2.2** ✅ DONE — Film cards with evidence + per-card list chip + new-list row
   (AI name pre-filled) + search-to-add + save flow + success/empty/failed
   states.
-- [ ] **C.2.3 — Test:** manual walkthrough on `npm run dev` with 5 real URLs
+- [x] **C.2.3 (manual web test pending) — — Test:** manual walkthrough on `npm run dev` with 5 real URLs
   (the mini-corpus); typecheck + `npm run build` + full audit suite green.
 
 ### C.E — Eval harness (Claude, overlaps C.1c)
