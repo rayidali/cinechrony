@@ -242,11 +242,11 @@ Screen spec (editorial v2 language, lowercase headline):
   the shared cache). **Test `44-extractions-auth.test.ts`: 10/10 green** (unauth
   401, foreign jobId 403, missing 404, bad/unsupported URL 400, rate-limit 429,
   cache-hit done). typecheck + vercel build clean; full audit 470/470.
-- [ ] **C.1b** Acquisition: Apify adapter (+ failover slot + circuit-breaker
+- [x] **C.1b** ✅ DONE — Acquisition: Apify adapter (+ failover slot + circuit-breaker
   counter), oEmbed/YouTube-metadata degraded tier, provider classification.
   **Test:** adapter unit tests with recorded fixtures; tier fallthrough on
   simulated provider failure; duration/size caps enforced.
-- [ ] **C.1c** Analysis + grounding: `gemini-server.ts` (video, text, image
+- [x] **C.1c** ✅ DONE — Analysis + grounding: `gemini-server.ts` (video, text, image
   paths, structured output), TMDB grounding with match-or-drop.
   **Test:** grounding unit tests (fuzzy-match table incl. "the dark knight"
   vs "Dark Knight", year-off-by-one, garbage title dropped); Gemini calls
