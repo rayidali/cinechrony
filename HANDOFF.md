@@ -1,19 +1,26 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-06-27. Project: a social movie-watchlist app
+> Last updated 2026-06-28. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
-> **Resuming?** The **iOS app now runs end-to-end on the Simulator** for the
-> first time (login → home → lists → profile → list detail → menus). Getting it
-> there surfaced a batch of WebView-only bugs, fixed on branch
-> **`fix/capacitor-ios-runtime`** (see "iOS native bring-up" below). That branch
-> is **not yet merged** and has **uncommitted work** still in the tree (the
-> Radix-menu → Vaul conversions + share-link fixes). Pending: confirm the
-> CLEAR-rating behavior, commit the menu batch, **merge to `main`**, then the
-> **app icon** (needs a 1024×1024 logo). The earlier plan still stands after
-> that: thin website slice (`cinechrony.com` origin + `/privacy`/`/support` — note
-> `/privacy` + `/terms` already exist, only `/support` is missing) → Phase C.
+> **Resuming?** Two big things landed this stretch:
+> 1. **iOS native bring-up + native-quality pass — MERGED to `main`** (the app
+>    runs on Simulator AND a real iPhone; WebView bugs fixed; app icon; Vaul
+>    menus; keyboard; swipe-back). Plus Letterboxd-import **cost cap** + **reviews
+>    fault-tolerance** (also on `main`). See "iOS native bring-up" below.
+> 2. **Phase C — the AI "share a video → extract films" hero feature: web-first
+>    flow is COMPLETE** on branch **`feat/phase-c-extraction`** (NOT yet merged).
+>    C.1a–d + C.2 done; the live pipeline (Apify acquire → Gemini watch → TMDB
+>    ground → save to lists) is validated end-to-end on real Instagram, YouTube,
+>    and TikTok links. See "Phase C" below.
+>
+> **Immediate next:** test `/extract` on web (`npm run dev` → localhost:9002/extract),
+> then **merge `feat/phase-c-extraction` → main** + add `APIFY_ACTOR_INSTAGRAM` to
+> Vercel. After that: **C.3 iOS Share Extension** (the native "Share → Cinechrony"
+> doorway; `/extract?url=` is already wired for it). The thin website slice
+> (`cinechrony.com` origin + a `/support` page — `/privacy`+`/terms` exist) is
+> still a pre-TestFlight to-do.
 
 ---
 
@@ -273,16 +280,72 @@ server changes are testable on a preview.
 
 ---
 
+## Phase C — AI "share a video → extract films" (web-first COMPLETE, 2026-06-28)
+
+The hero feature: paste/share a TikTok·Reel·Short → AI reads the video → it adds
+the films to your lists, with the source video attached so it plays on each
+film's card. On branch **`feat/phase-c-extraction`** (NOT merged). Stack DECIDED
+2026-06-12 (see `PHASE-C-PLAN.md`): Apify acquire → Gemini video-native analysis
+→ TMDB grounding → reuse `addMovieToList`. **Validated end-to-end on real
+Instagram, YouTube, and TikTok links** (The Namesake / Django Unchained /
+Interstellar — Gemini reads audio + on-screen text + footage).
+
+- **C.1a** backend scaffolding — `POST /api/v1/extractions` + `GET /[jobId]`,
+  `src/lib/extraction-server.ts` + `extraction-types.ts`, canonicalizer + provider
+  classify, `extraction_jobs`/`extraction_cache` (server-only deny rules), rate
+  buckets (`extraction` 5/min + `extractionDaily` 50/day), `next/server` `after()`
+  pipeline kick. Pipeline GATED on `GEMINI_API_KEY && !FIRESTORE_EMULATOR_HOST`
+  → falls back to fixture films otherwise (tests + pre-key). Test `44` (10/10).
+- **C.1b** `src/lib/video-acquire-server.ts` — per-provider Apify adapters
+  (generic yt-dlp actors get login-walled on IG): **Instagram →
+  `easyapi~instagram-reels-downloader`** (`result.medias[].url` + caption),
+  **TikTok → `APIFY_ACTOR_ID` (wilcode multi-platform, $10/mo rental, RENTED)**
+  (`formats[].url`), **YouTube → no actor** (Gemini ingests the URL). start→poll→
+  fetch-dataset (run-sync was unreliable), HARD-capped 120s/1024MB, retry once
+  (proxy-flaky).
+- **C.1c** `src/lib/gemini-server.ts` — Gemini REST video analysis → structured
+  films (YouTube via `fileData` URL; IG/TikTok inline base64 video, caption-only
+  fallback when too big); retries 503/429. Grounding in extraction-server (TMDB
+  match-or-drop, dedup). `runRealPipeline` (fetching→watching→matching).
+- **C.1d** `POST /api/v1/extractions/[jobId]/save` — create caller-owned lists +
+  `addMovieToList` per film with `socialLink=job.canonicalUrl`. Robust: job-films-
+  only integrity (no movie injection), per-item `canEditList` (forged target →
+  that item 403s, no leak), idempotent, ≤25 items/≤5 lists. Test `45` (6/6).
+- **C.2** `src/app/extract/{page,client}.tsx` — paste link → narrated poll →
+  film cards (poster · year · the AI "receipt" quote · per-film destination chip
+  via Vaul `SheetMenu` · remove) + editable AI new-list name → save → summary.
+  Empty/failed/auto-`?url=` states. Home **"scan" button → `/extract`**.
+
+**Env (set in `.env.local`; owner must mirror to Vercel):** `GEMINI_API_KEY`,
+`GEMINI_MODEL=gemini-2.5-flash`, `APIFY_TOKEN`, `APIFY_ACTOR_ID`,
+`APIFY_ACTOR_INSTAGRAM`. **Owner TODO: add `APIFY_ACTOR_INSTAGRAM` to Vercel.**
+
+**Verification:** typecheck ✓ · `npm run build` ✓ · `npm run build:static` (incl.
+`/extract`) ✓ · `cap sync ios` ✓ · **audit 476/476**.
+
+**To test before shipping:** `npm run dev` → `localhost:9002/extract` (uses
+`.env.local` keys — the real pipeline). **To ship to the app:** merge to main +
+mirror env to Vercel + redeploy (the iOS app calls prod `movienight-kappa`).
+
+**Remaining Phase C (after merge):** C.E eval harness (accuracy scoring) ·
+**C.3 iOS Share Extension** (the native doorway — the headline UX) · C.4 Android
+share intent. Plus a known v1 limit: the save endpoint resolves films from the
+job only (search-to-add of AI-missed films is a fast-follow); reviews/power-user
+caps noted in `PHASE-C-PLAN.md`.
+
+---
+
 ## Active branches
 
 ```
-main ◄── Phases A + B + 0.5 + 0.7 ALL merged (0.7 merge e26871c), plus
-         post-0.7 launch-prep + Resend email.
-fix/capacitor-ios-runtime ◄── HEAD — the iOS native bring-up fixes (above).
-         3 commits pushed (firebase WebView init · dynamic-route nav shim ·
-         GoogleService-Info.plist + gitignore) + UNCOMMITTED work in the tree
-         (Radix-menu → Vaul SheetMenu conversions · share-link origin fixes ·
-         blanket next/link → shim swap). NOT yet merged to main.
+main ◄── Phases A+B+0.5+0.7 + post-0.7 launch-prep + Resend email, PLUS (this
+         stretch) the full iOS native bring-up + native-quality pass (Vaul menus,
+         keyboard, swipe-back, app icon, WebView fixes) + Letterboxd cost-cap +
+         reviews fault-tolerance. (fix/capacitor-ios-runtime was merged here.)
+feat/phase-c-extraction ◄── HEAD — Phase C web-first hero feature (C.1a–d + C.2).
+         All committed + pushed; NOT yet merged to main. Includes the same
+         cost-cap + reviews-robustness commits as main (cherry-picked) — the
+         merge may need a trivial conflict resolve on the two letterboxd files.
 ```
 
 **Operational rule (relaxed for this stretch):** the owner has been having Claude

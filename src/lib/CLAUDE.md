@@ -538,3 +538,40 @@ Client files that navigate to / read params of dynamic routes import from
 routes (lists/[listId](+settings), profile/[username](+/lists/[listId]),
 post/[postId], movie/[tmdbId]/comments, invite/[code]). On web every export is
 identical to Next's — only native rewrites.
+
+---
+
+## Phase C — film extraction (the AI hero feature, 2026-06-28)
+
+Web-first flow on branch `feat/phase-c-extraction`. Paste/share a video link →
+extract the films → save to lists. Server modules:
+
+- **`extraction-server.ts`** — job lifecycle + the pipeline orchestrator.
+  `createExtraction` (canonicalize + provider-classify; cache-hit returns a done
+  job, else creates `processing` + kicks the pipeline via `next/server` `after()`),
+  `getExtraction` (owner-only job view), `runExtractionPipeline` (gated on
+  `GEMINI_API_KEY && !FIRESTORE_EMULATOR_HOST` → `runRealPipeline`
+  fetching→watching→matching, else `runStubPipeline` fixtures), `groundFilms`
+  (TMDB search/movie|tv, match-or-drop, dedup by tmdbId; TMDB token read at call
+  time), `saveExtraction` (films→lists: job-films-only integrity, per-item
+  `canEditList` via `addMovieToList`, idempotent, ≤25 items/≤5 lists, partial
+  success). Collections `extraction_jobs` (uid-scoped) + `extraction_cache`
+  (shared, ~30d TTL) — both server-only deny rules.
+- **`video-acquire-server.ts`** — `acquireVideo(url, provider)` with per-provider
+  Apify adapters: Instagram → `easyapi~instagram-reels-downloader`
+  (`result.medias[].url` + `result.title` caption — handles IG login-walls that
+  yt-dlp actors can't), TikTok → `APIFY_ACTOR_ID` multi-platform (`formats[].url`,
+  defensive parse), YouTube → no download (Gemini ingests the URL). start→poll→
+  fetch-dataset (run-sync-get-dataset-items proved unreliable for some actors),
+  HARD-capped 120s/1024MB, retry once (downloaders are proxy-flaky). actorId +
+  tokens resolved at CALL time (robust to late env).
+- **`gemini-server.ts`** — `analyzeForFilms(video)` → structured films via Gemini
+  REST (`responseSchema`): YouTube `fileData.fileUri`, IG/TikTok inline base64
+  (<18MB; caption-only fallback). Retries transient 503/429.
+- **`extraction-types.ts`** — client+server-safe types (`ExtractionJobView`,
+  `ExtractionFilm`, stages, etc.).
+
+Env: `GEMINI_API_KEY` · `GEMINI_MODEL` (gemini-2.5-flash) · `APIFY_TOKEN` ·
+`APIFY_ACTOR_ID` · `APIFY_ACTOR_INSTAGRAM`. **Every Apify run is cost-capped**
+(the Letterboxd `startRun` was the cautionary tale — its uncapped default ran an
+hour at ~$3.70). Tests: `44-extractions-auth` (10) + `45-extraction-save` (6).

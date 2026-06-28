@@ -1,5 +1,12 @@
 # Phase C — Hero Feature: Implementation Plan (v2 — DECIDED)
 
+> **PROGRESS (2026-06-28): web-first flow COMPLETE on branch
+> `feat/phase-c-extraction` (not merged).** C.1a–d + C.2 all ✅ — validated
+> end-to-end on real Instagram, YouTube, and TikTok links (Apify acquire →
+> Gemini watch → TMDB ground → save to lists). Audit 476/476. **Next:** merge +
+> mirror env to Vercel → **C.3 iOS Share Extension** (the native doorway;
+> `/extract?url=` is wired). Per-item checklists below mark what's done.
+>
 > **Status: DECIDED 2026-06-12.** Stack locked by owner: **Apify** (owner has
 > a subscription) for video acquisition · **Gemini** video-native analysis ·
 > per-film list assignment in the confirmation UI · source URL saved as the
