@@ -28,14 +28,16 @@ const ACQUIRE_MAX_ATTEMPTS = 2; // these downloaders are flaky; a retry rotates 
 
 type Parsed = { videoUrl: string | null; caption: string | null };
 type ActorAdapter = {
-  actorId: string | undefined;
+  // Resolved at CALL time (not module load) — robust to env that arrives after
+  // import (e.g. a script that dotenv-loads after importing this module).
+  actorId: () => string | undefined;
   buildInput: (url: string) => unknown;
   parse: (item: Record<string, unknown>) => Parsed;
 };
 
 /** Instagram — easyapi/instagram-reels-downloader. Video at result.medias[].url. */
 const instagramAdapter: ActorAdapter = {
-  actorId: process.env.APIFY_ACTOR_INSTAGRAM || 'easyapi~instagram-reels-downloader',
+  actorId: () => process.env.APIFY_ACTOR_INSTAGRAM || 'easyapi~instagram-reels-downloader',
   buildInput: (url) => ({ links: [url], proxyConfiguration: { useApifyProxy: true } }),
   parse: (item) => {
     const r = (item.result ?? item) as Record<string, unknown>;
@@ -54,7 +56,7 @@ const instagramAdapter: ActorAdapter = {
 
 /** TikTok / multi-platform — the configured actor. Defensive (unknown shape). */
 const defaultAdapter: ActorAdapter = {
-  actorId: process.env.APIFY_ACTOR_ID,
+  actorId: () => process.env.APIFY_ACTOR_ID,
   buildInput: (url) => ({ url, proxySettings: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] } }),
   parse: (item) => ({ videoUrl: pickVideoUrl(item), caption: pickCaption(item) }),
 };
@@ -102,36 +104,21 @@ export async function acquireVideo(
 
   const token = process.env.APIFY_TOKEN;
   const adapter = adapterFor(provider);
-  if (!token || !adapter.actorId) return null; // not configured → caller degrades
+  const actorId = adapter.actorId();
+  if (!token || !actorId) return null; // not configured → caller degrades
 
   const params = new URLSearchParams({
     token,
     timeout: String(ACQUIRE_TIMEOUT_SECS),
     memory: String(ACQUIRE_MEMORY_MB),
   });
-  const endpoint = `https://api.apify.com/v2/acts/${adapter.actorId}/run-sync-get-dataset-items?${params.toString()}`;
-  const body = JSON.stringify(adapter.buildInput(canonicalUrl));
-
-  // These downloaders are flaky (proxy/rate-limit lottery — an empty `medias`
-  // on one run, full on the next). A second attempt rotates the proxy and lands
-  // most of the misses. The actor's HTTP/exit status is unreliable, so we judge
-  // success purely by "did we get a video URL".
+  // These downloaders are flaky (proxy/rate-limit lottery — empty on one run,
+  // full on the next). A second attempt rotates the proxy and lands most misses.
+  // The actor's HTTP/exit status is unreliable, so we judge success purely by
+  // "did we get a video URL".
   let lastItem: Record<string, unknown> = {};
   for (let attempt = 0; attempt < ACQUIRE_MAX_ATTEMPTS; attempt++) {
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    });
-    if (!res.ok) {
-      // 4xx like "actor-is-not-rented" won't fix on retry — fail fast.
-      if (res.status >= 400 && res.status < 500) {
-        throw new Error(`Apify acquire failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
-      }
-      continue; // 5xx → retry
-    }
-    const json = (await res.json()) as unknown;
-    const items = Array.isArray(json) ? json : [json];
+    const items = await runActorItems(actorId, adapter.buildInput(canonicalUrl), token, params);
     lastItem = (items[0] ?? {}) as Record<string, unknown>;
     const { videoUrl, caption } = adapter.parse(lastItem);
     if (videoUrl) return { kind: 'media', videoUrl, caption, raw: lastItem };
@@ -139,4 +126,48 @@ export async function acquireVideo(
 
   console.warn(`[acquire] no video URL after ${ACQUIRE_MAX_ATTEMPTS} tries (${provider}). item keys:`, Object.keys(lastItem));
   return null;
+}
+
+const APIFY_BASE = 'https://api.apify.com/v2';
+const APIFY_TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
+
+/**
+ * Start an actor run, poll to terminal, return its dataset items. More reliable
+ * than `run-sync-get-dataset-items`, which returns empty for some actors even
+ * though the dataset DOES get the item (observed with the multi-platform actor).
+ */
+async function runActorItems(
+  actorId: string,
+  input: unknown,
+  token: string,
+  params: URLSearchParams,
+): Promise<Record<string, unknown>[]> {
+  const start = await fetch(`${APIFY_BASE}/acts/${actorId}/runs?${params.toString()}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  if (!start.ok) {
+    // 4xx (e.g. actor-is-not-rented) won't fix on retry — fail fast.
+    if (start.status >= 400 && start.status < 500) {
+      throw new Error(`Apify run start failed (${start.status}): ${(await start.text()).slice(0, 200)}`);
+    }
+    return [];
+  }
+  const run = ((await start.json()) as { data?: { id: string; status: string; defaultDatasetId: string } }).data;
+  if (!run) return [];
+  let status = run.status;
+  let datasetId = run.defaultDatasetId;
+  const deadline = Date.now() + (ACQUIRE_TIMEOUT_SECS + 15) * 1000;
+  while (!APIFY_TERMINAL.has(status) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const r = await fetch(`${APIFY_BASE}/actor-runs/${run.id}?token=${token}`);
+    if (!r.ok) continue;
+    const d = ((await r.json()) as { data?: { status: string; defaultDatasetId?: string } }).data;
+    if (d) { status = d.status; datasetId = d.defaultDatasetId || datasetId; }
+  }
+  const ds = await fetch(`${APIFY_BASE}/datasets/${datasetId}/items?token=${token}`);
+  if (!ds.ok) return [];
+  const items = (await ds.json()) as unknown;
+  return Array.isArray(items) ? (items as Record<string, unknown>[]) : [];
 }

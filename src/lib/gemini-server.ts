@@ -123,20 +123,30 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
     return { isFilmContent: false, suggestedListName: null, films: [] };
   }
 
-  const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      contents: [{ role: 'user', parts }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
-        temperature: 0.2,
-      },
-    }),
+  const reqBody = JSON.stringify({
+    contents: [{ role: 'user', parts }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: RESPONSE_SCHEMA,
+      temperature: 0.2,
+    },
   });
-  if (!res.ok) {
-    throw new Error(`Gemini ${res.status}: ${(await res.text()).slice(0, 300)}`);
+  // Gemini Flash gets transient 503 "high demand" / 429 spikes — retry with
+  // backoff before giving up. Other 4xx (bad key, bad request) fail fast.
+  let res: Response | null = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: reqBody,
+    });
+    if (res.ok) break;
+    const retryable = res.status === 429 || res.status >= 500;
+    if (!retryable || attempt === 2) break;
+    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1) + 800));
+  }
+  if (!res || !res.ok) {
+    throw new Error(`Gemini ${res?.status ?? '?'}: ${res ? (await res.text()).slice(0, 300) : 'no response'}`);
   }
 
   const json = (await res.json()) as {
