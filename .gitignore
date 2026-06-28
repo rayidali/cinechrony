@@ -55,3 +55,6 @@ ios/App/App/GoogleService-Info.plist
 android/app/google-services.json
 # claude code local settings
 .claude/settings.local.json
+
+# cap:assets mislocates PWA icons here (native app uses Assets.xcassets; web keeps committed icons)
+/icons/
