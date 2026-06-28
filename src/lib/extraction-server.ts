@@ -22,7 +22,10 @@ import { after } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
+import { acquireVideo } from '@/lib/video-acquire-server';
+import { analyzeForFilms, isGeminiConfigured, type RawFilmCandidate } from '@/lib/gemini-server';
 import type {
+  ExtractionErrorCode,
   ExtractionFilm,
   ExtractionJobView,
   ExtractionProvider,
@@ -214,15 +217,78 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
   return toView(jobId, d);
 }
 
-// ── The pipeline (STUBBED in C.1a) ───────────────────────────────────────────
+// ── The pipeline ─────────────────────────────────────────────────────────────
 
 /**
- * STUB: returns fixture films so the rest of the feature can be built/tested
- * without keys. C.1b/c replace the body with the real Apify → Gemini → TMDB
- * pipeline, driving `stage` through fetching → watching → matching → done and
- * writing the same `extraction_cache` shape.
+ * Use the REAL pipeline only when Gemini is configured AND we're not in the test
+ * emulator. Tests + any environment without a key fall back to fixtures, so the
+ * audit suite stays green and the feature degrades cleanly until keys are set.
  */
+function useRealPipeline(): boolean {
+  return isGeminiConfigured() && !process.env.FIRESTORE_EMULATOR_HOST;
+}
+
 export async function runExtractionPipeline(jobId: string): Promise<void> {
+  return useRealPipeline() ? runRealPipeline(jobId) : runStubPipeline(jobId);
+}
+
+async function setStage(
+  ref: FirebaseFirestore.DocumentReference,
+  stage: ExtractionStage,
+): Promise<void> {
+  await ref.update({ stage, updatedAt: FieldValue.serverTimestamp() });
+}
+
+async function finishJob(
+  db: FirebaseFirestore.Firestore,
+  ref: FirebaseFirestore.DocumentReference,
+  job: JobDoc,
+  films: ExtractionFilm[],
+  suggestedListName: string | null,
+  analyzedBy: string,
+): Promise<void> {
+  const isFilmContent = films.length > 0;
+  await db.collection(CACHE).doc(job.urlHash).set({
+    canonicalUrl: job.canonicalUrl,
+    provider: job.provider,
+    films,
+    suggestedListName: films.length ? suggestedListName : null,
+    isFilmContent,
+    analyzedBy,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  await ref.update({
+    status: 'done',
+    stage: 'done',
+    films,
+    suggestedListName: films.length ? suggestedListName : null,
+    isFilmContent,
+    errorCode: null,
+    updatedAt: FieldValue.serverTimestamp(),
+  });
+}
+
+async function failJob(
+  ref: FirebaseFirestore.DocumentReference,
+  code: ExtractionErrorCode,
+): Promise<void> {
+  await ref.update({
+    status: 'failed',
+    stage: 'failed',
+    errorCode: code,
+    updatedAt: FieldValue.serverTimestamp(),
+  }).catch(() => {});
+}
+
+function classifyError(err: unknown): ExtractionErrorCode {
+  const m = String((err as Error)?.message || '').toLowerCase();
+  if (m.includes('gemini')) return 'ANALYSIS_FAILED';
+  if (m.includes('apify') || m.includes('acquire')) return 'FETCH_FAILED';
+  return 'INTERNAL';
+}
+
+/** REAL pipeline: Apify acquire → Gemini watch → TMDB ground (match-or-drop). */
+async function runRealPipeline(jobId: string): Promise<void> {
   const db = getDb();
   const ref = db.collection(JOBS).doc(jobId);
   try {
@@ -230,43 +296,109 @@ export async function runExtractionPipeline(jobId: string): Promise<void> {
     if (!snap.exists) return;
     const job = snap.data() as JobDoc;
 
-    // Walk the stages so the narrated UI has something to show.
-    await ref.update({ stage: 'fetching', updatedAt: FieldValue.serverTimestamp() });
-    await ref.update({ stage: 'watching', updatedAt: FieldValue.serverTimestamp() });
-    await ref.update({ stage: 'matching', updatedAt: FieldValue.serverTimestamp() });
+    await setStage(ref, 'fetching');
+    const video = await acquireVideo(job.canonicalUrl, job.provider);
+    if (!video) {
+      await failJob(ref, 'FETCH_FAILED');
+      return;
+    }
 
-    const films = FIXTURE_FILMS;
-    const suggestedListName = 'crime classics';
-    const isFilmContent = films.length > 0;
+    await setStage(ref, 'watching');
+    const analysis = await analyzeForFilms(video);
 
-    // Persist results to the shared cache (no uid — results only).
-    await db.collection(CACHE).doc(job.urlHash).set({
-      canonicalUrl: job.canonicalUrl,
-      provider: job.provider,
-      films,
-      suggestedListName,
-      isFilmContent,
-      analyzedBy: 'stub',
-      createdAt: FieldValue.serverTimestamp(),
-    });
+    await setStage(ref, 'matching');
+    const films = await groundFilms(analysis.films);
 
-    await ref.update({
-      status: 'done',
-      stage: 'done',
-      films,
-      suggestedListName,
-      isFilmContent,
-      errorCode: null,
-      updatedAt: FieldValue.serverTimestamp(),
-    });
+    await finishJob(db, ref, job, films, analysis.suggestedListName, 'gemini');
+  } catch (err) {
+    console.error('[extraction] real pipeline failed for', jobId, err);
+    await failJob(ref, classifyError(err));
+  }
+}
+
+// ── TMDB grounding (every candidate must match TMDB or it's dropped) ──────────
+
+// Read at call time (not module load) — robust to env that arrives after import.
+const tmdbToken = () => process.env.TMDB_ACCESS_TOKEN || process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN || '';
+const TMDB_IMG = 'https://image.tmdb.org/t/p/w342';
+
+const EVIDENCE_CHANNELS = ['audio', 'on-screen', 'caption', 'footage', 'other'] as const;
+type EvidenceChannel = (typeof EVIDENCE_CHANNELS)[number];
+function normalizeEvidence(e: RawFilmCandidate['evidence']): ExtractionFilm['evidence'] {
+  if (!e) return null;
+  const channel = (EVIDENCE_CHANNELS as readonly string[]).includes(e.channel)
+    ? (e.channel as EvidenceChannel)
+    : 'other';
+  return { channel, quote: e.quote, timestampSec: e.timestampSec };
+}
+
+export async function groundFilms(candidates: RawFilmCandidate[]): Promise<ExtractionFilm[]> {
+  if (!candidates.length || !tmdbToken()) return [];
+  // De-dup candidates before searching (Gemini sometimes repeats a title).
+  const seen = new Set<string>();
+  const unique = candidates.filter((c) => {
+    const k = `${c.title.toLowerCase()}|${c.year ?? ''}|${c.mediaType}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const grounded = await Promise.all(unique.map(groundOne));
+  // Drop misses, dedup by tmdbId keeping the highest confidence.
+  const byId = new Map<number, ExtractionFilm>();
+  for (const f of grounded) {
+    if (!f) continue;
+    const ex = byId.get(f.tmdbId);
+    if (!ex || f.confidence > ex.confidence) byId.set(f.tmdbId, f);
+  }
+  return [...byId.values()];
+}
+
+async function groundOne(c: RawFilmCandidate): Promise<ExtractionFilm | null> {
+  try {
+    const path = c.mediaType === 'tv' ? 'tv' : 'movie';
+    const yearParam = c.year ? `&${path === 'tv' ? 'first_air_date_year' : 'year'}=${c.year}` : '';
+    const url = `https://api.themoviedb.org/3/search/${path}?query=${encodeURIComponent(c.title)}${yearParam}&include_adult=false&language=en-US&page=1`;
+    const res = await fetch(url, { headers: { Authorization: `Bearer ${tmdbToken()}` } });
+    if (!res.ok) return null;
+    const j = (await res.json()) as {
+      results?: Array<{ id: number; title?: string; name?: string; release_date?: string; first_air_date?: string; poster_path?: string | null }>;
+    };
+    const results = j.results || [];
+    if (!results.length) return null;
+    const best =
+      (c.year ? results.find((r) => (r.release_date || r.first_air_date || '').startsWith(c.year!)) : null) ||
+      results[0];
+    const date = best.release_date || best.first_air_date || '';
+    return {
+      tmdbId: best.id,
+      title: best.title || best.name || c.title,
+      year: date ? date.slice(0, 4) : c.year,
+      mediaType: c.mediaType,
+      posterUrl: best.poster_path ? `${TMDB_IMG}${best.poster_path}` : null,
+      confidence: c.confidence,
+      evidence: normalizeEvidence(c.evidence),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ── STUB pipeline (fixtures) — tests + before keys are configured ─────────────
+
+async function runStubPipeline(jobId: string): Promise<void> {
+  const db = getDb();
+  const ref = db.collection(JOBS).doc(jobId);
+  try {
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const job = snap.data() as JobDoc;
+    await setStage(ref, 'fetching');
+    await setStage(ref, 'watching');
+    await setStage(ref, 'matching');
+    await finishJob(db, ref, job, FIXTURE_FILMS, 'crime classics', 'stub');
   } catch (err) {
     console.error('[extraction] stub pipeline failed for', jobId, err);
-    await ref.update({
-      status: 'failed',
-      stage: 'failed',
-      errorCode: 'INTERNAL',
-      updatedAt: FieldValue.serverTimestamp(),
-    }).catch(() => {});
+    await failJob(ref, 'INTERNAL');
   }
 }
 
