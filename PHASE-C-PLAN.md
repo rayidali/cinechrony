@@ -288,16 +288,23 @@ Screen spec (editorial v2 language, lowercase headline):
   no-film controls.** Not part of `audit:test` (needs network + paid keys);
   run before C.3 ships and after any prompt/model/actor change.
 
-### C.3 — iOS Share Extension (Claude writes Swift; owner drives Xcode)
+### C.3 — iOS Share Extension (SCAFFOLDED 2026-06-28 — owner Xcode steps remain)
 
-- [ ] **C.3.1** App Group (`group.com.cinechrony.shared`) + token relay:
-  main app writes the Firebase ID token (+ refresh) to shared storage
-  (LAUNCH.md C.2 as spec'd).
-- [ ] **C.3.2** Share Extension target: accepts URLs (+ images for the
-  screenshot fallback); SwiftUI two-phase UI (progress → confirm) calling
-  the same three endpoints; logged-out + no-films states.
-- [ ] **C.3.3 — Test:** LAUNCH.md C.3.5's device matrix (real iPhone,
-  TikTok/Reel/Short shares, empty, private, screenshot path).
+**Architecture revised to the "doorway" pattern** (simpler + more robust than the
+original token-relay plan): the extension does NO network/auth — it captures the
+shared URL and hands off to the already-authenticated main app, which runs the
+full pipeline + UI. This drops the fragile token relay and avoids a duplicate
+SwiftUI extractor.
+
+- [x] **C.3.1 ✅ Code written** (`ios/App/ShareExtension/*` + `deep-link-handler.tsx`):
+  robust URL capture → **durable App Group queue** (`group.com.cinechrony.app`,
+  `@capacitor/preferences` format) → open `cinechrony://extract?url=…`. Main app
+  routes the deep link AND drains the queue on launch/resume (redundancy — a share
+  is never lost). `cinechrony://` scheme registered; `@capacitor/preferences` added.
+- [ ] **C.3.2 Owner Xcode steps** — add the Share Extension target, App Groups on
+  both targets, signing. Full guide: **`PHASE-C-SHARE-EXTENSION.md`**.
+- [ ] **C.3.3 — Test:** real iPhone, TikTok/Reel/Short shares; empty/private; the
+  redundancy path (open declined → drained on next foreground).
 
 ### C.4 — Android share intent (Claude)
 
