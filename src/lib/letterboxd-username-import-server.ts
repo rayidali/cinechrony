@@ -435,7 +435,8 @@ export async function finalizeDefaultList(
     try {
       const { runId, datasetId } = await startReviewsRun(opts.username, opts.token);
       await db.collection('users_private').doc(uid).set(
-        { pendingReviews: { runId, datasetId, createdAt: FieldValue.serverTimestamp() } },
+        // username + attempt let syncPendingReviews retry a flaky/timed-out run.
+        { pendingReviews: { runId, datasetId, username: opts.username, attempt: 1, createdAt: FieldValue.serverTimestamp() } },
         { merge: true },
       );
     } catch {
@@ -453,12 +454,17 @@ export async function startReviewsRun(
   token: string,
 ): Promise<{ runId: string; datasetId: string }> {
   const u = normalizeUsername(username);
-  const { runId, datasetId } = await startRun(BROWSER_ACTOR, buildWebScraperReviewsInput(u), token, { timeoutSecs: 600, memoryMbytes: 2048 });
+  // 900s (15 min) balances completeness for big libraries against cost — still
+  // ~4× cheaper than the actor's 1-hour default. Even a timeout now salvages its
+  // partial dataset (see syncPendingReviews), so this is an upper bound, not a
+  // cliff.
+  const { runId, datasetId } = await startRun(BROWSER_ACTOR, buildWebScraperReviewsInput(u), token, { timeoutSecs: 900, memoryMbytes: 2048 });
   return { runId, datasetId };
 }
 
 const REVIEW_SYNC_CAP = 400; // bound a single sync to fit the function budget
 const REVIEW_PENDING_TTL_MS = 40 * 60 * 1000;
+const MAX_REVIEW_ATTEMPTS = 2; // retry a flaky/failed scrape once before giving up
 
 async function writeReviews(
   uid: string,
@@ -581,7 +587,7 @@ export async function syncPendingReviews(
   const privRef = db.collection('users_private').doc(uid);
   const snap = await privRef.get();
   const pending = snap.data()?.pendingReviews as
-    | { runId?: string; datasetId?: string; createdAt?: { toMillis?: () => number } }
+    | { runId?: string; datasetId?: string; username?: string; attempt?: number; createdAt?: { toMillis?: () => number } }
     | undefined;
   if (!pending?.runId || !pending?.datasetId) return { status: 'none' };
 
@@ -589,23 +595,51 @@ export async function syncPendingReviews(
   const stale = createdMs > 0 && Date.now() - createdMs > REVIEW_PENDING_TTL_MS;
 
   const { status } = await getRunStatus(pending.runId, token);
-  if (!APIFY_TERMINAL.has(status)) {
-    if (stale) {
-      await privRef.update({ pendingReviews: FieldValue.delete() });
-      return { status: 'failed' };
-    }
-    return { status: 'running' };
+
+  // Still running: keep waiting unless this attempt has outlived its TTL (a hung
+  // run) — then fall through to salvage/retry below.
+  if (!APIFY_TERMINAL.has(status) && !stale) return { status: 'running' };
+
+  // SALVAGE whatever was scraped — a TIMED-OUT run still has a partial dataset,
+  // so a big library that didn't fully finish gets MOST of its reviews instead
+  // of none. (Idempotent ids mean a later full run just tops it up.)
+  let rows: Awaited<ReturnType<typeof fetchDatasetItems>> = [];
+  try {
+    rows = await fetchDatasetItems(pending.datasetId, token);
+  } catch {
+    /* dataset unreadable — fall through to retry/give-up */
   }
-  if (status !== 'SUCCEEDED') {
+  const data = normalizeRows(rows);
+  if (data.reviews.length > 0) {
+    const reviewsImported = await writeReviews(uid, data.reviews);
     await privRef.update({ pendingReviews: FieldValue.delete() });
-    return { status: 'failed' };
+    return { status: 'done', reviewsImported };
   }
 
-  const rows = await fetchDatasetItems(pending.datasetId, token);
-  const data = normalizeRows(rows);
-  const reviewsImported = await writeReviews(uid, data.reviews);
+  // Nothing salvaged + the run didn't cleanly succeed → RETRY a fresh scrape
+  // once (handles transient Cloudflare 403s / aborts). SUCCEEDED-but-empty just
+  // means the user has no reviews — don't retry that.
+  const attempt = pending.attempt ?? 1;
+  if (status !== 'SUCCEEDED' && attempt < MAX_REVIEW_ATTEMPTS && pending.username) {
+    try {
+      const next = await startReviewsRun(pending.username, token);
+      await privRef.update({
+        pendingReviews: {
+          runId: next.runId,
+          datasetId: next.datasetId,
+          username: pending.username,
+          attempt: attempt + 1,
+          createdAt: FieldValue.serverTimestamp(),
+        },
+      });
+      return { status: 'running' };
+    } catch {
+      /* couldn't start a retry — give up below */
+    }
+  }
+
   await privRef.update({ pendingReviews: FieldValue.delete() });
-  return { status: 'done', reviewsImported };
+  return { status: status === 'SUCCEEDED' ? 'done' : 'failed', reviewsImported: 0 };
 }
 
 export { LetterboxdUsernameError };
