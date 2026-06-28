@@ -5,20 +5,27 @@
 ## Current state (2026-06-28)
 
 - **Phase C — AI "share a video → extract films" hero feature: web-first flow
-  COMPLETE (2026-06-28), branch `feat/phase-c-extraction` (NOT yet merged).**
+  COMPLETE & MERGED to `main` (2026-06-28, merge `34bd93e`).** Validated live on
+  the Vercel preview by the owner across IG/YouTube/TikTok.
   Paste/share a TikTok·Reel·Short → Apify acquires it → **Gemini watches it**
   (audio + on-screen text + footage) → TMDB grounds the films → save to lists with
-  the source video attached. **Validated end-to-end on real IG/YouTube/TikTok**
-  (The Namesake / Django Unchained / Interstellar). Built: `POST /api/v1/extractions`
+  the source video attached. Built: `POST /api/v1/extractions`
   · `GET /[jobId]` · `POST /[jobId]/save`; `src/lib/extraction-server.ts` +
   `gemini-server.ts` + `video-acquire-server.ts` + `extraction-types.ts`; the
-  `/extract` UI; home "scan" → `/extract`. Per-provider Apify actors (IG →
+  `/extract` UI (destination = pick an existing list OR create-new via
+  `list-picker-sheet.tsx`); home "scan" → `/extract`. Per-provider Apify actors (IG →
   `easyapi~instagram-reels-downloader`, TikTok → `wilcode~…`, YouTube → Gemini
-  direct), all runs capped 120s/1024MB + retried; pipeline gated on `GEMINI_API_KEY`
-  (falls back to fixtures in tests → audit 476/476). Env: `GEMINI_API_KEY`,
-  `GEMINI_MODEL`, `APIFY_TOKEN`, `APIFY_ACTOR_ID`, `APIFY_ACTOR_INSTAGRAM` (owner
-  must mirror to Vercel). Details in `HANDOFF.md` § "Phase C" + `PHASE-C-PLAN.md`.
-  **Next:** merge → C.3 iOS Share Extension (the native doorway; `/extract?url=` ready).
+  direct), all runs capped 120s/1024MB + retried. **Robust + scalable:**
+  cache-stampede dedup (1000 concurrent scans of one video → ONE pipeline) +
+  self-healing jobs + poll backoff; **multi-model Gemini fallback**
+  (2.5-flash → 2.0-flash → 2.5-flash-lite, separate capacity pools) + caption
+  net; pipeline gated on `GEMINI_API_KEY` (falls back to fixtures in tests →
+  audit 477/477). Env: `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_MODEL_FALLBACKS`,
+  `APIFY_TOKEN`, `APIFY_ACTOR_ID`, `APIFY_ACTOR_INSTAGRAM`. Details in
+  `HANDOFF.md` § "Phase C" + `PHASE-C-PLAN.md`.
+  **Next:** C.3 iOS Share Extension (the native doorway; `/extract?url=` ready).
+  Owner TODO: add `APIFY_ACTOR_INSTAGRAM` to Vercel (IG works without it via a
+  built-in fallback); set a Firestore TTL on `extraction_jobs.createdAt`.
 - **Letterboxd-import hardening (on `main`):** every Apify run is cost-capped
   (timeout+memory — kills the 1-hour ~$3.70 runaway reviews runs); the reviews
   sync is now fault-tolerant (salvages partial data, retries once, idempotent).

@@ -1,11 +1,13 @@
 # Phase C — Hero Feature: Implementation Plan (v2 — DECIDED)
 
-> **PROGRESS (2026-06-28): web-first flow COMPLETE on branch
-> `feat/phase-c-extraction` (not merged).** C.1a–d + C.2 all ✅ — validated
-> end-to-end on real Instagram, YouTube, and TikTok links (Apify acquire →
-> Gemini watch → TMDB ground → save to lists). Audit 476/476. **Next:** merge +
-> mirror env to Vercel → **C.3 iOS Share Extension** (the native doorway;
-> `/extract?url=` is wired). Per-item checklists below mark what's done.
+> **PROGRESS (2026-06-28): web-first flow COMPLETE & MERGED to `main`**
+> (merge `34bd93e`). C.1a–d + C.2 all ✅ — validated live on the Vercel preview
+> across Instagram, YouTube, and TikTok. Hardened for scale + reliability:
+> cache-stampede dedup, self-healing jobs, poll backoff, **multi-model Gemini
+> fallback** (2.5-flash → 2.0-flash → 2.5-flash-lite) + caption net. Audit
+> 477/477. **Next:** **C.3 iOS Share Extension** (native doorway; `/extract?url=`
+> wired). Owner TODO: `APIFY_ACTOR_INSTAGRAM` on Vercel (optional — built-in
+> fallback), Firestore TTL on `extraction_jobs`. Checklists below mark progress.
 >
 > **Status: DECIDED 2026-06-12.** Stack locked by owner: **Apify** (owner has
 > a subscription) for video acquisition · **Gemini** video-native analysis ·

@@ -10,17 +10,19 @@
 >    menus; keyboard; swipe-back). Plus Letterboxd-import **cost cap** + **reviews
 >    fault-tolerance** (also on `main`). See "iOS native bring-up" below.
 > 2. **Phase C — the AI "share a video → extract films" hero feature: web-first
->    flow is COMPLETE** on branch **`feat/phase-c-extraction`** (NOT yet merged).
->    C.1a–d + C.2 done; the live pipeline (Apify acquire → Gemini watch → TMDB
->    ground → save to lists) is validated end-to-end on real Instagram, YouTube,
->    and TikTok links. See "Phase C" below.
+>    flow is COMPLETE & MERGED to `main`** (merge `34bd93e`, 2026-06-28). C.1a–d +
+>    C.2; validated live on the Vercel preview by the owner across Instagram,
+>    YouTube, and TikTok. Hardened for scale + reliability (cache-stampede dedup,
+>    self-healing jobs, multi-model Gemini fallback, caption net). See "Phase C".
 >
-> **Immediate next:** test `/extract` on web (`npm run dev` → localhost:9002/extract),
-> then **merge `feat/phase-c-extraction` → main** + add `APIFY_ACTOR_INSTAGRAM` to
-> Vercel. After that: **C.3 iOS Share Extension** (the native "Share → Cinechrony"
-> doorway; `/extract?url=` is already wired for it). The thin website slice
-> (`cinechrony.com` origin + a `/support` page — `/privacy`+`/terms` exist) is
-> still a pre-TestFlight to-do.
+> **Immediate next: C.3 — iOS Share Extension** (the native "Share → Cinechrony"
+> doorway; `/extract?url=` is already wired for it — the share extension just
+> needs to pass the shared URL into it). **Owner TODO:** add
+> `APIFY_ACTOR_INSTAGRAM` to Vercel (IG works without it via a built-in fallback);
+> rebuild the iOS app in Xcode to get `/extract` in-app; optionally set a Firestore
+> TTL on `extraction_jobs.createdAt`. The thin website slice (`cinechrony.com`
+> origin + a `/support` page — `/privacy`+`/terms` exist) is still a
+> pre-TestFlight to-do.
 
 ---
 
@@ -280,11 +282,12 @@ server changes are testable on a preview.
 
 ---
 
-## Phase C — AI "share a video → extract films" (web-first COMPLETE, 2026-06-28)
+## Phase C — AI "share a video → extract films" (web-first MERGED, 2026-06-28)
 
 The hero feature: paste/share a TikTok·Reel·Short → AI reads the video → it adds
 the films to your lists, with the source video attached so it plays on each
-film's card. On branch **`feat/phase-c-extraction`** (NOT merged). Stack DECIDED
+film's card. **MERGED to `main`** (merge `34bd93e`); validated live on the Vercel
+preview across IG/YouTube/TikTok. Stack DECIDED
 2026-06-12 (see `PHASE-C-PLAN.md`): Apify acquire → Gemini video-native analysis
 → TMDB grounding → reuse `addMovieToList`. **Validated end-to-end on real
 Instagram, YouTube, and TikTok links** (The Namesake / Django Unchained /
@@ -342,11 +345,12 @@ main ◄── Phases A+B+0.5+0.7 + post-0.7 launch-prep + Resend email, PLUS (t
          stretch) the full iOS native bring-up + native-quality pass (Vaul menus,
          keyboard, swipe-back, app icon, WebView fixes) + Letterboxd cost-cap +
          reviews fault-tolerance. (fix/capacitor-ios-runtime was merged here.)
-feat/phase-c-extraction ◄── HEAD — Phase C web-first hero feature (C.1a–d + C.2).
-         All committed + pushed; NOT yet merged to main. Includes the same
-         cost-cap + reviews-robustness commits as main (cherry-picked) — the
-         merge may need a trivial conflict resolve on the two letterboxd files.
+feat/phase-c-extraction ──► MERGED into main (merge 34bd93e, 2026-06-28),
+         clean (no conflicts). Phase C web-first hero feature (C.1a–d + C.2) +
+         scale/robustness pass + UX fixes. Branch can be deleted.
 ```
+
+**main is HEAD.** Next feature (C.3 iOS Share Extension) branches off main.
 
 **Operational rule (relaxed for this stretch):** the owner has been having Claude
 commit + push directly to `main` for the post-0.7 launch-prep work (verified
