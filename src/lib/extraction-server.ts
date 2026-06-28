@@ -24,6 +24,9 @@ import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
 import { acquireVideo } from '@/lib/video-acquire-server';
 import { analyzeForFilms, isGeminiConfigured, type RawFilmCandidate } from '@/lib/gemini-server';
+import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
+import { createList } from '@/lib/lists-server';
+import type { SearchResult } from '@/lib/types';
 import type {
   ExtractionErrorCode,
   ExtractionFilm,
@@ -215,6 +218,134 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
   const d = snap.data() as JobDoc;
   if (d.uid !== uid) throw new ForbiddenError();
   return toView(jobId, d);
+}
+
+// ── Save (C.1d) — confirmed films → lists ────────────────────────────────────
+
+const MAX_SAVE_ITEMS = 25;
+const MAX_NEW_LISTS = 5;
+
+type SaveTarget = { tempId?: string; ownerId?: string; listId?: string };
+type SaveItem = { tmdbId: number; mediaType: 'movie' | 'tv'; target: SaveTarget };
+export type SaveExtractionBody = {
+  createLists?: { tempId: string; name: string }[];
+  items?: SaveItem[];
+};
+type SaveItemResult = {
+  tmdbId: number;
+  ok: boolean;
+  listId?: string;
+  deduped?: boolean;
+  error?: 'not_in_extraction' | 'list_not_created' | 'no_target' | 'forbidden' | 'failed';
+};
+export type SaveExtractionResult = {
+  results: SaveItemResult[];
+  createdLists: Record<string, string>; // tempId → real listId
+};
+
+function toSearchResult(f: ExtractionFilm): SearchResult {
+  return {
+    id: String(f.tmdbId),
+    tmdbId: f.tmdbId,
+    title: f.title,
+    year: f.year ?? '',
+    posterUrl: f.posterUrl ?? '',
+    posterHint: '',
+    mediaType: f.mediaType,
+    overview: '',
+  };
+}
+
+/**
+ * Save confirmed films from a DONE extraction into lists. Robust by design:
+ *  - auth: job must be the caller's + `done`;
+ *  - integrity: films are resolved from THIS job's grounded results only (never
+ *    trust client-supplied movie data) — so you can't inject arbitrary movies;
+ *  - authorization: every write goes through `addMovieToList` → `canEditList`,
+ *    so a forged `target` at someone else's list fails that ITEM (403) while the
+ *    rest proceed;
+ *  - idempotent: `addMovieToList` dedupes (re-saving returns `deduped: true`);
+ *  - isolated + bounded: per-item try/catch, ≤25 items, ≤5 new lists, sequential
+ *    (no movieCount transaction contention) → partial success is first-class.
+ */
+export async function saveExtraction(
+  uid: string,
+  jobId: string,
+  body: SaveExtractionBody,
+): Promise<SaveExtractionResult> {
+  const db = getDb();
+  const snap = await db.collection(JOBS).doc(jobId).get();
+  if (!snap.exists) throw new NotFoundError('Extraction not found.');
+  const job = snap.data() as JobDoc;
+  if (job.uid !== uid) throw new ForbiddenError();
+  if (job.status !== 'done') throw new BadRequestError('This extraction isn’t ready to save yet.');
+
+  const createLists = Array.isArray(body?.createLists) ? body.createLists.slice(0, MAX_NEW_LISTS) : [];
+  const items = Array.isArray(body?.items) ? body.items.slice(0, MAX_SAVE_ITEMS) : [];
+  if (!items.length) throw new BadRequestError('No films to save.');
+
+  // Canonical films from THIS job only.
+  const filmMap = new Map<string, ExtractionFilm>();
+  for (const f of job.films ?? []) filmMap.set(`${f.mediaType}_${f.tmdbId}`, f);
+
+  // Create the caller's new lists first; map tempId → real listId.
+  const createdLists: Record<string, string> = {};
+  for (const cl of createLists) {
+    const name = typeof cl?.name === 'string' ? cl.name.trim() : '';
+    if (!cl?.tempId || !name) continue;
+    if (createdLists[cl.tempId]) continue; // dedup tempIds
+    try {
+      const { listId } = await createList(uid, name);
+      createdLists[cl.tempId] = listId;
+    } catch {
+      /* leave unmapped — items targeting it fail with list_not_created */
+    }
+  }
+
+  const results: SaveItemResult[] = [];
+  for (const item of items) {
+    const tmdbId = Number(item?.tmdbId);
+    const mediaType: 'movie' | 'tv' = item?.mediaType === 'tv' ? 'tv' : 'movie';
+    const film = filmMap.get(`${mediaType}_${tmdbId}`);
+    if (!film) {
+      results.push({ tmdbId, ok: false, error: 'not_in_extraction' });
+      continue;
+    }
+
+    // Resolve the destination list.
+    const t = item?.target ?? {};
+    let ownerId: string | undefined;
+    let listId: string | undefined;
+    if (t.tempId) {
+      listId = createdLists[t.tempId];
+      ownerId = uid;
+      if (!listId) { results.push({ tmdbId, ok: false, error: 'list_not_created' }); continue; }
+    } else if (typeof t.ownerId === 'string' && typeof t.listId === 'string') {
+      ownerId = t.ownerId;
+      listId = t.listId;
+    } else {
+      results.push({ tmdbId, ok: false, error: 'no_target' });
+      continue;
+    }
+
+    try {
+      const { isNew } = await addMovieToList(uid, ownerId, listId, {
+        movieData: toSearchResult(film),
+        socialLink: job.canonicalUrl, // the video that surfaced it plays on the card later
+        status: 'To Watch',
+      });
+      results.push({ tmdbId, ok: true, listId, deduped: !isNew });
+    } catch (err) {
+      results.push({
+        tmdbId,
+        ok: false,
+        listId,
+        error: err instanceof ListAccessDeniedError ? 'forbidden' : 'failed',
+      });
+    }
+  }
+
+  return { results, createdLists };
 }
 
 // ── The pipeline ─────────────────────────────────────────────────────────────
