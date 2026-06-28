@@ -81,16 +81,22 @@ export default function ExtractClient() {
   );
 
   const poll = useCallback((jobId: string) => {
+    const startedAt = Date.now();
+    let attempt = 0;
     const tick = async () => {
+      attempt += 1;
       try {
         const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${jobId}`);
         setStage(j.stage);
         if (j.status === 'done') return finalize(j);
         if (j.status === 'failed') return setPhase('failed');
-        pollRef.current = setTimeout(tick, 1500);
       } catch {
-        pollRef.current = setTimeout(tick, 2500);
+        /* transient network — keep polling */
       }
+      if (Date.now() - startedAt > 3 * 60 * 1000) return setPhase('failed'); // hard cap ~3 min
+      // Backoff cuts Firestore read cost at scale (fast at first, then ease off).
+      const delay = attempt < 6 ? 1500 : attempt < 14 ? 2500 : 4000;
+      pollRef.current = setTimeout(tick, delay);
     };
     tick();
   }, [finalize]);

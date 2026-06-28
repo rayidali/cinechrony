@@ -18,7 +18,7 @@ import {
 import { callRoute } from './lib/route-call.ts';
 import { POST as createExtraction } from '@/app/api/v1/extractions/route';
 import { GET as getExtraction } from '@/app/api/v1/extractions/[jobId]/route';
-import { runExtractionPipeline } from '@/lib/extraction-server';
+import { runExtractionPipeline, createExtraction as createExtractionFn } from '@/lib/extraction-server';
 
 let me_: TestUser, other: TestUser;
 let meTok: string, otherTok: string;
@@ -107,6 +107,28 @@ test('burst rate limit trips on the 6th call', async () => {
     token: meTok, body: { url: 'https://www.tiktok.com/@x/video/sixth' },
   });
   assert.equal(sixth.status, 429, 'the 6th call within the window is rate-limited');
+});
+
+test('concurrent scans of the same video dedupe (one pipeline; follower self-heals from cache)', async () => {
+  const url = 'https://www.tiktok.com/@x/video/stampede';
+  const winner = await createExtractionFn(me_.uid, url); // claims the urlHash
+  const follower = await createExtractionFn(me_.uid, url); // claim is live → follows
+  assert.notEqual(winner.jobId, follower.jobId);
+  assert.equal(winner.status, 'processing');
+  assert.equal(follower.status, 'processing');
+
+  // Run ONLY the winner's pipeline (the follower never kicked one).
+  await runExtractionPipeline(winner.jobId);
+
+  // The follower resolves from the SHARED cache on its next poll (self-heal).
+  const fRes = await callRoute<{ status: string; films?: unknown[] }>(getExtraction, 'GET', {
+    token: meTok, params: { jobId: follower.jobId }, url: `http://test/api/v1/extractions/${follower.jobId}`,
+  });
+  assert.equal(fRes.body.ok, true);
+  if (fRes.body.ok) {
+    assert.equal(fRes.body.data.status, 'done', 'follower resolved from cache');
+    assert.ok((fRes.body.data.films?.length ?? 0) > 0, 'follower got the films');
+  }
 });
 
 test('an identical url resolves from cache as done', async () => {

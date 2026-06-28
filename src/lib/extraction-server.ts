@@ -40,6 +40,32 @@ const JOBS = 'extraction_jobs';
 const CACHE = 'extraction_cache';
 /** Cached results are reusable for ~30 days (the plan's TTL). */
 const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+/** A pipeline "claim" on a urlHash is live for ~3 min; after that the winner is
+ *  assumed dead and the urlHash is re-claimable. Bounds the worst-case pipeline. */
+const CLAIM_TTL_MS = 3 * 60 * 1000;
+
+/** The shared per-video cache doc — also the cache-stampede coordination point. */
+type CacheDoc = {
+  status?: 'processing' | 'done' | 'failed';
+  films?: ExtractionFilm[];
+  suggestedListName?: string | null;
+  isFilmContent?: boolean;
+  canonicalUrl?: string;
+  provider?: ExtractionProvider;
+  startedAt?: FirebaseFirestore.Timestamp;
+  createdAt?: FirebaseFirestore.Timestamp;
+};
+const tsMillis = (t?: FirebaseFirestore.Timestamp) => (t?.toMillis ? t.toMillis() : 0);
+/** A usable DONE result (handles legacy docs written before the `status` field). */
+function isFreshDone(c?: CacheDoc): boolean {
+  if (!c) return false;
+  const done = c.status === 'done' || (c.status === undefined && Array.isArray(c.films));
+  return done && (!c.createdAt || Date.now() - tsMillis(c.createdAt) < CACHE_TTL_MS);
+}
+/** Someone is actively working this urlHash right now (claim not yet stale). */
+function claimLive(c?: CacheDoc): boolean {
+  return (c?.status === 'processing' || c?.status === 'failed') && Date.now() - tsMillis(c?.startedAt) < CLAIM_TTL_MS;
+}
 
 // ── URL canonicalization + provider classification ───────────────────────────
 
@@ -110,6 +136,8 @@ type JobDoc = {
   films?: ExtractionFilm[];
   suggestedListName?: string | null;
   isFilmContent?: boolean;
+  follower?: boolean; // resolves from the shared cache (didn't run its own pipeline)
+  fromCache?: boolean;
 };
 
 function toView(jobId: string, d: JobDoc): ExtractionJobView {
@@ -148,75 +176,96 @@ export async function createExtraction(
   const urlHash = hashUrl(canonicalUrl);
   const db = getDb();
 
-  // Cache hit → create a job that's already done (copies the cached result).
-  const cacheSnap = await db.collection(CACHE).doc(urlHash).get();
-  if (cacheSnap.exists) {
-    const c = cacheSnap.data() as {
-      films?: ExtractionFilm[];
-      suggestedListName?: string | null;
-      isFilmContent?: boolean;
-      createdAt?: FirebaseFirestore.Timestamp;
-    };
-    const fresh =
-      !c.createdAt || Date.now() - c.createdAt.toMillis() < CACHE_TTL_MS;
-    if (fresh) {
-      const ref = db.collection(JOBS).doc();
-      await ref.set({
-        uid,
-        sourceUrl: rawUrl,
-        canonicalUrl,
-        urlHash,
-        provider,
-        status: 'done',
-        stage: 'done',
-        films: c.films ?? [],
-        suggestedListName: c.suggestedListName ?? null,
-        isFilmContent: c.isFilmContent ?? (c.films?.length ?? 0) > 0,
-        fromCache: true,
-        createdAt: FieldValue.serverTimestamp(),
-        updatedAt: FieldValue.serverTimestamp(),
-      });
-      return { jobId: ref.id, status: 'done' };
-    }
+  const cacheRef = db.collection(CACHE).doc(urlHash);
+
+  // Cache hit → a job that's already done (copies the shared result). Free.
+  const cached = (await cacheRef.get()).data() as CacheDoc | undefined;
+  if (isFreshDone(cached)) {
+    const ref = db.collection(JOBS).doc();
+    await ref.set({
+      uid, sourceUrl: rawUrl, canonicalUrl, urlHash, provider,
+      status: 'done', stage: 'done',
+      films: cached!.films ?? [],
+      suggestedListName: cached!.suggestedListName ?? null,
+      isFilmContent: cached!.isFilmContent ?? (cached!.films?.length ?? 0) > 0,
+      fromCache: true,
+      createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    });
+    return { jobId: ref.id, status: 'done' };
   }
 
-  // Miss → create a processing job, then run the pipeline after the response.
-  const ref = db.collection(JOBS).doc();
-  await ref.set({
-    uid,
-    sourceUrl: rawUrl,
-    canonicalUrl,
-    urlHash,
-    provider,
-    status: 'processing',
-    stage: 'queued',
-    createdAt: FieldValue.serverTimestamp(),
-    updatedAt: FieldValue.serverTimestamp(),
+  // CACHE-STAMPEDE PREVENTION. Atomically claim this urlHash: only the WINNER
+  // runs the (expensive) Apify+Gemini pipeline. Concurrent scans of the SAME
+  // video become "followers" that resolve from the shared cache once the winner
+  // fills it (see getExtraction) — collapsing 1000 simultaneous scans of one
+  // viral clip into a SINGLE pipeline run.
+  const decision = await db.runTransaction(async (tx) => {
+    const fresh = (await tx.get(cacheRef)).data() as CacheDoc | undefined;
+    if (isFreshDone(fresh)) return 'follow'; // filled between our read + the tx
+    if (claimLive(fresh)) return 'follow'; // someone else is already on it
+    tx.set(cacheRef, { status: 'processing', startedAt: FieldValue.serverTimestamp(), canonicalUrl, provider });
+    return 'claim';
   });
 
-  const kick = () =>
-    runExtractionPipeline(ref.id).catch((err) => {
-      console.error('[extraction] pipeline crashed for', ref.id, err);
-    });
-  try {
-    // On Vercel this keeps the (slow, real) pipeline alive after the response.
-    after(kick);
-  } catch {
-    // No request scope. Against the emulator (tests) we DON'T spawn detached
-    // work — tests drive the pipeline explicitly; a write-storm here
-    // destabilizes the suite. In a real runtime this is a last-resort net.
-    if (!process.env.FIRESTORE_EMULATOR_HOST) void kick();
+  const ref = db.collection(JOBS).doc();
+  await ref.set({
+    uid, sourceUrl: rawUrl, canonicalUrl, urlHash, provider,
+    status: 'processing',
+    stage: decision === 'claim' ? 'queued' : 'watching',
+    follower: decision !== 'claim',
+    createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+  });
+
+  if (decision === 'claim') {
+    const kick = () =>
+      runExtractionPipeline(ref.id).catch((err) => console.error('[extraction] pipeline crashed for', ref.id, err));
+    try {
+      after(kick); // Vercel keeps the (slow) pipeline alive after the response.
+    } catch {
+      // No request scope (tests). The emulator drives the pipeline explicitly;
+      // a real runtime gets a last-resort detached kick.
+      if (!process.env.FIRESTORE_EMULATOR_HOST) void kick();
+    }
   }
+  // Followers don't run a pipeline — they self-heal from the cache on poll.
 
   return { jobId: ref.id, status: 'processing' };
 }
 
-/** Read a job. 404 if missing, 403 if it isn't the caller's. */
+/** Read a job. 404 if missing, 403 if it isn't the caller's.
+ *  Self-heals a still-`processing` job from the shared cache — this resolves
+ *  FOLLOWERS (which never ran their own pipeline) and also a winner whose
+ *  pipeline filled the cache but died before updating its own job (redundancy). */
 export async function getExtraction(uid: string, jobId: string): Promise<ExtractionJobView> {
-  const snap = await getDb().collection(JOBS).doc(jobId).get();
+  const db = getDb();
+  const ref = db.collection(JOBS).doc(jobId);
+  const snap = await ref.get();
   if (!snap.exists) throw new NotFoundError('Extraction not found.');
   const d = snap.data() as JobDoc;
   if (d.uid !== uid) throw new ForbiddenError();
+
+  if (d.status === 'processing' && d.urlHash) {
+    const c = (await db.collection(CACHE).doc(d.urlHash).get()).data() as CacheDoc | undefined;
+    if (isFreshDone(c)) {
+      const patch = {
+        status: 'done' as const,
+        stage: 'done' as const,
+        films: c!.films ?? [],
+        suggestedListName: c!.suggestedListName ?? null,
+        isFilmContent: c!.isFilmContent ?? (c!.films?.length ?? 0) > 0,
+        errorCode: null,
+        updatedAt: FieldValue.serverTimestamp(),
+      };
+      await ref.update(patch).catch(() => {});
+      return toView(jobId, { ...d, ...patch });
+    }
+    // Follower whose winner died (claim went stale with no result) → fail fast.
+    if (d.follower && Date.now() - tsMillis(c?.startedAt) > CLAIM_TTL_MS) {
+      const patch = { status: 'failed' as const, stage: 'failed' as const, errorCode: 'FETCH_FAILED' as const, updatedAt: FieldValue.serverTimestamp() };
+      await ref.update(patch).catch(() => {});
+      return toView(jobId, { ...d, ...patch });
+    }
+  }
   return toView(jobId, d);
 }
 
@@ -380,6 +429,7 @@ async function finishJob(
 ): Promise<void> {
   const isFilmContent = films.length > 0;
   await db.collection(CACHE).doc(job.urlHash).set({
+    status: 'done', // followers resolve from this
     canonicalUrl: job.canonicalUrl,
     provider: job.provider,
     films,
@@ -418,19 +468,32 @@ function classifyError(err: unknown): ExtractionErrorCode {
   return 'INTERNAL';
 }
 
+/** Mark the shared claim failed so FOLLOWERS fail fast; stays re-claimable after
+ *  CLAIM_TTL_MS (a later scan of the same video can try again). */
+async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Promise<void> {
+  await db.collection(CACHE).doc(job.urlHash).set({
+    status: 'failed',
+    startedAt: FieldValue.serverTimestamp(),
+    canonicalUrl: job.canonicalUrl,
+    provider: job.provider,
+  }).catch(() => {});
+}
+
 /** REAL pipeline: Apify acquire → Gemini watch → TMDB ground (match-or-drop). */
 async function runRealPipeline(jobId: string): Promise<void> {
   const db = getDb();
   const ref = db.collection(JOBS).doc(jobId);
+  let job: JobDoc | null = null;
   try {
     const snap = await ref.get();
     if (!snap.exists) return;
-    const job = snap.data() as JobDoc;
+    job = snap.data() as JobDoc;
 
     await setStage(ref, 'fetching');
     const video = await acquireVideo(job.canonicalUrl, job.provider);
     if (!video) {
       await failJob(ref, 'FETCH_FAILED');
+      await markCacheFailed(db, job);
       return;
     }
 
@@ -444,6 +507,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
     await failJob(ref, classifyError(err));
+    if (job) await markCacheFailed(db, job);
   }
 }
 
