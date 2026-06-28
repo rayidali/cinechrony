@@ -28,14 +28,25 @@ If you don't have the paid Apple Developer account yet: you can still **boot the
 
 ---
 
+> **iOS Simulator bring-up DONE (2026-06-27).** The app now builds + runs on the
+> Simulator (login → home → lists → profile → detail screens). Five WebView-only
+> bugs were found and fixed on branch `fix/capacitor-ios-runtime` (see
+> `HANDOFF.md § "iOS native bring-up"`). The remaining items below (Apple Developer
+> account, APNs, real-device/TestFlight, Sign in with Apple, the production domain)
+> are still owner-gated. The **iOS app is already registered** (§1.2 below — done
+> via the Management API) and `GoogleService-Info.plist` is in place (gitignored).
+
 ## 1. Firebase Console — add iOS + Android apps
 
 1. Open [Firebase Console](https://console.firebase.google.com) → your project → **Project settings** (gear icon) → **Your apps**.
-2. Click **Add app → iOS**:
+2. Click **Add app → iOS**: **✅ DONE** — the iOS app `com.cinechrony.app` is
+   registered (appId `1:874447489066:ios:b821c1449c54df00dedb53`) and
+   `ios/App/App/GoogleService-Info.plist` is in place (now **gitignored** — it's a
+   public client id, kept local for the build). If you ever need to re-download it:
+   Firebase Console → Project settings → Your apps → the iOS app → `GoogleService-Info.plist`.
    - Bundle ID: `com.cinechrony.app`
    - App nickname: `Cinechrony iOS`
-   - Download `GoogleService-Info.plist`. Drop it at `ios/App/App/GoogleService-Info.plist`.
-3. Click **Add app → Android**:
+3. Click **Add app → Android** (still TODO for Android):
    - Package name: `com.cinechrony.app`
    - Download `google-services.json`. Drop it at `android/app/google-services.json`.
 4. Run `npx cap sync` to wire them up.

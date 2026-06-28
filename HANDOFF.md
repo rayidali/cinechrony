@@ -1,8 +1,90 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-06-23. Project: a social movie-watchlist app
+> Last updated 2026-06-27. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
+>
+> **Resuming?** The **iOS app now runs end-to-end on the Simulator** for the
+> first time (login → home → lists → profile → list detail → menus). Getting it
+> there surfaced a batch of WebView-only bugs, fixed on branch
+> **`fix/capacitor-ios-runtime`** (see "iOS native bring-up" below). That branch
+> is **not yet merged** and has **uncommitted work** still in the tree (the
+> Radix-menu → Vaul conversions + share-link fixes). Pending: confirm the
+> CLEAR-rating behavior, commit the menu batch, **merge to `main`**, then the
+> **app icon** (needs a 1024×1024 logo). The earlier plan still stands after
+> that: thin website slice (`cinechrony.com` origin + `/privacy`/`/support` — note
+> `/privacy` + `/terms` already exist, only `/support` is missing) → Phase C.
+
+---
+
+## iOS native bring-up — first Simulator run (2026-06-27)
+
+The Capacitor iOS app was run on the Simulator for the first time (Xcode + a free
+Apple ID — no $99 account needed for the Simulator). Everything the owner needs
+to do this is: `NEXT_PUBLIC_API_BASE_URL=https://movienight-kappa.vercel.app npm
+run build:static && npx cap sync ios`, then open `ios/App/App.xcodeproj` and ▶.
+Debug native JS via **Safari → Develop → Simulator → the WebView console**.
+(`movienight-kappa.vercel.app` is the live prod origin — the `cinechrony.com`
+switch is still pending.)
+
+**Five WebView-only blockers were found + fixed** (web/PWA unaffected — every fix
+is native-only or a web no-op). On branch `fix/capacitor-ios-runtime`:
+
+1. **Launch crash — missing `GoogleService-Info.plist`.** Registered an iOS app
+   (`com.cinechrony.app`, appId `1:874447489066:ios:b821c1449c54df00dedb53`) in
+   Firebase project `studio-2541484065-75c27` via the Management API (owner ran
+   the one-off script). Plist lives at `ios/App/App/GoogleService-Info.plist`,
+   wired into `project.pbxproj`, and is **gitignored** (it's a public client
+   identifier, not a secret — GitHub secret-scanning flags it, so it's kept out
+   of the repo; data is guarded by Firestore rules). _Committed._
+2. **Stuck on splash spinner.** `getAuth()` hangs in a WKWebView (awaits a
+   popup/redirect-resolver iframe that never settles → `onAuthStateChanged` never
+   fires). Fix in `src/firebase/index.ts::resolveAuth()`: native uses
+   `initializeAuth(app, { persistence: indexedDBLocalPersistence })` (no
+   resolver; native sign-in uses the @capacitor-firebase plugin); web keeps
+   `getAuth()`. _Committed._
+3. **Profile/lists/feed all empty despite being logged in.** Firestore's default
+   streaming WebChannel transport can't connect in WKWebView (a raw REST GET of
+   the same doc returns 200 — proving transport, not rules/auth). Fix in
+   `resolveFirestore()`: `experimentalForceLongPolling: true` on native only.
+   _Committed._
+4. **Every detail screen crashed** ("failed provisional navigation: index.txt").
+   Static export ships one `_` placeholder shell per dynamic route, so
+   `/lists/<realId>` has no file; Next fetches its RSC `.txt`, 404s, hard-navs,
+   WKWebView can't find it. Fix: **`src/lib/native-nav.ts`** — a web-noop shim
+   overriding `useRouter`/`useParams` + a patched `Link`. On native it routes to
+   the shell (`/lists/_`) carrying ids in the query and resolves `_` params back
+   from the query. ~28 client files swapped import source
+   (`next/navigation`→`@/lib/native-nav`, `next/link`→`{ Link }`). Covers all 7
+   dynamic routes. _Committed (initial) + blanket `next/link` swap uncommitted._
+5. **No Radix popup menu opened in the WebView** (theme toggle, avatar menu,
+   profile list-options, list view/sort, movie-drawer actions, the add-page list
+   Select). Radix poppers open on `pointerdown`, which WKWebView doesn't deliver
+   in a way Radix accepts (a plain `onClick` still fires — which is why the haptic
+   worked but the menu never appeared). Fix: **`src/components/ui/sheet-menu.tsx`**
+   — a Vaul bottom-sheet `SheetMenu`/`SheetMenuItem`/`SheetMenuLabel` opened by a
+   plain `onClick` (Vaul is proven to work natively throughout the app). All 6
+   Radix menus converted. _Uncommitted._
+
+**Also fixed (uncommitted):** invite-link + card-overflow share/copy URLs used
+`window.location.origin` (→ a dead `capacitor://localhost/...` link); now use
+`shareOrigin()` (resolves to the real prod origin even on native).
+
+**Known-minor / still open on native:**
+- **CLEAR-rating** reported as "doesn't work" — under investigation; the code path
+  looks correct (DELETE route exists, cache clears, `DragToRate` resets), so
+  awaiting exact behavior (does the number → "–"? a revert toast? — vs. the
+  separate "your history" watch snapshot being mistaken for the rating).
+- `WEBP initImage failed err=-50` decode warnings (cosmetic; some WebP images).
+- FCM "No APNS token" + "WebKit Media Playback assertion" errors are **expected
+  Simulator noise** (push needs a real device + APNs; media-playback needs an
+  entitlement the Simulator lacks).
+- **App icon** is still the Capacitor default (`assets/icon.png` missing → run
+  `npm run cap:assets` once a 1024×1024 logo is dropped in).
+- Native Google/Apple sign-in needs the REVERSED_CLIENT_ID URL scheme in
+  Info.plist (only if testing social login on device; email/password works).
+
+See memory `project_capacitor_ios_runtime_fixes.md` for the cold-resume version.
 
 ---
 
@@ -35,9 +117,31 @@ Tracker: **`PHASE-0.7-REDESIGN.md`**.
   re-subscribe on listener death so profile/lists no longer go blank-until-restart).
 - **Admin scripts** — `grant-verified.ts`, `set-display-name.ts` (Admin SDK, `npx tsx`).
 
+**Branded transactional email — Resend (2026-06-23, on `main`):** forgot-password
+emails are now branded (popcorn logo + film-red CTA, cross-client table HTML) and
+sent via **Resend** from `noreply@cinechrony.com` (the verified domain).
+`src/lib/email-server.ts` + **`POST /api/v1/auth/forgot-password`** (mints the
+secure link with Firebase Admin `generatePasswordResetLink`, emails it via Resend;
+60s per-email throttle + AUDIT 2.10 non-disclosure). **Graceful fallback** to
+Firebase's own reset email if `RESEND_API_KEY` is unset or the route is unreachable.
+Firebase custom action URL already verified → `movienight-kappa.vercel.app/reset-password`
+(no Console change). Owner: redeploy Vercel (picks up the key) + test. The module
+also supports a future welcome-on-signup email.
+
+**Website sequencing — DECISION (2026-06-24):** making `cinechrony.com`
+"professional" is **not a blocker** for the next steps — *thin slice first, full
+marketing site later*. Must-do-before-TestFlight: (1) point `cinechrony.com` →
+Vercel and make it the single prod origin (kills the `movienight-kappa` vs
+`cinechrony.vercel.app` discrepancy that iOS auth / Universal Links / AASA depend
+on); (2) minimal `/privacy` + `/support` pages (App Store Connect **requires** a
+privacy-policy URL + support URL to submit). The polished landing page (hero, real
+App Store screenshots + badge, feature sections) is built **during the TestFlight
+beta** — it gates public launch, not the beta.
+
 The only deferred 0.7 item is the OPTIONAL direct-to-IG pasteboard plugin
 (0.7.6.2/3, native Swift — the share-sheet path already satisfies the design).
-**Next: Phase C — iOS Share Extension** (`LAUNCH.md` §C; plan in `PHASE-C-PLAN.md`).
+**Next: the thin website slice → then Phase C — iOS Share Extension** (`LAUNCH.md`
+§C; plan in `PHASE-C-PLAN.md`).
 
 **What's done in 0.7 so far:**
 - **Foundation primitives** — `Frost`, `GlassBtn`, `Segmented`, `NavBar`,
@@ -172,13 +276,19 @@ server changes are testable on a preview.
 ## Active branches
 
 ```
-main ◄── Phases A + B + 0.5 all merged (PR #88, tip 9c81360)
-  │
-  └── feat/v3-redesign  ◄── HEAD (Phase 0.7 — profile + search + home revamp done)
+main ◄── Phases A + B + 0.5 + 0.7 ALL merged (0.7 merge e26871c), plus
+         post-0.7 launch-prep + Resend email.
+fix/capacitor-ios-runtime ◄── HEAD — the iOS native bring-up fixes (above).
+         3 commits pushed (firebase WebView init · dynamic-route nav shim ·
+         GoogleService-Info.plist + gitignore) + UNCOMMITTED work in the tree
+         (Radix-menu → Vaul SheetMenu conversions · share-link origin fixes ·
+         blanket next/link → shim swap). NOT yet merged to main.
 ```
 
-**Operational rule (in force):** Claude pushes only to feature branches;
-owner controls all `main` pushes.
+**Operational rule (relaxed for this stretch):** the owner has been having Claude
+commit + push directly to `main` for the post-0.7 launch-prep work (verified
+preview deploys gate each push). When opening the next feature (website slice /
+Phase C), branch off `main` again.
 
 ---
 
@@ -234,6 +344,22 @@ finalized custom domain) before native ships. Not blocking the redesign.
 
 These are gated on the human, not the code. All documented in detail in
 **`PHASE-B-HANDOFF.md`**.
+
+**Quick wins already half-done:**
+- `RESEND_API_KEY` is in Vercel (owner reports) → **redeploy** so the
+  forgot-password route picks it up, then **test** the reset flow end-to-end.
+  Falls back to Firebase's email if anything's off, so it's safe.
+- `APIFY_TOKEN` is set (owner reports) → letterboxd username import is live.
+
+**Pre-TestFlight, do these next (the thin website slice):**
+- **Point `cinechrony.com` → Vercel** and make it the ONE production origin.
+  Then set the iOS `NEXT_PUBLIC_API_BASE_URL` to it and update every
+  `cinechrony.vercel.app` reference (capacitor.config, AASA `applinks:`,
+  assetlinks). This resolves the long-standing domain discrepancy.
+- **Add `/privacy` + `/support` pages** — App Store Connect requires both URLs
+  to submit (even for external TestFlight). Can be simple.
+
+**The native-build checklist (unchanged):**
 
 1. **Apple Developer account** ($99/yr). Required for Sign in with Apple,
    APNs push, Universal Links signing, real-device testing, TestFlight,
@@ -357,13 +483,16 @@ Three pieces make this work on every route:
 
 ## Open backlog (current priority order)
 
-**Phase 0.7 — v3 redesign (ACTIVE, before Phase C).** See
-`PHASE-0.7-REDESIGN.md`. All core surfaces done (home · search · lists owner +
-public · profile · movie drawer · create-post/thread/reel · reviews wall · data
-rails). Remaining: **Wave 7** (onboarding · auth · settings · notifications ·
-invite · add · list-settings), **motion slice 2** (page push/pop + app-wide
-swipe-back), and **story share** (0.7.4 card renderer + share sheet → 0.7.6
-direct-to-IG).
+**Phase 0.7 — v3 redesign: COMPLETE & merged** (`e26871c` + post-0.7 launch-prep).
+Entire app is v3; native motion, story-share, OG/Twitter cards, verified accounts,
+featured lists, self-healing hooks, and Resend email all shipped. Only deferred
+0.7 item is the OPTIONAL direct-to-IG pasteboard plugin (native Swift).
+
+**Next session — the thin website slice (before Phase C):**
+- Point `cinechrony.com` → Vercel as the single prod origin (owner DNS + Vercel
+  domain), then realign `NEXT_PUBLIC_API_BASE_URL` / AASA / assetlinks.
+- Scaffold minimal `/privacy` + `/support` pages (App-Store-submission blockers).
+- (Optional, quick) welcome-on-signup email — `email-server.ts` module is ready.
 
 **A.6 UX polish** (small, ½–1 day each):
 - `A.6.1` — @-mention autocomplete in composers (comments + posts)

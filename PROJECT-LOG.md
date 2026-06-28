@@ -36,16 +36,18 @@ to make that feature possible and safe to ship.
 | May 25 | **Phase 0.6** — Speed & native feel (caches, prefetch) | ✅ merged |
 | May 26 – Jun 2 | **Phase A** — Server Actions → real API routes (18 PRs) | ✅ merged |
 | Jun 3–8 | **Phase B** — Capacitor wrap: native iOS/Android shells | ✅ merged |
-| Jun 13 → | **Phase 0.7** — v3 iOS-native redesign + motion + story share | 🔧 active |
+| Jun 13–24 | **Phase 0.7** — v3 iOS-native redesign + motion + story share | ✅ merged |
+| Jun 27 | **iOS native bring-up** — first Simulator run; fixed 5 WebView-only bugs | 🔧 `fix/capacitor-ios-runtime` |
 | After | **Phase C** — iOS Share Extension (the hero feature) | ⏳ |
 | After | **Phase D** — App Store + Play Store submission | ⏳ |
 | Parallel | **Phase E** — TikTok/IG marketing automation | ⏳ |
 
-Phases A + B + 0.5 are **merged to `main`** (A+B via PR #88, tip `9c81360`).
-Active work is **Phase 0.7** on `feat/v3-redesign` — the profile tab family
-is complete; Search, Home, and the heavier motion layer come next.
+Phases A + B + 0.5 + **0.7 are all merged to `main`** (0.7 merge `e26871c`),
+plus post-0.7 launch-prep (verified accounts, story share, Resend email).
+Active work is the **iOS native bring-up** on `fix/capacitor-ios-runtime` (not
+yet merged) — see Chapter "Bringing the iOS app to life" below.
 Verification per PR: typecheck clean, both build targets clean, audit suite
-green (403+/403+).
+green (460/460).
 
 ---
 
@@ -544,6 +546,48 @@ launch, plus Apple-review buffer.
 5. **On mobile WebKit, trust nothing's cleanup.** Watchdogs (BodyStyleWatchdog),
    module-level caches, and fresh mounts beat hoping the framework unwinds
    correctly.
+
+---
+
+---
+
+## Chapter — Bringing the iOS app to life (Jun 27)
+
+Phase B *wrapped* the app in a native iOS shell months ago, but it had never
+actually been **run** on a device. The owner opened Xcode for the first time
+and we booted it on the Simulator together (a free Apple ID is enough for the
+Simulator — the $99 developer account is only for real devices + TestFlight).
+
+The lesson of this session: **"works on the web" ≠ "works in the WebView."** A
+Capacitor app is your web bundle running inside an iOS WKWebView, and a handful
+of browser behaviours differ there. We hit five, one after another, each one
+hiding the next:
+
+1. **It crashed on launch** — Firebase needs a native `GoogleService-Info.plist`
+   we'd never generated. Registered the iOS app in Firebase, dropped the file in,
+   gitignored it (it's a public client id, not a secret — but no reason to let
+   GitHub's scanner nag about it).
+2. **It hung on the splash spinner** — Firebase Auth's `getAuth()` waits on a
+   hidden login iframe that never loads inside a WebView, so the app never learned
+   whether you were signed in. Switched to a resolver-free auth init on native.
+3. **Logged in, but every screen was empty** — Firebase's realtime database uses
+   a streaming connection the WebView can't open, so reads silently returned
+   nothing (a plain web request to the same data worked — that's how we proved it
+   was the *transport*). One setting (`experimentalForceLongPolling`) fixed it.
+4. **Tapping into any list/profile crashed** — a static-export quirk: there's only
+   a placeholder file per dynamic page, so the real URLs 404'd. A small navigation
+   shim (`native-nav.ts`) routes around it, invisibly on the web.
+5. **No pop-up menu would open** (theme switcher, avatar menu, etc.) — Radix
+   menus open on a touch event the WebView delivers differently. Rebuilt them all
+   on Vaul bottom sheets (`sheet-menu.tsx`), which we already trusted on native.
+
+Plus a couple of dead share links (they'd embedded the WebView's internal
+`capacitor://localhost` address instead of the real cinechrony URL).
+
+By the end: login → home → lists → profile → opening a list → the menus all work
+on the Simulator. Remaining loose ends (the rating "clear" button, the real app
+icon, a noisy-but-harmless WebP image warning) are tracked in `HANDOFF.md`. All
+of this lives on `fix/capacitor-ios-runtime`, not yet merged.
 
 ---
 

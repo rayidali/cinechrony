@@ -2,7 +2,34 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-24)
+## Current state (2026-06-27)
+
+- **iOS native bring-up — first Simulator run (2026-06-27), branch
+  `fix/capacitor-ios-runtime` (NOT yet merged).** The Capacitor iOS app now runs
+  end-to-end on the Simulator. Getting there fixed five **WKWebView-only** bugs
+  (web/PWA unaffected — each fix is native-only or a web no-op):
+  (1) added `ios/App/App/GoogleService-Info.plist` (registered the iOS app in
+  Firebase `studio-2541484065-75c27`; **gitignored** — public client id, not a
+  secret); (2) **auth init** — `getAuth()` hangs in the WebView, so
+  `src/firebase/index.ts::resolveAuth()` uses `initializeAuth(app, {persistence:
+  indexedDBLocalPersistence})` (no popup/redirect resolver) on native; (3)
+  **Firestore** — `experimentalForceLongPolling:true` on native (the streaming
+  WebChannel transport can't connect → reads came back empty); (4) **dynamic-route
+  navigation** — static export ships one `_` shell per dynamic route, so
+  `/lists/<id>` 404s its RSC and crashes; **`src/lib/native-nav.ts`** is a
+  web-noop shim (overrides `useRouter`/`useParams` + patched `Link`) routing to
+  the shell with ids in the query (~28 files swapped import source); (5) **Radix
+  popovers don't open in the WebView** (open on `pointerdown`) → replaced all 6
+  DropdownMenu/Select menus with a Vaul **`src/components/ui/sheet-menu.tsx`**
+  (`SheetMenu`/`SheetMenuItem`/`SheetMenuLabel`, opened by a plain `onClick`).
+  Plus: invite/card-overflow share links now use `shareOrigin()` (were
+  `window.location.origin` → dead `capacitor://localhost` links). Build for the
+  Sim: `NEXT_PUBLIC_API_BASE_URL=https://movienight-kappa.vercel.app npm run
+  build:static && npx cap sync ios`. Open `ios/App/App.xcodeproj` and ▶ (free
+  Apple ID OK for Simulator). Debug native JS via Safari → Develop → Simulator.
+  Details + remaining items (CLEAR-rating, app icon, WebP warnings) in
+  **`HANDOFF.md` § "iOS native bring-up"**. The 3 firebase/nav/plist commits are
+  pushed; the menu/link batch is uncommitted.
 
 - **Phases A + B + 0.5 + 0.7 all merged to `main`** (A+B via PR #88 tip `9c81360`;
   **Phase 0.7 merged 2026-06-23, merge `e26871c`** — `feat/v3-redesign` is fully
