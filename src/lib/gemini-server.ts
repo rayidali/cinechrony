@@ -110,7 +110,6 @@ async function buildVideoPart(video: AcquiredVideo): Promise<GeminiPart | null> 
 export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnalysis> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured');
-  const model = process.env.GEMINI_MODEL || DEFAULT_MODEL;
 
   const videoPart = await buildVideoPart(video);
   const caption = video.caption ? `\n\nThe video's caption is: """${video.caption}"""` : '';
@@ -131,29 +130,55 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
       temperature: 0.2,
     },
   });
-  // Gemini Flash gets transient 503 "high demand" / 429 spikes — retry with
-  // backoff before giving up. Other 4xx (bad key, bad request) fail fast.
-  let res: Response | null = null;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: reqBody,
-    });
-    if (res.ok) break;
-    const retryable = res.status === 429 || res.status >= 500;
-    if (!retryable || attempt === 2) break;
-    await new Promise((r) => setTimeout(r, 1500 * (attempt + 1) + 800));
-  }
-  if (!res || !res.ok) {
-    throw new Error(`Gemini ${res?.status ?? '?'}: ${res ? (await res.text()).slice(0, 300) : 'no response'}`);
-  }
 
-  const json = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
-  };
-  const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-  return parseAnalysis(text);
+  // REDUNDANCY: Gemini Flash gets transient 503 "high demand" / 429 spikes. Each
+  // model sits on its OWN capacity pool, so when the primary is swamped a
+  // fallback model usually answers immediately. We try each model in the chain
+  // with a couple of backed-off retries; a non-retryable 4xx (bad key/request)
+  // aborts the whole thing (no other model will fix it).
+  const models = modelChain();
+  let lastErr = 'Gemini unavailable';
+  for (const model of models) {
+    for (let attempt = 0; attempt < GEMINI_ATTEMPTS_PER_MODEL; attempt++) {
+      let res: Response;
+      try {
+        res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: reqBody,
+        });
+      } catch (e) {
+        lastErr = `Gemini network (${model}): ${String((e as Error)?.message || e)}`;
+        await sleep(900 * (attempt + 1));
+        continue;
+      }
+      if (res.ok) {
+        const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+        const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
+        return parseAnalysis(text);
+      }
+      lastErr = `Gemini ${res.status} (${model}): ${(await res.text()).slice(0, 200)}`;
+      if (res.status === 401 || res.status === 403) throw new Error(lastErr); // bad key — no model helps
+      if (res.status === 429 || res.status >= 500) { await sleep(1200 * (attempt + 1) + 600); continue; } // retry same model
+      break; // other 4xx (e.g. 404 model-not-found) — fall straight to the next model
+    }
+    console.warn(`[gemini] ${model} exhausted (overloaded), falling back to next model`);
+  }
+  throw new Error(lastErr);
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const GEMINI_ATTEMPTS_PER_MODEL = 2;
+
+/** The model fallback chain: primary first, then distinct-capacity fallbacks.
+ *  Override via GEMINI_MODEL (primary) + GEMINI_MODEL_FALLBACKS (csv). */
+function modelChain(): string[] {
+  const primary = (process.env.GEMINI_MODEL || DEFAULT_MODEL).trim();
+  const fallbacks = (process.env.GEMINI_MODEL_FALLBACKS || 'gemini-2.0-flash,gemini-2.5-flash-lite')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [primary, ...fallbacks.filter((m) => m && m !== primary)];
 }
 
 function parseAnalysis(text: string): GeminiAnalysis {
@@ -193,4 +218,47 @@ function parseAnalysis(text: string): GeminiAnalysis {
       : null,
     films,
   };
+}
+
+const HASHTAG_BLOCKLIST = new Set([
+  'fyp', 'foryou', 'foryoupage', 'viral', 'trending', 'movie', 'movies', 'film', 'films',
+  'edit', 'edits', 'cinema', 'netflix', 'reels', 'reel', 'tiktok', 'shorts', 'explore',
+  'recommended', 'watch', 'cinematography', 'moviescene', 'movieclip', 'scene', 'trailer',
+  'actor', 'actress', 'hollywood', 'bollywood', 'views', 'like', 'share', 'comment', 'follow',
+]);
+
+/**
+ * Last-resort redundancy: when EVERY Gemini model is down, mine the caption for
+ * explicit film candidates. TMDB grounding (match-or-drop) filters anything that
+ * isn't a real title, so this stays conservative. Returns [] when nothing clearly
+ * film-like is present.
+ */
+export function captionCandidates(caption: string): RawFilmCandidate[] {
+  if (!caption) return [];
+  const out: RawFilmCandidate[] = [];
+  const seen = new Set<string>();
+  const add = (title: string, year: string | null) => {
+    const t = title.trim().replace(/\s+/g, ' ');
+    if (t.length < 2 || t.length > 60) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      title: t, year, mediaType: 'movie', confidence: 0.4,
+      evidence: { channel: 'caption', quote: caption.slice(0, 140), timestampSec: null },
+    });
+  };
+  // "Title (2014)" — the strongest textual signal.
+  const re = /([A-Za-z0-9][\w':,!&.\- ]{1,58}?)\s*\(((?:19|20)\d{2})\)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(caption)) && out.length < 8) add(m[1], m[2]);
+  // Title-like hashtags (#TheNamesake → "The Namesake"), minus common junk tags.
+  for (const tag of caption.match(/#[A-Za-z][A-Za-z0-9]{2,40}/g) || []) {
+    if (out.length >= 8) break;
+    const rawTag = tag.slice(1);
+    if (HASHTAG_BLOCKLIST.has(rawTag.toLowerCase())) continue;
+    const words = rawTag.replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/_/g, ' ').trim();
+    if (words.split(' ').length >= 2) add(words, null);
+  }
+  return out;
 }

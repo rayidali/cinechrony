@@ -23,7 +23,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
 import { acquireVideo } from '@/lib/video-acquire-server';
-import { analyzeForFilms, isGeminiConfigured, type RawFilmCandidate } from '@/lib/gemini-server';
+import { analyzeForFilms, captionCandidates, isGeminiConfigured, type GeminiAnalysis, type RawFilmCandidate } from '@/lib/gemini-server';
 import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
 import { createList } from '@/lib/lists-server';
 import type { SearchResult } from '@/lib/types';
@@ -498,7 +498,17 @@ async function runRealPipeline(jobId: string): Promise<void> {
     }
 
     await setStage(ref, 'watching');
-    const analysis = await analyzeForFilms(video);
+    let analysis: GeminiAnalysis;
+    try {
+      analysis = await analyzeForFilms(video);
+    } catch (err) {
+      // Every Gemini model was unavailable. If we captured a caption, degrade to
+      // caption-mined candidates (TMDB grounding filters junk) rather than fail.
+      const cands = video.caption ? captionCandidates(video.caption) : [];
+      if (!cands.length) throw err;
+      console.warn('[extraction] gemini unavailable — caption fallback,', cands.length, 'candidate(s)');
+      analysis = { isFilmContent: true, suggestedListName: null, films: cands };
+    }
 
     await setStage(ref, 'matching');
     const films = await groundFilms(analysis.films);

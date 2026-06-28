@@ -15,6 +15,9 @@ import { createExtraction } from '@/lib/extraction-server';
 import { checkRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
+// The pipeline (acquire → multi-model Gemini → ground) runs in `after()` within
+// this function's lifetime — give it the full window so retries/fallbacks finish.
+export const maxDuration = 300;
 
 export const POST = apiRoute(async (req, { auth }) => {
   const burst = await checkRateLimit(auth.uid, 'extraction');
