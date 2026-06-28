@@ -4,31 +4,31 @@
  * Phase C.2 — the film-extraction confirmation screen.
  *
  * Flow: paste/share a TikTok·Reel·Short → POST /api/v1/extractions → poll the job
- * (narrated stages) → film cards with the receipt + a per-film destination chip →
- * save (→ POST /[jobId]/save). Graceful empty + failed states; auth-gated.
+ * (narrated stages) → film cards + a single destination picker (add to an
+ * existing list OR create a new one) → save (→ POST /[jobId]/save). The share
+ * extension deep-links into this same screen via `?url=`.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/native-nav';
-import { ChevronLeft, Link2, Loader2, X, Check, ListPlus, Sparkles, ScanLine } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Link2, Loader2, X, Check, ListPlus, Sparkles, ScanLine } from 'lucide-react';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy } from 'firebase/firestore';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
-import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
+import { ListPickerSheet, type ListDestination, type PickableList } from '@/components/list-picker-sheet';
 import { useToast } from '@/hooks/use-toast';
 import type { MovieList } from '@/lib/types';
 import type { ExtractionJobView, ExtractionFilm } from '@/lib/extraction-types';
 
 type Phase = 'input' | 'processing' | 'result' | 'failed';
-type Dest = string | 'new' | 'removed'; // listId | the AI-suggested new list | removed
 
 const STAGE_LABEL: Record<string, string> = {
-  queued: 'queued…',
-  fetching: 'getting the video…',
-  watching: 'watching it…',
-  matching: 'matching films…',
+  queued: 'getting ready',
+  fetching: 'getting the video',
+  watching: 'watching it',
+  matching: 'matching films',
   done: 'done',
   failed: 'failed',
 };
@@ -45,8 +45,10 @@ export default function ExtractClient() {
   const [phase, setPhase] = useState<Phase>('input');
   const [stage, setStage] = useState('queued');
   const [job, setJob] = useState<ExtractionJobView | null>(null);
-  const [dests, setDests] = useState<Record<number, Dest>>({});
+  const [removed, setRemoved] = useState<Set<number>>(new Set());
+  const [destination, setDestination] = useState<ListDestination>({ kind: 'new' });
   const [newListName, setNewListName] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ count: number } | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -60,7 +62,9 @@ export default function ExtractClient() {
     [firestore, user],
   );
   const { data: lists } = useCollection<MovieList>(listsQuery);
-  const defaultListId = (lists || []).find((l) => l.isDefault)?.id || (lists || [])[0]?.id || '';
+  const pickable: PickableList[] = (lists || []).map((l) => ({
+    id: l.id, name: l.name, ownerId: user?.uid || '', isPublic: l.isPublic, movieCount: l.movieCount,
+  }));
 
   const finalize = useCallback(
     (j: ExtractionJobView) => {
@@ -68,16 +72,17 @@ export default function ExtractClient() {
       setStage('done');
       const films = j.films || [];
       if (films.length) {
-        const useNew = !!j.suggestedListName;
-        setNewListName(j.suggestedListName || 'new list');
-        const d: Record<number, Dest> = {};
-        films.forEach((f) => { d[f.tmdbId] = useNew ? 'new' : defaultListId || 'new'; });
-        setDests(d);
+        setNewListName(j.suggestedListName || 'new films');
+        // Default to the user's default list (familiar) — falling back to a new
+        // list only if they have none. They can switch to either in the picker.
+        const def = (lists || []).find((l) => l.isDefault) || (lists || [])[0];
+        setDestination(def && user ? { kind: 'list', ownerId: user.uid, listId: def.id, name: def.name } : { kind: 'new' });
+        setRemoved(new Set());
         haptic('success');
       }
       setPhase('result');
     },
-    [defaultListId],
+    [lists, user],
   );
 
   const poll = useCallback((jobId: string) => {
@@ -91,7 +96,7 @@ export default function ExtractClient() {
         if (j.status === 'done') return finalize(j);
         if (j.status === 'failed') return setPhase('failed');
       } catch {
-        /* transient network — keep polling */
+        /* transient network, keep polling */
       }
       if (Date.now() - startedAt > 3 * 60 * 1000) return setPhase('failed'); // hard cap ~3 min
       // Backoff cuts Firestore read cost at scale (fast at first, then ease off).
@@ -123,7 +128,7 @@ export default function ExtractClient() {
         toast({
           variant: 'destructive',
           title: 'couldn’t scan that link',
-          description: err instanceof ApiClientError ? err.message : 'try a TikTok, Reel, or YouTube link.',
+          description: err instanceof ApiClientError ? err.message : 'try a tiktok, reel, or youtube link.',
         });
       }
     },
@@ -140,32 +145,25 @@ export default function ExtractClient() {
   useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current); }, []);
 
   const films = job?.films || [];
-  const anyNew = films.some((f) => dests[f.tmdbId] === 'new');
-  const toSave = films.filter((f) => dests[f.tmdbId] && dests[f.tmdbId] !== 'removed');
+  const toSave = films.filter((f) => !removed.has(f.tmdbId));
+  const destLabel = destination.kind === 'new' ? (newListName.trim() || 'new list') : destination.name;
 
-  const destLabel = (d: Dest): string => {
-    if (d === 'new') return newListName.trim() || 'new list';
-    return (lists || []).find((l) => l.id === d)?.name || 'a list';
-  };
+  const resetToInput = () => { setSaved(null); setJob(null); setUrl(''); setPhase('input'); };
 
   const save = async () => {
     if (!toSave.length || saving || !job || !user) return;
     setSaving(true);
     haptic('medium');
     try {
-      const body: {
-        createLists: { tempId: string; name: string }[];
-        items: { tmdbId: number; mediaType: 'movie' | 'tv'; target: { tempId?: string; ownerId?: string; listId?: string } }[];
-      } = { createLists: [], items: [] };
-      if (anyNew) body.createLists.push({ tempId: 'new', name: newListName.trim() || 'new list' });
-      for (const f of toSave) {
-        const d = dests[f.tmdbId];
-        body.items.push({
+      const isNew = destination.kind === 'new';
+      const body = {
+        createLists: isNew ? [{ tempId: 'new', name: newListName.trim() || 'new list' }] : [],
+        items: toSave.map((f) => ({
           tmdbId: f.tmdbId,
           mediaType: f.mediaType,
-          target: d === 'new' ? { tempId: 'new' } : { ownerId: user.uid, listId: d },
-        });
-      }
+          target: isNew ? { tempId: 'new' } : { ownerId: destination.ownerId, listId: destination.listId },
+        })),
+      };
       const res = await apiCall<{ results: { ok: boolean }[] }>('POST', `/api/v1/extractions/${job.jobId}/save`, body);
       const ok = res.results.filter((r) => r.ok).length;
       setSaved({ count: ok });
@@ -196,7 +194,7 @@ export default function ExtractClient() {
 
       <div className="mx-auto max-w-2xl px-[18px] pb-32 pt-4">
         {saved ? (
-          <SavedState count={saved.count} onAgain={() => { setSaved(null); setJob(null); setUrl(''); setPhase('input'); }} onLists={() => router.push('/lists')} />
+          <SavedState count={saved.count} dest={destLabel} onAgain={resetToInput} onLists={() => router.push('/lists')} />
         ) : phase === 'input' ? (
           <InputState url={url} setUrl={setUrl} onScan={() => start()} />
         ) : phase === 'processing' ? (
@@ -204,17 +202,17 @@ export default function ExtractClient() {
         ) : phase === 'failed' ? (
           <FailedState onRetry={() => start()} onBack={() => setPhase('input')} />
         ) : films.length === 0 ? (
-          <EmptyState onAgain={() => { setJob(null); setUrl(''); setPhase('input'); }} />
+          <EmptyState onAgain={resetToInput} />
         ) : (
           <ResultState
             films={films}
-            dests={dests}
-            setDest={(tmdbId, d) => setDests((p) => ({ ...p, [tmdbId]: d }))}
+            removed={removed}
+            toggleRemove={(id) => setRemoved((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; })}
             destLabel={destLabel}
-            lists={lists || []}
-            anyNew={anyNew}
+            isNew={destination.kind === 'new'}
             newListName={newListName}
             setNewListName={setNewListName}
+            openPicker={() => { haptic('selection'); setPickerOpen(true); }}
           />
         )}
       </div>
@@ -232,11 +230,19 @@ export default function ExtractClient() {
               className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-primary font-headline text-[16px] font-bold lowercase text-primary-foreground shadow-fab transition-transform active:scale-[0.98] disabled:opacity-50"
             >
               {saving ? <Loader2 className="h-5 w-5 animate-spin" /> : <Check className="h-5 w-5" />}
-              {saving ? 'saving…' : `save ${toSave.length} ${toSave.length === 1 ? 'film' : 'films'}`}
+              {saving ? 'saving' : `add ${toSave.length} ${toSave.length === 1 ? 'film' : 'films'}`}
             </button>
           </div>
         </div>
       )}
+
+      <ListPickerSheet
+        open={pickerOpen}
+        onOpenChange={setPickerOpen}
+        lists={pickable}
+        current={destination}
+        onPick={setDestination}
+      />
     </main>
   );
 }
@@ -285,7 +291,7 @@ function ProcessingState({ stage }: { stage: string }) {
   return (
     <div className="flex flex-col items-center pt-20 text-center">
       <Loader2 className="h-10 w-10 animate-spin text-primary" />
-      <p className="mt-5 font-headline text-[20px] font-bold lowercase tracking-[-0.02em]">{STAGE_LABEL[stage] || 'working…'}</p>
+      <p className="mt-5 font-headline text-[20px] font-bold lowercase tracking-[-0.02em]">{STAGE_LABEL[stage] || 'working'}</p>
       <div className="mt-6 flex items-center gap-2">
         {order.map((s) => {
           const active = order.indexOf(stage) >= order.indexOf(s);
@@ -293,47 +299,62 @@ function ProcessingState({ stage }: { stage: string }) {
         })}
       </div>
       <p className="mt-6 max-w-xs font-body text-[14px] text-muted-foreground">
-        the ai is watching the whole clip — audio, on-screen text, and footage.
+        the ai watches the whole clip, reading the audio, on-screen text, and footage.
       </p>
     </div>
   );
 }
 
 function ResultState({
-  films, dests, setDest, destLabel, lists, anyNew, newListName, setNewListName,
+  films, removed, toggleRemove, destLabel, isNew, newListName, setNewListName, openPicker,
 }: {
   films: ExtractionFilm[];
-  dests: Record<number, Dest>;
-  setDest: (tmdbId: number, d: Dest) => void;
-  destLabel: (d: Dest) => string;
-  lists: MovieList[];
-  anyNew: boolean;
+  removed: Set<number>;
+  toggleRemove: (tmdbId: number) => void;
+  destLabel: string;
+  isNew: boolean;
   newListName: string;
   setNewListName: (s: string) => void;
+  openPicker: () => void;
 }) {
-  const kept = films.filter((f) => dests[f.tmdbId] !== 'removed');
+  const kept = films.filter((f) => !removed.has(f.tmdbId));
   return (
     <div>
       <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground">
         {kept.length} {kept.length === 1 ? 'film' : 'films'} found
       </p>
 
-      {anyNew && (
+      {/* destination picker — add to an existing list or create a new one */}
+      <button
+        onClick={openPicker}
+        className="mb-2 flex w-full items-center gap-3 rounded-[16px] border border-hair bg-card px-3.5 py-3 text-left transition-colors active:bg-foreground/[0.03]"
+      >
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[10px] bg-primary/10 text-primary">
+          <ListPlus className="h-5 w-5" strokeWidth={2} />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block font-mono text-[10px] uppercase tracking-[0.14em] text-muted-foreground">adding to</span>
+          <span className="block truncate font-headline text-[16px] font-bold lowercase">{destLabel}</span>
+        </span>
+        <ChevronDown className="h-5 w-5 flex-shrink-0 text-muted-foreground" />
+      </button>
+
+      {isNew && (
         <div className="mb-4 flex items-center gap-2 rounded-[14px] border border-primary/30 bg-primary/[0.04] px-3.5 h-12">
           <ListPlus className="h-[18px] w-[18px] flex-shrink-0 text-primary" strokeWidth={2} />
           <input
             value={newListName}
             onChange={(e) => setNewListName(e.target.value)}
-            placeholder="new list name"
+            placeholder="name your new list"
             className="flex-1 bg-transparent font-headline text-[16px] lowercase outline-none placeholder:text-muted-foreground"
           />
         </div>
       )}
 
-      <div className="divide-y divide-hair">
+      <div className="mt-1 divide-y divide-hair">
         {films.map((f) => {
-          const d = dests[f.tmdbId];
-          if (d === 'removed') return null;
+          if (removed.has(f.tmdbId)) return null;
+          const sub = f.year || (f.mediaType === 'tv' ? 'tv series' : 'film');
           return (
             <div key={`${f.mediaType}_${f.tmdbId}`} className="flex items-center gap-3 py-3">
               <div className="relative h-[72px] w-12 flex-shrink-0 overflow-hidden rounded-[10px] bg-sunken">
@@ -341,39 +362,13 @@ function ResultState({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-headline text-[16px] font-bold lowercase tracking-[-0.01em]">{f.title}</p>
-                <p className="font-mono text-[11px] text-muted-foreground">{f.year || '—'}{f.mediaType === 'tv' ? ' · tv' : ''}</p>
+                <p className="font-mono text-[11px] text-muted-foreground">{sub}{f.mediaType === 'tv' && f.year ? ' · tv' : ''}</p>
                 {f.evidence?.quote && (
                   <p className="mt-0.5 truncate font-body text-[12.5px] italic text-muted-foreground">“{f.evidence.quote}”</p>
                 )}
-                {/* destination chip */}
-                <SheetMenu
-                  title="add to"
-                  trigger={(open) => (
-                    <button
-                      onClick={open}
-                      className="mt-1 inline-flex items-center gap-1 rounded-full bg-secondary px-2.5 py-1 font-mono text-[10.5px] uppercase tracking-[0.08em] text-foreground active:opacity-70"
-                    >
-                      <ListPlus className="h-3 w-3" /> {destLabel(d)}
-                    </button>
-                  )}
-                >
-                  {(close) => (
-                    <>
-                      <SheetMenuItem icon={ListPlus} active={d === 'new'} onSelect={() => { setDest(f.tmdbId, 'new'); close(); }}>
-                        new list{newListName ? `: ${newListName}` : ''}
-                      </SheetMenuItem>
-                      {lists.length > 0 && <SheetMenuLabel>your lists</SheetMenuLabel>}
-                      {lists.map((l) => (
-                        <SheetMenuItem key={l.id} active={d === l.id} onSelect={() => { setDest(f.tmdbId, l.id); close(); }}>
-                          {l.name}
-                        </SheetMenuItem>
-                      ))}
-                    </>
-                  )}
-                </SheetMenu>
               </div>
               <button
-                onClick={() => { haptic('light'); setDest(f.tmdbId, 'removed'); }}
+                onClick={() => { haptic('light'); toggleRemove(f.tmdbId); }}
                 aria-label={`Remove ${f.title}`}
                 className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full text-muted-foreground active:bg-foreground/5"
               >
@@ -395,7 +390,7 @@ function EmptyState({ onAgain }: { onAgain: () => void }) {
       </div>
       <h2 className="font-headline text-[20px] font-bold lowercase">no films found in this video</h2>
       <p className="mt-1.5 max-w-xs font-body text-[15px] text-muted-foreground">
-        try a clip that names or shows movies — a “top 5”, a review, or a montage.
+        try a clip that names or shows movies, like a “top 5”, a review, or a montage.
       </p>
       <button onClick={onAgain} className="mt-5 h-11 rounded-full bg-secondary px-6 font-headline text-[15px] font-semibold lowercase active:scale-[0.97]">
         try another link
@@ -423,16 +418,18 @@ function FailedState({ onRetry, onBack }: { onRetry: () => void; onBack: () => v
   );
 }
 
-function SavedState({ count, onAgain, onLists }: { count: number; onAgain: () => void; onLists: () => void }) {
+function SavedState({ count, dest, onAgain, onLists }: { count: number; dest: string; onAgain: () => void; onLists: () => void }) {
   return (
     <div className="flex flex-col items-center pt-20 text-center">
       <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
         <Check className="h-8 w-8" strokeWidth={2.2} />
       </div>
       <h2 className="font-headline text-[24px] font-bold lowercase tracking-[-0.02em]">
-        saved {count} {count === 1 ? 'film' : 'films'}
+        added {count} {count === 1 ? 'film' : 'films'}
       </h2>
-      <p className="mt-1.5 font-body text-[15px] text-muted-foreground">the video plays right on each film’s card.</p>
+      <p className="mt-1.5 max-w-xs font-body text-[15px] text-muted-foreground">
+        they’re in “{dest}”. the video plays right on each film’s card.
+      </p>
       <div className="mt-6 flex gap-2">
         <button onClick={onLists} className="h-11 rounded-full bg-primary px-6 font-headline text-[15px] font-bold lowercase text-primary-foreground active:scale-[0.97]">
           go to lists
