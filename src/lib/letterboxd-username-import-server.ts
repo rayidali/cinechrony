@@ -58,7 +58,7 @@ export async function startLibraryScrape(
   token: string,
 ): Promise<{ runId: string; datasetId: string }> {
   const u = normalizeUsername(username);
-  const { runId, datasetId } = await startRun(CHEERIO_ACTOR, buildCheerioInput(u), token);
+  const { runId, datasetId } = await startRun(CHEERIO_ACTOR, buildCheerioInput(u), token, { timeoutSecs: 600, memoryMbytes: 1024 });
   return { runId, datasetId };
 }
 
@@ -453,7 +453,7 @@ export async function startReviewsRun(
   token: string,
 ): Promise<{ runId: string; datasetId: string }> {
   const u = normalizeUsername(username);
-  const { runId, datasetId } = await startRun(BROWSER_ACTOR, buildWebScraperReviewsInput(u), token);
+  const { runId, datasetId } = await startRun(BROWSER_ACTOR, buildWebScraperReviewsInput(u), token, { timeoutSecs: 600, memoryMbytes: 2048 });
   return { runId, datasetId };
 }
 

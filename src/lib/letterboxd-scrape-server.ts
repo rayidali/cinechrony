@@ -279,9 +279,16 @@ export async function startRun(
   actorSlug: string,
   input: unknown,
   token: string,
+  opts: { timeoutSecs?: number; memoryMbytes?: number } = {},
 ): Promise<{ runId: string; datasetId: string; status: string }> {
-  const t = encodeURIComponent(token);
-  const startRes = await fetch(`${APIFY_BASE}/acts/${actorSlug}/runs?token=${t}`, {
+  // COST GUARD: always cap the run. Without `timeout`, Apify falls back to the
+  // actor's default (1 HOUR for web-scraper) — that's the ~$3.70 hour-long
+  // timed-out runs in the billing history. `memory` bounds the compute-unit
+  // rate (Apify bills memory × time). Caller picks sane caps per actor.
+  const params = new URLSearchParams({ token });
+  if (opts.timeoutSecs) params.set('timeout', String(opts.timeoutSecs));
+  if (opts.memoryMbytes) params.set('memory', String(opts.memoryMbytes));
+  const startRes = await fetch(`${APIFY_BASE}/acts/${actorSlug}/runs?${params.toString()}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -326,7 +333,7 @@ export async function fetchDatasetItems(datasetId: string, token: string): Promi
  * drives start/poll/fetch from separate short HTTP requests.
  */
 async function runActor(actorSlug: string, input: unknown, token: string, pollMs = 540_000): Promise<ScrapedRow[]> {
-  const { runId, datasetId, status: initial } = await startRun(actorSlug, input, token);
+  const { runId, datasetId, status: initial } = await startRun(actorSlug, input, token, { timeoutSecs: 600, memoryMbytes: 2048 });
   let status = initial;
   const deadline = Date.now() + pollMs;
   while (!APIFY_TERMINAL.has(status) && Date.now() < deadline) {
