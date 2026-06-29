@@ -6,64 +6,58 @@
 //  Share → Cinechrony and lands in the in-app extractor.
 //
 //  DESIGN (thin, fast, never-lose-a-share capture-and-forward):
-//   1. Robustly pull the first http(s) URL out of whatever was shared — a
-//      `public.url` attachment, plain text containing a link, or the item's
-//      content text. We do ZERO network/auth here (the extension is sandboxed,
-//      memory-limited, and short-lived); all real work happens in the main app.
-//   2. DURABLE: append the URL to an App Group queue in the SAME format
-//      `@capacitor/preferences` reads, so the main app can drain it even if the
+//   1. Robustly pull the first http(s) URL out of whatever was shared — a URL
+//      attachment, plain text containing a link, or the item's content text.
+//      We do ZERO network/auth here (the extension is sandboxed, memory-limited,
+//      short-lived); all real work happens in the authenticated main app.
+//   2. DURABLE: append the URL to a shared App Group queue in the SAME format
+//      @capacitor/preferences reads, so the main app can drain it even if the
 //      hand-off open fails (the redundancy net — a share is never lost).
 //   3. PRIMARY: open the host app deep link `cinechrony://extract?url=…`
-//      (official `extensionContext.open` first, responder-chain fallback).
+//      (official extensionContext.open first, responder-chain fallback).
 //   4. Complete the request quickly so iOS never kills us mid-flight.
 //
-//  Constants below MUST match Xcode config:
-//   - appGroupId  → the App Group on BOTH the app target and this extension
-//   - appScheme   → a CFBundleURLScheme registered on the MAIN app
+//  Built on the wizard's SLComposeServiceViewController template so NO storyboard
+//  or extra Xcode wiring is needed — we just skip the compose UI and act on
+//  appearance. Constants below MUST match Xcode config (App Group + URL scheme).
 //
 
 import UIKit
+import Social
 import UniformTypeIdentifiers
+import ObjectiveC
 
-final class ShareViewController: UIViewController {
+class ShareViewController: SLComposeServiceViewController {
 
     // MARK: - Config (must match Xcode / Info.plist)
     private let appGroupId = "group.com.cinechrony.app"
     private let appScheme  = "cinechrony"
     private let pendingKey = "cc_pending_shares" // stored as "CapacitorStorage.cc_pending_shares"
 
-    // MARK: - UI
-    private let card = UIView()
-    private let spinner = UIActivityIndicatorView(style: .medium)
-    private let label = UILabel()
-
-    // MARK: - State
     private var didComplete = false
 
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        view.backgroundColor = UIColor.black.withAlphaComponent(0.18)
-        buildCard()
-    }
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
+    // We don't use the compose box — do the work as soon as the sheet appears.
+    override func presentationAnimationDidFinish() {
+        super.presentationAnimationDidFinish()
 
         // Hard safety net: a share extension must never hang the share sheet.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in
-            self?.complete(message: "Couldn’t read that. Try again.", delay: 0.8)
-        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.finish() }
 
         resolveSharedURL { [weak self] url in
             guard let self = self else { return }
-            guard let url = url else {
-                self.complete(message: "No link found to scan.", delay: 1.0)
-                return
+            if let url = url {
+                self.saveToAppGroup(url)   // 1) durable — never lose the share
+                self.openHostApp(url)      // 2) primary — wake the app into /extract
+            } else {
+                self.finish()
             }
-            self.saveToAppGroup(url)   // 1) durable — never lose the share
-            self.openHostApp(url)      // 2) primary — wake the app into /extract
         }
     }
+
+    // SLComposeServiceViewController plumbing (we auto-complete, so these are no-ops).
+    override func isContentValid() -> Bool { return true }
+    override func didSelectPost() { finish() }
+    override func configurationItems() -> [Any]! { return [] }
 
     // MARK: - URL resolution (robust across every way a URL can arrive)
 
@@ -110,7 +104,6 @@ final class ShareViewController: UIViewController {
             if let text = item.attributedContentText?.string { consider(firstURL(in: text)) }
         }
 
-        // Resolve when all attachments report back; the timeout above is the backstop.
         group.notify(queue: .main) { completion(found) }
     }
 
@@ -143,15 +136,23 @@ final class ShareViewController: UIViewController {
     // MARK: - Primary hand-off (open the app)
 
     private func openHostApp(_ url: URL) {
-        guard let deepLink = makeDeepLink(for: url) else {
-            complete(message: "Saved to Cinechrony", delay: 0.5)
-            return
-        }
-        // Official path first; responder-chain fallback if the OS declines it.
+        guard let deepLink = makeDeepLink(for: url) else { finish(); return }
+        // Apple restricts opening the host app from a share extension. Two
+        // best-effort attempts, in order of reliability:
+        //   1) The sanctioned NSExtensionContext.open (works on some iOS versions
+        //      for a custom-scheme URL that points at the containing app).
+        //   2) Responder-chain open using the MODERN selector. iOS 17/18+ FORCE
+        //      return false for the deprecated single-arg `openURL:`, so we must
+        //      call `openURL:options:completionHandler:` on a real UIApplication.
         extensionContext?.open(deepLink) { [weak self] opened in
-            DispatchQueue.main.async {
-                if !opened { _ = self?.openViaResponderChain(deepLink) }
-                self?.complete(message: "Opening Cinechrony…", delay: 0.3)
+            guard let self = self else { return }
+            if opened {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { self.finish() }
+                return
+            }
+            let fallback = self.openViaResponderChain(deepLink)
+            DispatchQueue.main.asyncAfter(deadline: .now() + (fallback ? 1.5 : 0.3)) {
+                self.finish()
             }
         }
     }
@@ -166,11 +167,23 @@ final class ShareViewController: UIViewController {
 
     @discardableResult
     private func openViaResponderChain(_ url: URL) -> Bool {
-        let selector = sel_registerName("openURL:")
+        // MODERN, non-deprecated selector. The single-arg `openURL:` is
+        // force-failed by UIKit on iOS 17/18+ ("BUG IN CLIENT OF UIKIT … Force
+        // returning false"), which is why the old code silently did nothing.
+        let selector = NSSelectorFromString("openURL:options:completionHandler:")
+        guard let appClass = NSClassFromString("UIApplication") else { return false }
         var responder: UIResponder? = self
         while let current = responder {
-            if current.responds(to: selector) {
-                _ = current.perform(selector, with: url)
+            if current.isKind(of: appClass), current.responds(to: selector) {
+                // perform(_:with:) can't pass 3 args — call the IMP directly.
+                typealias OpenURL = @convention(c)
+                    (NSObject, Selector, NSURL, NSDictionary, Any?) -> Void
+                guard let method = class_getInstanceMethod(appClass, selector) else {
+                    return false
+                }
+                let imp = method_getImplementation(method)
+                let call = unsafeBitCast(imp, to: OpenURL.self)
+                call(current, selector, url as NSURL, NSDictionary(), nil)
                 return true
             }
             responder = current.next
@@ -180,52 +193,9 @@ final class ShareViewController: UIViewController {
 
     // MARK: - Completion (idempotent)
 
-    private func complete(message: String, delay: TimeInterval) {
+    private func finish() {
         guard !didComplete else { return }
         didComplete = true
-        DispatchQueue.main.async { [weak self] in
-            self?.spinner.stopAnimating()
-            self?.label.text = message
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
-        }
-    }
-
-    // MARK: - Minimal confirmation UI (no compose box)
-
-    private func buildCard() {
-        card.backgroundColor = UIColor.systemBackground
-        card.layer.cornerRadius = 18
-        card.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(card)
-
-        spinner.startAnimating()
-        spinner.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(spinner)
-
-        label.text = "Adding to Cinechrony…"
-        label.font = .systemFont(ofSize: 15, weight: .semibold)
-        label.textColor = .label
-        label.numberOfLines = 2
-        label.textAlignment = .center
-        label.translatesAutoresizingMaskIntoConstraints = false
-        card.addSubview(label)
-
-        NSLayoutConstraint.activate([
-            card.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            card.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            card.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 40),
-            card.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -40),
-            card.widthAnchor.constraint(greaterThanOrEqualToConstant: 220),
-
-            spinner.topAnchor.constraint(equalTo: card.topAnchor, constant: 22),
-            spinner.centerXAnchor.constraint(equalTo: card.centerXAnchor),
-
-            label.topAnchor.constraint(equalTo: spinner.bottomAnchor, constant: 14),
-            label.leadingAnchor.constraint(equalTo: card.leadingAnchor, constant: 20),
-            label.trailingAnchor.constraint(equalTo: card.trailingAnchor, constant: -20),
-            label.bottomAnchor.constraint(equalTo: card.bottomAnchor, constant: -22),
-        ])
+        extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }
 }
