@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ExternalLink, Play } from 'lucide-react';
 import { Link } from '@/lib/native-nav';
 import Script from 'next/script';
-import { parseVideoUrl, getProviderDisplayName, type ParsedVideo } from '@/lib/video-utils';
+import { parseVideoUrl, getProviderDisplayName, getVideoThumbnail, type ParsedVideo } from '@/lib/video-utils';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { Instagram, Youtube } from 'lucide-react';
@@ -16,6 +16,9 @@ type VideoEmbedProps = {
   url: string | undefined;
   autoLoad?: boolean;
   autoPlay?: boolean;
+  /** Poster frame for the pre-load preview (captured at extraction time, or
+   *  derived for YouTube). Falls back to a branded placeholder when absent. */
+  thumbnailUrl?: string;
 };
 
 // Global state to track if scripts are loaded
@@ -346,9 +349,12 @@ function YouTubeEmbed({ videoId }: { videoId: string }) {
   );
 }
 
-export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
+export function VideoEmbed({ url, autoLoad = false, thumbnailUrl }: VideoEmbedProps) {
   const [isLoaded, setIsLoaded] = useState(false);
+  const [posterError, setPosterError] = useState(false);
   const parsedVideo = parseVideoUrl(url);
+  // A stored thumbnail wins; YouTube derives one for free. null → branded card.
+  const poster = getVideoThumbnail(url, thumbnailUrl);
 
   // Auto-load the embed if autoLoad is true
   useEffect(() => {
@@ -378,26 +384,54 @@ export function VideoEmbed({ url, autoLoad = false }: VideoEmbedProps) {
     setIsLoaded(true);
   };
 
-  // Show "Click to load" button before loading the embed
+  // Pre-load preview. With a real poster frame, show it full-bleed with a play
+  // overlay (tap to load the embed) — never a blank grey box.
   if (!isLoaded) {
+    const hasPoster = !!poster && !posterError;
     return (
       <div className="relative w-full aspect-[9/16] max-h-[500px] bg-secondary rounded-lg border border-border overflow-hidden touch-manipulation">
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <ProviderIcon provider={parsedVideo.provider} />
-            <span className="font-bold">{getProviderDisplayName(parsedVideo.provider)}</span>
-          </div>
-          <Button onClick={handleLoadEmbed} className={retroButtonClass}>
-            <Play className="h-4 w-4 mr-2" />
-            Load Video
-          </Button>
-          <Button asChild variant="outline" size="sm" className="mt-2">
-            <Link href={parsedVideo.url} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="h-3 w-3 mr-1" />
-              Open in {getProviderDisplayName(parsedVideo.provider)}
-            </Link>
-          </Button>
+        {hasPoster && (
+          <>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={poster!}
+              alt={`${getProviderDisplayName(parsedVideo.provider)} preview`}
+              className="absolute inset-0 h-full w-full object-cover"
+              onError={() => setPosterError(true)}
+              loading="lazy"
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/55 via-black/10 to-black/25" />
+          </>
+        )}
+        <button
+          onClick={handleLoadEmbed}
+          aria-label="Play video"
+          className="absolute inset-0 flex flex-col items-center justify-center gap-3 touch-manipulation"
+        >
+          <span className={`flex h-16 w-16 items-center justify-center rounded-full ${hasPoster ? 'bg-white/90 text-black shadow-lg' : 'bg-primary text-primary-foreground'}`}>
+            <Play className="h-7 w-7 translate-x-0.5" fill="currentColor" />
+          </span>
+          {!hasPoster && (
+            <span className="flex items-center gap-2 text-muted-foreground">
+              <ProviderIcon provider={parsedVideo.provider} />
+              <span className="font-bold">{getProviderDisplayName(parsedVideo.provider)}</span>
+            </span>
+          )}
+        </button>
+        {/* provider chip + open-in-app, bottom corners */}
+        <div className={`absolute left-3 top-3 flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${hasPoster ? 'bg-black/55 text-white backdrop-blur-sm' : 'bg-secondary text-muted-foreground'}`}>
+          <ProviderIcon provider={parsedVideo.provider} />
+          <span>{getProviderDisplayName(parsedVideo.provider)}</span>
         </div>
+        <Link
+          href={parsedVideo.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`absolute bottom-3 right-3 flex items-center gap-1 rounded-full px-3 py-1.5 text-xs font-semibold ${hasPoster ? 'bg-black/55 text-white backdrop-blur-sm' : 'bg-secondary text-foreground'}`}
+        >
+          <ExternalLink className="h-3 w-3" />
+          open
+        </Link>
       </div>
     );
   }

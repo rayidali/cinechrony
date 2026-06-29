@@ -20,14 +20,14 @@ import type { ExtractionProvider } from '@/lib/extraction-types';
 
 export type AcquiredVideo =
   | { kind: 'youtube'; youtubeUrl: string; caption: string | null }
-  | { kind: 'media'; videoUrl: string; caption: string | null; raw: unknown };
+  | { kind: 'media'; videoUrl: string; caption: string | null; thumbnailUrl: string | null; raw: unknown };
 
 const ACQUIRE_TIMEOUT_SECS = 120;
 const ACQUIRE_MEMORY_MB = 1024;
 const ACQUIRE_MAX_ATTEMPTS = 3; // these downloaders are flaky; each retry rotates the proxy
 const ACQUIRE_RETRY_DELAY_MS = 1200; // brief gap between attempts so the proxy/rate-limit cools
 
-type Parsed = { videoUrl: string | null; caption: string | null };
+type Parsed = { videoUrl: string | null; caption: string | null; thumbnailUrl: string | null };
 type ActorAdapter = {
   // Resolved at CALL time (not module load) — robust to env that arrives after
   // import (e.g. a script that dotenv-loads after importing this module).
@@ -44,14 +44,16 @@ const instagramAdapter: ActorAdapter = {
     const r = (item.result ?? item) as Record<string, unknown>;
     const medias = r.medias;
     let videoUrl: string | null = null;
+    let mediaThumb: string | null = null;
     if (Array.isArray(medias)) {
       for (const m of medias) {
-        const u = (m as Record<string, unknown>)?.url;
-        if (typeof u === 'string' && /^https?:\/\//.test(u)) { videoUrl = u; break; }
+        const mm = m as Record<string, unknown>;
+        const u = mm?.url;
+        if (typeof u === 'string' && /^https?:\/\//.test(u)) { videoUrl = u; if (!mediaThumb) mediaThumb = pickThumbnail(mm); break; }
       }
     }
     const caption = typeof r.title === 'string' ? r.title.slice(0, 2000) : null;
-    return { videoUrl, caption };
+    return { videoUrl, caption, thumbnailUrl: mediaThumb || pickThumbnail(r) };
   },
 };
 
@@ -59,8 +61,26 @@ const instagramAdapter: ActorAdapter = {
 const defaultAdapter: ActorAdapter = {
   actorId: () => process.env.APIFY_ACTOR_ID,
   buildInput: (url) => ({ url, proxySettings: { useApifyProxy: true, apifyProxyGroups: ['RESIDENTIAL'] } }),
-  parse: (item) => ({ videoUrl: pickVideoUrl(item), caption: pickCaption(item) }),
+  parse: (item) => ({ videoUrl: pickVideoUrl(item), caption: pickCaption(item), thumbnailUrl: pickThumbnail(item) }),
 };
+
+/** Defensive thumbnail/cover image pick (unknown actor output shape). */
+function pickThumbnail(item: Record<string, unknown>): string | null {
+  const keys = ['thumbnail', 'thumbnailUrl', 'thumbnail_url', 'cover', 'coverUrl', 'cover_url', 'displayUrl', 'display_url', 'image', 'imageUrl', 'poster', 'thumb', 'thumbUrl', 'previewImage'];
+  for (const k of keys) {
+    const v = item[k];
+    if (typeof v === 'string' && /^https?:\/\//.test(v) && /\.(jpe?g|png|webp)|image|cdn|scontent/i.test(v)) return v;
+  }
+  // One level into a nested result object (some actors wrap output in `result`).
+  const nested = item.result;
+  if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+    for (const k of keys) {
+      const v = (nested as Record<string, unknown>)[k];
+      if (typeof v === 'string' && /^https?:\/\//.test(v)) return v;
+    }
+  }
+  return null;
+}
 
 function adapterFor(provider: ExtractionProvider): ActorAdapter {
   return provider === 'instagram' ? instagramAdapter : defaultAdapter;
@@ -122,8 +142,8 @@ export async function acquireVideo(
     if (attempt > 0) await new Promise((r) => setTimeout(r, ACQUIRE_RETRY_DELAY_MS));
     const items = await runActorItems(actorId, adapter.buildInput(canonicalUrl), token, params);
     lastItem = (items[0] ?? {}) as Record<string, unknown>;
-    const { videoUrl, caption } = adapter.parse(lastItem);
-    if (videoUrl) return { kind: 'media', videoUrl, caption, raw: lastItem };
+    const { videoUrl, caption, thumbnailUrl } = adapter.parse(lastItem);
+    if (videoUrl) return { kind: 'media', videoUrl, caption, thumbnailUrl, raw: lastItem };
   }
 
   console.warn(`[acquire] no video URL after ${ACQUIRE_MAX_ATTEMPTS} tries (${provider}). item keys:`, Object.keys(lastItem));

@@ -39,6 +39,9 @@ export type ExtractionFilm = {
   posterUrl: string | null;
   confidence: number; // 0..1
   evidence: ExtractionEvidence | null;
+  /** IMDb rating (e.g. "8.1"), grounded via OMDB. Best-effort — absent when OMDB
+   *  is unconfigured / over quota / has no entry for the title. */
+  imdbRating?: string | null;
 };
 
 export type ExtractionErrorCode =
@@ -59,5 +62,8 @@ export type ExtractionJobView = {
   films?: ExtractionFilm[];
   suggestedListName?: string | null;
   isFilmContent?: boolean;
+  /** Poster frame of the source clip (durable R2 url or YouTube thumb). Written
+   *  onto every saved film as `socialThumbnail` so its card shows a preview. */
+  videoThumbnail?: string | null;
   errorCode?: ExtractionErrorCode | null;
 };

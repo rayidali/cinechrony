@@ -59,6 +59,7 @@ const VALID_STATUSES: readonly MovieStatus[] = ['To Watch', 'Watched'];
 export type AddMovieInput = {
   movieData: SearchResult;
   socialLink?: string;
+  socialThumbnail?: string;
   note?: string;
   status?: MovieStatus;
 };
@@ -91,6 +92,7 @@ export async function addMovieToList(
     throw new MovieValidationError('Invalid status.');
   }
   const socialLink = (input.socialLink ?? '').slice(0, MAX_SOCIAL_LINK_LENGTH);
+  const socialThumbnail = (input.socialThumbnail ?? '').slice(0, MAX_SOCIAL_LINK_LENGTH);
   const note = (input.note ?? '').slice(0, MAX_NOTE_LENGTH);
 
   const allowed = await canEditList(callerUid, listOwnerId, listId);
@@ -125,6 +127,7 @@ export async function addMovieToList(
     addedByPhotoURL: userData?.photoURL || null,
     addedByUsername: userData?.username || null,
     socialLink,
+    ...(socialThumbnail ? { socialThumbnail } : {}),
     status,
     createdAt: FieldValue.serverTimestamp(),
     tmdbId: movieData.tmdbId || parseInt(movieData.id, 10) || null,

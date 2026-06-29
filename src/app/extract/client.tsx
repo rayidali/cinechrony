@@ -20,6 +20,7 @@ import { haptic } from '@/lib/haptics';
 import { ListPickerSheet, type ListDestination, type PickableList } from '@/components/list-picker-sheet';
 import { useToast } from '@/hooks/use-toast';
 import type { MovieList } from '@/lib/types';
+import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { ExtractionJobView, ExtractionFilm } from '@/lib/extraction-types';
 
 type Phase = 'input' | 'processing' | 'result' | 'failed';
@@ -62,9 +63,30 @@ export default function ExtractClient() {
     [firestore, user],
   );
   const { data: lists } = useCollection<MovieList>(listsQuery);
-  const pickable: PickableList[] = (lists || []).map((l) => ({
-    id: l.id, name: l.name, ownerId: user?.uid || '', isPublic: l.isPublic, movieCount: l.movieCount,
-  }));
+
+  // Lists shared WITH the caller (collaborator), so the picker matches the
+  // add-to-list drawer and you can save extracted films into a friend's list.
+  const [sharedLists, setSharedLists] = useState<CollaborativeListSummary[]>([]);
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    apiCall<{ lists: CollaborativeListSummary[] }>('GET', '/api/v1/me/collaborative-lists')
+      .then((res) => { if (!cancelled) setSharedLists(res.lists ?? []); })
+      .catch(() => { /* picker still works with owned lists only */ });
+    return () => { cancelled = true; };
+  }, [user]);
+
+  const pickable: PickableList[] = [
+    ...(lists || []).map((l) => ({
+      id: l.id, name: l.name, ownerId: user?.uid || '', isPublic: l.isPublic,
+      movieCount: l.movieCount, coverImageUrl: l.coverImageUrl ?? null,
+    })),
+    ...sharedLists.map((l) => ({
+      id: l.id, name: l.name, ownerId: l.ownerId, isPublic: l.isPublic,
+      coverImageUrl: l.coverImageUrl ?? null,
+      sharedBy: l.ownerDisplayName || l.ownerUsername || 'a friend',
+    })),
+  ];
 
   const finalize = useCallback(
     (j: ExtractionJobView) => {
@@ -362,7 +384,14 @@ function ResultState({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-headline text-[16px] font-bold lowercase tracking-[-0.01em]">{f.title}</p>
-                <p className="font-mono text-[11px] text-muted-foreground">{sub}{f.mediaType === 'tv' && f.year ? ' · tv' : ''}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-mono text-[11px] text-muted-foreground">{sub}{f.mediaType === 'tv' && f.year ? ' · tv' : ''}</p>
+                  {f.imdbRating && (
+                    <span className="rounded bg-warning px-1.5 py-px font-mono text-[10px] font-bold tabular-nums text-foreground">
+                      IMDb {f.imdbRating}
+                    </span>
+                  )}
+                </div>
                 {f.evidence?.quote && (
                   <p className="mt-0.5 truncate font-body text-[12.5px] italic text-muted-foreground">“{f.evidence.quote}”</p>
                 )}

@@ -837,7 +837,7 @@ export function MovieDrawer({
                 {/* ── the clip ── */}
                 {(hasEmbeddableVideo || movie.socialLink) && (
                   <Block title="the clip">
-                    {hasEmbeddableVideo && <VideoEmbed url={movie.socialLink} autoLoad autoPlay />}
+                    {hasEmbeddableVideo && <VideoEmbed url={movie.socialLink} thumbnailUrl={movie.socialThumbnail} />}
                     {movie.socialLink && (
                       <Button asChild variant="outline" className="w-full mt-3">
                         <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">

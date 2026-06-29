@@ -89,6 +89,33 @@ export function parseVideoUrl(url: string | undefined): ParsedVideo | null {
 }
 
 /**
+ * Best-effort thumbnail/poster URL for a video, with no network call.
+ *
+ * - A `stored` thumbnail (captured + re-hosted during extraction) always wins.
+ * - YouTube exposes permanent public thumbnails derived from the video id, so
+ *   we can always show a poster for a Short even without a stored one.
+ * - TikTok / Instagram have no stable public thumbnail URL (their CDN links are
+ *   signed + expire), so without a stored one we return null and the UI shows a
+ *   branded placeholder instead of a broken image.
+ */
+export function getVideoThumbnail(
+  url: string | undefined,
+  stored?: string | null,
+): string | null {
+  if (stored && /^https?:\/\//.test(stored)) return stored;
+  const parsed = parseVideoUrl(url);
+  if (parsed?.provider === 'youtube' && parsed.videoId) {
+    return youTubeThumbnail(parsed.videoId);
+  }
+  return null;
+}
+
+/** YouTube's always-available 480px thumbnail (hqdefault never 404s). */
+export function youTubeThumbnail(videoId: string): string {
+  return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+}
+
+/**
  * Get the display name for a video provider
  */
 export function getProviderDisplayName(provider: VideoProvider): string {

@@ -1,16 +1,26 @@
 'use client';
 
 import { Drawer } from 'vaul';
-import { Check, ListPlus, Lock, Globe } from 'lucide-react';
+import { Check, ListPlus, Film } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { seededGradient } from '@/lib/seeded-gradient';
 
 /** Where a film should go: an existing list, or a new list to be created on save. */
 export type ListDestination =
   | { kind: 'new' }
   | { kind: 'list'; ownerId: string; listId: string; name: string };
 
-export type PickableList = { id: string; name: string; ownerId: string; isPublic?: boolean; movieCount?: number };
+export type PickableList = {
+  id: string;
+  name: string;
+  ownerId: string;
+  isPublic?: boolean;
+  movieCount?: number;
+  coverImageUrl?: string | null;
+  /** Owner's name when this is a list shared WITH the caller (collaborator). */
+  sharedBy?: string | null;
+};
 
 /**
  * Reusable "which list?" picker (Vaul) — choose an existing list OR create a new
@@ -72,24 +82,38 @@ export function ListPickerSheet({
 
             {lists.map((l) => {
               const active = current.kind === 'list' && current.listId === l.id;
+              // Match the add-to-list drawer: a coloured film-strip tile (or cover),
+              // with a subtitle that surfaces shared-by / visibility / count.
+              const subtitle = l.sharedBy
+                ? `shared by ${l.sharedBy}`
+                : [
+                    l.isPublic ? 'public' : 'private',
+                    typeof l.movieCount === 'number' ? `${l.movieCount} ${l.movieCount === 1 ? 'film' : 'films'}` : null,
+                  ].filter(Boolean).join(' · ');
               return (
                 <button
-                  key={l.id}
+                  key={`${l.ownerId}_${l.id}`}
                   onClick={() => pick({ kind: 'list', ownerId: l.ownerId, listId: l.id, name: l.name })}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-[14px] px-3 py-2.5 text-left transition-colors active:bg-foreground/[0.04]',
-                    active && 'bg-foreground/[0.04]',
+                    'flex w-full items-center gap-3.5 rounded-[14px] px-3 py-2.5 text-left transition-colors active:bg-foreground/[0.04]',
+                    active && 'bg-primary/[0.06]',
                   )}
                 >
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-secondary text-muted-foreground">
-                    {l.isPublic ? <Globe className="h-[18px] w-[18px]" /> : <Lock className="h-[18px] w-[18px]" />}
+                  <span
+                    className="relative flex h-[46px] w-[46px] shrink-0 items-center justify-center overflow-hidden rounded-[12px]"
+                    style={!l.coverImageUrl ? { background: seededGradient(l.name) } : undefined}
+                  >
+                    {l.coverImageUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={l.coverImageUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Film className="h-5 w-5 text-white/85" strokeWidth={1.8} />
+                    )}
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate font-headline text-[16px] font-semibold lowercase text-foreground">{l.name}</span>
-                    {typeof l.movieCount === 'number' && (
-                      <span className="block font-mono text-[11px] text-muted-foreground">
-                        {l.movieCount} {l.movieCount === 1 ? 'film' : 'films'}
-                      </span>
+                    <span className="block truncate font-headline text-[16px] font-bold lowercase tracking-[-0.01em] text-foreground">{l.name}</span>
+                    {subtitle && (
+                      <span className="mt-0.5 block truncate font-mono text-[11px] lowercase text-muted-foreground">{subtitle}</span>
                     )}
                   </span>
                   {active && <Check className="h-5 w-5 shrink-0 text-primary" />}

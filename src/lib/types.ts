@@ -146,6 +146,7 @@ export type Movie = {
   posterHint: string;
   addedBy: UserId;
   socialLink?: string;
+  socialThumbnail?: string; // poster frame of the source clip (for the card preview)
   status: 'To Watch' | 'Watched';
   createdAt?: Date;
   // Media type (movie or tv)

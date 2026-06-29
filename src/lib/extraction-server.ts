@@ -22,10 +22,12 @@ import { after } from 'next/server';
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
-import { acquireVideo } from '@/lib/video-acquire-server';
+import { acquireVideo, type AcquiredVideo } from '@/lib/video-acquire-server';
 import { analyzeForFilms, captionCandidates, isGeminiConfigured, type GeminiAnalysis, type RawFilmCandidate } from '@/lib/gemini-server';
 import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
 import { createList } from '@/lib/lists-server';
+import { rehostImageToR2 } from '@/lib/r2-server';
+import { parseVideoUrl, youTubeThumbnail } from '@/lib/video-utils';
 import type { SearchResult } from '@/lib/types';
 import type {
   ExtractionErrorCode,
@@ -50,6 +52,7 @@ type CacheDoc = {
   films?: ExtractionFilm[];
   suggestedListName?: string | null;
   isFilmContent?: boolean;
+  videoThumbnail?: string | null;
   canonicalUrl?: string;
   provider?: ExtractionProvider;
   startedAt?: FirebaseFirestore.Timestamp;
@@ -136,6 +139,7 @@ type JobDoc = {
   films?: ExtractionFilm[];
   suggestedListName?: string | null;
   isFilmContent?: boolean;
+  videoThumbnail?: string | null;
   follower?: boolean; // resolves from the shared cache (didn't run its own pipeline)
   fromCache?: boolean;
 };
@@ -150,6 +154,7 @@ function toView(jobId: string, d: JobDoc): ExtractionJobView {
     films: d.films,
     suggestedListName: d.suggestedListName ?? null,
     isFilmContent: d.isFilmContent,
+    videoThumbnail: d.videoThumbnail ?? null,
     errorCode: (d.errorCode as ExtractionJobView['errorCode']) ?? null,
   };
 }
@@ -188,6 +193,7 @@ export async function createExtraction(
       films: cached!.films ?? [],
       suggestedListName: cached!.suggestedListName ?? null,
       isFilmContent: cached!.isFilmContent ?? (cached!.films?.length ?? 0) > 0,
+      videoThumbnail: cached!.videoThumbnail ?? null,
       fromCache: true,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
     });
@@ -253,6 +259,7 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
         films: c!.films ?? [],
         suggestedListName: c!.suggestedListName ?? null,
         isFilmContent: c!.isFilmContent ?? (c!.films?.length ?? 0) > 0,
+        videoThumbnail: c!.videoThumbnail ?? null,
         errorCode: null,
         updatedAt: FieldValue.serverTimestamp(),
       };
@@ -381,6 +388,7 @@ export async function saveExtraction(
       const { isNew } = await addMovieToList(uid, ownerId, listId, {
         movieData: toSearchResult(film),
         socialLink: job.canonicalUrl, // the video that surfaced it plays on the card later
+        socialThumbnail: job.videoThumbnail || undefined, // its poster frame for the card preview
         status: 'To Watch',
       });
       results.push({ tmdbId, ok: true, listId, deduped: !isNew });
@@ -426,6 +434,7 @@ async function finishJob(
   films: ExtractionFilm[],
   suggestedListName: string | null,
   analyzedBy: string,
+  videoThumbnail: string | null = null,
 ): Promise<void> {
   const isFilmContent = films.length > 0;
   await db.collection(CACHE).doc(job.urlHash).set({
@@ -435,6 +444,7 @@ async function finishJob(
     films,
     suggestedListName: films.length ? suggestedListName : null,
     isFilmContent,
+    videoThumbnail: videoThumbnail ?? null,
     analyzedBy,
     createdAt: FieldValue.serverTimestamp(),
   });
@@ -444,9 +454,35 @@ async function finishJob(
     films,
     suggestedListName: films.length ? suggestedListName : null,
     isFilmContent,
+    videoThumbnail: videoThumbnail ?? null,
     errorCode: null,
     updatedAt: FieldValue.serverTimestamp(),
   });
+}
+
+/**
+ * Best-effort poster frame for the source clip, captured at pipeline time so it's
+ * persisted with the result (and re-used by every cache follower):
+ *   - YouTube → the permanent public thumbnail derived from the video id.
+ *   - IG/TikTok → the Apify-provided cover, RE-HOSTED to R2 so it doesn't expire
+ *     (their CDN urls are signed + short-lived). If R2 isn't configured or the
+ *     rehost fails, fall back to the raw url (still better than nothing short-term).
+ * Always resolves (never throws) — a missing thumbnail just shows a branded
+ * placeholder on the card.
+ */
+async function captureThumbnail(job: JobDoc, video: AcquiredVideo): Promise<string | null> {
+  try {
+    if (job.provider === 'youtube') {
+      const vid = parseVideoUrl(job.canonicalUrl)?.videoId;
+      return vid ? youTubeThumbnail(vid) : null;
+    }
+    if (video.kind !== 'media' || !video.thumbnailUrl) return null;
+    const key = `extraction-thumbs/${job.urlHash}.jpg`;
+    const rehosted = await rehostImageToR2(video.thumbnailUrl, key);
+    return rehosted || video.thumbnailUrl;
+  } catch {
+    return null;
+  }
 }
 
 async function failJob(
@@ -511,9 +547,13 @@ async function runRealPipeline(jobId: string): Promise<void> {
     }
 
     await setStage(ref, 'matching');
-    const films = await groundFilms(analysis.films);
+    // Ground the films + capture the clip's poster frame concurrently.
+    const [films, videoThumbnail] = await Promise.all([
+      groundFilms(analysis.films),
+      captureThumbnail(job, video),
+    ]);
 
-    await finishJob(db, ref, job, films, analysis.suggestedListName, 'gemini');
+    await finishJob(db, ref, job, films, analysis.suggestedListName, 'gemini', videoThumbnail);
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
     await failJob(ref, classifyError(err));
@@ -574,6 +614,8 @@ async function groundOne(c: RawFilmCandidate): Promise<ExtractionFilm | null> {
       (c.year ? results.find((r) => (r.release_date || r.first_air_date || '').startsWith(c.year!)) : null) ||
       results[0];
     const date = best.release_date || best.first_air_date || '';
+    // IMDb rating is best-effort (OMDB) — it must never block or fail grounding.
+    const imdbRating = await imdbRatingFor(best.id, c.mediaType);
     return {
       tmdbId: best.id,
       title: best.title || best.name || c.title,
@@ -582,10 +624,65 @@ async function groundOne(c: RawFilmCandidate): Promise<ExtractionFilm | null> {
       posterUrl: best.poster_path ? `${TMDB_IMG}${best.poster_path}` : null,
       confidence: c.confidence,
       evidence: normalizeEvidence(c.evidence),
+      imdbRating,
     };
   } catch {
     return null;
   }
+}
+
+// ── IMDb rating (TMDB external_ids → OMDB), best-effort + cached + bounded ─────
+
+const OMDB_FETCH_TIMEOUT_MS = 4500;
+const IMDB_CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+/** Process-local cache so repeat films across scans don't re-hit OMDB (whose
+ *  free tier is 1k/day). The shared extraction_cache already dedupes per-video;
+ *  this dedupes per-film across different videos in the same warm instance. */
+const imdbCache = new Map<string, { rating: string | null; exp: number }>();
+
+async function fetchJsonWithTimeout(url: string, headers?: Record<string, string>): Promise<unknown | null> {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), OMDB_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { headers, signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+/** Resolve the IMDb rating for a TMDB id. Returns null on any miss/failure. */
+async function imdbRatingFor(tmdbId: number, mediaType: 'movie' | 'tv'): Promise<string | null> {
+  const omdbKey = process.env.OMDB_API_KEY;
+  const token = tmdbToken();
+  if (!omdbKey || !token) return null;
+
+  const cacheKey = `${mediaType}:${tmdbId}`;
+  const hit = imdbCache.get(cacheKey);
+  if (hit && hit.exp > Date.now()) return hit.rating;
+
+  let rating: string | null = null;
+  try {
+    const path = mediaType === 'tv' ? 'tv' : 'movie';
+    const ext = (await fetchJsonWithTimeout(
+      `https://api.themoviedb.org/3/${path}/${tmdbId}/external_ids`,
+      { Authorization: `Bearer ${token}` },
+    )) as { imdb_id?: string } | null;
+    const imdbId = ext?.imdb_id;
+    if (imdbId) {
+      const omdb = (await fetchJsonWithTimeout(
+        `https://www.omdbapi.com/?i=${encodeURIComponent(imdbId)}&apikey=${omdbKey}`,
+      )) as { imdbRating?: string } | null;
+      if (omdb?.imdbRating && omdb.imdbRating !== 'N/A') rating = omdb.imdbRating;
+    }
+  } catch {
+    rating = null;
+  }
+  imdbCache.set(cacheKey, { rating, exp: Date.now() + IMDB_CACHE_TTL_MS });
+  return rating;
 }
 
 // ── STUB pipeline (fixtures) — tests + before keys are configured ─────────────
