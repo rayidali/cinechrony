@@ -327,6 +327,31 @@ function ProcessingState({ stage }: { stage: string }) {
   );
 }
 
+/** Per-film match confidence (Gemini's honesty signal). Strong matches are stated
+ *  outright in the video; "double-check" ones rest on footage/poster recognition. */
+function ConfidenceChip({ confidence }: { confidence: number }) {
+  const c = confidence ?? 0;
+  if (c >= 0.8) {
+    return (
+      <span className="rounded bg-success px-1.5 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-success-foreground">
+        strong match
+      </span>
+    );
+  }
+  if (c >= 0.6) {
+    return (
+      <span className="rounded bg-secondary px-1.5 py-px font-mono text-[10px] font-bold tabular-nums text-muted-foreground">
+        {Math.round(c * 100)}% match
+      </span>
+    );
+  }
+  return (
+    <span className="rounded bg-secondary px-1.5 py-px font-mono text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+      low · double-check
+    </span>
+  );
+}
+
 function ResultState({
   films, removed, toggleRemove, destLabel, isNew, newListName, setNewListName, openPicker,
 }: {
@@ -384,13 +409,14 @@ function ResultState({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="truncate font-headline text-[16px] font-bold lowercase tracking-[-0.01em]">{f.title}</p>
-                <div className="flex items-center gap-1.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <p className="font-mono text-[11px] text-muted-foreground">{sub}{f.mediaType === 'tv' && f.year ? ' · tv' : ''}</p>
                   {f.imdbRating && (
                     <span className="rounded bg-warning px-1.5 py-px font-mono text-[10px] font-bold tabular-nums text-foreground">
                       IMDb {f.imdbRating}
                     </span>
                   )}
+                  <ConfidenceChip confidence={f.confidence} />
                 </div>
                 {f.evidence?.quote && (
                   <p className="mt-0.5 truncate font-body text-[12.5px] italic text-muted-foreground">“{f.evidence.quote}”</p>

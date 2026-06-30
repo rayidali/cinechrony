@@ -39,10 +39,23 @@ export function isGeminiConfigured(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
 
-const PROMPT = `You are watching a short social video (e.g. a TikTok, Reel, or YouTube Short).
-Identify EVERY movie or TV show referenced by ANY channel: spoken audio, text shown
-on screen, the caption, or recognizable footage/posters. Be thorough — these videos
-are often silent text-overlay countdowns or montages.
+const PROMPT = `You are watching a short social video (a TikTok, Reel, or YouTube Short) to find
+the movies and TV shows it actually references.
+
+PRECISION OVER QUANTITY. Only include a title when you have CLEAR evidence for it:
+  - its name is spoken in the audio, or
+  - its title is shown as text on screen, or
+  - its title appears in the caption, or
+  - you recognize it unmistakably from its poster or a well-known scene.
+
+Hard rules:
+  - Do NOT guess from ambiguous footage. If you are not reasonably sure, leave it out.
+  - Do NOT split ONE film into several entries. The same movie shown across multiple
+    scenes/shots is ONE title, listed once.
+  - Each distinct title appears at most ONCE.
+  - Set confidence HONESTLY: ~0.9+ only when the title is explicitly named (audio) or
+    shown as text (on-screen/caption); use 0.4-0.7 when it rests on footage/poster
+    recognition alone. A wrong guess at high confidence is worse than omitting it.
 
 For each title give: the title, the release year if determinable (else null),
 mediaType ("movie" or "tv"), a confidence 0-1, and evidence (which channel it came
@@ -50,8 +63,8 @@ from — "audio" | "on-screen" | "caption" | "footage" — a short quote, and th
 timestamp in seconds if visible, else null).
 
 If the video is a curated list (e.g. "top 5 crime films"), suggest a short LOWERCASE
-list name. If the video references no films/TV at all, return films: [] and
-isFilmContent: false. Do NOT invent titles you aren't reasonably sure about.`;
+list name and include every DISTINCT film it lists. If the video references no
+films/TV at all, return films: [] and isFilmContent: false.`;
 
 const RESPONSE_SCHEMA = {
   type: 'object',

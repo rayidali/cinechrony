@@ -567,6 +567,41 @@ async function runRealPipeline(jobId: string): Promise<void> {
 const tmdbToken = () => process.env.TMDB_ACCESS_TOKEN || process.env.NEXT_PUBLIC_TMDB_ACCESS_TOKEN || '';
 const TMDB_IMG = 'https://image.tmdb.org/t/p/w342';
 
+/** Gemini candidates below this confidence are dropped BEFORE grounding — they're
+ *  the low-evidence guesses that cause false positives ("one film read as three").
+ *  Tunable via EXTRACTION_CONFIDENCE_MIN; default 0.45 (drops clear junk, keeps
+ *  honest footage-only guesses for the user to confirm). */
+const confidenceFloor = (): number => {
+  const v = Number(process.env.EXTRACTION_CONFIDENCE_MIN);
+  return Number.isFinite(v) && v >= 0 && v <= 1 ? v : 0.45;
+};
+
+const normTitle = (s: string): string =>
+  s.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, ' ').trim();
+
+function titleBigrams(s: string): Set<string> {
+  const t = s.replace(/\s+/g, '');
+  const set = new Set<string>();
+  for (let i = 0; i < t.length - 1; i++) set.add(t.slice(i, i + 2));
+  return set;
+}
+
+/** Dice-coefficient + substring title match. Lenient enough for "the dark knight"
+ *  vs "dark knight", strict enough to reject TMDB's popular-but-unrelated top hit
+ *  (which it returns for almost any query) — so grounded hallucinations get dropped. */
+function titleSimilar(a: string, b: string): boolean {
+  const na = normTitle(a);
+  const nb = normTitle(b);
+  if (!na || !nb) return false;
+  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+  const ba = titleBigrams(na);
+  const bb = titleBigrams(nb);
+  if (!ba.size || !bb.size) return false;
+  let inter = 0;
+  for (const g of ba) if (bb.has(g)) inter++;
+  return (2 * inter) / (ba.size + bb.size) >= 0.55;
+}
+
 const EVIDENCE_CHANNELS = ['audio', 'on-screen', 'caption', 'footage', 'other'] as const;
 type EvidenceChannel = (typeof EVIDENCE_CHANNELS)[number];
 function normalizeEvidence(e: RawFilmCandidate['evidence']): ExtractionFilm['evidence'] {
@@ -579,9 +614,12 @@ function normalizeEvidence(e: RawFilmCandidate['evidence']): ExtractionFilm['evi
 
 export async function groundFilms(candidates: RawFilmCandidate[]): Promise<ExtractionFilm[]> {
   if (!candidates.length || !tmdbToken()) return [];
-  // De-dup candidates before searching (Gemini sometimes repeats a title).
+  // Drop low-confidence guesses + de-dup before searching (Gemini sometimes
+  // repeats a title or floats a low-evidence guess that bloats the result).
+  const floor = confidenceFloor();
   const seen = new Set<string>();
   const unique = candidates.filter((c) => {
+    if ((c.confidence ?? 0) < floor) return false;
     const k = `${c.title.toLowerCase()}|${c.year ?? ''}|${c.mediaType}`;
     if (seen.has(k)) return false;
     seen.add(k);
@@ -610,9 +648,14 @@ async function groundOne(c: RawFilmCandidate): Promise<ExtractionFilm | null> {
     };
     const results = j.results || [];
     if (!results.length) return null;
-    const best =
-      (c.year ? results.find((r) => (r.release_date || r.first_air_date || '').startsWith(c.year!)) : null) ||
-      results[0];
+    // Year match is strong corroboration — trust it. Otherwise only accept TMDB's
+    // top hit if its title actually resembles the candidate (TMDB returns a popular
+    // result for almost any string, so this rejects grounded hallucinations).
+    const byYear = c.year
+      ? results.find((r) => (r.release_date || r.first_air_date || '').startsWith(c.year!))
+      : null;
+    const best = byYear || (titleSimilar(c.title, results[0].title || results[0].name || '') ? results[0] : null);
+    if (!best) return null;
     const date = best.release_date || best.first_air_date || '';
     // IMDb rating is best-effort (OMDB) — it must never block or fail grounding.
     const imdbRating = await imdbRatingFor(best.id, c.mediaType);
