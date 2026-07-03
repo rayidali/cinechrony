@@ -20,7 +20,7 @@ export function CompleteScreen({
       <div className="w-full max-w-sm text-center">
         <div className="mb-6">
           <img
-            src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+            src="/brand/cinechrony-icon.png"
             alt="Cinechrony"
             className="h-20 w-20 mx-auto mb-4"
           />

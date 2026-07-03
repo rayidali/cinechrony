@@ -9,6 +9,15 @@
 > wired). Owner TODO: `APIFY_ACTOR_INSTAGRAM` on Vercel (optional — built-in
 > fallback), Firestore TTL on `extraction_jobs`. Checklists below mark progress.
 >
+> **UPDATE (2026-07-01): accuracy pass — precision + visible confidence** (merge
+> `5fa8472`). Fixes "one film identified as two or three." (1) `PROMPT` rewritten
+> precision-first (clear evidence only; never split one film; honest `confidence`);
+> (2) **confidence floor** `EXTRACTION_CONFIDENCE_MIN` (default 0.45) drops weak
+> candidates before grounding; (3) `groundOne` matches TMDB by release-year OR
+> **title similarity** (`titleSimilar()`, Dice bigrams ≥ 0.55 + substring) instead
+> of the most-popular hit — no match → drop. `ConfidenceChip` per film in the UI.
+> No new API cost. See `HANDOFF.md` § "Extraction precision + confidence".
+>
 > **Status: DECIDED 2026-06-12.** Stack locked by owner: **Apify** (owner has
 > a subscription) for video acquisition · **Gemini** video-native analysis ·
 > per-film list assignment in the confirmation UI · source URL saved as the
@@ -191,6 +200,14 @@ For each candidate: TMDB `search/multi` (title, year hint) → normalize
 similarity ≥ threshold AND year within ±1 (when both known). Attach
 `tmdbId`, `posterUrl`, canonical title/year from TMDB. **No TMDB match →
 dropped.** The model cannot save a film that doesn't exist.
+
+**Implemented (2026-07-01, `5fa8472`):** a candidate below
+`EXTRACTION_CONFIDENCE_MIN` (default 0.45) is dropped in `groundFilms` *before*
+any TMDB call. In `groundOne`, the chosen result is the one whose **release year**
+matches the candidate, else the top hit **only if** `titleSimilar()` accepts it
+(Dice bigram coefficient ≥ 0.55 OR substring match on normalized titles) — so a
+popular-but-unrelated top hit no longer launders a weak guess into a "real" film.
+No confident match → `null` (dropped).
 
 ---
 

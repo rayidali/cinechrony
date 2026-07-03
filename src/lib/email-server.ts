@@ -14,7 +14,7 @@ const REPLY_TO = process.env.RESEND_REPLY_TO || undefined;
 
 // Public, hosted brand logo for emails (data-URIs are unreliable across mail
 // clients; a remote https image is the safe choice).
-const LOGO_URL = 'https://i.postimg.cc/3r1wqyyx/cinechrony-ioslogo-1024-withbg.png';
+const LOGO_URL = '/brand/cinechrony-icon-bg.png';
 const FILM_RED = '#e8543a';
 const INK = '#1a1714';
 const CREAM = '#f3efe6';

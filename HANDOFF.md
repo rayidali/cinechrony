@@ -1,28 +1,38 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-06-28. Project: a social movie-watchlist app
+> Last updated 2026-07-01. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
-> **Resuming?** Two big things landed this stretch:
-> 1. **iOS native bring-up + native-quality pass — MERGED to `main`** (the app
+> **Resuming?** Latest stretch (all on `main`):
+> 1. **Extraction precision pass + visible confidence scores — MERGED to `main`**
+>    (commit `5fa8472`, 2026-07-01). Fixes "one film in the reel gets identified
+>    as two or three" and surfaces a confidence chip per film. No new API cost.
+>    See "Extraction precision + confidence" below.
+> 2. **Marketing-website handover written** — `WEBSITE-HANDOFF.md` at repo root,
+>    for a **separate website repo + Claude Code session** (marketing site +
+>    waitlist + legal/support + PWA-install explainer). See "Website + demos" below.
+> 3. **iOS native bring-up + native-quality pass — MERGED to `main`** (the app
 >    runs on Simulator AND a real iPhone; WebView bugs fixed; app icon; Vaul
 >    menus; keyboard; swipe-back). Plus Letterboxd-import **cost cap** + **reviews
->    fault-tolerance** (also on `main`). See "iOS native bring-up" below.
-> 2. **Phase C — the AI "share a video → extract films" hero feature: web-first
->    flow is COMPLETE & MERGED to `main`** (merge `34bd93e`, 2026-06-28). C.1a–d +
->    C.2; validated live on the Vercel preview by the owner across Instagram,
->    YouTube, and TikTok. Hardened for scale + reliability (cache-stampede dedup,
->    self-healing jobs, multi-model Gemini fallback, caption net). See "Phase C".
+>    fault-tolerance**. See "iOS native bring-up" below.
+> 4. **Phase C — the AI "share a video → extract films" hero feature: web-first
+>    flow COMPLETE & MERGED to `main`** (merge `34bd93e`, 2026-06-28). C.1a–d +
+>    C.2; validated live on the Vercel preview across Instagram, YouTube, and
+>    TikTok. Hardened for scale + reliability (cache-stampede dedup, self-healing
+>    jobs, multi-model Gemini fallback, caption net). See "Phase C".
 >
 > **Immediate next: C.3 — iOS Share Extension** (the native "Share → Cinechrony"
 > doorway; `/extract?url=` is already wired for it — the share extension just
-> needs to pass the shared URL into it). **Owner TODO:** add
+> needs to pass the shared URL into it). **iOS distribution:** once the owner buys
+> the paid Apple Developer account ($99/yr), **TestFlight** is the "one-button"
+> beta channel — a public link → tester taps Install (up to 10,000 external
+> testers; first external build needs a light beta review). **Owner TODO:** add
 > `APIFY_ACTOR_INSTAGRAM` to Vercel (IG works without it via a built-in fallback);
 > rebuild the iOS app in Xcode to get `/extract` in-app; optionally set a Firestore
 > TTL on `extraction_jobs.createdAt`. The thin website slice (`cinechrony.com`
 > origin + a `/support` page — `/privacy`+`/terms` exist) is still a
-> pre-TestFlight to-do.
+> pre-TestFlight to-do; the full marketing site now has its own handover.
 
 ---
 
@@ -335,6 +345,61 @@ mirror env to Vercel + redeploy (the iOS app calls prod `movienight-kappa`).
 share intent. Plus a known v1 limit: the save endpoint resolves films from the
 job only (search-to-add of AI-missed films is a fast-follow); reviews/power-user
 caps noted in `PHASE-C-PLAN.md`.
+
+---
+
+## Extraction precision + confidence (2026-07-01, commit `5fa8472`, on `main`)
+
+Fixes the reported "only one movie in the reel but it identifies two or three,"
+and makes the AI's certainty **visible** to the user. Three root causes, three
+fixes, **no new API cost** (prompt + post-processing only):
+
+1. **The prompt was recall-biased** (old: "identify EVERY movie… be thorough").
+   Rewrote `PROMPT` in `src/lib/gemini-server.ts` to **precision-first**: only
+   include a title with clear evidence (spoken / on-screen text / caption /
+   unmistakable poster-or-scene); **never split one film into several entries**;
+   each distinct title at most once; set `confidence` **honestly** (~0.9+ only
+   when explicitly named/shown; 0.4–0.7 for footage/poster recognition alone).
+2. **Confidence was returned but unused.** Added a **confidence floor** in
+   `src/lib/extraction-server.ts` (`groundFilms`): candidates below
+   `EXTRACTION_CONFIDENCE_MIN` (env, default **0.45**) are dropped before
+   grounding.
+3. **TMDB grounding laundered hallucinations** — it took `results[0]` (the most
+   *popular* hit) even when it didn't match the title. `groundOne` now picks a
+   result by **release-year match** OR **title similarity** (Dice bigram
+   coefficient ≥ 0.55 + substring check, `titleSimilar()`); no confident match →
+   the candidate is **dropped**, not guessed.
+
+**UI:** `src/app/extract/client.tsx` renders a `ConfidenceChip` per film —
+`strong match` (sage) ≥ 0.8 · `NN% match` ≥ 0.6 · `low · double-check` below. The
+existing per-film **X (remove)** still lets the user drop any film before save;
+confidence is transparency, the server floor is the real filter.
+
+**Env:** optional `EXTRACTION_CONFIDENCE_MIN` (0–1, default 0.45). No key needed.
+**Verification:** typecheck ✓ · `npm run build` ✓ · `npm run build:static` ✓ ·
+audit **477/477**. **Test on a FRESH reel** — old results are cached ~30 days and
+won't have the new logic.
+
+---
+
+## Website + demos (2026-07-01)
+
+- **`WEBSITE-HANDOFF.md`** (repo root, untracked — commit it or copy it out) is a
+  full brief for a **separate marketing-website repo + Claude Code session**:
+  mission, sitemap (`/`, `/waitlist`, `/install`, `/privacy`, `/terms`,
+  `/support`), stack (Next.js + Tailwind on Vercel, Resend Audiences for the
+  waitlist), brand tokens/fonts/voice, and the coordination table with this repo.
+  **Key gotcha it flags:** split domains — `cinechrony.com` = marketing,
+  `app.cinechrony.com` = the app — because a PWA installs *the origin you're on*,
+  so `/install` must route users to the app origin (the real install prompt lives
+  in **this** repo, not the marketing site).
+- **Product-demo scripts** for the AI feature (15s silent hook · 30s VO ·
+  ~12s website-hero loop + caption options) were delivered in-session to the owner
+  (brand voice: lowercase, no dashes, no emoji, wordmark `cinechrony`). They're
+  meant as on-screen captions/section copy for the website; reuse from chat.
+- **Not yet built in this repo (when requested):** the PWA `<InstallPrompt>`
+  component (one-tap Android `beforeinstallprompt` + guided Safari sheet +
+  in-app-browser "open in Safari" nudge) and the `/support` page.
 
 ---
 

@@ -5,7 +5,7 @@ export function SplashScreen() {
     <div className="flex flex-col items-center justify-center min-h-screen p-4">
       <div className="flex flex-col items-center">
         <img
-          src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+          src="/brand/cinechrony-icon.png"
           alt="Cinechrony"
           className="h-24 w-24 mb-6"
         />

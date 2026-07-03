@@ -39,8 +39,11 @@ to make that feature possible and safe to ship.
 | Jun 13–24 | **Phase 0.7** — v3 iOS-native redesign + motion + story share | ✅ merged |
 | Jun 27 | **iOS native bring-up** — Simulator + real device; 5 WebView bugs, app icon, Vaul menus, keyboard, swipe-back | ✅ merged |
 | Jun 27 | **Letterboxd import hardening** — Apify cost-cap + reviews fault-tolerance | ✅ merged |
-| Jun 28 | **Phase C (web-first)** — AI share-a-video → extract films → save to lists | 🔧 `feat/phase-c-extraction` |
+| Jun 28 | **Phase C (web-first)** — AI share-a-video → extract films → save to lists | ✅ merged |
+| Jul 1 | **Extraction accuracy** — precision prompt + confidence floor + smarter TMDB match + a confidence chip | ✅ merged |
+| Jul 1 | **Website handover** — brief for a separate marketing-site repo (`WEBSITE-HANDOFF.md`) | ✅ written |
 | After | **Phase C (native)** — iOS Share Extension + Android intent | ⏳ |
+| After | **Marketing site + TestFlight beta** — separate repo; paid Apple account | ⏳ |
 | After | **Phase D** — App Store + Play Store submission | ⏳ |
 | Parallel | **Phase E** — TikTok/IG marketing automation | ⏳ |
 
@@ -623,6 +626,63 @@ The result: paste a link → watch the progress → see the films it found with 
 exact "receipt" of where each came from → tap which list → save. It's on a branch,
 validated end-to-end, and the next step is the native **Share → Cinechrony** button
 (the web `/extract` page is already wired to receive shared links).
+
+---
+
+## Chapter — Making the AI more accurate, and honest about it (Jul 1)
+
+Once the owner started using the feature for real, one problem showed up: a reel
+that clearly featured **one** movie would sometimes come back with **two or
+three**. The app was over-eager.
+
+We traced it to three places and fixed all three, without spending a cent more on
+the AI:
+
+1. **The instructions we gave the AI were the real culprit.** We'd literally told
+   it to "identify EVERY movie… be thorough" — so it reached. We rewrote the brief
+   to prize *being right over being complete*: only name a film when there's clear
+   evidence (someone says it, it's written on screen or in the caption, or the
+   poster is unmistakable), never split one movie into several entries, and be
+   **honest about how sure you are**.
+2. **The AI already gave a confidence number for each film, and we were ignoring
+   it.** Now anything it's not at least moderately sure about (a tunable floor,
+   default 45%) gets dropped before we even look it up.
+3. **The lookup step was too trusting.** When we checked a title against the movie
+   database, we were taking the *most popular* result even if the name didn't
+   really match. Now it has to match by release year or by actual title
+   similarity, otherwise we drop it rather than guess.
+
+And we made the certainty **visible to the person**: each film now shows a small
+chip. "strong match" when the AI is confident, a percentage when it's middling,
+and "low. double-check" when it's a guess. The user can still remove any film
+before saving. One gotcha for testing: old results are cached for about a month,
+so you have to try a **fresh reel** to see the new behavior.
+
+---
+
+## Chapter — The website gets its own home (Jul 1)
+
+The plan is to make `cinechrony.com` a proper marketing site: demo videos of the
+AI feature, a waitlist to sign up, and the legal/support pages the App Store
+requires. The owner decided to build that in a **separate repo and a separate
+Claude Code session** (keeping the app repo lean), so we wrote a handover file,
+`WEBSITE-HANDOFF.md`, that briefs that new session on everything: what to build,
+the brand rules (lowercase, no dashes, no emoji), the fonts and colors, and how
+the two sites should talk to each other.
+
+The one thing that's easy to get wrong, and which the handover hammers on: a
+"install this app to your home screen" button installs *whatever website you're
+currently looking at*. So the marketing site can't be the thing people install —
+the app needs its own address (we recommend `app.cinechrony.com`), and the
+install button has to send people there first. We also wrote a few short
+demo-video scripts (on-screen captions plus optional voiceover) for the owner to
+use over their screen recordings.
+
+On distribution: the honest answer to "is there a one-button way to let people use
+the iOS app?" is **TestFlight**. Once the owner buys the $99/yr Apple Developer
+account, TestFlight gives a public link; a tester taps it, installs Apple's
+TestFlight app, and taps Install. That's the beta channel, up to 10,000 people,
+and it's the real reason to get the account before the full App Store launch.
 
 ---
 

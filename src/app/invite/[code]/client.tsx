@@ -13,7 +13,7 @@ import { PosterWall } from '@/components/v3/poster-wall';
 import { CtaButton, IconTile } from '@/components/v3/onboarding-kit';
 import type { ListInvite } from '@/lib/types';
 
-const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const APP_ICON = '/brand/cinechrony-icon.png';
 
 /**
  * Invite acceptance — v3 (Phase 0.7 Wave 7). Cinematic poster-wall hero + the

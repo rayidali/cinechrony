@@ -13,7 +13,7 @@ import { PosterWall } from '@/components/v3/poster-wall';
 import { FieldCard, CtaButton, OrDivider, filmRedCaret } from '@/components/v3/onboarding-kit';
 import { SocialAuthRow } from '@/components/v3/social-auth-row';
 
-const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const APP_ICON = '/brand/cinechrony-icon.png';
 const EMAIL_RE = /^\S+@\S+\.\S+$/;
 
 /**

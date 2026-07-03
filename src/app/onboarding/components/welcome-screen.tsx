@@ -5,7 +5,7 @@ import { PosterWall } from '@/components/v3/poster-wall';
 import { CtaButton } from '@/components/v3/onboarding-kit';
 import { haptic } from '@/lib/haptics';
 
-const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const APP_ICON = '/brand/cinechrony-icon.png';
 
 /**
  * 001 · welcome — Phase 0.7 Wave 7. Poster wall + scrim, popcorn lockup, the

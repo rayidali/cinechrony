@@ -39,7 +39,7 @@ import { PushNotificationToggle } from '@/components/push-notification-prompt';
 import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
 
-const APP_ICON = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const APP_ICON = '/brand/cinechrony-icon.png';
 
 export default function SettingsPage() {
   const { user, isUserLoading } = useUser();

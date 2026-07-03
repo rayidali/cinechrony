@@ -2,7 +2,7 @@ export default function SettingsLoading() {
   return (
     <div className="flex items-center justify-center min-h-screen">
       <img
-        src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+        src="/brand/cinechrony-icon.png"
         alt="Loading"
         className="h-12 w-12 animate-spin"
       />

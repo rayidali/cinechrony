@@ -242,7 +242,7 @@ export default function ListDetailPage() {
   if (isUserLoading || !user) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-spin" />
+        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-spin" />
       </div>
     );
   }
@@ -286,7 +286,7 @@ export default function ListDetailPage() {
       <main className="min-h-screen font-body text-foreground">
         <div className="container mx-auto p-4 md:p-8">
           <div className="flex flex-col items-center justify-center min-h-[50vh]">
-            <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Not Found" className="h-16 w-16 opacity-50 mb-4" />
+            <img src="/brand/cinechrony-icon.png" alt="Not Found" className="h-16 w-16 opacity-50 mb-4" />
             <h1 className="text-2xl font-headline font-bold mb-2">
               {loadingTimedOut ? 'Could Not Load List' : 'List Not Found'}
             </h1>

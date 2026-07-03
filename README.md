@@ -31,6 +31,7 @@
 
 ## Features
 
+- **AI Video Extraction (hero feature)** — Share a TikTok, Reel, or Short and the app *watches the video* (audio + on-screen text + footage via Gemini), finds every movie and show, grounds each against TMDB with a confidence score, and saves them to your lists with the source clip attached
 - **Collaborative Watchlists** — Invite friends to curate lists together (up to 10 members per list)
 - **Social Links** — Attach TikTok, Instagram Reels, or YouTube links to any movie
 - **Video Embeds** — Auto-play attached social videos directly in the app

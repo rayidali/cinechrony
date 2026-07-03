@@ -329,7 +329,7 @@ export default function ListSettingsPage() {
   if (isUserLoading || isLoadingList) {
     return (
       <div className="flex min-h-[100dvh] items-center justify-center bg-background">
-        <img src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png" alt="Loading" className="h-12 w-12 animate-pulse" />
+        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-pulse" />
       </div>
     );
   }

@@ -2,8 +2,29 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-06-28)
+## Current state (2026-07-01)
 
+- **Extraction precision + visible confidence (2026-07-01, merge `5fa8472`, on
+  `main`).** Fixes "one film in the reel gets identified as two or three" and
+  surfaces certainty to the user. Three fixes, **no new API cost**: (1) the Gemini
+  `PROMPT` (`gemini-server.ts`) rewritten **precision-first** (clear evidence
+  only; never split one film into several; honest `confidence`); (2) a
+  **confidence floor** in `extraction-server.ts` `groundFilms` — candidates below
+  `EXTRACTION_CONFIDENCE_MIN` (env, default 0.45) dropped before grounding; (3)
+  grounding no longer takes the most-*popular* TMDB hit — `groundOne` matches by
+  release-year OR **title similarity** (Dice bigrams ≥ 0.55 + substring,
+  `titleSimilar()`), else drops the candidate. UI: a `ConfidenceChip` per film in
+  `extract/client.tsx` (`strong match` ≥ 0.8 · `NN% match` ≥ 0.6 ·
+  `low · double-check`). **Test on a FRESH reel** (old extractions cached ~30d).
+  Details in `HANDOFF.md` § "Extraction precision + confidence".
+- **Marketing website — handover written (2026-07-01).** `WEBSITE-HANDOFF.md`
+  (repo root) briefs a **separate website repo + Claude Code session** (marketing
+  site + waitlist + legal/support + PWA-install explainer). Key gotcha:
+  `cinechrony.com` = marketing, `app.cinechrony.com` = app (a PWA installs the
+  origin you're on, so `/install` must route to the app origin; the real install
+  prompt lives in THIS repo). Product-demo scripts were delivered in-session.
+  **iOS beta path:** with the paid Apple account, **TestFlight** public link is the
+  effectively-one-tap install channel (up to 10,000 external testers).
 - **Phase C — AI "share a video → extract films" hero feature: web-first flow
   COMPLETE & MERGED to `main` (2026-06-28, merge `34bd93e`).** Validated live on
   the Vercel preview by the owner across IG/YouTube/TikTok.
@@ -290,11 +311,16 @@
   **`cinechrony.com` → Vercel** as the single prod origin + set the iOS
   `NEXT_PUBLIC_API_BASE_URL` to it (see `PHASE-B-HANDOFF.md` §9); add `/privacy` +
   `/support` pages.
-- **NOW (Phase 0.7 done):** thin website slice (domain + privacy/support) → then
-  **Phase C — iOS Share Extension** (hero feature, ~2 weeks; spec in `LAUNCH.md` §C).
-  The polished `cinechrony.com` marketing site runs in parallel during the TestFlight
-  beta. Optional carry-overs: direct-to-IG pasteboard plugin (0.7.6.2/3, needs a
-  native build); welcome-on-signup email (module already there); an `@cinechrony`
+- **NOW (Phase C web-first + extraction precision done):** (1) build the
+  **marketing website** in a separate repo (brief: `WEBSITE-HANDOFF.md`) with the
+  waitlist + legal/support + PWA-install explainer, on the `cinechrony.com` /
+  `app.cinechrony.com` domain split; (2) build the app-repo **PWA `<InstallPrompt>`**
+  + `/support` page; (3) buy the **paid Apple Developer account** → **TestFlight**
+  public-link beta; then (4) **Phase C — iOS Share Extension** (the native doorway;
+  `/extract?url=` ready). Owner's forward plan after beta: turn the feature into
+  push notifications, automate demo content, then submit to the App Store. Optional
+  carry-overs: direct-to-IG pasteboard plugin (0.7.6.2/3, needs a native build);
+  welcome-on-signup email (module already there); an `@cinechrony`
   admin/moderation console (the `admin` claim is already provisioned).
 
 ## Quick Reference
@@ -768,8 +794,9 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-06-24 — Phase 0.7 complete & merged to `main` (`e26871c`);
-post-0.7 launch-prep + Resend email on `main`; website-sequencing decision logged.
+*Last updated: 2026-07-01 — Phase C web-first hero feature merged (`34bd93e`);
+extraction precision pass + visible confidence scores merged (`5fa8472`);
+marketing-website handover (`WEBSITE-HANDOFF.md`) written for a separate repo.
 The "Current state" section at the top of this file is the authoritative
 status; the dated sections below are a historical changelog.*
 

@@ -15,7 +15,7 @@ import { useToast } from '@/hooks/use-toast';
 
 type NotifPage = { notifications: Notification[]; hasMore: boolean; nextCursor?: string };
 
-const POSTER = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const POSTER = '/brand/cinechrony-icon.png';
 
 /** The per-type trailing glyph + its semantic (dark-mode-safe) colour. */
 function typeGlyph(type: NotificationType) {

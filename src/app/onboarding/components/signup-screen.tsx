@@ -68,7 +68,7 @@ export function SignUpScreen({ onComplete, onLogin }: SignUpScreenProps) {
 
       <div className="flex flex-col items-center mb-8">
         <img
-          src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+          src="/brand/cinechrony-icon.png"
           alt="Cinechrony"
           className="h-16 w-16 mb-4"
         />

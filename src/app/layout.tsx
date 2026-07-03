@@ -91,12 +91,12 @@ export const metadata: Metadata = {
   },
   icons: {
     icon: [
-      { url: 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png', sizes: '32x32', type: 'image/png' },
-      { url: 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png', sizes: '192x192', type: 'image/png' },
-      { url: 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png', sizes: '512x512', type: 'image/png' },
+      { url: '/brand/cinechrony-icon.png', sizes: '32x32', type: 'image/png' },
+      { url: '/brand/cinechrony-icon.png', sizes: '192x192', type: 'image/png' },
+      { url: '/brand/cinechrony-icon.png', sizes: '512x512', type: 'image/png' },
     ],
     apple: [
-      { url: 'https://i.postimg.cc/3r1wqyyx/cinechrony-ioslogo-1024-withbg.png', sizes: '180x180', type: 'image/png' },
+      { url: '/brand/cinechrony-icon-bg.png', sizes: '180x180', type: 'image/png' },
     ],
   },
   appleWebApp: {

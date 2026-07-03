@@ -105,7 +105,7 @@ export function ImportingStep({
     return (
       <div className="flex min-h-[100dvh] flex-col items-center justify-center bg-background px-8 text-center text-foreground">
         <img
-          src="https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png"
+          src="/brand/cinechrony-icon.png"
           alt=""
           className="mb-7 h-20 w-20 rounded-[22px]"
         />

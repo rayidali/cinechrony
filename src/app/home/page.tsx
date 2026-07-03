@@ -26,7 +26,7 @@ import { PresencePill } from '@/components/presence-pill';
 import { Section } from '@/components/v3/section';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
-const CINECHRONY_LOGO = 'https://i.postimg.cc/HkXDfKSb/cinechrony-ios-1024-nobg.png';
+const CINECHRONY_LOGO = '/brand/cinechrony-icon.png';
 
 /**
  * Home — the unified editorial feed, v3 iOS-native (Phase 0.7.3.1, `ios-home.jsx`).
