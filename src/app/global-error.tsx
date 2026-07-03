@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
+
 /**
  * Root error boundary. Catches an uncaught error thrown from the root layout
  * (or anything that escapes the per-page `error.tsx`). Before this existed, such
@@ -18,9 +21,10 @@ export default function GlobalError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  if (typeof console !== 'undefined') {
+  useEffect(() => {
+    Sentry.captureException(error); // no-op until the DSN is set
     console.error('[global-error] uncaught app error:', error);
-  }
+  }, [error]);
   return (
     <html lang="en">
       <body

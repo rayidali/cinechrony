@@ -24,6 +24,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { verifyCaller, isAuthError, type VerifiedCaller } from './auth-server';
 
 // ─── Error hierarchy ──────────────────────────────────────────────────────
@@ -152,6 +153,12 @@ function envelopeError(err: ApiError, req: Request): NextResponse {
 
 export function mapUnknownError(err: unknown, req: Request): NextResponse {
   if (err instanceof ApiError) return envelopeError(err, req);
+  // A genuine, unexpected 500 (not one of our typed 4xx ApiErrors) → report it
+  // to Sentry (no-op if the DSN is unset) so server crashes stop being invisible.
+  Sentry.captureException(err, {
+    tags: { source: 'api-route' },
+    extra: { url: req.url, method: req.method },
+  });
   // Surface the message in dev for debugging; hide it in prod to avoid leaking
   // internals through the wire format. The console always gets the full story.
   console.error('[api] uncaught route error:', err);

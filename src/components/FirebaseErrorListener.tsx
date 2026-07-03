@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
 import { useToast } from '@/hooks/use-toast';
@@ -21,6 +22,9 @@ export function FirebaseErrorListener() {
   useEffect(() => {
     const handleError = (error: FirestorePermissionError) => {
       console.error('[FirebaseErrorListener] Firestore permission error:', error);
+      // Report to Sentry (no-op until DSN set) — a spike in these usually means a
+      // firestore.rules regression or a listener attached after sign-out.
+      Sentry.captureException(error, { tags: { source: 'firestore-permission' } });
       toast({
         variant: 'destructive',
         title: 'Action blocked',

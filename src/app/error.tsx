@@ -1,5 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
+import * as Sentry from '@sentry/nextjs';
+
 /**
  * Per-page error boundary. Catches an uncaught render error in the page subtree
  * WITHOUT tearing down the root layout (theme, providers, and the tab bar stay
@@ -14,9 +17,10 @@ export default function PageError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
-  if (typeof console !== 'undefined') {
+  useEffect(() => {
+    Sentry.captureException(error); // no-op until the DSN is set
     console.error('[page-error] uncaught render error:', error);
-  }
+  }, [error]);
   return (
     <div className="min-h-[70dvh] flex items-center justify-center px-6 text-center">
       <div className="max-w-[340px]">
