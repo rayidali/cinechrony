@@ -87,7 +87,11 @@ export function PushNotificationPrompt({ variant = 'banner', onDismiss }: PushNo
       // Subscribe to push
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+        // TS 5.9 made Uint8Array generic (Uint8Array<ArrayBufferLike>) and
+        // tightened BufferSource, which can't prove our key isn't backed by a
+        // SharedArrayBuffer. It always is a plain ArrayBuffer at runtime, so
+        // assert it — keeps the build green across TS versions.
+        applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource,
       });
 
       // Get the subscription as JSON
@@ -265,7 +269,7 @@ export function PushNotificationToggle() {
 
         const subscription = await registration.pushManager.subscribe({
           userVisibleOnly: true,
-          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
+          applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY) as BufferSource, // see note above
         });
 
         const subscriptionJson = subscription.toJSON();
