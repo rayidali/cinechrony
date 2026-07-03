@@ -1,9 +1,9 @@
 'use client';
 
 import Image from 'next/image';
-import { memo, useMemo, useTransition } from 'react';
+import { memo, useEffect, useMemo, useState, useTransition } from 'react';
 import {
-  EyeOff, Eye, Check, Maximize2, Instagram, Youtube, Tv, Loader2, Trash2,
+  EyeOff, Eye, Check, Maximize2, Instagram, Youtube, Tv, Trash2,
 } from 'lucide-react';
 
 import type { Movie } from '@/lib/types';
@@ -13,6 +13,7 @@ import { useUserRatingsCache } from '@/contexts/user-ratings-cache';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
+import { haptic } from '@/lib/haptics';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { getRatingStyle } from '@/lib/utils';
@@ -225,6 +226,18 @@ export const MovieCellRow = memo(function MovieCellRow({
   const { toast } = useToast();
   const { getRating } = useUserRatingsCache();
 
+  // Optimistic status: flip instantly, then let the Firestore snapshot catch up.
+  // Direct writes bypass the client SDK's latency compensation, so without this
+  // the core "I watched this" action visibly stalls ~0.5-1.5s per tap waiting on
+  // the Admin write + WebChannel push. `removed` hides a row optimistically.
+  const [statusOverride, setStatusOverride] = useState<Movie['status'] | null>(null);
+  const [removed, setRemoved] = useState(false);
+  const effectiveStatus = statusOverride ?? movie.status;
+  useEffect(() => {
+    // Drop the override once the live snapshot agrees (successful write landed).
+    if (statusOverride !== null && movie.status === statusOverride) setStatusOverride(null);
+  }, [movie.status, statusOverride]);
+
   const tmdbId = tmdbIdOf(movie);
   const userRating = useMemo(() => getRating(tmdbId), [getRating, tmdbId]);
   const ratingStyle = useMemo(() => getRatingStyle(userRating), [userRating]);
@@ -241,13 +254,16 @@ export const MovieCellRow = memo(function MovieCellRow({
   const handleToggle = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!listId || !effectiveOwnerId) return;
-    const newStatus = movie.status === 'To Watch' ? 'Watched' : 'To Watch';
+    const newStatus = effectiveStatus === 'To Watch' ? 'Watched' : 'To Watch';
+    setStatusOverride(newStatus); // optimistic — instant icon + pill flip
+    haptic('light');
     startTransition(() => {
       void apiCall(
         'PATCH',
         `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
         { status: newStatus },
       ).catch((err) => {
+        setStatusOverride(null); // roll back to the snapshot
         toast({
           variant: 'destructive',
           title: 'Update failed',
@@ -260,23 +276,29 @@ export const MovieCellRow = memo(function MovieCellRow({
   const handleRemove = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!listId || !effectiveOwnerId) return;
+    setRemoved(true); // optimistic — hide the row immediately
+    haptic('light');
+    const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
     startTransition(() => {
       void apiCall(
         'DELETE',
         `/api/v1/lists/${effectiveOwnerId}/${listId}/movies/${movie.id}`,
-      ).catch((err) => {
+      ).then(() => {
+        toast({ title: `${itemType} Removed`, description: `${movie.title} has been removed from your list.` });
+      }).catch((err) => {
+        setRemoved(false); // restore the row on failure
         toast({
           variant: 'destructive',
           title: 'Remove failed',
           description: err instanceof ApiClientError ? err.message : 'Failed to remove movie.',
         });
       });
-      const itemType = movie.mediaType === 'tv' ? 'TV Show' : 'Movie';
-      toast({ title: `${itemType} Removed`, description: `${movie.title} has been removed from your list.` });
     });
   };
 
   const handleClick = () => onOpenDetails?.(movie);
+
+  if (removed) return null;
 
   return (
     <div
@@ -332,10 +354,10 @@ export const MovieCellRow = memo(function MovieCellRow({
             )}
             <span
               className={`inline-flex items-center px-2 py-0.5 rounded-full border border-hair cc-meta text-[10px] lowercase ${
-                movie.status === 'Watched' ? 'text-success' : 'text-muted-foreground'
+                effectiveStatus === 'Watched' ? 'text-success' : 'text-muted-foreground'
               }`}
             >
-              {movie.status}
+              {effectiveStatus}
             </span>
           </div>
 
@@ -347,12 +369,10 @@ export const MovieCellRow = memo(function MovieCellRow({
                 className="h-11 w-11 rounded-full"
                 onClick={handleToggle}
                 disabled={isPending}
-                aria-label={movie.status === 'To Watch' ? 'Mark watched' : 'Mark to watch'}
-                title={movie.status === 'To Watch' ? 'Mark Watched' : 'Mark To Watch'}
+                aria-label={effectiveStatus === 'To Watch' ? 'Mark watched' : 'Mark to watch'}
+                title={effectiveStatus === 'To Watch' ? 'Mark Watched' : 'Mark To Watch'}
               >
-                {isPending ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : movie.status === 'To Watch' ? (
+                {effectiveStatus === 'To Watch' ? (
                   <Eye className="h-4 w-4" />
                 ) : (
                   <EyeOff className="h-4 w-4" />

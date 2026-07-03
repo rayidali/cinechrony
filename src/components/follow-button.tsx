@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Loader2, Check } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction } from '@/lib/use-cached-action';
 import { useUser } from '@/firebase';
@@ -69,24 +69,22 @@ export function FollowButton({
   }, [user, targetUserId, initialIsFollowing, initialIsFollowedByTarget]);
 
   const handleToggleFollow = async () => {
-    if (!user) return;
+    if (!user || isLoading) return;
+    const next = !following;
+    // Optimistic: flip instantly (the label change IS the feedback), then
+    // confirm with the server and roll back on failure — the bookmark-button
+    // pattern. The highest-signal social action must never wait on a round trip.
     haptic('selection');
+    setFollowing(next);
+    onFollowChange?.(next);
+    invalidateCachedAction(`following:${user.uid}`);
     setIsLoading(true);
     try {
-      if (following) {
-        await apiCall('DELETE', `/api/v1/users/${targetUserId}/follow`);
-        setFollowing(false);
-        onFollowChange?.(false);
-        invalidateCachedAction(`following:${user.uid}`);
-        toast({ title: 'unfollowed', description: `you unfollowed @${targetUsername}` });
-      } else {
-        await apiCall('POST', `/api/v1/users/${targetUserId}/follow`);
-        setFollowing(true);
-        onFollowChange?.(true);
-        invalidateCachedAction(`following:${user.uid}`);
-        toast({ title: 'following', description: `you're now following @${targetUsername}` });
-      }
+      await apiCall(next ? 'POST' : 'DELETE', `/api/v1/users/${targetUserId}/follow`);
     } catch (err) {
+      setFollowing(!next); // roll back
+      onFollowChange?.(!next);
+      invalidateCachedAction(`following:${user.uid}`);
       toast({
         variant: 'destructive',
         title: 'Error',
@@ -104,36 +102,25 @@ export function FollowButton({
   const base =
     'inline-flex items-center justify-center gap-1.5 rounded-full font-headline font-semibold lowercase tracking-tight transition-transform active:scale-95 disabled:opacity-60';
 
-  if (isCheckingStatus) {
-    return (
-      <button disabled className={cn(base, dims, 'bg-secondary text-foreground')}>
-        <Loader2 className="h-4 w-4 animate-spin" />
-      </button>
-    );
-  }
-
   // viewer-follows-target wins ("following"); else if they follow us →
-  // "follow back"; else "follow".
+  // "follow back"; else "follow". While the relationship is still resolving we
+  // show the neutral "follow" label (no spinner) — far better than a spinner
+  // pill popping in on the reel / public profile; it self-corrects the instant
+  // status lands, and an early tap is handled optimistically.
   const label = following ? 'following' : followsViewer ? 'follow back' : 'follow';
 
   return (
     <button
       onClick={handleToggleFollow}
-      disabled={isLoading || !user}
+      disabled={isLoading || isCheckingStatus || !user}
       className={cn(
         base,
         dims,
         following ? 'bg-secondary text-foreground' : 'bg-primary text-primary-foreground shadow-fab',
       )}
     >
-      {isLoading ? (
-        <Loader2 className="h-4 w-4 animate-spin" />
-      ) : (
-        <>
-          {following && <Check className="h-4 w-4" strokeWidth={2.4} />}
-          {label}
-        </>
-      )}
+      {following && <Check className="h-4 w-4" strokeWidth={2.4} />}
+      {label}
     </button>
   );
 }
