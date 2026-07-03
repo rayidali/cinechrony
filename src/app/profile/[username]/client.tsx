@@ -328,7 +328,7 @@ export default function UserProfilePage() {
             <div className="flex">
               {stats.map((s) => (
                 <button key={s.label} onClick={s.onClick} className="flex-1 py-3 text-left">
-                  <div className="font-headline font-bold text-[26px] tabular-nums leading-none">{s.value}</div>
+                  <div className="font-headline font-bold text-[26px] tabular-nums leading-none">{(s.value ?? 0).toLocaleString()}</div>
                   <div className="cc-eyebrow mt-1">{s.label}</div>
                 </button>
               ))}

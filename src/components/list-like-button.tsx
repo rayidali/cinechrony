@@ -4,6 +4,7 @@ import { useState, useTransition, useMemo } from 'react';
 import { Heart } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
+import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 
 type ListLikeButtonProps = {
@@ -53,6 +54,7 @@ export function ListLikeButton({
   const handleToggle = () => {
     if (disabled) return;
     const next = !isLiked;
+    haptic('selection');
     setIsLiked(next);
     setLikes((n) => Math.max(0, next ? n + 1 : n - 1));
 

@@ -5,6 +5,7 @@ import { Bookmark } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useUserBookmarksCache } from '@/contexts/user-bookmarks-cache';
+import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 
 type BookmarkButtonProps = {
@@ -28,6 +29,7 @@ export function BookmarkButton({ itemType, itemId, className }: BookmarkButtonPr
   const toggle = () => {
     if (!user || isPending) return;
     const next = !saved;
+    haptic('selection');
     setSaved(itemType, itemId, next); // optimistic
 
     startTransition(async () => {

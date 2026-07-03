@@ -107,8 +107,8 @@ function EmptyState({ feedFilter }: { feedFilter: 'all' | 'saved' | 'friends' })
       </div>
       <p className="cc-lead text-[15px] text-muted-foreground max-w-[18rem] mx-auto mb-5">
         {isFriends
-          ? 'your circle has been quiet. follow a few more people and the feed fills up.'
-          : "the credits aren't rolling yet — follow some friends and the feed starts."}
+          ? 'no posts from people you follow lately.'
+          : 'nothing here yet. share a take or scan a clip to get started.'}
       </p>
       <Link
         href="/profile"

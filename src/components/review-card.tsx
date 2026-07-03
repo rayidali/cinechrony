@@ -11,7 +11,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { cn, getRatingStyle } from '@/lib/utils';
-import { formatDistanceToNow } from 'date-fns';
+import { timeAgo as formatTimeAgo } from '@/lib/time';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { Button } from '@/components/ui/button';
 import {
@@ -99,9 +99,7 @@ export const ReviewCard = memo(function ReviewCard({
   const liveDisplayName = live?.displayName ?? review.userDisplayName ?? null;
   const livePhotoUrl = live?.photoURL ?? review.userPhotoUrl ?? null;
   const displayName = liveDisplayName || review.username || 'anonymous';
-  const timeAgo = formatDistanceToNow(new Date(review.createdAt), {
-    addSuffix: false,
-  });
+  const timeAgo = formatTimeAgo(review.createdAt);
   const replyCount = review.replyCount || 0;
 
   const ratingStyle = useMemo(

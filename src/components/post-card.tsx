@@ -14,11 +14,11 @@ import {
   Plus,
   Share,
 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import { useAuth, useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
+import { timeAgo as formatTimeAgo } from '@/lib/time';
 import { BookmarkButton } from '@/components/bookmark-button';
 import { CardOverflowMenu, type OverflowRow } from '@/components/card-overflow-menu';
 import { AddToListSheet } from '@/components/add-to-list-sheet';
@@ -81,9 +81,7 @@ export const PostCard = memo(function PostCard({
   const avatarLetter = (post.authorUsername || post.authorDisplayName || 'S')
     .charAt(0)
     .toUpperCase();
-  const timeAgo = post.createdAt
-    ? formatDistanceToNow(new Date(post.createdAt), { addSuffix: false })
-    : '';
+  const timeAgo = post.createdAt ? formatTimeAgo(post.createdAt) : '';
 
   const handleLike = () => {
     if (!currentUserId) return;
@@ -148,7 +146,7 @@ export const PostCard = memo(function PostCard({
       user: post.authorUsername || post.authorDisplayName || 'someone',
       avatar: post.authorPhotoURL,
       caption: post.text || null,
-      timeAgo: timeAgo ? `${timeAgo} ago` : null,
+      timeAgo: timeAgo || null,
       likes: likeCount,
       comments: post.commentCount || 0,
       media: mediaImg,
@@ -216,7 +214,7 @@ export const PostCard = memo(function PostCard({
               <VerifiedBadge uid={post.authorId} />
             </Link>
             <p className="font-mono text-[10px] text-muted-foreground mt-0.5 tabular-nums">
-              {timeAgo ? `${timeAgo} ago` : ''}
+              {timeAgo}
               {post.editedAt ? ' · edited' : ''}
             </p>
           </div>

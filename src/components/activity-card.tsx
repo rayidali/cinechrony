@@ -5,11 +5,11 @@ import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import { Link } from '@/lib/native-nav';
 import { Heart, Star, Eye, Plus, MessageCircle } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import type { Activity } from '@/lib/types';
 import { apiCall } from '@/lib/api-client';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { VerifiedBadge } from '@/components/verified-badge';
+import { timeAgo as formatTimeAgo } from '@/lib/time';
 import { cn, getRatingStyle } from '@/lib/utils';
 import { BookmarkButton } from './bookmark-button';
 import { CardOverflowMenu } from './card-overflow-menu';
@@ -97,9 +97,7 @@ export const ActivityCard = memo(function ActivityCard({
 
   const handleMovieClick = () => onMovieClick?.(activity);
 
-  const timeAgo = activity.createdAt
-    ? formatDistanceToNow(new Date(activity.createdAt), { addSuffix: true })
-    : '';
+  const timeAgo = activity.createdAt ? formatTimeAgo(activity.createdAt) : '';
 
   return (
     <div className="py-5">

@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useTransition } from 'react';
 import { useParams, useRouter } from '@/lib/native-nav';
 import { Link } from '@/lib/native-nav';
 import { ChevronLeft, Heart, Loader2, ArrowUp, X, Trash2 } from 'lucide-react';
-import { formatDistanceToNow } from 'date-fns';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { PostCard } from '@/components/post-card';
@@ -12,6 +11,7 @@ import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUserProfile } from '@/contexts/user-profile-cache';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useToast } from '@/hooks/use-toast';
+import { timeAgo } from '@/lib/time';
 import { cn } from '@/lib/utils';
 import type { Post, PostComment } from '@/lib/types';
 
@@ -319,16 +319,7 @@ function CommentRow({
     });
   };
 
-  const time = comment.createdAt
-    ? formatDistanceToNow(new Date(comment.createdAt), { addSuffix: false })
-        .replace('about ', '').replace('almost ', '').replace('over ', '')
-        .replace(' minutes', 'm').replace(' minute', 'm')
-        .replace(' hours', 'h').replace(' hour', 'h')
-        .replace(' days', 'd').replace(' day', 'd')
-        .replace(' months', 'mo').replace(' month', 'mo')
-        .replace(' years', 'y').replace(' year', 'y')
-        .replace('less than am', 'now')
-    : '';
+  const time = comment.createdAt ? timeAgo(comment.createdAt) : '';
 
   return (
     <div className="flex gap-3">
