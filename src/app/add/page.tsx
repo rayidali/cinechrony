@@ -9,7 +9,6 @@ import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { UserAvatar } from '@/components/user-avatar';
-import { BottomNav } from '@/components/bottom-nav';
 import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
 import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
@@ -587,7 +586,6 @@ export default function AddPage() {
         )}
       </div>
 
-      <BottomNav />
     </main>
   );
 }

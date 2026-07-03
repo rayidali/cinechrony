@@ -5,7 +5,6 @@ import { useRouter, useParams, useSearchParams } from '@/lib/native-nav';
 import { Link } from '@/lib/native-nav';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
 import { useUser, useFirestore, useCollection, useDoc, useMemoFirebase } from '@/firebase';
-import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
@@ -379,7 +378,6 @@ export default function ListDetailPage() {
         </main>
       </PullToRefresh>
 
-      <BottomNav />
 
       {/* Persistent add — film-red FAB (the hero + scrolls away on long lists) */}
       {canEdit && effectiveOwnerId && (

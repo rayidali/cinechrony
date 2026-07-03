@@ -10,7 +10,6 @@ import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import type { UserProfile } from '@/lib/types';
 import type { DigInCategory } from '@/lib/tmdb-client';
-import { BottomNav } from '@/components/bottom-nav';
 import { DigIn } from '@/components/dig-in';
 import { TopWatchers } from '@/components/top-watchers';
 import { FeaturedCarousel } from '@/components/featured-carousel';
@@ -187,8 +186,6 @@ export default function HomePage() {
       {/* Post FAB — tap to compose, long-press for the action sheet */}
       <PostFab onPosted={() => setRefreshKey((k) => k + 1)} />
 
-      {/* BottomNav OUTSIDE PullToRefresh to keep position:fixed working */}
-      <BottomNav />
 
       {/* Fullscreen search */}
       <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />

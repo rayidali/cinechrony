@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { usePathname } from 'next/navigation';
 import { Link } from '@/lib/native-nav';
 import { Home, Bookmark, UserRound } from 'lucide-react';
@@ -34,26 +35,76 @@ const navItems: NavItem[] = [
 ];
 
 /**
+ * Which routes wear the tab bar. Mounted once in the root layout (see
+ * `shouldShowNav` gating below), so this list is the single source of truth for
+ * "is this a tab-bearing screen". Works for both the real web paths and the
+ * Capacitor static-export `_` shells (`/lists/_`, `/profile/_/lists/_`, …)
+ * because it matches on prefix. Settings screens under `/lists/*` are excluded
+ * (they push over the tab, X-style), as are all detail pages (post, comments,
+ * reel, notifications, extract, invite, onboarding, auth).
+ */
+function shouldShowNav(pathname: string): boolean {
+  const p = pathname.replace(/\/+$/, '') || '/';
+  if (p === '/home' || p === '/add' || p === '/settings') return true;
+  if (p === '/lists') return true;
+  if (p.startsWith('/lists/')) return !p.endsWith('/settings');
+  if (p === '/profile' || p.startsWith('/profile/')) return true;
+  return false;
+}
+
+/**
+ * Per-tab scroll memory. iOS tab bars preserve each tab's scroll offset; a
+ * plain Next `<Link>` navigation always resets to the top. We save the outgoing
+ * tab's offset on the tab tap and restore it on arrival. Module-level so it
+ * survives the component's own life and every route swap. Keys are only ever
+ * the three exact tab roots (we only write on a tab-bar tap), so this never
+ * interferes with browser back/forward scroll restoration on detail pages.
+ */
+const tabScroll = new Map<string, number>();
+
+/**
  * Bottom navigation — design system v3 (Phase 0.7, iOS-native).
  *
  * A floating frosted-glass capsule, centered above the home indicator. Each
  * item stacks an icon over a lowercase label; the active item is film-red with
  * a bolder stroke, inactive items are muted. Theme-aware via the `--cc-tab-tint`
- * frost token (was a solid dark island in v2). Touch-start prefetch preserved.
+ * frost token.
+ *
+ * PERSISTENT MOUNT (2026-07): rendered exactly once, in the root layout, as a
+ * SIBLING of (not inside) `<NativeTransitions>`. Previously each tab page
+ * mounted its own copy, so every navigation unmounted the nav — WKWebView tore
+ * down and re-rasterized the `backdrop-filter` blur layer, making the capsule
+ * visibly blink out on every tab switch; and because it sat inside the
+ * transition wrapper's transform it slid/dimmed/dragged with the page during
+ * push/pop/swipe. Hoisted out, it never unmounts and never transforms — it
+ * stays put like a real UITabBar. Self-gates via `shouldShowNav`.
  */
 export function BottomNav() {
   const pathname = usePathname();
   const { user } = useUser();
+  const pathRef = useRef(pathname);
+  pathRef.current = pathname;
 
-  const isActive = (item: NavItem) =>
-    item.matchPaths
-      ? item.matchPaths.some((path) => pathname.startsWith(path))
-      : pathname === item.href;
+  // Restore the saved scroll offset when arriving at a tab we left earlier.
+  // rAF puts us after Next's scroll-to-top; a single delayed retry covers tabs
+  // whose content paints a beat late (e.g. the lists grid from its snapshot).
+  useEffect(() => {
+    const y = tabScroll.get(pathname);
+    if (y == null || y <= 0) return;
+    tabScroll.delete(pathname); // one-shot: re-saved on the next tab tap
+    let raf = requestAnimationFrame(() => window.scrollTo(0, y));
+    const retry = window.setTimeout(() => {
+      if (Math.abs(window.scrollY - y) > 4) window.scrollTo(0, y);
+    }, 120);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(retry);
+    };
+  }, [pathname]);
 
   // Warm the destination tab's data on touch-start so by the time the route
   // change commits the data is already in the SWR cache. Cheap and idempotent
   // — `prefetchCachedAction` no-ops if the key is already cached or in flight.
-  // Saves ~150ms of perceived latency vs. waiting for the tap to register.
   const handlePrefetch = (href: string) => {
     if (!user) return;
     const uid = user.uid;
@@ -86,11 +137,29 @@ export function BottomNav() {
     }
   };
 
+  const isActive = (item: NavItem) =>
+    item.matchPaths
+      ? item.matchPaths.some((path) => pathname.startsWith(path))
+      : pathname === item.href;
+
+  // Tap handling: active tab → scroll to top (iOS convention); inactive tab →
+  // save the current scroll offset (so returning restores it) + selection haptic.
+  const handleTap = (item: NavItem, active: boolean) =>
+    (e: React.MouseEvent) => {
+      if (active) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        haptic('light');
+        return;
+      }
+      tabScroll.set(pathRef.current, window.scrollY);
+      haptic('selection');
+    };
+
+  if (!shouldShowNav(pathname)) return null;
+
   return (
     <>
-      {/* Spacer so content clears the floating nav */}
-      <div className="h-28 md:hidden" />
-
       {/* Mobile — frosted glass capsule, icon + label, film-red active */}
       <nav className="fixed left-1/2 -translate-x-1/2 bottom-[calc(1.625rem+env(safe-area-inset-bottom))] z-50 md:hidden pointer-events-none">
         <Frost
@@ -113,7 +182,7 @@ export function BottomNav() {
                   aria-current={active ? 'page' : undefined}
                   onTouchStart={() => handlePrefetch(item.href)}
                   onMouseEnter={() => handlePrefetch(item.href)}
-                  onClick={() => { if (!active) haptic('selection'); }}
+                  onClick={handleTap(item, active)}
                   className={cn(
                     'flex flex-col items-center justify-center w-[62px] h-11 rounded-full gap-[3px] transition-transform active:scale-90',
                     active ? 'text-primary' : 'text-muted-foreground'
@@ -156,6 +225,7 @@ export function BottomNav() {
                   aria-current={active ? 'page' : undefined}
                   onTouchStart={() => handlePrefetch(item.href)}
                   onMouseEnter={() => handlePrefetch(item.href)}
+                  onClick={handleTap(item, active)}
                   className={cn(
                     'flex items-center gap-2 px-4 h-10 rounded-full transition-colors',
                     'font-headline font-semibold text-sm lowercase tracking-tight',

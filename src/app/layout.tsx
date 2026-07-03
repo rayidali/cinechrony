@@ -19,6 +19,7 @@ import { PendingImportSync } from '@/components/pending-import-sync';
 import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
+import { BottomNav } from '@/components/bottom-nav';
 import { deployOrigin, ogImageUrl } from '@/lib/share-meta';
 
 // Design system v2 — editorial cinema.
@@ -134,6 +135,11 @@ export default function RootLayout({
                         <StoryShareProvider>
                           <NativeTransitions>{children}</NativeTransitions>
                         </StoryShareProvider>
+                        {/* Persistent tab bar — a SIBLING of the transition
+                            wrapper so it never unmounts (no backdrop-filter
+                            re-rasterization flicker) and never rides the
+                            push/pop/swipe transform. Self-gates per route. */}
+                        <BottomNav />
                        </UserVerifiedCacheProvider>
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>

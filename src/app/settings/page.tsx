@@ -35,7 +35,6 @@ import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
-import { BottomNav } from '@/components/bottom-nav';
 import { PushNotificationToggle } from '@/components/push-notification-prompt';
 import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
@@ -507,7 +506,6 @@ export default function SettingsPage() {
         </div>
       )}
 
-      <BottomNav />
     </main>
   );
 }

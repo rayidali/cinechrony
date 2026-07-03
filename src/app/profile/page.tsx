@@ -28,7 +28,6 @@ import { ThemeToggle } from '@/components/theme-toggle';
 import { Segmented } from '@/components/v3/segmented';
 import { EditProfileSheet } from '@/components/v3/edit-profile-sheet';
 import { PeopleSheet } from '@/components/v3/people-sheet';
-import { BottomNav } from '@/components/bottom-nav';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/types';
 
@@ -257,7 +256,7 @@ export default function MyProfilePage() {
         onRefresh={handleRefresh}
         disabled={peopleTab !== null || isEditProfileOpen || isFavoritePickerOpen || isCoverPickerOpen}
       >
-        <main className="min-h-screen text-foreground pb-24 md:pb-8">
+        <main className="min-h-screen text-foreground pb-28 md:pb-8">
           {/* Cinematic hero — the profile photo IS the hero (design v2). When
               none is set, a tappable "add a profile photo" placeholder shows
               over a seeded gradient. */}
@@ -572,7 +571,6 @@ export default function MyProfilePage() {
         />
       )}
 
-      <BottomNav />
     </MovieModalProvider>
   );
 }

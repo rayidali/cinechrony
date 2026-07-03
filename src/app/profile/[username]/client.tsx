@@ -12,7 +12,6 @@ import { FollowButton } from '@/components/follow-button';
 import { VerifiedBadge } from '@/components/verified-badge';
 import { ListLikeButton } from '@/components/list-like-button';
 import { ProfileOverflowMenu } from '@/components/profile-overflow-menu';
-import { BottomNav } from '@/components/bottom-nav';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Segmented } from '@/components/v3/segmented';
@@ -261,7 +260,7 @@ export default function UserProfilePage() {
 
   return (
     <MovieModalProvider returnPath={`/profile/${username}`}>
-      <main className="min-h-screen text-foreground pb-24 md:pb-8">
+      <main className="min-h-screen text-foreground pb-28 md:pb-8">
         {/* Cinematic hero — the profile photo IS the hero; falls back to a
             seeded gradient (with name ghost) when they have no photo. */}
         <Hero
@@ -478,7 +477,6 @@ export default function UserProfilePage() {
         initialTab={peopleTab ?? 'followers'}
       />
 
-      <BottomNav />
     </MovieModalProvider>
   );
 }

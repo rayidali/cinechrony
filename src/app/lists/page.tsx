@@ -7,7 +7,6 @@ import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebas
 import { UserAvatar } from '@/components/user-avatar';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { NotificationBell } from '@/components/notification-bell';
-import { BottomNav } from '@/components/bottom-nav';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { NewListDrawer } from '@/components/new-list-drawer';
 import { NavBar } from '@/components/v3/nav-bar';
@@ -476,8 +475,6 @@ export default function ListsPage() {
         </main>
       </PullToRefresh>
 
-      {/* BottomNav outside PullToRefresh to keep fixed positioning */}
-      <BottomNav />
 
       {/* Persistent add — film-red FAB, consistent with list detail. */}
       <Fab

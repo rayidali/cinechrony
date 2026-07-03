@@ -7,7 +7,6 @@ import { ArrowLeft, Lock } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { Button } from '@/components/ui/button';
 import { FollowButton } from '@/components/follow-button';
-import { BottomNav } from '@/components/bottom-nav';
 import { MovieList } from '@/components/movie-list';
 import { ListHeader } from '@/components/list-header';
 import { Hero } from '@/components/v3/hero';
@@ -128,7 +127,7 @@ export default function PublicListPage() {
 
   return (
     <>
-      <main className="min-h-screen font-body text-foreground pb-24 md:pb-8">
+      <main className="min-h-screen font-body text-foreground pb-28 md:pb-8">
         {/* Cinematic hero — cover (or seeded gradient) + glass back */}
         <Hero
           coverImageUrl={hasCover ? list?.coverImageUrl : undefined}
@@ -221,7 +220,6 @@ export default function PublicListPage() {
         </div>
       </main>
 
-      <BottomNav />
     </>
   );
 }
