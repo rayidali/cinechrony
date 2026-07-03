@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import { useRouter } from '@/lib/native-nav';
 import Image from 'next/image';
 import {
@@ -406,7 +407,7 @@ function PosterTile({
       className="flex-shrink-0 text-left group"
     >
       <div className="relative aspect-[2/3] rounded-[14px] overflow-hidden border border-border shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image src={posterUrl} alt={title} fill className="object-cover" sizes="160px" />
+        <Image src={tmdbImg(posterUrl, 'w342')} alt={title} fill className="object-cover" sizes="160px" />
       </div>
       <p className="mt-2 font-headline font-semibold text-[13.5px] lowercase tracking-tight line-clamp-1">
         {title}

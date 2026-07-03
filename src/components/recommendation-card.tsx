@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { tmdbImg } from '@/lib/tmdb-image';
 import { Sparkles } from 'lucide-react';
 import type { RecommendationSet, TrendingMovie } from '@/lib/tmdb-server';
 import type { Movie } from '@/lib/types';
@@ -69,7 +70,7 @@ export function RecommendationCard({ set }: { set: RecommendationSet }) {
               className="text-left group"
             >
               <div className="relative aspect-[2/3] rounded-[14px] overflow-hidden shadow-photo transition-transform duration-200 group-active:scale-[0.97]">
-                <Image src={posterUrl(rec)} alt={rec.title} fill className="object-cover" sizes="33vw" />
+                <Image src={tmdbImg(posterUrl(rec), 'w342')} alt={rec.title} fill className="object-cover" sizes="33vw" />
                 {rating != null && style && (
                   <span
                     className="absolute top-1.5 right-1.5 px-1.5 py-0.5 rounded-md font-headline font-bold text-[11px] tabular-nums"

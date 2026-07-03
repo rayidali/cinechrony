@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useTransition } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import { Link } from '@/lib/native-nav';
 import { useRouter } from '@/lib/native-nav';
@@ -360,7 +361,7 @@ function MovieCell({
       >
         <span className="relative w-12 h-[72px] rounded-[10px] overflow-hidden bg-muted flex-shrink-0">
           {movie.posterUrl && (
-            <Image src={movie.posterUrl} alt="" fill className="object-cover" sizes="48px" />
+            <Image src={tmdbImg(movie.posterUrl, 'w185')} alt="" fill className="object-cover" sizes="48px" />
           )}
         </span>
         <span className="flex-1 min-w-0">

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import { getDigIn, type DigInData, type DigInCategory } from '@/lib/tmdb-client';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { Section, ViewAll } from '@/components/v3/section';
@@ -59,7 +60,7 @@ export function DigIn({ onViewAll }: { onViewAll?: (cat?: DigInCategory) => void
             className="flex-shrink-0 w-[124px] text-left"
           >
             <div className="relative aspect-[3/4] rounded-[15px] bg-sunken overflow-hidden">
-              <PosterFan posters={c.films.slice(0, 3).map((f) => f.posterUrl)} />
+              <PosterFan posters={c.films.slice(0, 3).map((f) => tmdbImg(f.posterUrl, 'w185'))} />
               {c.films.length > 0 && (
                 <span className="absolute top-2 right-2 px-2 py-0.5 rounded-full bg-black/55 backdrop-blur-sm font-mono text-[10px] font-bold text-white tabular-nums">
                   {c.films.length} films

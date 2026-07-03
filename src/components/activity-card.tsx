@@ -1,6 +1,7 @@
 'use client';
 
 import { memo, useState, useTransition } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import { Link } from '@/lib/native-nav';
 import { Heart, Star, Eye, Plus, MessageCircle } from 'lucide-react';
@@ -64,7 +65,7 @@ export const ActivityCard = memo(function ActivityCard({
   const [likeCount, setLikeCount] = useState(activity.likes || 0);
   const [isPending, startTransition] = useTransition();
 
-  const posterUrl = activity.moviePosterUrl || '/placeholder-poster.png';
+  const posterUrl = tmdbImg(activity.moviePosterUrl, 'w185') || '/placeholder-poster.png';
   // AUDIT.md 2.3b: prefer live profile fields; fall back to the denormalized
   // snapshot captured at write time.
   const live = useUserProfile(activity.userId);

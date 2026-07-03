@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import { Drawer } from 'vaul';
 import { Loader2, Check, Film } from 'lucide-react';
 import { useUser } from '@/firebase';
@@ -108,7 +109,7 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
               <div className="relative h-14 w-[38px] flex-shrink-0 rounded-lg overflow-hidden bg-sunken">
                 {movie.posterUrl ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={movie.posterUrl} alt="" className="w-full h-full object-cover" />
+                  <img src={tmdbImg(movie.posterUrl, 'w185')} alt="" className="w-full h-full object-cover" />
                 ) : null}
               </div>
               <div className="min-w-0">

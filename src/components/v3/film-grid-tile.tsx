@@ -1,6 +1,7 @@
 'use client';
 
 import Image from 'next/image';
+import { tmdbImg } from '@/lib/tmdb-image';
 import { Film, Tv } from 'lucide-react';
 
 /**
@@ -24,7 +25,7 @@ export function FilmGridTile({
   return (
     <button onClick={onOpen} className="text-left group">
       <div className="relative aspect-[2/3] rounded-[12px] overflow-hidden border border-border shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image src={posterUrl} alt={title} fill className="object-cover" sizes="33vw" />
+        <Image src={tmdbImg(posterUrl, 'w342')} alt={title} fill className="object-cover" sizes="33vw" />
         <div className="absolute top-1 right-1 h-5 w-5 rounded-md bg-black/55 backdrop-blur-sm flex items-center justify-center text-white">
           {isTv ? <Tv className="h-3 w-3" strokeWidth={2} /> : <Film className="h-3 w-3" strokeWidth={2} />}
         </div>

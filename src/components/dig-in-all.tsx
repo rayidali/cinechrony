@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import { type DigInCategory } from '@/lib/tmdb-client';
 import { useDigIn } from '@/components/dig-in';
@@ -133,7 +134,7 @@ function FilmTile({ film, onOpen }: { film: SearchResult; onOpen: () => void }) 
   return (
     <button onClick={onOpen} className="text-left group">
       <div className="relative aspect-[2/3] rounded-[15px] overflow-hidden bg-sunken shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image src={film.posterUrl} alt={film.title} fill className="object-cover" sizes="50vw" />
+        <Image src={tmdbImg(film.posterUrl, 'w342')} alt={film.title} fill className="object-cover" sizes="50vw" />
         {style && (
           <span
             className="absolute top-2 right-2 px-2 py-0.5 rounded-full font-mono text-[10px] font-bold tabular-nums"

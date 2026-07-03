@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import type { TrendingMovie } from '@/lib/tmdb-server';
 import type { Movie } from '@/lib/types';
@@ -123,7 +124,7 @@ function SimilarPoster({
   return (
     <button onClick={handlePick} className="flex-shrink-0 w-[92px] text-left group">
       <div className="relative aspect-[2/3] rounded-[10px] overflow-hidden border border-border shadow-lift transition-transform duration-200 group-active:scale-[0.97]">
-        <Image src={posterUrl} alt={movie.title} fill className="object-cover" sizes="92px" />
+        <Image src={tmdbImg(posterUrl, 'w185')} alt={movie.title} fill className="object-cover" sizes="92px" />
       </div>
       <p className="mt-1.5 font-headline font-semibold text-[12px] lowercase tracking-tight line-clamp-1">
         {movie.title}

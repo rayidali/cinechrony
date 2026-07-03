@@ -17,6 +17,7 @@ import { haptic } from '@/lib/haptics';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { getRatingStyle } from '@/lib/utils';
+import { tmdbImg } from '@/lib/tmdb-image';
 
 /**
  * Shared movie cells — the ONE grid tile + list row used by both the editable
@@ -106,7 +107,7 @@ export const MovieCellGrid = memo(function MovieCellGrid({
 
   const SocialIcon = getProviderIcon(movie.socialLink);
   const hasSocialLink = !!SocialIcon;
-  const posterSrc = movie.posterUrl || POSTER_FALLBACK;
+  const posterSrc = tmdbImg(movie.posterUrl, 'w342') || POSTER_FALLBACK;
 
   // The visual badges (rating / status / TV) are title-only, which screen
   // readers don't announce — fold their state into the tap target's name.
@@ -312,7 +313,7 @@ export const MovieCellRow = memo(function MovieCellRow({
       <div className="flex gap-3 p-3">
         {/* Poster chip — v3 48×72 */}
         <div className="relative w-12 h-[72px] flex-shrink-0 rounded-[10px] overflow-hidden border border-hair">
-          <Image src={movie.posterUrl || POSTER_FALLBACK} alt={movie.title} fill className="object-cover" sizes="48px" />
+          <Image src={tmdbImg(movie.posterUrl, 'w185') || POSTER_FALLBACK} alt={movie.title} fill className="object-cover" sizes="48px" />
         </div>
 
         {/* Content */}

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useTransition } from 'react';
+import { tmdbImg } from '@/lib/tmdb-image';
 import Image from 'next/image';
 import {
   ChevronLeft, ChevronRight, Loader2, X, Plus, Play, Film, RotateCw,
@@ -451,7 +452,7 @@ export function PostComposer({ isOpen, onClose, onPosted }: PostComposerProps) {
           {taggedMovie ? (
             <div className="flex items-center gap-4 rounded-2xl border border-hair bg-background p-4">
               <div className="relative h-[76px] w-[52px] flex-shrink-0 rounded-[11px] overflow-hidden bg-sunken">
-                {taggedMovie.posterUrl && <Image src={taggedMovie.posterUrl} alt="" fill className="object-cover" sizes="52px" />}
+                {taggedMovie.posterUrl && <Image src={tmdbImg(taggedMovie.posterUrl, 'w185')} alt="" fill className="object-cover" sizes="52px" />}
               </div>
               <div className="min-w-0 flex-1">
                 <div className="font-headline font-bold text-[20px] lowercase tracking-[-0.02em] truncate">{taggedMovie.title}</div>
