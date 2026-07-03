@@ -99,24 +99,6 @@ export async function recordWatchEntry(
   const db = getDb();
   const col = db.collection('users').doc(callerUid).collection('watches');
 
-  // Read this film's existing watches (index-free equality; a film has very few)
-  // to derive BOTH the ordinal AND an idempotency guard in one query. A
-  // double-tapped or retried "watched" was creating a phantom ordinal-2 rewatch;
-  // if the most recent watch for this film landed within DEDUP_MS, treat this as
-  // the same action and return it instead of writing a duplicate. (A genuine
-  // rewatch is minutes/days later, well outside the window.)
-  const existingSnap = await col.where('tmdbId', '==', input.tmdbId).get();
-  let mostRecent: FirebaseFirestore.QueryDocumentSnapshot | null = null;
-  let mostRecentTs = 0;
-  for (const d of existingSnap.docs) {
-    const ts = (d.data().createdAt as FirebaseFirestore.Timestamp | undefined)?.toMillis?.() ?? 0;
-    if (ts >= mostRecentTs) { mostRecentTs = ts; mostRecent = d; }
-  }
-  if (mostRecent && Date.now() - mostRecentTs < DEDUP_MS) {
-    return { watch: watchFromDoc(mostRecent) };
-  }
-  const ordinal = existingSnap.size + 1;
-
   const rating = typeof input.rating === 'number' ? Math.round(input.rating * 10) / 10 : null;
   const note = typeof input.note === 'string' && input.note.trim()
     ? input.note.trim().slice(0, MAX_NOTE)
@@ -124,6 +106,33 @@ export async function recordWatchEntry(
   const moviePosterUrl = input.moviePosterUrl ?? null;
   const watchedAtDate = input.watchedAt ? new Date(input.watchedAt) : new Date();
   const watchedAt = Number.isNaN(watchedAtDate.getTime()) ? new Date() : watchedAtDate;
+
+  // Read this film's existing watches (index-free equality; a film has very few)
+  // to derive BOTH the ordinal AND an idempotency guard in one query. A
+  // double-tapped or retried "watched" was creating a phantom ordinal-2 rewatch.
+  // We treat a new log as a DUPLICATE only if a recent watch (within DEDUP_MS)
+  // is an IDENTICAL submission — same watched-day, same rating, same note. That
+  // catches double-taps/retries while still allowing a genuine rewatch logged in
+  // the same window for a DIFFERENT date (or with a different rating/note).
+  const existingSnap = await col.where('tmdbId', '==', input.tmdbId).get();
+  const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+  const watchedDay = dayKey(watchedAt);
+  let mostRecent: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  let mostRecentTs = 0;
+  for (const d of existingSnap.docs) {
+    const ts = (d.data().createdAt as FirebaseFirestore.Timestamp | undefined)?.toMillis?.() ?? 0;
+    if (ts >= mostRecentTs) { mostRecentTs = ts; mostRecent = d; }
+  }
+  if (mostRecent && Date.now() - mostRecentTs < DEDUP_MS) {
+    const m = mostRecent.data();
+    const mWatched = (m.watchedAt as FirebaseFirestore.Timestamp | undefined)?.toDate?.();
+    const mRating = typeof m.rating === 'number' ? m.rating : null;
+    const mNote = typeof m.note === 'string' && m.note ? m.note : null;
+    if (mWatched && dayKey(mWatched) === watchedDay && mRating === rating && mNote === note) {
+      return { watch: watchFromDoc(mostRecent) };
+    }
+  }
+  const ordinal = existingSnap.size + 1;
 
   const ref = col.doc();
   await ref.set({

@@ -103,6 +103,27 @@ test('logWatch sets ordinal (first watch → rewatch no. 2) and GET is newest-fi
   assert.equal(watches[1].ordinal, 1);
 });
 
+test('logWatch is idempotent — an identical same-day re-submit is not a phantom rewatch', async () => {
+  const token = await viewer.getIdToken();
+  const body = { ...base, rating: 8, note: 'great', watchedAt: '2024-05-01T00:00:00.000Z' };
+  const r1 = await callRoute<{ watch: { id: string; ordinal: number } }>(watchPost, 'POST', { token, body });
+  const r2 = await callRoute<{ watch: { id: string; ordinal: number } }>(watchPost, 'POST', { token, body });
+  assert.equal(r1.body.ok && r1.body.data.watch.ordinal, 1);
+  assert.equal(r2.body.ok && r2.body.data.watch.ordinal, 1, 'a double-tap returns the same watch, not rewatch no. 2');
+  assert.ok(r1.body.ok && r2.body.ok && r1.body.data.watch.id === r2.body.data.watch.id, 'same doc (idempotent)');
+  assert.equal((await getWatches(token)).length, 1, 'only one watch doc exists');
+});
+
+test('logWatch still allows a genuine rewatch for a different date in the same window', async () => {
+  const token = await viewer.getIdToken();
+  await callRoute(watchPost, 'POST', { token, body: { ...base, rating: 8, watchedAt: '2024-06-01T00:00:00.000Z' } });
+  const r2 = await callRoute<{ watch: { ordinal: number } }>(watchPost, 'POST', {
+    token, body: { ...base, rating: 8, watchedAt: '2024-07-01T00:00:00.000Z' },
+  });
+  assert.equal(r2.body.ok && r2.body.data.watch.ordinal, 2, 'a different watched-date is a real rewatch');
+  assert.equal((await getWatches(token)).length, 2);
+});
+
 // ─── rating + review side effects ───────────────────────────────────────────
 
 test('logWatch upserts the canonical rating in /ratings', async () => {
