@@ -15,7 +15,7 @@
  * FIRST rating (re-rates don't re-emit). Best-effort.
  */
 
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { emitActivity } from '@/lib/activities-server';
 import type { UserRating } from '@/lib/types';
@@ -219,16 +219,23 @@ export async function getUserRatings(
   const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_PAGE), MAX_PAGE);
   const db = getDb();
 
+  // KEYSET cursor on (updatedAt DESC, __name__ ASC). The explicit documentId()
+  // tiebreak matches Firestore's IMPLICIT `__name__ ASC` ordering, so it uses
+  // the SAME index (no new composite index). This is what makes pagination
+  // correct under ties: a Letterboxd import commits ~225 ratings per batch that
+  // all share one serverTimestamp, so a same-timestamp group routinely straddles
+  // a 500-row page boundary. A bare-timestamp `startAfter(date)` skipped the
+  // WHOLE tie group's tail (those films then rendered as unrated forever); the
+  // (updatedAt, docId) cursor resumes correctly within the group.
   let q: FirebaseFirestore.Query = db
     .collection('ratings')
     .where('userId', '==', userId)
-    .orderBy('updatedAt', 'desc');
+    .orderBy('updatedAt', 'desc')
+    .orderBy(FieldPath.documentId(), 'asc');
 
-  // Delta sync: return only ratings changed at/after `since` (an ISO timestamp
-  // the client persists as its high-water mark). `>=` (not `>`) tolerates ties
-  // in updatedAt — the client de-dupes by tmdbId so re-including the boundary
-  // rating is harmless. Uses the same (userId ==, updatedAt) composite index as
-  // the base query, so no new index is required.
+  // Delta sync: only ratings changed at/after `since`. `>=` (not `>`) tolerates
+  // ties — the client de-dupes by tmdbId so re-including the boundary is
+  // harmless. Same (userId ==, updatedAt) index.
   if (opts.since) {
     const sinceDate = new Date(opts.since);
     if (!Number.isNaN(sinceDate.getTime())) {
@@ -237,11 +244,15 @@ export async function getUserRatings(
   }
 
   if (opts.cursor) {
-    // Cursor is the previous page's last `updatedAt` ISO string. Coerce
-    // to Date for `startAfter`.
-    const cursorDate = new Date(opts.cursor);
+    // Cursor format: `<updatedAt ISO>|<docId>` (keyset). A legacy bare-timestamp
+    // cursor (from a client cached before this change) still works — it just
+    // resumes at the timestamp boundary as before until the next page rolls over.
+    const sep = opts.cursor.lastIndexOf('|');
+    const iso = sep > 0 ? opts.cursor.slice(0, sep) : opts.cursor;
+    const docId = sep > 0 ? opts.cursor.slice(sep + 1) : '';
+    const cursorDate = new Date(iso);
     if (!Number.isNaN(cursorDate.getTime())) {
-      q = q.startAfter(cursorDate);
+      q = docId ? q.startAfter(cursorDate, docId) : q.startAfter(cursorDate);
     }
   }
 
@@ -254,7 +265,11 @@ export async function getUserRatings(
 
   const nextCursor =
     hasMore && pageDocs.length > 0
-      ? (pageDocs[pageDocs.length - 1].data()?.updatedAt?.toDate?.() as Date | undefined)?.toISOString()
+      ? (() => {
+          const last = pageDocs[pageDocs.length - 1];
+          const iso = (last.data()?.updatedAt?.toDate?.() as Date | undefined)?.toISOString();
+          return iso ? `${iso}|${last.id}` : undefined;
+        })()
       : undefined;
 
   return { ratings, hasMore, nextCursor };

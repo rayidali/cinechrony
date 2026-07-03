@@ -474,14 +474,20 @@ export async function getUserReviewForMovie(
   tmdbId: number,
 ): Promise<Review | null> {
   const db = getDb();
+  // Must return the user's TOP-LEVEL review (parentId === null), not a reply
+  // they left on someone else's review of this film — otherwise logWatch would
+  // overwrite that reply as if it were their review. Filtered in memory (a user
+  // has very few reviews+replies for one film) to reuse the existing
+  // (userId, tmdbId) index — adding `parentId ==` to the query would need a new
+  // composite index.
   const snap = await db
     .collection('reviews')
     .where('userId', '==', userId)
     .where('tmdbId', '==', tmdbId)
-    .limit(1)
+    .limit(50)
     .get();
-  if (snap.empty) return null;
-  return reviewFromDoc(snap.docs[0]);
+  const top = snap.docs.find((d) => (d.data().parentId ?? null) === null);
+  return top ? reviewFromDoc(top) : null;
 }
 
 // ─── Hot-takes (home "green quote card", 0.7.5.4) ──────────────────────────

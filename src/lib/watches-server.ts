@@ -53,6 +53,9 @@ export type LogWatchInput = {
 };
 
 const MAX_NOTE = 500;
+// Idempotency window — a second "watched" for the same film within this of the
+// last one is treated as a double-tap/retry, not a genuine rewatch.
+const DEDUP_MS = 2 * 60 * 1000;
 
 function watchFromDoc(doc: FirebaseFirestore.DocumentSnapshot): Watch {
   const d = doc.data() || {};
@@ -96,16 +99,23 @@ export async function recordWatchEntry(
   const db = getDb();
   const col = db.collection('users').doc(callerUid).collection('watches');
 
-  // ordinal = (existing watches for this film) + 1 — count() keeps it cheap.
-  let ordinal = 1;
-  try {
-    const agg = await col.where('tmdbId', '==', input.tmdbId).count().get();
-    ordinal = (agg.data().count ?? 0) + 1;
-  } catch {
-    // Fall back to a doc read if the aggregate is unavailable.
-    const snap = await col.where('tmdbId', '==', input.tmdbId).get();
-    ordinal = snap.size + 1;
+  // Read this film's existing watches (index-free equality; a film has very few)
+  // to derive BOTH the ordinal AND an idempotency guard in one query. A
+  // double-tapped or retried "watched" was creating a phantom ordinal-2 rewatch;
+  // if the most recent watch for this film landed within DEDUP_MS, treat this as
+  // the same action and return it instead of writing a duplicate. (A genuine
+  // rewatch is minutes/days later, well outside the window.)
+  const existingSnap = await col.where('tmdbId', '==', input.tmdbId).get();
+  let mostRecent: FirebaseFirestore.QueryDocumentSnapshot | null = null;
+  let mostRecentTs = 0;
+  for (const d of existingSnap.docs) {
+    const ts = (d.data().createdAt as FirebaseFirestore.Timestamp | undefined)?.toMillis?.() ?? 0;
+    if (ts >= mostRecentTs) { mostRecentTs = ts; mostRecent = d; }
   }
+  if (mostRecent && Date.now() - mostRecentTs < DEDUP_MS) {
+    return { watch: watchFromDoc(mostRecent) };
+  }
+  const ordinal = existingSnap.size + 1;
 
   const rating = typeof input.rating === 'number' ? Math.round(input.rating * 10) / 10 : null;
   const note = typeof input.note === 'string' && input.note.trim()

@@ -17,7 +17,7 @@
  *     URLs can never write into another user's prefix.
  */
 
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, FieldPath } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
@@ -667,7 +667,12 @@ export async function getHomeFeed(
   const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_PAGE), MAX_PAGE);
   const db = getDb();
   const blockSet = viewerUid ? await getBlockSet(db, viewerUid) : new Set<string>();
-  const cursorDate = opts.cursor ? new Date(opts.cursor) : null;
+  // Keyset cursor: `<createdAt ISO>|<docId>`. A legacy bare-ISO cursor still
+  // parses (docId empty → timestamp-only resume, as before).
+  const cSep = opts.cursor ? opts.cursor.lastIndexOf('|') : -1;
+  const cIso = opts.cursor ? (cSep > 0 ? opts.cursor.slice(0, cSep) : opts.cursor) : null;
+  const cursorDocId = cSep > 0 ? opts.cursor!.slice(cSep + 1) : '';
+  const cursorDate = cIso ? new Date(cIso) : null;
 
   // The reel is user-authored posts only. System activities (`added`,
   // `watched`, `rated`, `reviewed`) are intentionally kept out of the home
@@ -680,13 +685,24 @@ export async function getHomeFeed(
   // rounds (cap reads under the free-tier budget) until we have a full visible
   // page or the collection is exhausted, advancing the cursor past the last
   // RAW doc each round so hidden docs are never re-scanned.
-  const baseQ = db.collection('posts').orderBy('createdAt', 'desc');
+  // KEYSET pagination on (createdAt DESC, __name__ ASC). The explicit
+  // documentId() tiebreak matches Firestore's implicit `__name__ ASC`, so no new
+  // index — and it fixes the tie-skip: a bare `where('createdAt','<', cursor)`
+  // excluded EVERY post sharing the boundary millisecond, dropping the tail of a
+  // same-timestamp group (two posts in one server-ms) from the feed. The cursor
+  // now carries (createdAt, docId) so pagination resumes precisely.
+  const baseQ = db
+    .collection('posts')
+    .orderBy('createdAt', 'desc')
+    .orderBy(FieldPath.documentId(), 'asc');
   const MAX_ROUNDS = 5;
   const ROUND = limit + 1;
 
-  const visible: { item: FeedItem; ts: number }[] = [];
+  const visible: { item: FeedItem; ts: number; id: string }[] = [];
   let scanCursor: Date | null = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+  let scanCursorId: string = cursorDocId; // keyset partner for scanCursor
   let rawCursor: string | undefined; // ISO of the last RAW doc scanned
+  let rawCursorId: string | undefined; // its docId
   let exhausted = false;
   let rounds = 0;
 
@@ -694,22 +710,32 @@ export async function getHomeFeed(
   // or the collection runs out — keep going past hidden posts.
   for (; rounds < MAX_ROUNDS && visible.length <= limit; rounds++) {
     let q = baseQ;
-    if (scanCursor) q = q.where('createdAt', '<', scanCursor);
+    if (scanCursor) {
+      q = scanCursorId
+        ? q.startAfter(scanCursor, scanCursorId)
+        : q.where('createdAt', '<', scanCursor); // legacy bare-ts cursor
+    }
     const snap = await q.limit(ROUND).get();
     if (snap.empty) { exhausted = true; break; }
     for (const d of snap.docs) {
       const p = postFromDoc(d);
       rawCursor = p.createdAt.toISOString();
+      rawCursorId = d.id;
       scanCursor = p.createdAt;
+      scanCursorId = d.id;
       if (blockSet.has(p.authorId)) continue;
       if (!canViewPost(p, viewerUid)) continue;
-      visible.push({ item: { kind: 'post', post: serializePostForViewer(p, viewerUid) }, ts: p.createdAt.getTime() });
+      visible.push({ item: { kind: 'post', post: serializePostForViewer(p, viewerUid) }, ts: p.createdAt.getTime(), id: d.id });
     }
     if (snap.size < ROUND) { exhausted = true; break; }
   }
 
+  // Stable sort keeps the scan order (createdAt desc, id asc) for equal ts, so
+  // page[last]'s (ts, id) is a valid keyset cursor and surplus visible items are
+  // re-included (exclusively) on the next page — never dropped, never duplicated.
   visible.sort((a, b) => b.ts - a.ts);
   const page = visible.slice(0, limit);
+  const rawKeyset = rawCursor && rawCursorId ? `${rawCursor}|${rawCursorId}` : rawCursor;
 
   let hasMore: boolean;
   let nextCursor: string | undefined;
@@ -717,12 +743,13 @@ export async function getHomeFeed(
     // There's a confirmed next visible post — resume just after the LAST
     // RETURNED item (not the last raw doc) so the surplus visible isn't dropped.
     hasMore = true;
-    nextCursor = page.length > 0 ? new Date(page[page.length - 1].ts).toISOString() : rawCursor;
+    const last = page[page.length - 1];
+    nextCursor = last ? `${new Date(last.ts).toISOString()}|${last.id}` : rawKeyset;
   } else if (rounds >= MAX_ROUNDS && !exhausted) {
     // Hit the scan cap on a dense run of hidden posts — there may be more;
     // advance past everything scanned so we don't re-scan the hidden run.
     hasMore = true;
-    nextCursor = rawCursor;
+    nextCursor = rawKeyset;
   } else {
     hasMore = false;
     nextCursor = undefined;

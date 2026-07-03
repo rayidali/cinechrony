@@ -79,12 +79,18 @@ export async function getFriendsWatching(
   });
 }
 
+// "your circle is WATCHING" — only films a friend actually saw count. An
+// `added` activity just means they put it on a watchlist (want-to-watch), which
+// this card was wrongly surfacing as if they'd watched it.
+const SEEN_TYPES = new Set(['watched', 'rated', 'reviewed']);
+
 /** Collapse recent followed-user activity by film (≥2 distinct friends), newest
  *  identity wins, top 4 by friend count. Shared by the snapshot + live paths. */
 function groupFriendsWatching(acts: SnapshotActivity[]): FriendsWatchingCard[] {
   const groups = new Map<number, SnapshotActivity[]>();
   for (const a of acts) {
     if (!a.tmdbId) continue;
+    if (!SEEN_TYPES.has(a.type)) continue; // exclude want-to-watch ('added')
     if (!groups.has(a.tmdbId)) groups.set(a.tmdbId, []);
     groups.get(a.tmdbId)!.push(a);
   }
