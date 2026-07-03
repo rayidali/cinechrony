@@ -11,7 +11,6 @@ import { useUser } from '@/firebase';
 import { prefetchCachedAction } from '@/lib/use-cached-action';
 import { apiCall } from '@/lib/api-client';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
-import type { UserProfile } from '@/lib/types';
 import type { FeedItem } from '@/lib/posts-server';
 
 interface NavItem {
@@ -110,11 +109,8 @@ export function BottomNav() {
     const uid = user.uid;
     if (href === '/home') {
       prefetchCachedAction(`following:${uid}`, async () => {
-        const res = await apiCall<{ users: UserProfile[] }>(
-          'GET',
-          `/api/v1/users/${uid}/following`,
-        );
-        return (res.users ?? []).map((u) => u.uid);
+        const res = await apiCall<{ ids: string[] }>('GET', '/api/v1/me/following-ids');
+        return res.ids ?? [];
       });
       prefetchCachedAction(`home-feed:${uid}:all`, async () => {
         const res = await apiCall<{ items: FeedItem[]; hasMore: boolean; nextCursor?: string }>(

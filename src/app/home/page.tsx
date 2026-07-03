@@ -8,7 +8,6 @@ import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
-import type { UserProfile } from '@/lib/types';
 import type { DigInCategory } from '@/lib/tmdb-client';
 import { DigIn } from '@/components/dig-in';
 import { TopWatchers } from '@/components/top-watchers';
@@ -71,11 +70,11 @@ export default function HomePage() {
     user ? `following:${user.uid}` : null,
     async () => {
       if (!user) return [];
-      const res = await apiCall<{ users: UserProfile[] }>(
-        'GET',
-        `/api/v1/users/${user.uid}/following`,
-      );
-      return (res.users ?? []).map((u) => u.uid);
+      // ids-only, FULL follow graph (cap 2000) — the friends filter must see
+      // all your follows, not the arbitrary 50 the profile-hydrating endpoint
+      // returned (a user following >50 people silently lost follows #51+).
+      const res = await apiCall<{ ids: string[] }>('GET', '/api/v1/me/following-ids');
+      return res.ids ?? [];
     },
     { staleTime: 300_000 }, // follow set changes rarely — 5 min
   );
