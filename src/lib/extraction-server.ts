@@ -412,12 +412,12 @@ export async function saveExtraction(
  * emulator. Tests + any environment without a key fall back to fixtures, so the
  * audit suite stays green and the feature degrades cleanly until keys are set.
  */
-function useRealPipeline(): boolean {
+function shouldUseRealPipeline(): boolean {
   return isGeminiConfigured() && !process.env.FIRESTORE_EMULATOR_HOST;
 }
 
 export async function runExtractionPipeline(jobId: string): Promise<void> {
-  return useRealPipeline() ? runRealPipeline(jobId) : runStubPipeline(jobId);
+  return shouldUseRealPipeline() ? runRealPipeline(jobId) : runStubPipeline(jobId);
 }
 
 async function setStage(

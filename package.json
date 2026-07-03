@@ -7,7 +7,7 @@
     "build": "NODE_ENV=production next build",
     "build:static": "NODE_ENV=production bash scripts/static-build.sh",
     "start": "next start",
-    "lint": "next lint",
+    "lint": "eslint 'src/**/*.{ts,tsx}'",
     "typecheck": "tsc --noEmit",
     "audit:test": "JAVA_HOME=/opt/homebrew/opt/openjdk@21 PATH=/opt/homebrew/opt/openjdk@21/bin:$PATH firebase emulators:exec --only firestore,auth --project demo-cinechrony 'node --experimental-test-module-mocks --import tsx --import ./scripts/audit-tests/setup.ts --test --test-concurrency=1 scripts/audit-tests/*.test.ts'",
     "cap:sync": "npm run build:static && cap sync",
@@ -15,7 +15,8 @@
     "cap:open:android": "cap open android",
     "cap:run:ios": "npm run build:static && cap sync ios && cap run ios",
     "cap:run:android": "npm run build:static && cap sync android && cap run android",
-    "cap:assets": "capacitor-assets generate --iconBackgroundColor '#f7f3eb' --iconBackgroundColorDark '#0a0a0a' --splashBackgroundColor '#f7f3eb' --splashBackgroundColorDark '#0a0a0a'"
+    "cap:assets": "capacitor-assets generate --iconBackgroundColor '#f7f3eb' --iconBackgroundColorDark '#0a0a0a' --splashBackgroundColor '#f7f3eb' --splashBackgroundColorDark '#0a0a0a'",
+    "audit:test:ci": "firebase emulators:exec --only firestore,auth --project demo-cinechrony 'node --experimental-test-module-mocks --import tsx --import ./scripts/audit-tests/setup.ts --test --test-concurrency=1 scripts/audit-tests/*.test.ts'"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.948.0",
@@ -89,10 +90,13 @@
     "@types/react": "^19.2.1",
     "@types/react-dom": "^19.2.1",
     "@types/web-push": "^3.6.4",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "firebase-tools": "^15.18.0",
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "tsx": "^4.22.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "typescript-eslint": "^8.62.1"
   }
 }

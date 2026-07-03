@@ -1,0 +1,58 @@
+name: CI
+
+# The repo had no CI: every push auto-deployed to the production origin the iOS
+# app points at, and the 477-test security/contract suite only ran when a human
+# remembered. This gates the important checks. Two jobs so the fast one (types +
+# lint, ~2-3 min) runs on every push while the slow one (emulator suite + build,
+# ~10-14 min) runs on PRs and main only — keeping inside GitHub's free minutes.
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A newer push to the same ref cancels the in-flight run (saves free minutes).
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quick:
+    name: types + lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint (react-hooks rules)
+        run: npm run lint
+
+  verify:
+    name: audit suite + build
+    # Only the expensive job on the paths that actually ship, to conserve minutes.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: npm ci
+      - name: Audit suite (Firestore + Auth emulators)
+        run: npm run audit:test:ci
+      - name: Production build
+        run: npm run build
+        env:
+          # The build must succeed without real secrets; routes read env at call
+          # time and degrade gracefully when unset.
+          NEXT_TELEMETRY_DISABLED: '1'

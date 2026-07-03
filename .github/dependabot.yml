@@ -1,0 +1,24 @@
+# Weekly dependency updates. Groups minor/patch bumps into a single PR to cut
+# noise, and ignores majors (they need manual migration and would otherwise open
+# churny PRs). Security patches in the auth-critical path (firebase-admin, next)
+# then arrive automatically and are verified by the CI workflow before merge.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+    ignore:
+      - dependency-name: '*'
+        update-types:
+          - version-update:semver-major
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly
