@@ -31,6 +31,7 @@ export function PostFab({ onPosted }: { onPosted?: () => void }) {
       <Fab
         icon={PencilLine}
         ariaLabel="new post"
+        dataTour="compose"
         onClick={() => setComposerOpen(true)}
         onLongPress={openSheet}
       />

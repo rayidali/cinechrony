@@ -22,6 +22,7 @@ import {
   Users,
   SunMoon,
   Download,
+  Compass,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useUser, useFirestore } from '@/firebase';
@@ -285,6 +286,20 @@ export default function SettingsPage() {
               { id: 'dark', label: 'dark' },
               { id: 'system', label: 'system' },
             ]}
+          />
+        </Group>
+
+        {/* Replay the first-run tour */}
+        <Group icon={Compass} eyebrow="tour" title="how it works" desc="new here, or want a refresher? take the quick walkthrough again.">
+          <CtaButton
+            label="take the tour"
+            icon={Compass}
+            onClick={() => {
+              if (user?.uid) {
+                try { localStorage.removeItem(`cc-tour-seen:${user.uid}`); } catch { /* private mode */ }
+              }
+              router.push('/home');
+            }}
           />
         </Group>
 

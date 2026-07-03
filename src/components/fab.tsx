@@ -16,6 +16,8 @@ interface FabProps {
   ariaLabel?: string;
   /** Extra classes — e.g. `z-40` to sit a FAB under a drawer overlay. */
   className?: string;
+  /** Optional `data-tour` anchor id for the product tour spotlight. */
+  dataTour?: string;
 }
 
 /**
@@ -25,7 +27,7 @@ interface FabProps {
  * (`shadow-fab`). One per screen, bottom-right. Long-press opens the
  * secondary action sheet (post composer FAB). See UX_PATTERNS.md.
  */
-export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, className }: FabProps) {
+export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, className, dataTour }: FabProps) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
 
@@ -64,6 +66,7 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
       onContextMenu={(e) => {
         if (onLongPress) e.preventDefault();
       }}
+      data-tour={dataTour}
       aria-label={ariaLabel ?? label}
       className={cn(
         'fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50',

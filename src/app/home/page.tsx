@@ -122,6 +122,7 @@ export default function HomePage() {
               <button
                 onClick={handleScan}
                 aria-label="Scan a poster"
+                data-tour="scan"
                 className="h-full flex items-center gap-[5px] pl-2.5 pr-[13px] text-primary transition-colors active:bg-primary/5"
               >
                 <ScanLine className="h-[15px] w-[15px]" strokeWidth={2} />

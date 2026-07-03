@@ -180,6 +180,7 @@ export function BottomNav() {
                   href={item.href}
                   aria-label={item.label}
                   aria-current={active ? 'page' : undefined}
+                  data-tour={`tab-${item.href.slice(1)}`}
                   onTouchStart={() => handlePrefetch(item.href)}
                   onMouseEnter={() => handlePrefetch(item.href)}
                   onClick={handleTap(item, active)}

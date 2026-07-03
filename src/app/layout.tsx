@@ -20,6 +20,7 @@ import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
 import { BottomNav } from '@/components/bottom-nav';
+import { ProductTour } from '@/components/product-tour';
 import { deployOrigin, ogImageUrl } from '@/lib/share-meta';
 
 // Design system v2 — editorial cinema.
@@ -140,6 +141,7 @@ export default function RootLayout({
                             re-rasterization flicker) and never rides the
                             push/pop/swipe transform. Self-gates per route. */}
                         <BottomNav />
+                        <ProductTour />
                        </UserVerifiedCacheProvider>
                       </UserBlocksCacheProvider>
                     </UserMutesCacheProvider>
