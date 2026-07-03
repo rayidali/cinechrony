@@ -214,7 +214,7 @@ export async function deleteRating(
 
 export async function getUserRatings(
   userId: string,
-  opts: { limit?: number; cursor?: string } = {},
+  opts: { limit?: number; cursor?: string; since?: string } = {},
 ): Promise<{ ratings: UserRating[]; hasMore: boolean; nextCursor?: string }> {
   const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_PAGE), MAX_PAGE);
   const db = getDb();
@@ -223,6 +223,18 @@ export async function getUserRatings(
     .collection('ratings')
     .where('userId', '==', userId)
     .orderBy('updatedAt', 'desc');
+
+  // Delta sync: return only ratings changed at/after `since` (an ISO timestamp
+  // the client persists as its high-water mark). `>=` (not `>`) tolerates ties
+  // in updatedAt — the client de-dupes by tmdbId so re-including the boundary
+  // rating is harmless. Uses the same (userId ==, updatedAt) composite index as
+  // the base query, so no new index is required.
+  if (opts.since) {
+    const sinceDate = new Date(opts.since);
+    if (!Number.isNaN(sinceDate.getTime())) {
+      q = q.where('updatedAt', '>=', sinceDate);
+    }
+  }
 
   if (opts.cursor) {
     // Cursor is the previous page's last `updatedAt` ISO string. Coerce

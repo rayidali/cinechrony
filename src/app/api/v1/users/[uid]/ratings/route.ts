@@ -18,9 +18,11 @@ export const GET = publicApiRoute<RouteParams>(async (req, { params }) => {
   const limitRaw = url.searchParams.get('limit');
   const limit = limitRaw ? Number.parseInt(limitRaw, 10) : undefined;
   const cursor = url.searchParams.get('cursor') || undefined;
+  const since = url.searchParams.get('since') || undefined;
   return getUserRatings(params.uid, {
     limit: Number.isFinite(limit) ? limit : undefined,
     cursor,
+    since,
   });
 }, { softFallback: { ratings: [], hasMore: false } });
 
