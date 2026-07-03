@@ -1,14 +1,15 @@
 /**
  * Phase 0.7 — leaderboard via the home-rail snapshot (free-tier scale fix).
  *
- * The week leaderboard is now served from a global `/snapshots/home` doc built
- * by ONE activity scan (instead of a per-user 800-doc scan). Under the test
+ * The week leaderboard is served from a global `/snapshots/home` doc built by
+ * ONE activity scan (instead of a per-user 800-doc scan). Under the test
  * emulator the snapshot bypasses its cache and builds fresh from seeded
- * activities, so these assert the aggregation + per-user filtering directly:
- *   - ranks the caller's follow-graph (+ self) by distinct films logged this week
+ * activities, so these assert the aggregation + filtering directly:
+ *   - ranks ALL users GLOBALLY by distinct films logged this week (2026-07: was
+ *     wrongly scoped to the caller's follow-graph; it's an app-wide board)
  *   - only "seen" signals (watched/rated/reviewed) count; 'added' does not
- *   - blocked users are excluded
- *   - non-followed users are excluded (scoped to the follow graph)
+ *   - blocked users are excluded (the one per-caller filter)
+ *   - non-followed users ARE included (the board is global)
  *   - fallback=1 widens to all-recent when the week is empty
  */
 
@@ -44,11 +45,6 @@ async function seedActivity(uid: string, tmdbId: number, opts: { type?: string; 
   });
 }
 
-async function follow(followerUid: string, followingUid: string) {
-  await adminDb().collection('users').doc(followerUid)
-    .collection('following').doc(followingUid).set({ followingId: followingUid, createdAt: new Date() });
-}
-
 beforeEach(async () => {
   await clearFirestore();
   me_ = await createTestUser('me');
@@ -72,9 +68,7 @@ test('GET /leaderboard: unauth → 401', async () => {
   assert.equal(res.status, 401);
 });
 
-test('ranks the follow-graph by distinct films this week; only seen-signals count', async () => {
-  await follow(me_.uid, alice.uid);
-  await follow(me_.uid, bob.uid);
+test('ranks by distinct films this week; only seen-signals count', async () => {
   // alice: 3 distinct watched films this week
   await seedActivity(alice.uid, 1, { username: 'alice' });
   await seedActivity(alice.uid, 2, { username: 'alice' });
@@ -92,21 +86,21 @@ test('ranks the follow-graph by distinct films this week; only seen-signals coun
   assert.ok(byUid[alice.uid].rank < byUid[bob.uid].rank);
 });
 
-test('excludes non-followed users (scoped to the follow graph + self)', async () => {
-  await follow(me_.uid, alice.uid);
+test('includes non-followed users (the board is GLOBAL, not follow-scoped)', async () => {
+  // No follows anywhere. A stranger the caller does not follow must still rank.
   await seedActivity(alice.uid, 1, { username: 'alice' });
   await seedActivity(stranger.uid, 1, { username: 'stranger' });
   await seedActivity(stranger.uid, 2, { username: 'stranger' });
 
   const entries = await board(await me_.getIdToken());
-  const uids = entries.map((e) => e.uid);
-  assert.ok(uids.includes(alice.uid), 'followed alice is ranked');
-  assert.ok(!uids.includes(stranger.uid), 'unfollowed stranger is excluded');
+  const byUid = Object.fromEntries(entries.map((e) => [e.uid, e]));
+  assert.ok(byUid[alice.uid], 'alice is ranked');
+  assert.ok(byUid[stranger.uid], 'the unfollowed stranger is ALSO ranked (global board)');
+  assert.equal(byUid[stranger.uid].films, 2);
+  assert.ok(byUid[stranger.uid].rank < byUid[alice.uid].rank, 'stranger (2 films) outranks alice (1)');
 });
 
-test('excludes blocked users even if followed', async () => {
-  await follow(me_.uid, alice.uid);
-  await follow(me_.uid, bob.uid);
+test('excludes blocked users', async () => {
   await seedActivity(alice.uid, 1, { username: 'alice' });
   await seedActivity(bob.uid, 2, { username: 'bob' });
   // me blocks bob
@@ -119,7 +113,6 @@ test('excludes blocked users even if followed', async () => {
 });
 
 test('this-week filtering: an old watch does not count toward the week', async () => {
-  await follow(me_.uid, alice.uid);
   await seedActivity(alice.uid, 1, { username: 'alice', daysAgo: 0 });
   await seedActivity(alice.uid, 2, { username: 'alice', daysAgo: 20 }); // outside the 7-day window
 
@@ -130,7 +123,6 @@ test('this-week filtering: an old watch does not count toward the week', async (
 });
 
 test('fallback=1 widens to all-recent when the week is empty', async () => {
-  await follow(me_.uid, alice.uid);
   await seedActivity(alice.uid, 1, { username: 'alice', daysAgo: 30 }); // old — outside week
 
   const withFallback = await board(await me_.getIdToken(), 'window=week&fallback=1');

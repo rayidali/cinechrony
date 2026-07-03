@@ -1,19 +1,20 @@
 /**
  * Weekly leaderboard — "top watchers" (Phase 0.7 / v3 home rail, `ios-home.jsx`).
  *
- * Ranks the people the caller follows (plus the caller) by how many distinct
- * films they logged in the window. "Logged" = a `watched` / `rated` / `reviewed`
- * activity (the three signals that a film was actually seen). Real aggregate —
- * no fabricated rows; an empty result hides the rail.
+ * GLOBAL ranking: the most active watchers across the WHOLE app in the window,
+ * by how many distinct films they logged. "Logged" = a `watched` / `rated` /
+ * `reviewed` activity (the three signals a film was actually seen). Real
+ * aggregate — no fabricated rows; an empty result hides the rail. (2026-07: was
+ * incorrectly scoped to the caller's follow-graph — everyone saw only their
+ * friends, not the app-wide board. Global is the intended behavior; it also
+ * drops the per-request `getFollowingIds` read.)
  *
- * Implementation: one window-scoped scan of `/activities` (ordered by createdAt,
- * capped) grouped in memory to the follow set. Good to a few hundred recent
- * events; a denormalized weekly counter is the scale follow-up (noted in
- * PHASE-0.7-REDESIGN.md 0.7.5).
+ * The only per-caller input is BLOCK removal — a blocked user never appears in
+ * your board. Everything else is identical for every viewer, so the expensive
+ * scan is shared (via the global home snapshot).
  */
 
 import { getDb } from '@/firebase/admin';
-import { getFollowingIds } from '@/lib/follows-server';
 import { getMyBlockSet } from '@/lib/blocks-server';
 import { createTtlCache, cached } from '@/lib/server-cache';
 import { getHomeSnapshot, type SnapshotWatcher } from '@/lib/home-snapshot-server';
@@ -58,19 +59,9 @@ export async function getWeeklyLeaderboard(
     }
     const db = getDb();
 
-    // IDs only — the leaderboard rows use the activity docs' denormalized
-    // username/avatar, so hydrating 200 follow profiles here was pure waste
-    // (~200 reads → 1). [free-tier read reduction]
-    const [followingIds, blocked] = await Promise.all([
-      getFollowingIds(callerUid, 200),
-      getMyBlockSet(callerUid).catch(() => new Set<string>()),
-    ]);
-
-    // The candidate set = people you follow (+ you), minus anyone blocked.
-    const include = new Set<string>([callerUid]);
-    for (const uid of followingIds) include.add(uid);
-    for (const b of blocked) include.delete(b);
-    if (include.size === 0) return { entries: [] };
+    // Only per-caller input: the block set (a blocked user never shows on your
+    // board). Everyone else is ranked globally.
+    const blocked = await getMyBlockSet(callerUid).catch(() => new Set<string>());
 
     // ONE index-free scan of the most recent activity (no date filter in the
     // query, so the same docs serve any window + the all-time fallback below in
@@ -99,7 +90,7 @@ export async function getWeeklyLeaderboard(
           displayName?: string | null;
           photoURL?: string | null;
         };
-        if (!a.userId || !include.has(a.userId)) continue;
+        if (!a.userId || blocked.has(a.userId)) continue;
         if (!a.type || !LOG_TYPES.has(a.type)) continue;
         if (!a.tmdbId) continue;
         const acc =
@@ -177,21 +168,16 @@ async function leaderboardFromSnapshot(
   limit: number,
   fallbackToAllTime: boolean,
 ): Promise<LeaderboardEntry[] | null> {
-  const [snapshot, followingIds, blocked] = await Promise.all([
+  const [snapshot, blocked] = await Promise.all([
     getHomeSnapshot(),
-    getFollowingIds(callerUid, 200),
     getMyBlockSet(callerUid).catch(() => new Set<string>()),
   ]);
   if (!snapshot) return null;
 
-  const include = new Set<string>([callerUid]);
-  for (const uid of followingIds) include.add(uid);
-  for (const b of blocked) include.delete(b);
-  if (include.size === 0) return [];
-
+  // Global board: rank every watcher in the snapshot, minus the caller's blocks.
   const rankBy = (pick: (w: SnapshotWatcher) => number): LeaderboardEntry[] =>
     snapshot.watchers
-      .filter((w) => include.has(w.uid) && pick(w) > 0)
+      .filter((w) => !blocked.has(w.uid) && pick(w) > 0)
       .map((w) => ({
         uid: w.uid,
         username: w.username,
