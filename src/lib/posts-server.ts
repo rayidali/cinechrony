@@ -17,7 +17,7 @@
  *     URLs can never write into another user's prefix.
  */
 
-import { FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { randomUUID } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
@@ -667,12 +667,7 @@ export async function getHomeFeed(
   const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_PAGE), MAX_PAGE);
   const db = getDb();
   const blockSet = viewerUid ? await getBlockSet(db, viewerUid) : new Set<string>();
-  // Keyset cursor: `<createdAt ISO>|<docId>`. A legacy bare-ISO cursor still
-  // parses (docId empty → timestamp-only resume, as before).
-  const cSep = opts.cursor ? opts.cursor.lastIndexOf('|') : -1;
-  const cIso = opts.cursor ? (cSep > 0 ? opts.cursor.slice(0, cSep) : opts.cursor) : null;
-  const cursorDocId = cSep > 0 ? opts.cursor!.slice(cSep + 1) : '';
-  const cursorDate = cIso ? new Date(cIso) : null;
+  const cursorDate = opts.cursor ? new Date(opts.cursor) : null;
 
   // The reel is user-authored posts only. System activities (`added`,
   // `watched`, `rated`, `reviewed`) are intentionally kept out of the home
@@ -682,27 +677,25 @@ export async function getHomeFeed(
   // can shrink below `limit` (others' private posts). Pagination MUST be keyed
   // off the RAW scan, not the visible count — otherwise a single hidden post
   // could set hasMore=false and dead-end infinite scroll. We scan in bounded
-  // rounds (cap reads under the free-tier budget) until we have a full visible
-  // page or the collection is exhausted, advancing the cursor past the last
-  // RAW doc each round so hidden docs are never re-scanned.
-  // KEYSET pagination on (createdAt DESC, __name__ ASC). The explicit
-  // documentId() tiebreak matches Firestore's implicit `__name__ ASC`, so no new
-  // index — and it fixes the tie-skip: a bare `where('createdAt','<', cursor)`
-  // excluded EVERY post sharing the boundary millisecond, dropping the tail of a
-  // same-timestamp group (two posts in one server-ms) from the feed. The cursor
-  // now carries (createdAt, docId) so pagination resumes precisely.
-  const baseQ = db
-    .collection('posts')
-    .orderBy('createdAt', 'desc')
-    .orderBy(FieldPath.documentId(), 'asc');
+  // rounds until we have a full visible page or the collection is exhausted.
+  //
+  // Tie-safety WITHOUT a composite index: the round-to-round cursor uses
+  // `startAfter(lastDocSnapshot)`, which continues past the exact doc using the
+  // single-field `createdAt` index's implicit __name__ tiebreak — so a run of
+  // posts sharing a millisecond is never skipped mid-scan. (An explicit
+  // `orderBy(documentId)` here would demand a mixed-direction composite index the
+  // deployment doesn't have — that 500'd the feed.) The cross-request cursor
+  // stays a bare `createdAt` ISO (`where('createdAt','<', cursor)`), same as
+  // before; a same-millisecond tie exactly at a page boundary is the only
+  // residual and is vanishingly rare.
+  const baseQ = db.collection('posts').orderBy('createdAt', 'desc');
   const MAX_ROUNDS = 5;
   const ROUND = limit + 1;
 
-  const visible: { item: FeedItem; ts: number; id: string }[] = [];
-  let scanCursor: Date | null = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
-  let scanCursorId: string = cursorDocId; // keyset partner for scanCursor
+  const visible: { item: FeedItem; ts: number }[] = [];
+  const externalCursor: Date | null = cursorDate && !Number.isNaN(cursorDate.getTime()) ? cursorDate : null;
+  let lastDoc: FirebaseFirestore.QueryDocumentSnapshot | null = null; // internal round cursor (tie-safe)
   let rawCursor: string | undefined; // ISO of the last RAW doc scanned
-  let rawCursorId: string | undefined; // its docId
   let exhausted = false;
   let rounds = 0;
 
@@ -710,32 +703,23 @@ export async function getHomeFeed(
   // or the collection runs out — keep going past hidden posts.
   for (; rounds < MAX_ROUNDS && visible.length <= limit; rounds++) {
     let q = baseQ;
-    if (scanCursor) {
-      q = scanCursorId
-        ? q.startAfter(scanCursor, scanCursorId)
-        : q.where('createdAt', '<', scanCursor); // legacy bare-ts cursor
-    }
+    if (lastDoc) q = q.startAfter(lastDoc); // subsequent rounds: tie-safe snapshot cursor
+    else if (externalCursor) q = q.where('createdAt', '<', externalCursor); // first round: cross-request boundary
     const snap = await q.limit(ROUND).get();
     if (snap.empty) { exhausted = true; break; }
     for (const d of snap.docs) {
       const p = postFromDoc(d);
       rawCursor = p.createdAt.toISOString();
-      rawCursorId = d.id;
-      scanCursor = p.createdAt;
-      scanCursorId = d.id;
       if (blockSet.has(p.authorId)) continue;
       if (!canViewPost(p, viewerUid)) continue;
-      visible.push({ item: { kind: 'post', post: serializePostForViewer(p, viewerUid) }, ts: p.createdAt.getTime(), id: d.id });
+      visible.push({ item: { kind: 'post', post: serializePostForViewer(p, viewerUid) }, ts: p.createdAt.getTime() });
     }
+    lastDoc = snap.docs[snap.docs.length - 1] ?? lastDoc;
     if (snap.size < ROUND) { exhausted = true; break; }
   }
 
-  // Stable sort keeps the scan order (createdAt desc, id asc) for equal ts, so
-  // page[last]'s (ts, id) is a valid keyset cursor and surplus visible items are
-  // re-included (exclusively) on the next page — never dropped, never duplicated.
   visible.sort((a, b) => b.ts - a.ts);
   const page = visible.slice(0, limit);
-  const rawKeyset = rawCursor && rawCursorId ? `${rawCursor}|${rawCursorId}` : rawCursor;
 
   let hasMore: boolean;
   let nextCursor: string | undefined;
@@ -743,13 +727,12 @@ export async function getHomeFeed(
     // There's a confirmed next visible post — resume just after the LAST
     // RETURNED item (not the last raw doc) so the surplus visible isn't dropped.
     hasMore = true;
-    const last = page[page.length - 1];
-    nextCursor = last ? `${new Date(last.ts).toISOString()}|${last.id}` : rawKeyset;
+    nextCursor = page.length > 0 ? new Date(page[page.length - 1].ts).toISOString() : rawCursor;
   } else if (rounds >= MAX_ROUNDS && !exhausted) {
     // Hit the scan cap on a dense run of hidden posts — there may be more;
     // advance past everything scanned so we don't re-scan the hidden run.
     hasMore = true;
-    nextCursor = rawKeyset;
+    nextCursor = rawCursor;
   } else {
     hasMore = false;
     nextCursor = undefined;

@@ -15,7 +15,7 @@
  * FIRST rating (re-rates don't re-emit). Best-effort.
  */
 
-import { FieldValue, FieldPath } from 'firebase-admin/firestore';
+import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { emitActivity } from '@/lib/activities-server';
 import type { UserRating } from '@/lib/types';
@@ -219,19 +219,18 @@ export async function getUserRatings(
   const limit = Math.min(Math.max(1, opts.limit ?? DEFAULT_PAGE), MAX_PAGE);
   const db = getDb();
 
-  // KEYSET cursor on (updatedAt DESC, __name__ ASC). The explicit documentId()
-  // tiebreak matches Firestore's IMPLICIT `__name__ ASC` ordering, so it uses
-  // the SAME index (no new composite index). This is what makes pagination
-  // correct under ties: a Letterboxd import commits ~225 ratings per batch that
-  // all share one serverTimestamp, so a same-timestamp group routinely straddles
-  // a 500-row page boundary. A bare-timestamp `startAfter(date)` skipped the
-  // WHOLE tie group's tail (those films then rendered as unrated forever); the
-  // (updatedAt, docId) cursor resumes correctly within the group.
+  // Uses the deployed `(userId ASC, updatedAt DESC)` composite index — a single
+  // orderBy, so no index uncertainty. NOTE: a bare `startAfter(date)` cursor
+  // excludes ALL docs sharing the boundary `updatedAt`, so a same-timestamp
+  // group straddling a page boundary loses its tail (a Letterboxd batch writes
+  // ~225 ratings sharing one serverTimestamp). A keyset (updatedAt, __name__)
+  // cursor fixes it but needs a composite index whose __name__ direction I can't
+  // verify blind — deferred until that index is deployed (see
+  // firestore.indexes.json + HANDOFF). Kept the known-good query to stay prod-safe.
   let q: FirebaseFirestore.Query = db
     .collection('ratings')
     .where('userId', '==', userId)
-    .orderBy('updatedAt', 'desc')
-    .orderBy(FieldPath.documentId(), 'asc');
+    .orderBy('updatedAt', 'desc');
 
   // Delta sync: only ratings changed at/after `since`. `>=` (not `>`) tolerates
   // ties — the client de-dupes by tmdbId so re-including the boundary is
@@ -244,15 +243,13 @@ export async function getUserRatings(
   }
 
   if (opts.cursor) {
-    // Cursor format: `<updatedAt ISO>|<docId>` (keyset). A legacy bare-timestamp
-    // cursor (from a client cached before this change) still works — it just
-    // resumes at the timestamp boundary as before until the next page rolls over.
-    const sep = opts.cursor.lastIndexOf('|');
-    const iso = sep > 0 ? opts.cursor.slice(0, sep) : opts.cursor;
-    const docId = sep > 0 ? opts.cursor.slice(sep + 1) : '';
+    // Cursor is the previous page's last `updatedAt` ISO. Parse defensively: a
+    // client that cached an `iso|docId` keyset cursor (from the reverted attempt)
+    // still resolves — we take just the ISO part.
+    const iso = opts.cursor.includes('|') ? opts.cursor.slice(0, opts.cursor.indexOf('|')) : opts.cursor;
     const cursorDate = new Date(iso);
     if (!Number.isNaN(cursorDate.getTime())) {
-      q = docId ? q.startAfter(cursorDate, docId) : q.startAfter(cursorDate);
+      q = q.startAfter(cursorDate);
     }
   }
 
@@ -265,11 +262,7 @@ export async function getUserRatings(
 
   const nextCursor =
     hasMore && pageDocs.length > 0
-      ? (() => {
-          const last = pageDocs[pageDocs.length - 1];
-          const iso = (last.data()?.updatedAt?.toDate?.() as Date | undefined)?.toISOString();
-          return iso ? `${iso}|${last.id}` : undefined;
-        })()
+      ? (pageDocs[pageDocs.length - 1].data()?.updatedAt?.toDate?.() as Date | undefined)?.toISOString()
       : undefined;
 
   return { ratings, hasMore, nextCursor };
