@@ -12,8 +12,12 @@ import {
  * the user used the app.
  *
  * What we persist:
- *  · Trending strip (films + loved lists) — global, identical for everyone,
- *    very stable day-to-day.
+ *  · The home discovery rails — global, identical for everyone, stable
+ *    day-to-day: `home-loved-lists`, `home-dig-in`, `home-leaderboard`,
+ *    `home-hot-takes`. (These are the keys the LIVE rails actually use; the
+ *    old `trending-films`/`loved-lists` registrations were dead — their
+ *    consumer, trending-strip, was retired from home in 0.7 — so every cold
+ *    open re-fetched every rail and pop-in danced. 2026-07 fix.)
  *  · User-scoped feeds — `home-feed:${uid}:*`, `home-recs:${uid}`,
  *    `home-fw:${uid}`, `following:${uid}`, `collab-lists:${uid}`.
  *
@@ -25,8 +29,10 @@ import {
  * runs once, at module load time, before any consuming component mounts.
  */
 
-registerPersistedCache('trending-films');
-registerPersistedCache('loved-lists');
+registerPersistedCache('home-loved-lists');
+registerPersistedCache('home-dig-in');
+registerPersistedCache('home-leaderboard');
+registerPersistedCache('home-hot-takes');
 
 registerPersistedPrefix('home-feed:');
 registerPersistedPrefix('home-recs:');

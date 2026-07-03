@@ -380,13 +380,18 @@ export default function ListsPage() {
                 <div className="grid grid-cols-2 gap-x-5 gap-y-7">
                   {lists.map((list) => {
                     const preview = listPreviews[list.id];
-                    const augmented = { ...list, movieCount: preview?.movieCount ?? 0 };
+                    // Fall back to the denormalized count on the list doc so a
+                    // populated list never flashes "0 films" while its preview
+                    // (posters + fresh count) is still in flight. (Matches the
+                    // profile page; the previews POST arrives a beat later.)
+                    const movieCount = preview?.movieCount ?? list.movieCount ?? 0;
+                    const augmented = { ...list, movieCount };
                     return (
                       <ListTile
                         key={list.id}
                         name={list.name}
                         isPublic={list.isPublic}
-                        movieCount={preview?.movieCount ?? 0}
+                        movieCount={movieCount}
                         previewPosters={preview?.previewPosters ?? []}
                         coverImageUrl={list.coverImageUrl}
                         coverMode={list.coverMode}

@@ -42,8 +42,24 @@ export function NotificationBell() {
 
   useEffect(() => {
     fetchCount();
-    const interval = setInterval(() => fetchCount(), POLL_MS);
-    return () => clearInterval(interval);
+    // Poll only while the tab/app is visible — a backgrounded PWA or an app in
+    // the background should not keep firing serverless reads (at 1000s of
+    // concurrent clients an always-on poll is a constant baseline of function
+    // invocations doing nothing user-visible). Refetch immediately on return to
+    // foreground so the badge is fresh when the user looks.
+    const interval = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') {
+        fetchCount();
+      }
+    }, POLL_MS);
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') fetchCount();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [fetchCount]);
 
   if (!user) return null;

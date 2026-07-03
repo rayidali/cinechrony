@@ -149,7 +149,13 @@ export function ActivityFeed({
   // tab returns paint the first scroll-worth synchronously, and the user
   // pays for pagination again on return (acceptable — most users only see
   // page 1 anyway).
-  const feedKey = currentUserId ? `home-feed:${currentUserId}:${feedFilter}` : null;
+  // `all` and `friends` fetch the SAME /api/v1/home-feed payload — friends is a
+  // pure client-side narrowing by followingIds (below) — so they share one
+  // cache key. Switching between the two headline tabs is then an instant
+  // re-filter with zero refetch and zero skeleton (was: a full skeleton + a
+  // redundant server hit on every switch). `saved` keeps its own key + endpoint.
+  const feedCacheFilter = feedFilter === 'saved' ? 'saved' : 'all';
+  const feedKey = currentUserId ? `home-feed:${currentUserId}:${feedCacheFilter}` : null;
   const recKey = currentUserId ? `home-recs:${currentUserId}` : null;
   const fwKey = currentUserId ? `home-fw:${currentUserId}` : null;
   const htKey = currentUserId ? `home-hot-takes:${currentUserId}` : null;
@@ -182,7 +188,7 @@ export function ActivityFeed({
   // merged home feed (activities + posts).
   const fetchPage = useCallback(
     async (pageCursor?: string) => {
-      if (feedFilter === 'saved') {
+      if (feedCacheFilter === 'saved') {
         const qs = new URLSearchParams();
         if (pageCursor) qs.set('cursor', pageCursor);
         try {
@@ -223,7 +229,7 @@ export function ActivityFeed({
         };
       }
     },
-    [feedFilter, auth],
+    [feedCacheFilter, auth],
   );
 
   // Initial load (refresh on refreshKey; reload when the filter changes).
