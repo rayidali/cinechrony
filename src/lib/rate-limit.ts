@@ -37,11 +37,64 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   pushSubscribe: { limit: 10, windowMs: 60_000 },
   report:        { limit: 10, windowMs: 60_000 },
   post:          { limit: 15, windowMs: 60_000 },
+  // Letterboxd username import — each scrape/start spins a BILLABLE Apify
+  // residential-proxy run (an uncapped one once ran an hour at ~$3.70). Tight.
+  import:        { limit: 4,  windowMs: 60 * 60_000 },
+  importDaily:   { limit: 20, windowMs: 24 * 60 * 60_000 },
+  // Media writes to R2 (avatar / cover / post upload URL) — storage + egress $.
+  upload:        { limit: 40, windowMs: 60 * 60_000 },
+  // Rating / watch writes — each emits a denormalized activity + notifications.
+  rate:          { limit: 60, windowMs: 60_000 },
   // Phase C — AI film extraction. Each fresh extraction can cost an Apify run +
   // a Gemini call, so cap both a burst AND a daily total per user.
   extraction:      { limit: 5,  windowMs: 60_000 },
   extractionDaily: { limit: 50, windowMs: 24 * 60 * 60_000 },
 };
+
+// ─── In-memory per-IP limiter (unauthenticated routes) ─────────────────────
+//
+// The Firestore limiter above needs a verified uid, so it can't cover the
+// public routes (auth/login, forgot-password, search, share/*, TMDB/OMDB
+// proxies) — exactly the ones an anonymous script can loop to drain the free
+// quota or brute-force credentials. This is a zero-cost, zero-latency
+// per-instance fixed-window counter in front of them. Per-instance means an
+// attacker spread over N Vercel instances gets N× the limit — still bounded,
+// still free; the Vercel WAF (owner-configured) is the real distributed
+// backstop. We keep it purely in-memory: a limiter that itself hit Firestore
+// on every anonymous request would be its own DoS amplifier.
+
+type IpWindow = { count: number; resetAt: number };
+const ipBuckets = new Map<string, IpWindow>();
+const IP_BUCKETS_MAX = 20_000; // hard cap so a spray of distinct IPs can't grow the map unbounded
+
+/**
+ * Consume one unit of `ip`'s budget for `action`. Returns true if allowed.
+ * Fails OPEN on a missing IP (can't fairly limit an unknown caller) — the WAF
+ * covers that case.
+ */
+export function checkIpRateLimit(
+  ip: string | null,
+  action: string,
+  config: RateLimitConfig,
+): boolean {
+  if (!ip) return true;
+  const now = Date.now();
+  const key = `${ip}|${action}`;
+  const w = ipBuckets.get(key);
+  if (!w || now >= w.resetAt) {
+    // Opportunistic prune when the map is large — sweep expired entries so a
+    // long-lived instance doesn't accumulate dead windows.
+    if (ipBuckets.size > IP_BUCKETS_MAX) {
+      for (const [k, v] of ipBuckets) if (now >= v.resetAt) ipBuckets.delete(k);
+      if (ipBuckets.size > IP_BUCKETS_MAX) ipBuckets.clear(); // last resort
+    }
+    ipBuckets.set(key, { count: 1, resetAt: now + config.windowMs });
+    return true;
+  }
+  if (w.count >= config.limit) return false;
+  w.count++;
+  return true;
+}
 
 /**
  * Checks (and consumes) one unit of the caller's budget for `action`.

@@ -12,6 +12,8 @@ import {
   CLAPPER_SVG,
   IMG_HEADERS,
 } from '@/lib/og-shared';
+import { clientIp } from '@/lib/api-handler';
+import { checkIpRateLimit } from '@/lib/rate-limit';
 
 /**
  * GET /api/v1/share/og — a branded 1200×630 (1.91:1) link-preview card for
@@ -57,6 +59,12 @@ function parse(q: URLSearchParams): Model {
 }
 
 export async function GET(req: Request): Promise<Response> {
+  // Unauthenticated, CPU-heavy Satori render that fetches attacker-controlled
+  // image params — cap per IP so a flood can't pin function CPU/bandwidth.
+  // (Crawlers hit each unique card URL once; a real viewer far less.)
+  if (!checkIpRateLimit(clientIp(req), 'shareImage', { limit: 60, windowMs: 60_000 })) {
+    return new Response('Too Many Requests', { status: 429 });
+  }
   const m = parse(new URL(req.url).searchParams);
   try {
     const fonts = loadBrandFonts();

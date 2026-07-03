@@ -16,7 +16,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { activityFromDoc } from '@/lib/activities-server';
-import { postFromDoc, canViewPost, type FeedItem } from '@/lib/posts-server';
+import { postFromDoc, canViewPost, serializePostForViewer, type FeedItem } from '@/lib/posts-server';
 import type { Activity, Post } from '@/lib/types';
 
 // ─── Typed errors ─────────────────────────────────────────────────────────
@@ -157,7 +157,9 @@ export async function getSavedFeed(
       const p = postById.get(data.itemId);
       // Respect F04 audience: a post whose visibility changed (or was always
       // restricted) is hidden from a saver who's no longer in its audience.
-      if (p && canViewPost(p, callerUid)) items.push({ kind: 'post', post: p });
+      if (p && canViewPost(p, callerUid)) {
+        items.push({ kind: 'post', post: serializePostForViewer(p, callerUid) });
+      }
     }
   }
   return {

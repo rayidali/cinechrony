@@ -157,6 +157,22 @@ export function canViewPost(post: Post, viewerUid: string | null): boolean {
   return (post.audienceUids ?? []).includes(viewerUid);
 }
 
+/**
+ * Strip the server-internal arrays before a post leaves the server, deriving the
+ * one thing the client actually needs from them. MUST be applied at every point
+ * a post is returned to a client — AFTER canViewPost has run (canViewPost reads
+ * audienceUids). Removes:
+ *   • audienceUids — the author's mutuals/close-friends snapshot (privacy leak),
+ *   • likedBy — the full liker array (payload bloat + 1MB-doc-cap risk on viral
+ *     posts), replaced by `myLiked` for the requesting viewer.
+ */
+export function serializePostForViewer(post: Post, viewerUid: string | null): Post {
+  const myLiked = !!viewerUid && (post.likedBy ?? []).includes(viewerUid);
+  const { likedBy: _likedBy, audienceUids: _audienceUids, ...rest } = post;
+  void _likedBy; void _audienceUids; // intentionally dropped from the client view
+  return { ...rest, myLiked };
+}
+
 // ─── resolveTaggedUsers ───────────────────────────────────────────────────
 
 /**
@@ -551,7 +567,7 @@ export async function getPost(
   if (viewerUid && (await isBlockedBetween(db, viewerUid, post.authorId))) {
     return null;
   }
-  return post;
+  return serializePostForViewer(post, viewerUid);
 }
 
 // ─── likePost / unlikePost — transactional (AUDIT 3.5 fourth leg) ────────
@@ -687,7 +703,7 @@ export async function getHomeFeed(
       scanCursor = p.createdAt;
       if (blockSet.has(p.authorId)) continue;
       if (!canViewPost(p, viewerUid)) continue;
-      visible.push({ item: { kind: 'post', post: p }, ts: p.createdAt.getTime() });
+      visible.push({ item: { kind: 'post', post: serializePostForViewer(p, viewerUid) }, ts: p.createdAt.getTime() });
     }
     if (snap.size < ROUND) { exhausted = true; break; }
   }

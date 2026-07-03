@@ -5,12 +5,16 @@
  * enrichment step calls OMDB with a server-only key.
  */
 
-import { publicApiRoute, optionsHandler } from '@/lib/api-handler';
+import { publicApiRoute, optionsHandler, clientIp, RateLimitedError } from '@/lib/api-handler';
+import { checkIpRateLimit } from '@/lib/rate-limit';
 import { getTrendingMovies } from '@/lib/tmdb-server';
 
 export const dynamic = 'force-dynamic';
 
-export const GET = publicApiRoute(async () => {
+export const GET = publicApiRoute(async (req) => {
+  if (!checkIpRateLimit(clientIp(req), 'tmdbProxy', { limit: 60, windowMs: 60_000 })) {
+    throw new RateLimitedError();
+  }
   return getTrendingMovies();
 });
 

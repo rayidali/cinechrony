@@ -67,6 +67,10 @@ async function fetchImdbRating(
           Authorization: `Bearer ${tmdbAccessToken}`,
           'Content-Type': 'application/json',
         },
+        // A tmdbId→imdbId mapping never changes; cache 24h. Without this, every
+        // trending request re-fires 10 of these (Next defaults to no-store on a
+        // dynamic route) — burning the shared OMDB free-tier quota downstream.
+        next: { revalidate: 86400 },
       },
     );
     if (!externalIdsResponse.ok) return {};
@@ -76,6 +80,7 @@ async function fetchImdbRating(
 
     const omdbResponse = await fetch(
       `https://www.omdbapi.com/?i=${imdbId}&apikey=${OMDB_API_KEY}`,
+      { next: { revalidate: 86400 } }, // ratings are stable day-to-day; protect the ~1000/day OMDB quota
     );
     if (!omdbResponse.ok) return { imdbId };
     const omdbData = await omdbResponse.json();
@@ -126,6 +131,7 @@ export async function getImdbRating(imdbId: string): Promise<ImdbRating> {
 
   const response = await fetch(
     `https://www.omdbapi.com/?i=${encodeURIComponent(imdbId)}&apikey=${OMDB_API_KEY}`,
+    { next: { revalidate: 86400 } }, // stable ratings; protect the shared OMDB quota
   );
   if (!response.ok) throw new ImdbNotFoundError('Failed to fetch OMDB data');
 
@@ -145,7 +151,17 @@ export async function getImdbRating(imdbId: string): Promise<ImdbRating> {
 
 // ─── getTrendingMovies — TMDB trending enriched with IMDB ratings ─────────
 
+// The trending payload is GLOBAL (identical for every user) and its 10 IMDB
+// enrichments are the app's biggest OMDB-quota consumer. Cache the whole
+// enriched result 1h per instance so the home rail costs ~0 external calls
+// steady-state, independent of Next's fetch-cache behavior on a dynamic route.
+const trendingCache = createTtlCache<{ movies: TrendingMovie[] }>({ ttlMs: 3600_000 });
+
 export async function getTrendingMovies(): Promise<{ movies: TrendingMovie[] }> {
+  return cached(trendingCache, 'trending/day', getTrendingMoviesUncached);
+}
+
+async function getTrendingMoviesUncached(): Promise<{ movies: TrendingMovie[] }> {
   const tmdb = getTmdbToken();
   if (!tmdb) return { movies: [] };
 

@@ -9,6 +9,8 @@
  */
 import { readFileSync } from 'fs';
 import { join } from 'path';
+import { lookup } from 'dns/promises';
+import { isIP } from 'net';
 
 const FONT_DIR = join(process.cwd(), 'public', 'fonts');
 
@@ -65,13 +67,70 @@ export const CLAPPER_SVG =
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1.1-.3 2.2.3 2.5 1.3Z"/><path d="m6.2 5.3 3.1 3.9"/><path d="m12.4 3.4 3.1 4"/><path d="M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/></svg>`,
   );
 
+/**
+ * SSRF guard. The share renderers (`/share/og`, `/share/story`) are PUBLIC and
+ * unauthenticated, and pass attacker-controlled `img`/poster/avatar query params
+ * straight into `fetch()`. Without this, an anonymous caller could make the
+ * server request internal/metadata endpoints (169.254.169.254, localhost, RFC1918)
+ * — blind SSRF. We reject: non-http(s), credentials in the URL, non-80/443 ports,
+ * localhost/metadata/*.internal hostnames, IP literals in private/reserved ranges,
+ * and hostnames that DNS-resolve to a private address. (Residual: a DNS-rebind
+ * race between this lookup and fetch's own resolution — a much higher bar, and the
+ * response here is only an image data URI, so exfil value is negligible.)
+ */
+function ipIsPrivate(ip: string): boolean {
+  const v = isIP(ip);
+  if (v === 4) {
+    const p = ip.split('.').map(Number);
+    if (p.length !== 4 || p.some((n) => Number.isNaN(n) || n < 0 || n > 255)) return true;
+    const [a, b] = p;
+    if (a === 0 || a === 10 || a === 127) return true;               // "this", private, loopback
+    if (a === 169 && b === 254) return true;                          // link-local + cloud metadata
+    if (a === 172 && b >= 16 && b <= 31) return true;                 // private
+    if (a === 192 && b === 168) return true;                          // private
+    if (a === 100 && b >= 64 && b <= 127) return true;                // CGNAT
+    if (a === 192 && b === 0) return true;                            // 192.0.0/24 + test nets
+    if (a >= 224) return true;                                        // multicast + reserved
+    return false;
+  }
+  if (v === 6) {
+    const lc = ip.toLowerCase();
+    if (lc === '::1' || lc === '::') return true;
+    if (lc.startsWith('fe80') || lc.startsWith('fc') || lc.startsWith('fd')) return true; // link-local + ULA
+    // IPv4-mapped (::ffff:a.b.c.d) — validate the embedded v4.
+    const m = /::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lc);
+    if (m) return ipIsPrivate(m[1]);
+    return false;
+  }
+  return true; // not a valid IP → treat as unsafe
+}
+
+async function isUrlFetchSafe(url: string): Promise<boolean> {
+  let u: URL;
+  try { u = new URL(url); } catch { return false; }
+  if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+  if (u.username || u.password) return false;
+  if (u.port && u.port !== '80' && u.port !== '443') return false;
+  const host = u.hostname.replace(/^\[|\]$/g, '').toLowerCase();
+  if (!host) return false;
+  if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return false;
+  if (isIP(host)) return !ipIsPrivate(host);
+  try {
+    const addrs = await lookup(host, { all: true });
+    return addrs.length > 0 && addrs.every((a) => !ipIsPrivate(a.address));
+  } catch {
+    return false;
+  }
+}
+
 /** Fetch a remote image and inline it as a data URI; null on any failure/timeout. */
 export async function fetchImageDataUri(url: string | null | undefined, timeoutMs = 2800): Promise<string | null> {
   if (!url || !/^https?:\/\//i.test(url)) return null;
+  if (!(await isUrlFetchSafe(url))) return null;
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
+    const res = await fetch(url, { signal: ctrl.signal, redirect: 'error' });
     if (!res.ok) return null;
     const type = res.headers.get('content-type') || 'image/jpeg';
     if (!type.startsWith('image/')) return null;

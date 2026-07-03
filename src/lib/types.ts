@@ -523,9 +523,18 @@ export type Post = {
   visibility?: PostVisibility;
   // Write-time snapshot of who may see a RESTRICTED post (excludes the author,
   // who can always see their own). Absent for 'everyone'. Empty for 'only_me'.
+  // SERVER-INTERNAL: stripped from every client response by
+  // serializePostForViewer (it would otherwise leak the author's mutuals/close-
+  // friends list to every feed viewer). Present only on server-side objects.
   audienceUids?: string[];
   likes: number;
-  likedBy: string[];
+  // SERVER-INTERNAL: the full liker list. Stripped from client responses (it
+  // bloated every feed payload and approached the 1MB doc cap on viral posts);
+  // the client reads `myLiked` instead. Present only on server-side objects.
+  likedBy?: string[];
+  // Whether the requesting viewer has liked this post — derived server-side from
+  // likedBy at serialization time so the client never receives the raw array.
+  myLiked?: boolean;
   commentCount: number;
   createdAt: Date;
   updatedAt: Date;

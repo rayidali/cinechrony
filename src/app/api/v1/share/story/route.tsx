@@ -23,6 +23,8 @@ import {
   CLAPPER_SVG,
   IMG_HEADERS,
 } from '@/lib/og-shared';
+import { clientIp } from '@/lib/api-handler';
+import { checkIpRateLimit } from '@/lib/rate-limit';
 
 /**
  * GET /api/v1/share/story — renders a branded 9:16 (1080×1920) PNG for sharing
@@ -553,6 +555,10 @@ function PostCard({ m, avatar, poster, media }: { m: StoryCardModel; avatar: str
 // ── handler ─────────────────────────────────────────────────────────────────
 
 export async function GET(req: Request): Promise<Response> {
+  // Unauthenticated CPU-heavy Satori render + attacker-controlled image fetches.
+  if (!checkIpRateLimit(clientIp(req), 'shareImage', { limit: 60, windowMs: 60_000 })) {
+    return new Response('Too Many Requests', { status: 429 });
+  }
   let m: StoryCardModel;
   try {
     m = paramsToModel(new URL(req.url).searchParams);

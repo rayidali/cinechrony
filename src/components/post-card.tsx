@@ -61,8 +61,11 @@ export const PostCard = memo(function PostCard({
 
   const { openMovie } = useMovieModal();
   const story = useStoryShare();
+  // `myLiked` is derived server-side (the raw likedBy array is no longer sent to
+  // the client). Fall back to the legacy likedBy check for any cached payload
+  // from before the strip.
   const [isLiked, setIsLiked] = useState(
-    currentUserId ? post.likedBy?.includes(currentUserId) : false,
+    post.myLiked ?? (currentUserId ? post.likedBy?.includes(currentUserId) ?? false : false),
   );
   const [likeCount, setLikeCount] = useState(post.likes || 0);
   const [addOpen, setAddOpen] = useState(false);

@@ -5,12 +5,20 @@
  * is unset (`{ available: false }`).
  */
 
-import { apiRoute, optionsHandler, BadRequestError } from '@/lib/api-handler';
+import { apiRoute, optionsHandler, BadRequestError, RateLimitedError } from '@/lib/api-handler';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { startLibraryScrape, LetterboxdUsernameError } from '@/lib/letterboxd-username-import-server';
 
 export const dynamic = 'force-dynamic';
 
-export const POST = apiRoute(async (req) => {
+export const POST = apiRoute(async (req, { auth }) => {
+  // Each start spins a BILLABLE Apify residential-proxy run. Cap per-user burst
+  // AND per-day so one account can't loop it into a real money drain.
+  const burst = await checkRateLimit(auth.uid, 'import');
+  if (!burst.ok) throw new RateLimitedError(burst.error);
+  const daily = await checkRateLimit(auth.uid, 'importDaily');
+  if (!daily.ok) throw new RateLimitedError('Daily import limit reached. Please try again tomorrow.');
+
   let body: { username?: unknown };
   try {
     body = (await req.json()) as { username?: unknown };

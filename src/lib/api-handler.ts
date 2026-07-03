@@ -196,6 +196,21 @@ export function extractBearerToken(req: Request): string | null {
 }
 
 /**
+ * Best-effort client IP for per-IP rate limiting on public routes. On Vercel the
+ * platform sets `x-forwarded-for` (client is the FIRST entry) and `x-real-ip`.
+ * Returns null when neither is present (local dev / non-proxied) — callers fail
+ * open in that case.
+ */
+export function clientIp(req: Request): string | null {
+  const xff = req.headers.get('x-forwarded-for');
+  if (xff) {
+    const first = xff.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  return req.headers.get('x-real-ip') || null;
+}
+
+/**
  * Verifies a request's Bearer token and returns the verified caller, or null
  * if missing/invalid. Use this from `publicApiRoute` handlers that want
  * caller identity when present but don't require it (e.g. `getListPreview`

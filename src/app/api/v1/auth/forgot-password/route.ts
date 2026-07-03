@@ -1,4 +1,5 @@
-import { publicApiRoute, optionsHandler } from '@/lib/api-handler';
+import { publicApiRoute, optionsHandler, clientIp } from '@/lib/api-handler';
+import { checkIpRateLimit } from '@/lib/rate-limit';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirebaseAdminApp } from '@/firebase/admin';
 import { isEmailConfigured, sendPasswordResetEmail } from '@/lib/email-server';
@@ -31,6 +32,13 @@ export const POST = publicApiRoute(
     const email = String(body?.email || '').trim().toLowerCase();
 
     if (!EMAIL_RE.test(email)) return { method: 'resend' }; // generic success
+    // Per-IP cap (in-memory) on top of the per-email throttle below — a single
+    // source can't spam reset emails to many different addresses. Over the cap
+    // we return the SAME generic-success shape (no 429): a 429 would make the
+    // client fall back to Firebase's own email and defeat the limit.
+    if (!checkIpRateLimit(clientIp(req), 'forgotPassword', { limit: 5, windowMs: 15 * 60_000 })) {
+      return { method: 'resend' };
+    }
     if (!isEmailConfigured()) return { method: 'firebase' }; // client falls back
 
     const now = Date.now();
