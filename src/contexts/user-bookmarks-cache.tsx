@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { apiCall } from '@/lib/api-client';
+import { prefetchCachedAction } from '@/lib/use-cached-action';
+import { fetchBoot, bootCacheKey } from '@/lib/boot-client';
 
 type UserBookmarksCacheContextType = {
   /** O(1) check — is this feed item in the viewer's archive? */
@@ -42,9 +43,11 @@ export function UserBookmarksCacheProvider({ children }: { children: ReactNode }
     }
     const myGen = ++genRef.current;
     try {
-      const res = await apiCall<{ keys: string[] }>('GET', '/api/v1/bookmarks');
+      // Coalesced boot fetch — shares ONE /me/boot call with the mutes + blocks
+      // providers instead of three separate cold serverless round trips.
+      const boot = await prefetchCachedAction(bootCacheKey(user.uid), fetchBoot);
       if (genRef.current !== myGen) return;
-      setKeys(new Set(res.keys ?? []));
+      setKeys(new Set(boot.bookmarks?.keys ?? []));
       setIsLoaded(true);
     } catch (error) {
       console.error('Failed to load bookmarks:', error);

@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { apiCall } from '@/lib/api-client';
+import { prefetchCachedAction } from '@/lib/use-cached-action';
+import { fetchBoot, bootCacheKey } from '@/lib/boot-client';
 
 type UserBlocksCacheContextType = {
   /** Invisible either way — the viewer blocked them OR they blocked the viewer. */
@@ -46,12 +47,10 @@ export function UserBlocksCacheProvider({ children }: { children: ReactNode }) {
     }
     const myGen = ++genRef.current;
     try {
-      const res = await apiCall<{ blockedIds: string[]; iBlocked: string[] }>(
-        'GET', '/api/v1/me/block-context',
-      );
+      const boot = await prefetchCachedAction(bootCacheKey(user.uid), fetchBoot);
       if (genRef.current !== myGen) return;
-      const ib = new Set(res.iBlocked ?? []);
-      const union = new Set(res.blockedIds ?? []);
+      const ib = new Set(boot.blocks?.iBlocked ?? []);
+      const union = new Set(boot.blocks?.blockedIds ?? []);
       setIBlocked(ib);
       setBlockedMe(new Set([...union].filter((u) => !ib.has(u))));
       setIsLoaded(true);

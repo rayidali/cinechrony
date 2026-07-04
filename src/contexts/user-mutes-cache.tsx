@@ -10,7 +10,8 @@ import {
   type ReactNode,
 } from 'react';
 import { useUser } from '@/firebase';
-import { apiCall } from '@/lib/api-client';
+import { prefetchCachedAction } from '@/lib/use-cached-action';
+import { fetchBoot, bootCacheKey } from '@/lib/boot-client';
 
 type UserMutesCacheContextType = {
   /** O(1) check — has the viewer muted this user? */
@@ -38,11 +39,9 @@ export function UserMutesCacheProvider({ children }: { children: ReactNode }) {
     }
     const myGen = ++genRef.current;
     try {
-      const res = await apiCall<{ mutedIds: string[] }>(
-        'GET', '/api/v1/me/mutes',
-      );
+      const boot = await prefetchCachedAction(bootCacheKey(user.uid), fetchBoot);
       if (genRef.current !== myGen) return;
-      setIds(new Set(res.mutedIds ?? []));
+      setIds(new Set(boot.mutes?.mutedIds ?? []));
       setIsLoaded(true);
     } catch (error) {
       console.error('Failed to load mutes:', error);
