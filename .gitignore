@@ -58,3 +58,6 @@ android/app/google-services.json
 
 # cap:assets mislocates PWA icons here (native app uses Assets.xcassets; web keeps committed icons)
 /icons/
+
+# keep the env template tracked (no secrets in it)
+!.env.example
