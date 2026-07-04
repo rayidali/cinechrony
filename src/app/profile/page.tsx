@@ -29,6 +29,7 @@ import { Segmented } from '@/components/v3/segmented';
 import { EditProfileSheet } from '@/components/v3/edit-profile-sheet';
 import { PeopleSheet } from '@/components/v3/people-sheet';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
+import { ProfileSkeleton } from '@/components/page-skeletons';
 import type { UserProfile, MovieList, FavoriteMovie, Activity } from '@/lib/types';
 
 // Design: ios-screens.jsx ProfileIOS — segmented is films · lists · activity.
@@ -222,11 +223,7 @@ export default function MyProfilePage() {
   }, [user, lists, loadActivities]);
 
   if (isUserLoading || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-spin" />
-      </div>
-    );
+    return <ProfileSkeleton />;
   }
 
   const followersCount = userProfile?.followersCount || 0;

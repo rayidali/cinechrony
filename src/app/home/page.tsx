@@ -23,9 +23,9 @@ import { PostFab } from '@/components/post-fab';
 import { HomeTopBar, type HomeFilter } from '@/components/home-top-bar';
 import { PresencePill } from '@/components/presence-pill';
 import { Section } from '@/components/v3/section';
+import { HomeSkeleton } from '@/components/page-skeletons';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
 
-const CINECHRONY_LOGO = '/brand/cinechrony-icon.png';
 
 /**
  * Home — the unified editorial feed, v3 iOS-native (Phase 0.7.3.1, `ios-home.jsx`).
@@ -91,11 +91,9 @@ export default function HomePage() {
   }, [router]);
 
   if (isUserLoading || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src={CINECHRONY_LOGO} alt="Loading" className="h-12 w-12 animate-float" />
-      </div>
-    );
+    // Paint the destination shell immediately (LCP) instead of a lone spinner —
+    // real content fills in over it once auth + data resolve.
+    return <HomeSkeleton />;
   }
 
   const isForYou = feedFilter === 'all';

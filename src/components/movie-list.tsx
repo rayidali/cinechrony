@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import type { Movie } from '@/lib/types';
 import { useUser } from '@/firebase';
@@ -160,6 +160,54 @@ export function MovieList({
     [initialMovies, search, filter, sort],
   );
 
+  // Incremental windowing. A Letterboxd-imported list can hold thousands of
+  // films; rendering them all at once floods the DOM (slow first paint + scroll
+  // jank + memory). Instead we render a capped window that GROWS as a sentinel
+  // near the bottom enters view — the same infinite-scroll pattern the home feed
+  // uses (proven in the WKWebView), applied to an already-loaded array. Small
+  // lists (<= WINDOW_INITIAL) render fully with no sentinel overhead.
+  const WINDOW_INITIAL = 48;
+  const WINDOW_STEP = 48;
+  const [visibleCount, setVisibleCount] = useState(WINDOW_INITIAL);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Reset the window whenever the result set changes (tab/search/sort) so a new
+  // view starts from the top instead of inheriting a huge previous window.
+  useEffect(() => {
+    setVisibleCount(WINDOW_INITIAL);
+  }, [filter, search, sort]);
+
+  const renderedMovies = useMemo(
+    () => (filteredMovies.length > visibleCount ? filteredMovies.slice(0, visibleCount) : filteredMovies),
+    [filteredMovies, visibleCount],
+  );
+  const hasMoreToRender = renderedMovies.length < filteredMovies.length;
+
+  // Grow the window when the sentinel scrolls into view.
+  useEffect(() => {
+    if (!hasMoreToRender) return;
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((c) => c + WINDOW_STEP);
+        }
+      },
+      { rootMargin: '600px' }, // pre-load a screen ahead so growth is invisible
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasMoreToRender, renderedMovies.length]);
+
+  // Sentinel + "showing N of M" footer, rendered under the grid/list.
+  const renderWindowSentinel = () =>
+    hasMoreToRender ? (
+      <div ref={sentinelRef} className="py-6 text-center cc-meta text-xs text-muted-foreground">
+        showing {renderedMovies.length} of {filteredMovies.length}
+      </div>
+    ) : null;
+
   // Render grid view skeleton
   const renderGridSkeleton = () => (
     <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
@@ -200,33 +248,39 @@ export function MovieList({
 
   // Render grid view
   const renderGridView = () => (
-    <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
-      {filteredMovies.map((movie) => (
-        // grid tile is view-only — no listId/canEdit (mutations live in the drawer)
-        <MovieCellGrid
-          key={`${movie.id}-${movie.addedBy}`}
-          movie={movie}
-          listOwnerId={listOwnerId}
-          onOpenDetails={handleOpenDetails}
-        />
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3 md:gap-4">
+        {renderedMovies.map((movie) => (
+          // grid tile is view-only — no listId/canEdit (mutations live in the drawer)
+          <MovieCellGrid
+            key={`${movie.id}-${movie.addedBy}`}
+            movie={movie}
+            listOwnerId={listOwnerId}
+            onOpenDetails={handleOpenDetails}
+          />
+        ))}
+      </div>
+      {renderWindowSentinel()}
+    </>
   );
 
   // Render list view
   const renderListView = () => (
-    <div className="space-y-3">
-      {filteredMovies.map((movie) => (
-        <MovieCellRow
-          key={`${movie.id}-${movie.addedBy}`}
-          movie={movie}
-          listId={listId}
-          listOwnerId={listOwnerId}
-          canEdit={canEdit}
-          onOpenDetails={handleOpenDetails}
-        />
-      ))}
-    </div>
+    <>
+      <div className="space-y-3">
+        {renderedMovies.map((movie) => (
+          <MovieCellRow
+            key={`${movie.id}-${movie.addedBy}`}
+            movie={movie}
+            listId={listId}
+            listOwnerId={listOwnerId}
+            canEdit={canEdit}
+            onOpenDetails={handleOpenDetails}
+          />
+        ))}
+      </div>
+      {renderWindowSentinel()}
+    </>
   );
 
   const isNotes = filter === 'notes' && canViewNotes;

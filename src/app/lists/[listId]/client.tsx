@@ -9,6 +9,7 @@ import { PullToRefresh } from '@/components/pull-to-refresh';
 import { collection, doc, query, orderBy, limit } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
+import { DetailSkeleton } from '@/components/page-skeletons';
 import { ListHeader } from '@/components/list-header';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { Hero } from '@/components/v3/hero';
@@ -240,11 +241,7 @@ export default function ListDetailPage() {
   }, [user, ownListData, collaborativeListOwner, listId]);
 
   if (isUserLoading || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-spin" />
-      </div>
-    );
+    return <DetailSkeleton />;
   }
 
   // `isLoading` summarises whether real data is still in flight; we no

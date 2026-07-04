@@ -12,6 +12,7 @@ import { NewListDrawer } from '@/components/new-list-drawer';
 import { NavBar } from '@/components/v3/nav-bar';
 import { Segmented } from '@/components/v3/segmented';
 import { ListTile } from '@/components/v3/list-tile';
+import { ListsSkeleton } from '@/components/page-skeletons';
 import { Fab } from '@/components/fab';
 import { Button } from '@/components/ui/button';
 import { collection, orderBy, query } from 'firebase/firestore';
@@ -326,11 +327,7 @@ export default function ListsPage() {
   }, [user, lists, collabResult.refetch]);
 
   if (isUserLoading || !user) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-spin" />
-      </div>
-    );
+    return <ListsSkeleton />;
   }
 
   const showLoading = seg === 'mine' ? isLoadingLists : isLoadingCollaborative;
