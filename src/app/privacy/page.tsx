@@ -12,7 +12,7 @@ export const metadata = {
   title: 'Privacy Policy — Cinechrony',
 };
 
-const UPDATED = 'May 2026';
+const UPDATED = 'July 2026';
 
 export default function PrivacyPolicyPage() {
   return (
@@ -34,10 +34,11 @@ export default function PrivacyPolicyPage() {
             <li><strong>Profile data</strong> — your username, display name, bio, profile photo, and favorite movies.</li>
             <li><strong>Content you create</strong> — watchlists, movies you add, notes, reviews, ratings, comments, and who you follow.</li>
             <li><strong>Notification data</strong> — if you enable push notifications, a device push token so we can deliver them.</li>
+            <li><strong>Product analytics</strong> — anonymous, behavioural usage events (which screens you open, key actions like adding a film or creating a list) tied only to your account id, so we can understand what&rsquo;s useful and fix what isn&rsquo;t. No message, note, or review text is sent.</li>
           </ul>
           <p className="mt-2">
-            We do <strong>not</strong> use third-party advertising or analytics
-            trackers, and we do not sell your data.
+            We do <strong>not</strong> use third-party advertising trackers, and
+            we do not sell your data.
           </p>
         </section>
 
@@ -57,7 +58,16 @@ export default function PrivacyPolicyPage() {
             <li><strong>Cloudflare R2</strong> — storage for profile and list cover images.</li>
             <li><strong>TMDB</strong> — movie and TV metadata, posters, and search.</li>
             <li><strong>OMDb</strong> — supplementary IMDb ratings.</li>
+            <li><strong>PostHog</strong> — privacy-friendly product analytics (anonymous usage events).</li>
+            <li><strong>Sentry</strong> — error monitoring, so we can find and fix crashes.</li>
           </ul>
+          <p className="mt-3">
+            When you use the &ldquo;scan a video&rdquo; feature, the video link you
+            share is sent to <strong>Apify</strong> (which fetches the video) and
+            the video is analyzed by <strong>Google (Gemini)</strong> to identify
+            the films in it. This processing is transient and only extracts film
+            titles; we do not republish the video.
+          </p>
           <p className="mt-2 text-xs text-muted-foreground">
             This product uses the TMDB API but is not endorsed or certified by TMDB.
           </p>

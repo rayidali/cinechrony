@@ -17,6 +17,8 @@ import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebas
 import { collection, query, orderBy } from 'firebase/firestore';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
+import { parseVideoUrl } from '@/lib/video-utils';
 import { ListPickerSheet, type ListDestination, type PickableList } from '@/components/list-picker-sheet';
 import { useToast } from '@/hooks/use-toast';
 import type { MovieList } from '@/lib/types';
@@ -101,6 +103,7 @@ export default function ExtractClient() {
         setDestination(def && user ? { kind: 'list', ownerId: user.uid, listId: def.id, name: def.name } : { kind: 'new' });
         setRemoved(new Set());
         haptic('success');
+        track(AnalyticsEvent.ExtractionSucceeded, { filmCount: films.length });
       }
       setPhase('result');
     },
@@ -139,6 +142,7 @@ export default function ExtractClient() {
       haptic('medium');
       try {
         const res = await apiCall<{ jobId: string; status: string }>('POST', '/api/v1/extractions', { url: target });
+        track(AnalyticsEvent.ExtractionStarted, { provider: parseVideoUrl(target)?.provider ?? 'other' });
         if (res.status === 'done') {
           const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${res.jobId}`);
           finalize(j);
@@ -190,6 +194,7 @@ export default function ExtractClient() {
       const ok = res.results.filter((r) => r.ok).length;
       setSaved({ count: ok });
       haptic('success');
+      track(AnalyticsEvent.ExtractionSaved, { savedCount: ok });
     } catch (err) {
       toast({ variant: 'destructive', title: 'couldn’t save', description: err instanceof ApiClientError ? err.message : 'try again.' });
     } finally {

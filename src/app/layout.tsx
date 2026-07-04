@@ -21,6 +21,7 @@ import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
 import { BottomNav } from '@/components/bottom-nav';
 import { ProductTour } from '@/components/product-tour';
+import { PostHogProvider } from '@/components/posthog-provider';
 import { deployOrigin, ogImageUrl } from '@/lib/share-meta';
 
 // Design system v2 — editorial cinema.
@@ -130,6 +131,7 @@ export default function RootLayout({
                        <UserVerifiedCacheProvider>
                         <NativeShellInit />
                         <NativePushRegistration />
+                        <PostHogProvider />
                         <DeepLinkHandler />
                         <PendingImportSync />
                         <ImportProgressPill />

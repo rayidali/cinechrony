@@ -10,6 +10,7 @@ import type { ListForMovie } from '@/lib/lists-server';
 import { useToast } from '@/hooks/use-toast';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import type { SearchResult } from '@/lib/types';
 
 type AddToListSheetProps = {
@@ -71,6 +72,7 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
           movieData: { ...movie, id: String(tmdbId) },
           status: 'To Watch',
         });
+        track(AnalyticsEvent.MovieAdded, { tmdbId, mediaType });
       } else {
         await apiCall('DELETE', `/api/v1/lists/${user.uid}/${list.id}/movies/${movieDocId}`);
       }

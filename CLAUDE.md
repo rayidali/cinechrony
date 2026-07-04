@@ -2,8 +2,22 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-01)
+## Current state (2026-07-04)
 
+- **Optimization + hardening + observability pass (2026-07-03/04, on `main`).** A
+  large audit-driven sweep landed: persistent bottom nav (no tab-switch flicker),
+  optimistic follow / mark-watched, ratings delta-sync, per-surface TMDB image
+  sizing, per-IP rate limits + SSRF guard, the `audienceUids`/`likedBy` privacy
+  strip, the **global leaderboard** fix, keyset/window fixes (feed pagination +
+  **list-detail virtualization** for big imports), **app-shell skeletons** (LCP),
+  and the **`/me/boot`** batch (bookmarks+mutes+blocks in one call). Plus
+  DDIA-level correctness fixes (friends-tab full-graph, watch-log idempotency,
+  review-vs-reply). Guardrails added: **ESLint rules-of-hooks**, **error
+  boundaries**, **CI** (`.github/workflows/ci.yml`) + **Dependabot**. **Sentry**
+  wired + DSN live in Vercel; **PostHog** wired (DSN-gated, minimal taxonomy,
+  disclosed in `/privacy`). New `/support` page. Tests: **484/484**. Owner: add
+  `NEXT_PUBLIC_POSTHOG_KEY`/`HOST` to env. **Marketing website DONE** (separate
+  repo/session). **Blaze intentionally deferred** until user volume justifies it.
 - **Extraction precision + visible confidence (2026-07-01, merge `5fa8472`, on
   `main`).** Fixes "one film in the reel gets identified as two or three" and
   surfaces certainty to the user. Three fixes, **no new API cost**: (1) the Gemini

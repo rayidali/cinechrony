@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { compressImage } from '@/lib/image-compress';
 import { cn } from '@/lib/utils';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import type { UserProfile } from '@/lib/types';
 
 const MAX_COLLABORATORS = 9; // owner + 9 = 10-member cap
@@ -208,6 +209,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
             })),
           });
           listId = res.listId;
+          track(AnalyticsEvent.ListCreated, { isPublic });
         } catch (err) {
           const message = err instanceof ApiClientError ? err.message : 'Failed to create list.';
           toast({ variant: 'destructive', title: 'Error', description: message });

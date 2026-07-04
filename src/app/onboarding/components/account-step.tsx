@@ -7,6 +7,7 @@ import { useAuth } from '@/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import {
   StepShell,
   StepHeader,
@@ -64,6 +65,7 @@ export function AccountStep({
         displayName: name.trim() || null,
       });
       haptic('success');
+      track(AnalyticsEvent.SignupCompleted);
       onProvisioned();
     } catch (err) {
       if (err instanceof ApiClientError && err.code === 'CONFLICT') {
