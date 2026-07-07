@@ -1,10 +1,22 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-01. Project: a social movie-watchlist app
+> Last updated 2026-07-07. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
 > **Resuming?** Latest stretch (all on `main`):
+> 0. **Analytics + observability + iOS-native UX fixes (2026-07-04→07).**
+>    **Sentry** live (DSN set in Vercel) + **PostHog** wired (posthog-js,
+>    DSN-gated, minimal named taxonomy; owner added `NEXT_PUBLIC_POSTHOG_KEY/HOST`,
+>    verified baked into the prod bundle). New **`/support`** page; **`/privacy`**
+>    now discloses PostHog·Sentry·Apify·Gemini; **`.env.example`** documents every
+>    env var. **Marketing website DONE** (separate repo — cinechrony.com/{privacy,
+>    terms,support} live). **Blaze deferred** until user volume. **iOS native UI
+>    fixes** (commit `c84189e`): create-list keyboard trap + `contentInset`
+>    `automatic`→`never` (double top-inset) + a parallel audit's safe-area/keyboard
+>    follow-ups. **Gotcha:** the iOS app runs a FROZEN `out/` snapshot — run
+>    `npm run build:static && npx cap sync ios` after every native change (web
+>    auto-deploys, native does NOT). See "Analytics + observability + native UX".
 > 1. **Extraction precision pass + visible confidence scores — MERGED to `main`**
 >    (commit `5fa8472`, 2026-07-01). Fixes "one film in the reel gets identified
 >    as two or three" and surfaces a confidence chip per film. No new API cost.
@@ -33,6 +45,72 @@
 > TTL on `extraction_jobs.createdAt`. The thin website slice (`cinechrony.com`
 > origin + a `/support` page — `/privacy`+`/terms` exist) is still a
 > pre-TestFlight to-do; the full marketing site now has its own handover.
+
+---
+
+## Analytics + observability + native UX (2026-07-04 → 07)
+
+Three threads landed on `main` after the extraction pass.
+
+**Observability + analytics (now live).**
+- **Sentry** was wired earlier (client + server + Capacitor WebView, DSN-gated).
+  The **DSN is now set in Vercel env**, so error monitoring is live in prod.
+- **PostHog** wired manually — the same DSN-gated, hybrid-safe way as Sentry, so
+  it's a no-op until keyed and works in both the PWA and the WebView.
+  `src/components/posthog-provider.tsx` (init + `$pageview` on route change +
+  identify-by-uid, reset on logout) + `src/lib/analytics.ts` (safe `track()`
+  wrapper). Minimal named taxonomy (LAUNCH D.0.5) at real success points:
+  `app_opened`, `signup_completed`, `movie_added`, `list_created`,
+  `extraction_started/succeeded/saved`. Autocapture on; **session replay OFF** by
+  default (flip it on in the PostHog project settings). person profiles
+  identified-only; **no PII** in event props. Owner set
+  `NEXT_PUBLIC_POSTHOG_KEY` (the `phc_` **Project token**, NOT a Personal API key)
+  + `NEXT_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com` in Vercel; **verified the
+  key baked into the live prod bundle** (NEXT_PUBLIC_* inline at BUILD time → a
+  redeploy is required after adding one).
+- **`/support`** page added (App Store requires a support URL); **`/privacy`**
+  updated to honestly disclose PostHog + Sentry + the Phase C processors
+  (**Apify + Google/Gemini**, transient processing) — closes LAUNCH D.0.3/0.4.
+- **`.env.example`** added at repo root — documents every env var the app reads
+  (names + comments, no secrets), grouped by concern.
+- LAUNCH **D.0.2 (Sentry) · D.0.3 (contact email) · D.0.4 (privacy processors) ·
+  D.0.5 (analytics) · D.0.6 (CI)** all marked done.
+
+**Marketing website — DONE** (separate repo + session, per `WEBSITE-HANDOFF.md`).
+`cinechrony.com/{privacy,terms,support}` are live; use those exact URLs in App
+Store Connect. **Blaze intentionally deferred** until user volume justifies it.
+
+**iOS-native UX fixes (commit `c84189e`).** The owner tested the Xcode build and
+found the bottom-nav flicker + "other fixes" still present. **Root cause: the
+iOS app runs a FROZEN `out/` snapshot** — their bundle was 8 days stale
+(pre-dating the whole optimization session). The web auto-deploys from git; the
+native app only changes on `cap sync`. Fixed by a rebuild + resync; then a
+parallel audit + two reported bugs produced these fixes:
+- **create-list keyboard trap** — `new-list-drawer` pinned itself to the
+  keyboard-shrunk viewport with a static bottom pad, so the autoFocused name
+  field raised the keyboard and buried visibility/collaborators with nothing to
+  scroll. Converted to the proven **full-screen (`inset-0`) + growing
+  keyboard-inset** body pattern (as in `how-was-it-sheet` / `note-sheet`).
+- **content started too low** — `capacitor.config.ts` `ios.contentInset`
+  `'automatic'` → **`'never'`**. `automatic` inset the WKWebView for the notch ON
+  TOP OF the app's own CSS `env(safe-area-inset-*)` insets → ~2× top gap. The app
+  owns insets via `viewport-fit:cover`, so `never` is correct. (A native config
+  change → **needs `cap sync`** to take effect; verified baked into
+  `ios/App/App/capacitor.config.json`.)
+- **audit follow-ups** — added top safe-area to `/privacy` · `/terms` · `/support`
+  + the landing theme-toggle (would've clipped the notch under `contentInset:never`);
+  FAB now tracks `env(safe-area-inset-bottom)` (was overlapping the inset nav);
+  keyboard-inset tracking added to `edit-profile-sheet`, `fullscreen-text-input`
+  (multiline; backs the drawer note editor + review composer), and
+  `add-movie-modal` (per-list note); `movie-drawer` scroll body got
+  home-indicator bottom clearance. `post-composer` uses the vv-pinned pattern too
+  but has no autoFocus → not broken → left as-is.
+
+> **⚠ Native rebuild rule (learned the hard way):** after ANY code or
+> `capacitor.config.ts` change the owner will verify on the phone, run
+> `NEXT_PUBLIC_API_BASE_URL=https://movienight-kappa.vercel.app npm run
+> build:static && npx cap sync ios`, then rebuild in Xcode (▶). Pushing to `main`
+> only updates web.
 
 ---
 

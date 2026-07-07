@@ -41,7 +41,10 @@ to make that feature possible and safe to ship.
 | Jun 27 | **Letterboxd import hardening** — Apify cost-cap + reviews fault-tolerance | ✅ merged |
 | Jun 28 | **Phase C (web-first)** — AI share-a-video → extract films → save to lists | ✅ merged |
 | Jul 1 | **Extraction accuracy** — precision prompt + confidence floor + smarter TMDB match + a confidence chip | ✅ merged |
-| Jul 1 | **Website handover** — brief for a separate marketing-site repo (`WEBSITE-HANDOFF.md`) | ✅ written |
+| Jul 1 | **Website handover** → **marketing site now built & live** (separate repo; `cinechrony.com`) | ✅ done |
+| Jul 3–4 | **Optimization + hardening + observability pass** — persistent nav, optimistic updates, per-IP rate-limits + SSRF, global leaderboard, list virtualization, LCP skeletons, `/me/boot`, CI + error boundaries + Sentry | ✅ merged |
+| Jul 4 | **Analytics + legal** — PostHog wired (minimal taxonomy) + Sentry DSN live + `/support` + privacy disclosure + `.env.example` | ✅ merged |
+| Jul 6–7 | **iOS-native UX fixes** — stale-bundle diagnosis + create-list keyboard + `contentInset:never` + safe-area/keyboard audit follow-ups | ✅ merged |
 | After | **Phase C (native)** — iOS Share Extension + Android intent | ⏳ |
 | After | **Marketing site + TestFlight beta** — separate repo; paid Apple account | ⏳ |
 | After | **Phase D** — App Store + Play Store submission | ⏳ |
@@ -683,6 +686,35 @@ the iOS app?" is **TestFlight**. Once the owner buys the $99/yr Apple Developer
 account, TestFlight gives a public link; a tester taps it, installs Apple's
 TestFlight app, and taps Install. That's the beta channel, up to 10,000 people,
 and it's the real reason to get the account before the full App Store launch.
+
+---
+
+## Chapter — Making it real on the phone (Jul 3–7)
+
+Two things happened here. First, a big **optimization + hardening + observability
+pass**: the bottom nav stopped flickering (it's a persistent mount now), taps
+became optimistic, per-IP rate limits + an SSRF guard went in, the weekly
+leaderboard became genuinely global, big lists virtualize, cold-open shows an
+app-shell skeleton instead of a spinner, and a `/me/boot` call batches the
+bookmark/mute/block reads. Guardrails: ESLint rules-of-hooks, error boundaries,
+CI, Dependabot. Then we wired the two things every launched app needs and this
+one didn't have: **Sentry** (what's breaking) and **PostHog** (what people
+actually do) — both DSN-gated no-ops until keyed, both live now. A `/support`
+page + honest privacy disclosure (PostHog, Sentry, Apify, Gemini) closed the App
+Store legal gaps, and `.env.example` finally documents every env var.
+
+Second — and this is the lesson worth carrying — the owner ran the **Xcode
+build** and the bottom-nav flicker was *still there*, along with a create-list
+screen you couldn't scroll and content that started too low. None of the fixes
+were wrong: the **iOS app runs a frozen `out/` snapshot**, and the owner's bundle
+was **8 days stale** — the web auto-deploys from git, but the native app only
+changes on `cap sync`. After a rebuild + resync, a parallel audit + the two
+reported bugs produced a focused native-UX pass: the create-list keyboard trap
+(rebuilt on the full-screen + growing-keyboard-inset pattern), `contentInset`
+`automatic → never` (it was double-insetting the notch), and a sweep of
+safe-area + keyboard-clearance follow-ups across the legal pages, the FAB, and
+three more input surfaces. The durable takeaway: **`build:static` + `cap sync`
+after every native-affecting change** — pushing to `main` only updates the web.
 
 ---
 

@@ -7,6 +7,12 @@
 >
 > Authored 2026-06-30 from the Cinechrony app repo. The app itself stays in its
 > own repo; this site is intentionally separate.
+>
+> **✅ STATUS: DONE (built in a separate repo + session).** The marketing site is
+> live — `cinechrony.com/{privacy,terms,support}` are up (use those exact URLs in
+> App Store Connect). This file is kept for reference / future site work. The
+> in-app `/privacy` · `/terms` · `/support` pages in THIS repo are same-origin
+> convenience copies for the app's Settings links.
 
 ---
 

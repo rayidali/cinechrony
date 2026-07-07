@@ -2,8 +2,22 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-04)
+## Current state (2026-07-07)
 
+- **iOS-native UX fixes + analytics live (2026-07-06/07, on `main`).** PostHog is
+  now LIVE (owner set `NEXT_PUBLIC_POSTHOG_KEY`/`HOST` in Vercel; verified baked
+  into the prod bundle). iOS-native pass (commit `c84189e`): diagnosed the owner's
+  "fixes still broken on iOS" as an **8-day-stale frozen `out/` bundle** (the
+  native app updates only on `cap sync`, not on git push), then fixed the
+  create-list **keyboard trap** (→ full-screen + growing-keyboard-inset pattern),
+  the `capacitor.config.ts` `ios.contentInset` `automatic`→`never` **double
+  top-inset**, and a parallel audit's safe-area/keyboard follow-ups
+  (`/privacy`·`/terms`·`/support` + landing top-safe, FAB bottom-inset,
+  `edit-profile-sheet`/`fullscreen-text-input`/`add-movie-modal` keyboard
+  clearance, `movie-drawer` bottom pad). **Native rebuild rule:** `npm run
+  build:static && npx cap sync ios` after every native-affecting change (web
+  auto-deploys, native does NOT). See `HANDOFF.md` § "Analytics + observability +
+  native UX".
 - **Optimization + hardening + observability pass (2026-07-03/04, on `main`).** A
   large audit-driven sweep landed: persistent bottom nav (no tab-switch flicker),
   optimistic follow / mark-watched, ratings delta-sync, per-surface TMDB image
@@ -317,25 +331,25 @@
   REQUIRES a privacy-policy URL + support URL to submit). The polished marketing
   landing page (hero, App Store screenshots + badge, feature sections) can be built
   **during the TestFlight beta window** — it gates public launch, not the beta.
-- **Owner actions:** ~~`firebase deploy --only firestore:indexes`~~ + ~~`--only
-  firestore:rules`~~ **(DONE — deployed to `studio-2541484065-75c27`)**;
-  ~~`npx cap sync`~~ (DONE); ~~`APIFY_TOKEN` in Vercel~~ (user reports set);
-  ~~`RESEND_API_KEY` in Vercel~~ (user reports added — **redeploy to pick it up,
-  then test forgot-password**). **Remaining (pre-TestFlight):** point
-  **`cinechrony.com` → Vercel** as the single prod origin + set the iOS
-  `NEXT_PUBLIC_API_BASE_URL` to it (see `PHASE-B-HANDOFF.md` §9); add `/privacy` +
-  `/support` pages.
-- **NOW (Phase C web-first + extraction precision done):** (1) build the
-  **marketing website** in a separate repo (brief: `WEBSITE-HANDOFF.md`) with the
-  waitlist + legal/support + PWA-install explainer, on the `cinechrony.com` /
-  `app.cinechrony.com` domain split; (2) build the app-repo **PWA `<InstallPrompt>`**
-  + `/support` page; (3) buy the **paid Apple Developer account** → **TestFlight**
-  public-link beta; then (4) **Phase C — iOS Share Extension** (the native doorway;
-  `/extract?url=` ready). Owner's forward plan after beta: turn the feature into
-  push notifications, automate demo content, then submit to the App Store. Optional
-  carry-overs: direct-to-IG pasteboard plugin (0.7.6.2/3, needs a native build);
-  welcome-on-signup email (module already there); an `@cinechrony`
-  admin/moderation console (the `admin` claim is already provisioned).
+- **Owner actions:** ~~firestore indexes/rules~~ · ~~`cap sync`~~ · ~~`APIFY_TOKEN`~~ ·
+  ~~`RESEND_API_KEY`~~ · ~~Sentry DSN in Vercel~~ · ~~`NEXT_PUBLIC_POSTHOG_KEY`/`HOST`
+  in Vercel~~ · ~~`/privacy` + `/support` pages~~ · ~~marketing website~~ **(all
+  DONE)**. **Remaining (pre-TestFlight):** point **`cinechrony.com` → Vercel** as
+  the single prod origin + set the iOS `NEXT_PUBLIC_API_BASE_URL` to it (see
+  `PHASE-B-HANDOFF.md` §9); **buy the paid Apple Developer account** ($99/yr);
+  enable **Blaze** before any beta cohort past ~150 users. Optional: add
+  `NEXT_PUBLIC_SENTRY_DSN` to `.env.local` if you want Sentry in the native build.
+- **NOW (analytics + website + legal all DONE):** the critical path to a beta is
+  (1) **buy the paid Apple Developer account** ($99/yr) → unlocks (2) the **iOS
+  Share Extension** (the native "Share → Cinechrony" doorway; `/extract?url=`
+  ready) + **native push (APNs)** + the async "get pinged without opening the app"
+  flow (all gated on the paid account — see `DEFERRED-PAID-APPLE-ACCOUNT.md`);
+  (3) **TestFlight** public-link beta; (4) enable **Blaze** before the cohort
+  grows; then **App Store** submission. Parallel/optional: the app-repo PWA
+  `<InstallPrompt>`; point `cinechrony.com` → Vercel as the single prod origin;
+  direct-to-IG pasteboard plugin (0.7.6.2/3); welcome-on-signup email (module
+  ready); an `@cinechrony` admin/moderation console (the `admin` claim is
+  provisioned).
 
 ## Quick Reference
 
@@ -808,11 +822,13 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-01 — Phase C web-first hero feature merged (`34bd93e`);
-extraction precision pass + visible confidence scores merged (`5fa8472`);
-marketing-website handover (`WEBSITE-HANDOFF.md`) written for a separate repo.
-The "Current state" section at the top of this file is the authoritative
-status; the dated sections below are a historical changelog.*
+*Last updated: 2026-07-07 — analytics (PostHog) + observability (Sentry) live;
+`/support` + privacy-processor disclosure + `.env.example` added; marketing
+website DONE (separate repo); iOS-native UX fixes merged (`c84189e`: create-list
+keyboard, `contentInset:never`, safe-area/keyboard audit follow-ups). Earlier:
+Phase C web-first (`34bd93e`) + extraction precision (`5fa8472`). The "Current
+state" section at the top of this file is the authoritative status; the dated
+sections below are a historical changelog.*
 
 ## Recent Changes (January 2025)
 

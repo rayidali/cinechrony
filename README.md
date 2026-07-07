@@ -54,7 +54,11 @@
 | Authentication | Firebase Auth |
 | File Storage | Cloudflare R2 |
 | Styling | Tailwind CSS, shadcn/ui |
-| Movie Data | TMDB API |
+| Movie Data | TMDB API, OMDb (IMDb ratings) |
+| Native | Capacitor 8 (iOS + Android) |
+| Analytics | PostHog (product) |
+| Monitoring | Sentry (errors) |
+| AI extraction | Apify + Google Gemini (video → films) |
 
 ## Getting Started
 
