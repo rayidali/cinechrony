@@ -588,7 +588,7 @@ export function MovieDrawer({
           >
             <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>
 
-            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto">
+            <div ref={scrollRef} className="flex-1 min-h-0 overflow-y-auto pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
               {/* ── Hero — backdrop + green wash + glass controls ── */}
               <div className="relative w-full" style={{ height: 'clamp(180px, 30vh, 248px)' }}>
                 <HeroBackdrop stills={heroStills} posterUrl={posterSrc} videoKey={trailerKey} />

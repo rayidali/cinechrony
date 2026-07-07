@@ -37,10 +37,13 @@ const config: CapacitorConfig = {
   },
 
   ios: {
-    // Lets the WebView automatically inset its content for the notch /
-    // home indicator. We still use CSS `env(safe-area-inset-*)` for
-    // pixel-perfect control inside the React tree.
-    contentInset: 'automatic',
+    // NEVER — the app owns its insets via `viewport-fit: cover` +
+    // CSS `env(safe-area-inset-*)` (pt-safe/pb-safe utilities + per-header
+    // paddingTop). `automatic` ALSO insets the WKWebView scroll view for the
+    // notch, which stacked on top of our CSS insets → content started ~2x the
+    // status-bar height too low (the visible top gap). With `never`, only the
+    // CSS insets apply → content sits exactly under the notch as designed.
+    contentInset: 'never',
     limitsNavigationsToAppBoundDomains: false,
   },
 

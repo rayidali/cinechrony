@@ -11,7 +11,7 @@ const SUPPORT_EMAIL = 'support@cinechrony.com';
 
 export default function SupportPage() {
   return (
-    <main className="mx-auto max-w-2xl px-5 py-10 font-body text-foreground">
+    <main className="mx-auto max-w-2xl px-5 pb-10 pt-[calc(env(safe-area-inset-top)+2.5rem)] font-body text-foreground">
       <h1 className="text-3xl font-headline font-bold tracking-tight mb-1">Support</h1>
       <p className="text-sm text-muted-foreground mb-8">we&rsquo;re a small team, and we read every message.</p>
 

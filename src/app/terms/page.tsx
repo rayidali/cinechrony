@@ -15,7 +15,7 @@ const UPDATED = 'May 2026';
 
 export default function TermsPage() {
   return (
-    <main className="mx-auto max-w-2xl px-5 py-10 font-body text-foreground">
+    <main className="mx-auto max-w-2xl px-5 pb-10 pt-[calc(env(safe-area-inset-top)+2.5rem)] font-body text-foreground">
       <h1 className="text-3xl font-headline font-bold tracking-tight mb-1">Terms of Service</h1>
       <p className="text-sm text-muted-foreground mb-8">Last updated: {UPDATED}</p>
 

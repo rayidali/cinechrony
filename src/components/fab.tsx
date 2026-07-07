@@ -69,7 +69,9 @@ export function Fab({ onClick, onLongPress, icon: Icon, label, ariaLabel, classN
       data-tour={dataTour}
       aria-label={ariaLabel ?? label}
       className={cn(
-        'fixed bottom-24 md:bottom-8 right-4 md:right-8 z-50',
+        // Track the home-indicator inset so the FAB rides above the bottom nav
+        // (which also insets) instead of overlapping it — contentInset is 'never'.
+        'fixed bottom-[calc(6rem+env(safe-area-inset-bottom))] md:bottom-8 right-4 md:right-8 z-50',
         'bg-primary text-white shadow-fab',
         'inline-flex items-center justify-center',
         'transition-transform duration-150 ease-out',

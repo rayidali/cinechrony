@@ -55,6 +55,9 @@ export function FullscreenTextInput({
   const [text, setText] = useState(initialValue);
   const [rating, setRating] = useState(initialRating);
   const [isSaving, setIsSaving] = useState(false);
+  // Keyboard inset — with Keyboard resize:'none' the flex-1 textarea otherwise
+  // extends behind the keyboard, hiding the caret in multiline mode.
+  const [kbInset, setKbInset] = useState(0);
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
   // Reset state when opened with new initial values
@@ -68,13 +71,19 @@ export function FullscreenTextInput({
   // Auto-focus when opened (use autoFocus attribute, no setTimeout)
   // The autoFocus attribute is set directly on the input/textarea
 
-  // Lock body scroll when open
+  // Lock body scroll when open + track the keyboard inset.
   useEffect(() => {
-    if (isOpen) {
-      document.body.style.overflow = 'hidden';
-    }
+    if (!isOpen) return;
+    document.body.style.overflow = 'hidden';
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv) setKbInset(Math.max(0, window.innerHeight - vv.height)); };
+    onResize();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', onResize);
     return () => {
       document.body.style.overflow = '';
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', onResize);
     };
   }, [isOpen]);
 
@@ -147,8 +156,12 @@ export function FullscreenTextInput({
         </div>
       )}
 
-      {/* Input area - flex-1 to fill remaining space */}
-      <div className="flex-1 flex flex-col min-h-0 p-4">
+      {/* Input area - flex-1 to fill remaining space (bottom padding grows with
+          the keyboard so the multiline caret never hides behind it) */}
+      <div
+        className="flex-1 flex flex-col min-h-0 px-4 pt-4"
+        style={{ paddingBottom: Math.max(16, kbInset + 16) }}
+      >
         {singleLine ? (
           <input
             ref={inputRef as React.RefObject<HTMLInputElement>}

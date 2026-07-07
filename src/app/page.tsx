@@ -27,8 +27,8 @@ export default function LandingPage() {
 
   return (
     <main className="min-h-screen bg-background text-foreground flex flex-col">
-      {/* Theme toggle - top right */}
-      <div className="absolute top-4 right-4 z-20">
+      {/* Theme toggle - top right (clear the notch on native: contentInset is 'never') */}
+      <div className="absolute top-[calc(env(safe-area-inset-top)+1rem)] right-4 z-20">
         <ThemeToggle />
       </div>
 

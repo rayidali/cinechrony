@@ -37,7 +37,8 @@ type Step = 'create' | 'invite-friends';
 /**
  * The v3 editorial new-list creator (`pattern-new-list.html`).
  *
- * Renders as a fixed-position drawer sized to the visible viewport — cover
+ * Renders as a full-screen (`inset-0`) drawer whose scrollable body clears the
+ * iOS keyboard via a growing bottom inset (see the keyboard note below) — cover
  * hero (16:9 dashed empty → glass change/auto pills when filled), an
  * editorial headline name field, a serif description, a 2-up visibility
  * toggle (private by default), and an inline collaborators row with `X/9`
@@ -66,39 +67,28 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
   const [friendQuery, setFriendQuery] = useState('');
   const [friendResults, setFriendResults] = useState<UserProfile[]>([]);
 
-  // Pin the drawer to the visual viewport (not the layout viewport): track
-  // BOTH `offsetTop` and `height` so the surface follows the iOS keyboard.
-  // Without `offsetTop`, the drawer floats above the visible area when the
-  // keyboard opens and the page beneath bleeds through.
-  const [viewport, setViewport] = useState<{ top: number; height: string }>({
-    top: 0,
-    height: '100dvh',
-  });
+  // Keyboard inset (visualViewport) so the scrollable body can push its last
+  // fields ABOVE the keyboard. This is the proven pattern from how-was-it-sheet
+  // / review-composer: a full-screen (`inset-0`) surface + a body whose bottom
+  // padding grows with the keyboard, rather than shrinking the whole container
+  // to `visualViewport.height` (which — with an autoFocus'd field + `resize:none`
+  // — left the lower fields stuck behind the keyboard with nothing to scroll).
+  const [kbInset, setKbInset] = useState(0);
 
   // ── Effects ────────────────────────────────────────────────────────────
 
   useEffect(() => {
     if (!isOpen) return;
-    const vv = window.visualViewport;
-    if (!vv) {
-      setViewport({ top: 0, height: '100dvh' });
-      return;
-    }
-    const update = () => setViewport({ top: vv.offsetTop, height: `${vv.height}px` });
-    update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, [isOpen]);
-
-  useEffect(() => {
-    if (!isOpen) return;
     document.body.style.overflow = 'hidden';
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv) setKbInset(Math.max(0, window.innerHeight - vv.height)); };
+    onResize();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', onResize);
     return () => {
       document.body.style.overflow = '';
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', onResize);
     };
   }, [isOpen]);
 
@@ -267,10 +257,7 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
   if (!isOpen) return null;
 
   return (
-    <div
-      className="fixed left-0 right-0 z-[70] bg-card flex flex-col animate-sheet-rise"
-      style={{ top: viewport.top, height: viewport.height }}
-    >
+    <div className="fixed inset-0 z-[70] bg-card flex flex-col animate-sheet-rise">
       {/* ── Header — cancel · create ─────────────────────────────────── */}
       <div
         className="flex-shrink-0 flex items-center justify-between px-4 border-b border-hair"
@@ -316,9 +303,10 @@ export function NewListDrawer({ isOpen, onClose, onCreated }: NewListDrawerProps
           results={friendResults}
           selectedUids={new Set(invites.map((i) => i.uid))}
           onToggle={toggleInvite}
+          kbInset={kbInset}
         />
       ) : (
-        <div className="flex-1 overflow-y-auto px-4 pb-6 pt-4">
+        <div className="flex-1 overflow-y-auto px-4 pt-4" style={{ paddingBottom: Math.max(24, kbInset + 24) }}>
           {/* Cover hero */}
           <CoverHero
             coverPreview={coverPreview}
@@ -555,15 +543,17 @@ function FriendPicker({
   results,
   selectedUids,
   onToggle,
+  kbInset,
 }: {
   query: string;
   onQuery: (q: string) => void;
   results: UserProfile[];
   selectedUids: Set<string>;
   onToggle: (u: UserProfile) => void;
+  kbInset: number;
 }) {
   return (
-    <div className="flex-1 overflow-y-auto flex flex-col">
+    <div className="flex-1 overflow-hidden flex flex-col">
       <div className="px-3 pt-3 pb-2 border-b border-hair">
         <div className="flex items-center gap-2.5 h-12 px-3.5 rounded-[14px] border border-hair bg-sunken">
           <Search className="h-[18px] w-[18px] text-muted-foreground shrink-0" strokeWidth={1.8} />
@@ -576,7 +566,7 @@ function FriendPicker({
           />
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto px-4 py-3">
+      <div className="flex-1 overflow-y-auto px-4 pt-3" style={{ paddingBottom: Math.max(12, kbInset + 12) }}>
         {results.map((u) => {
           const tagged = selectedUids.has(u.uid);
           return (

@@ -45,6 +45,9 @@ export function EditProfileSheet({
   const [draftPhoto, setDraftPhoto] = useState<string | null>(photoURL);
   const [isUploading, setIsUploading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  // Keyboard inset so the bio textarea (the LAST field) clears the iOS keyboard
+  // — Keyboard resize is 'none', so a static bottom padding isn't enough.
+  const [kbInset, setKbInset] = useState(0);
 
   // Re-seed the draft each time the sheet opens (real-time profile may have
   // changed since last open).
@@ -55,6 +58,19 @@ export function EditProfileSheet({
       setDraftPhoto(photoURL);
     }
   }, [isOpen, displayName, bio, photoURL]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv) setKbInset(Math.max(0, window.innerHeight - vv.height)); };
+    onResize();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', onResize);
+    return () => {
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', onResize);
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -163,7 +179,10 @@ export function EditProfileSheet({
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom)+2rem)] pt-5">
+      <div
+        className="flex-1 overflow-y-auto px-5 pt-5"
+        style={{ paddingBottom: `calc(env(safe-area-inset-bottom) + ${Math.max(32, kbInset + 32)}px)` }}
+      >
         <div className="mx-auto max-w-2xl space-y-7">
           {/* YOUR PROFILE PHOTO */}
           <section>

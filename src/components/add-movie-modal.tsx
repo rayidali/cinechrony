@@ -122,8 +122,25 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
   const [isSearching, startSearchTransition] = useTransition();
   const [isAdding, startAddingTransition] = useTransition();
   const [isLoadingLists, setIsLoadingLists] = useState(false);
+  // Keyboard inset so a per-list note textarea low in the select-list drawer
+  // clears the iOS keyboard (Keyboard resize:'none').
+  const [kbInset, setKbInset] = useState(0);
 
   const parsedVideo = parseVideoUrl(socialLink);
+
+  // Track the keyboard inset while the select-list step is open.
+  useEffect(() => {
+    if (!isOpen || step !== 'select-list') return;
+    const vv = window.visualViewport;
+    const onResize = () => { if (vv) setKbInset(Math.max(0, window.innerHeight - vv.height)); };
+    onResize();
+    vv?.addEventListener('resize', onResize);
+    vv?.addEventListener('scroll', onResize);
+    return () => {
+      vv?.removeEventListener('resize', onResize);
+      vv?.removeEventListener('scroll', onResize);
+    };
+  }, [isOpen, step]);
 
   // Reset on close.
   useEffect(() => {
@@ -433,7 +450,10 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
               <span className="w-6" />
             </div>
 
-            <div className="flex-1 overflow-y-auto min-h-0 px-5">
+            <div
+              className="flex-1 overflow-y-auto min-h-0 px-5"
+              style={{ paddingBottom: kbInset ? kbInset + 16 : undefined }}
+            >
               {isLoadingLists ? (
                 <div className="flex justify-center py-14"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>
               ) : allLists.length === 0 ? (
