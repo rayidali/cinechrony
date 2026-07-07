@@ -4,6 +4,15 @@
 
 ## Current state (2026-07-07)
 
+- **Marketing website redesigned to indie-startup polish (2026-07-07, LIVE).**
+  The owner flagged www.cinechrony.com as looking "vibecoded" (benchmark:
+  getbluejay.ai); the website repo (`../cinechrony website/cinechrony_waitlist`)
+  got a full visual-layer rebuild (huge display type, CSS product mockups in
+  every former placeholder frame, scene-gradient flow + film grain, one-CTA
+  language, ghost-wordmark footer) and the top nav now carries Install ·
+  iOS beta · Waitlist. Merged to its `main` (deploys prod). Owner's remaining
+  asset list: that repo's `ASSETS.md` (demo video is priority 1). Details in
+  `../cinechrony website/HANDOFF.md`.
 - **iOS-native UX fixes + analytics live (2026-07-06/07, on `main`).** PostHog is
   now LIVE (owner set `NEXT_PUBLIC_POSTHOG_KEY`/`HOST` in Vercel; verified baked
   into the prod bundle). iOS-native pass (commit `c84189e`): diagnosed the owner's
