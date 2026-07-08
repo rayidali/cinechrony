@@ -4,14 +4,18 @@
 
 ## Current state (2026-07-07)
 
-- **Marketing website redesigned to indie-startup polish (2026-07-07, LIVE).**
+- **Marketing website redesigned to indie-startup polish (2026-07-07/08, LIVE).**
   The owner flagged www.cinechrony.com as looking "vibecoded" (benchmark:
   getbluejay.ai); the website repo (`../cinechrony website/cinechrony_waitlist`)
-  got a full visual-layer rebuild (huge display type, CSS product mockups in
-  every former placeholder frame, scene-gradient flow + film grain, one-CTA
-  language, ghost-wordmark footer) and the top nav now carries Install ·
-  iOS beta · Waitlist. Merged to its `main` (deploys prod). Owner's remaining
-  asset list: that repo's `ASSETS.md` (demo video is priority 1). Details in
+  got five stacked passes: the visual-layer rebuild (huge display type, CSS
+  product mockups, one-CTA language, ghost-wordmark footer, nav carries
+  Install · iOS beta · Waitlist), cinematic color scenes, a **narrative hero
+  diorama** (doomscroll reel stack → "3 films found" scan pill → shared-list
+  phone with friend chips), a split hero with six background depth layers,
+  and a full **phone pass** (zero overflow at 360/390/430, 44px tap targets,
+  reveal.tsx root-cause fix — legal pages were invisible on no-scroll paths).
+  All merged to its `main` (deploys prod). Owner's remaining asset list: that
+  repo's `ASSETS.md` (demo video is priority 1). Details in
   `../cinechrony website/HANDOFF.md`.
 - **iOS-native UX fixes + analytics live (2026-07-06/07, on `main`).** PostHog is
   now LIVE (owner set `NEXT_PUBLIC_POSTHOG_KEY`/`HOST` in Vercel; verified baked
