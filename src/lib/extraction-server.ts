@@ -27,6 +27,7 @@ import { analyzeForFilms, captionCandidates, isGeminiConfigured, type GeminiAnal
 import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
 import { createList } from '@/lib/lists-server';
 import { rehostImageToR2 } from '@/lib/r2-server';
+import { sendPushToUser } from '@/lib/push-server';
 import { parseVideoUrl, youTubeThumbnail } from '@/lib/video-utils';
 import type { SearchResult } from '@/lib/types';
 import type {
@@ -142,6 +143,10 @@ type JobDoc = {
   videoThumbnail?: string | null;
   follower?: boolean; // resolves from the shared cache (didn't run its own pipeline)
   fromCache?: boolean;
+  /** Set once the completion push has been sent (real pipeline only) — the
+   *  check-and-set guard `sendExtractionCompletionPush` claims transactionally
+   *  so re-entry can never fire it twice. Absent for stub/no-key jobs. */
+  pushSentAt?: FirebaseFirestore.Timestamp;
 };
 
 function toView(jobId: string, d: JobDoc): ExtractionJobView {
@@ -515,6 +520,53 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
   }).catch(() => {});
 }
 
+/**
+ * Fire the ONE "films found" completion push — called only from
+ * `runRealPipeline` (never `runStubPipeline`, so tests and any environment
+ * without `GEMINI_API_KEY` never send it). Guarded by a check-and-set
+ * `pushSentAt` field on the job doc, claimed transactionally, so the
+ * pipeline's self-healing re-entry (see `getExtraction`'s cache patch-back)
+ * or any future retry can never fire it twice for the same job.
+ *
+ * Best-effort: never throws — a push failure must never fail an otherwise-
+ * successful extraction. Awaited (not fire-and-forget) by the caller: this
+ * runs inside `after()`, already detached from the HTTP response, so there's
+ * no latency to protect — and awaiting avoids the run's execution context
+ * tearing down mid-send on a fire-and-forgotten promise.
+ *
+ * Exported for direct testing of the idempotency guard (see
+ * `44-extractions-auth.test.ts`).
+ */
+export async function sendExtractionCompletionPush(
+  db: FirebaseFirestore.Firestore,
+  ref: FirebaseFirestore.DocumentReference,
+  jobId: string,
+  uid: string,
+  filmCount: number,
+): Promise<void> {
+  if (filmCount < 1) return; // no push for zero-film results
+  try {
+    const claimed = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists || snap.data()?.pushSentAt) return false;
+      tx.update(ref, { pushSentAt: FieldValue.serverTimestamp() });
+      return true;
+    });
+    if (!claimed) return; // already sent — re-entry, never fire twice
+
+    const body = filmCount === 1
+      ? '1 film found in your reel. tap to pick lists.'
+      : `${filmCount} films found in your reel. tap to pick lists.`;
+    await sendPushToUser(uid, {
+      title: 'cinechrony',
+      body,
+      data: { type: 'extraction_done', jobId, url: `/extract?jobId=${jobId}` },
+    });
+  } catch (err) {
+    console.error('[extraction] completion push failed for', jobId, err);
+  }
+}
+
 /** REAL pipeline: Apify acquire → Gemini watch → TMDB ground (match-or-drop). */
 async function runRealPipeline(jobId: string): Promise<void> {
   const db = getDb();
@@ -554,6 +606,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     ]);
 
     await finishJob(db, ref, job, films, analysis.suggestedListName, 'gemini', videoThumbnail);
+    await sendExtractionCompletionPush(db, ref, jobId, job.uid, films.length);
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
     await failJob(ref, classifyError(err));

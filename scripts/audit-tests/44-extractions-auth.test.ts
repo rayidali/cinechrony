@@ -8,17 +8,20 @@
  *   - GET returns the OWNER their job, 403s anyone else, 404s a missing one
  *   - the burst rate-limit (5/min) trips on the 6th call (429)
  *   - an identical URL resolves from the shared cache as `done`
+ *   - the completion-push `pushSentAt` claim never fires twice for one job
  */
 
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  setupTestEnv, createTestUser, clearFirestore, clearAuth, type TestUser,
+  setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { POST as createExtraction } from '@/app/api/v1/extractions/route';
 import { GET as getExtraction } from '@/app/api/v1/extractions/[jobId]/route';
-import { runExtractionPipeline, createExtraction as createExtractionFn } from '@/lib/extraction-server';
+import {
+  runExtractionPipeline, createExtraction as createExtractionFn, sendExtractionCompletionPush,
+} from '@/lib/extraction-server';
 
 let me_: TestUser, other: TestUser;
 let meTok: string, otherTok: string;
@@ -142,4 +145,30 @@ test('an identical url resolves from cache as done', async () => {
   const second = await callRoute<{ status: string }>(createExtraction, 'POST', { token: meTok, body: { url } });
   assert.equal(second.body.ok, true);
   if (second.body.ok) assert.equal(second.body.data.status, 'done', 'cache hit → done');
+});
+
+test('completion push fires at most once per job (pushSentAt guards re-entry)', async () => {
+  const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-guard');
+  const ref = adminDb().doc(`extraction_jobs/${jobId}`);
+
+  // Exercises the same claim `runRealPipeline` uses at completion — no
+  // Gemini/Apify needed, this only asserts the idempotency guard.
+  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const first = (await ref.get()).data()?.pushSentAt;
+  assert.ok(first, 'first call claims pushSentAt');
+
+  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const second = (await ref.get()).data()?.pushSentAt;
+  assert.equal(
+    second?.toMillis?.(), first?.toMillis?.(),
+    'second call is a no-op — pushSentAt unchanged, so the push can never fire twice',
+  );
+});
+
+test('completion push never claims/fires for a zero-film result', async () => {
+  const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-zero');
+  const ref = adminDb().doc(`extraction_jobs/${jobId}`);
+  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 0);
+  const snap = await ref.get();
+  assert.equal(snap.data()?.pushSentAt, undefined, 'no films → no claim, no push');
 });
