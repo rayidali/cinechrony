@@ -84,6 +84,6 @@ if the auto-open fails. Code is already written; just needs the capability.
 1. Buy the Apple Developer Program membership ($99/yr) + create an APNs auth key,
    upload it to Firebase (`PHASE-B-HANDOFF.md` has the step-by-step).
 2. In Xcode, on the **App** target add: Push Notifications, App Groups
-   (`group.com.cinechrony.app`), Keychain Sharing. On the **ShareExtension**
+   (`group.com.cinechrony.shared`), Keychain Sharing. On the **ShareExtension**
    target add the same App Group + Keychain group.
 3. Then ping me to build sections 1 + 2 (the code paths are scoped above).

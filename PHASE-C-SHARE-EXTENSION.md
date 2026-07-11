@@ -15,7 +15,7 @@
 - **`ios/App/ShareExtension/Info.plist`** — activation rule (web URL / web page /
   text) + programmatic principal class (no storyboard).
 - **`ios/App/ShareExtension/ShareExtension.entitlements`** — App Group
-  `group.com.cinechrony.app`.
+  `group.com.cinechrony.shared`.
 - **Main app `Info.plist`** — registers the `cinechrony://` URL scheme.
 - **`src/components/deep-link-handler.tsx`** — routes `cinechrony://extract?url=…`
   → `/extract`, AND drains the App Group queue on launch/resume (the redundancy
@@ -65,9 +65,9 @@ TikTok/IG/YouTube  ──Share──▶  ShareExtension (separate process, sandb
 
 4. **App Groups capability — on BOTH targets** (this is the shared mailbox):
    - Select the **App** target → Signing & Capabilities → **+ Capability → App
-     Groups** → add **`group.com.cinechrony.app`**.
+     Groups** → add **`group.com.cinechrony.shared`**.
    - Select the **ShareExtension** target → Signing & Capabilities → **+ App
-     Groups** → tick the same **`group.com.cinechrony.app`**.
+     Groups** → tick the same **`group.com.cinechrony.shared`**.
    - For ShareExtension, set **Code Signing Entitlements** =
      `ShareExtension/ShareExtension.entitlements` (Build Settings) if Xcode didn't
      wire the repo file automatically.
@@ -94,7 +94,7 @@ TikTok/IG/YouTube  ──Share──▶  ShareExtension (separate process, sandb
 
 ## Notes / gotchas
 
-- The App Group id, the `cinechrony` scheme, and `group.com.cinechrony.app` are
+- The App Group id, the `cinechrony` scheme, and `group.com.cinechrony.shared` are
   hard-coded in three places (`ShareViewController.swift`, `ShareExtension.entitlements`,
   `deep-link-handler.tsx`). If you ever change them, change all three.
 - The responder-chain fallback open (`openURL:`) is a long-standing, widely-shipped

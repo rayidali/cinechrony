@@ -22,7 +22,7 @@ import { useRouter } from '@/lib/native-nav';
  * Web is a no-op.
  */
 
-const APP_GROUP = 'group.com.cinechrony.app';
+const APP_GROUP = 'group.com.cinechrony.shared';
 const PENDING_KEY = 'cc_pending_shares';
 const HANDLED_TS_KEY = 'cc_share_handled_ts';
 

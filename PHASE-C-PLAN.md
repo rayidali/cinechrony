@@ -314,7 +314,7 @@ full pipeline + UI. This drops the fragile token relay and avoids a duplicate
 SwiftUI extractor.
 
 - [x] **C.3.1 ✅ Code written** (`ios/App/ShareExtension/*` + `deep-link-handler.tsx`):
-  robust URL capture → **durable App Group queue** (`group.com.cinechrony.app`,
+  robust URL capture → **durable App Group queue** (`group.com.cinechrony.shared`,
   `@capacitor/preferences` format) → open `cinechrony://extract?url=…`. Main app
   routes the deep link AND drains the queue on launch/resume (redundancy — a share
   is never lost). `cinechrony://` scheme registered; `@capacitor/preferences` added.

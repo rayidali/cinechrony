@@ -30,7 +30,7 @@ import ObjectiveC
 class ShareViewController: SLComposeServiceViewController {
 
     // MARK: - Config (must match Xcode / Info.plist)
-    private let appGroupId = "group.com.cinechrony.app"
+    private let appGroupId = "group.com.cinechrony.shared"
     private let appScheme  = "cinechrony"
     private let pendingKey = "cc_pending_shares" // stored as "CapacitorStorage.cc_pending_shares"
 
