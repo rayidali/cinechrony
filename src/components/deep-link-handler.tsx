@@ -9,10 +9,12 @@ import { useRouter } from '@/lib/native-nav';
  * in-app screen. Also drains the Share Extension's durable App Group queue.
  *
  * Two jobs:
- *  1. DEEP LINKS — Universal Links (`https://cinechrony.com/invite/…`), the
- *     custom scheme (`cinechrony://extract?url=…` from the Share Extension), and
- *     push-notification taps all arrive as `appUrlOpen`. We strip to the in-app
- *     path and use the router so navigation feels native (no WebView reload).
+ *  1. DEEP LINKS — Universal Links (`https://cinechrony.com/invite/…`) and the
+ *     custom scheme (`cinechrony://extract?url=…` from the Share Extension)
+ *     arrive as `appUrlOpen`. We strip to the in-app path and use the router
+ *     so navigation feels native (no WebView reload). FCM notification taps
+ *     are a SEPARATE event (`notificationActionPerformed`) routed in
+ *     `src/lib/native-push.ts`, not `appUrlOpen` — they don't go through here.
  *  2. SHARE INTAKE REDUNDANCY — the Share Extension always writes the shared URL
  *     to a shared App Group queue BEFORE trying to open the app. If that open
  *     ever fails (iOS can decline it), the share is NOT lost: on launch and on

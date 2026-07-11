@@ -6,7 +6,9 @@
  * Flow: paste/share a TikTok·Reel·Short → POST /api/v1/extractions → poll the job
  * (narrated stages) → film cards + a single destination picker (add to an
  * existing list OR create a new one) → save (→ POST /[jobId]/save). The share
- * extension deep-links into this same screen via `?url=`.
+ * extension deep-links into this same screen via `?url=`. A completion push
+ * (see `sendExtractionCompletionPush` in `extraction-server.ts`) deep-links
+ * back in via `?jobId=`, resuming straight into the same result/failed states.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -25,7 +27,7 @@ import type { MovieList } from '@/lib/types';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { ExtractionJobView, ExtractionFilm } from '@/lib/extraction-types';
 
-type Phase = 'input' | 'processing' | 'result' | 'failed';
+type Phase = 'input' | 'processing' | 'result' | 'failed' | 'not-found';
 
 const STAGE_LABEL: Record<string, string> = {
   queued: 'getting ready',
@@ -161,10 +163,38 @@ export default function ExtractClient() {
     [url, user, finalize, poll, toast],
   );
 
-  // Auto-start when arriving via a share doorway (`/extract?url=…`).
+  // Resume a job by id — the completion-push doorway (`/extract?jobId=…`).
+  // Reuses the exact same result/failed states a fresh scan lands on; a
+  // still-running job just (re)joins the existing polling loop from here.
+  const resume = useCallback(
+    async (jobId: string) => {
+      setPhase('processing');
+      setStage('queued');
+      setJob(null);
+      setSaved(null);
+      try {
+        const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${jobId}`);
+        if (j.status === 'done') return finalize(j);
+        if (j.status === 'failed') return setPhase('failed');
+        setStage(j.stage);
+        poll(jobId);
+      } catch (err) {
+        setPhase('not-found');
+        if (!(err instanceof ApiClientError && (err.status === 403 || err.status === 404))) {
+          console.error('[extract] resume failed:', err);
+        }
+      }
+    },
+    [finalize, poll],
+  );
+
+  // Auto-start when arriving via a share doorway (`/extract?url=…`), or
+  // resume a scan when arriving via a completion push (`/extract?jobId=…`).
   useEffect(() => {
     const u = search.get('url');
-    if (u) start(u);
+    if (u) { start(u); return; }
+    const jobId = search.get('jobId');
+    if (jobId) resume(jobId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -228,6 +258,12 @@ export default function ExtractClient() {
           <ProcessingState stage={stage} />
         ) : phase === 'failed' ? (
           <FailedState onRetry={() => start()} onBack={() => setPhase('input')} />
+        ) : phase === 'not-found' ? (
+          <FailedState
+            title="we couldn’t find that scan"
+            message="it may have expired."
+            onBack={() => setPhase('input')}
+          />
         ) : films.length === 0 ? (
           <EmptyState onAgain={resetToInput} />
         ) : (
@@ -459,17 +495,27 @@ function EmptyState({ onAgain }: { onAgain: () => void }) {
   );
 }
 
-function FailedState({ onRetry, onBack }: { onRetry: () => void; onBack: () => void }) {
+function FailedState({
+  onRetry, onBack, title = 'couldn’t scan that video',
+  message = 'it might be private or unavailable. try again, or use a different link.',
+}: {
+  onRetry?: () => void;
+  onBack: () => void;
+  title?: string;
+  message?: string;
+}) {
   return (
     <div className="flex flex-col items-center pt-20 text-center">
-      <h2 className="font-headline text-[20px] font-bold lowercase">couldn’t scan that video</h2>
+      <h2 className="font-headline text-[20px] font-bold lowercase">{title}</h2>
       <p className="mt-1.5 max-w-xs font-body text-[15px] text-muted-foreground">
-        it might be private or unavailable. try again, or use a different link.
+        {message}
       </p>
       <div className="mt-5 flex gap-2">
-        <button onClick={onRetry} className="h-11 rounded-full bg-primary px-6 font-headline text-[15px] font-bold lowercase text-primary-foreground active:scale-[0.97]">
-          try again
-        </button>
+        {onRetry && (
+          <button onClick={onRetry} className="h-11 rounded-full bg-primary px-6 font-headline text-[15px] font-bold lowercase text-primary-foreground active:scale-[0.97]">
+            try again
+          </button>
+        )}
         <button onClick={onBack} className="h-11 rounded-full bg-secondary px-6 font-headline text-[15px] font-semibold lowercase active:scale-[0.97]">
           new link
         </button>
