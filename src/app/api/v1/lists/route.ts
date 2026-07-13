@@ -73,8 +73,4 @@ export const POST = apiRoute(async (req, { auth }) => {
   }
 });
 
-export const GET = apiRoute(async (_req, { auth }) => {
-  return getUserLists(auth.uid);
-});
-
 export const OPTIONS = optionsHandler;
