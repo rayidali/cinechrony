@@ -14,9 +14,22 @@ import {
   optionsHandler,
   BadRequestError,
 } from '@/lib/api-handler';
-import { createList, ListValidationError } from '@/lib/lists-server';
+import { createList, ListValidationError, getUserLists } from '@/lib/lists-server';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * `GET /api/v1/lists` — the caller's own lists (id/name/movieCount/etc.),
+ * newest first. Added for the iOS Share Extension's destination picker
+ * (`PHASE-C-SHARE-EXTENSION.md` Corner-style in-place drawer) — the extension
+ * has no Firestore SDK, so it can't use the web client's real-time
+ * `users/{uid}/lists` listener. Same data `getUserLists` already serves
+ * publicly at `GET /api/v1/users/[uid]/lists`; this is the Bearer-authed
+ * "my lists" shorthand for the signed-in caller.
+ */
+export const GET = apiRoute(async (_req, { auth }) => {
+  return getUserLists(auth.uid);
+});
 
 type CreateListBody = {
   name?: string;
