@@ -2,8 +2,32 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-07)
+## Current state (2026-07-13)
 
+- **Corner-style in-extension share flow — CODE COMPLETE, device test pending
+  (2026-07-13, on `main`, tip `34b6d37`).** The paid Apple Developer account is
+  ACTIVE (Team `GBR6GTFYCL`; capabilities registered; the app builds+runs on a
+  real iPhone). Share a reel → a SwiftUI **drawer over IG/TikTok** (no app
+  open): scan with narrated progress → film toggles → pick/create list → save
+  (`ios/App/ShareExtension/*` — ShareViewController + ShareFlow* files);
+  signed-out/error are the ONLY app-open fallbacks (App Group queue + scheme).
+  **SharedAuthPlugin** (local Capacitor plugin, `ios/App/App/`, registered in
+  code via `AppViewController.capacitorDidLoad` — survives `cap sync`) syncs
+  `{refreshToken, apiKey, uid}` to keychain group
+  `$(AppIdentifierPrefix)com.cinechrony.app` from `provider.tsx` →
+  `src/lib/shared-auth.ts`. Server: **completion push** ("N films found in
+  your reel") at real-pipeline finish, `pushSentAt` transactional guard,
+  **suppressed for live watchers** (`lastPolledAt` stamp on owner polls);
+  `/extract?jobId=` resume; first native notification-tap router
+  (`native-push.ts`); **`GET /api/v1/lists`** (own lists, private incl.).
+  **Privacy fix:** public `GET /users/[uid]/lists` no longer exposes private
+  lists to non-owners. **App Group renamed `group.com.cinechrony.shared`**
+  (old name unregisterable — likely burned by the free personal team). AASA
+  live with the real Team ID. Audit 492 green. **Pending:** owner uploads the
+  APNs key to Firebase (push delivery), enables Apple provider, re-downloads
+  `GoogleService-Info.plist` (missing `REVERSED_CLIENT_ID` → native Google
+  login); on-device share test; `app.cinechrony.com` DNS. Owner guide:
+  https://claude.ai/code/artifact/9f32e516-a992-46e8-9f2d-b0111a5be668
 - **Marketing website redesigned to indie-startup polish (2026-07-07/08, LIVE).**
   The owner flagged www.cinechrony.com as looking "vibecoded" (benchmark:
   getbluejay.ai); the website repo (`../cinechrony website/cinechrony_waitlist`)
