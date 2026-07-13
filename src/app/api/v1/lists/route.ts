@@ -1,11 +1,18 @@
 /**
- * `POST /api/v1/lists` — create a list under the verified caller (Phase A PR #3).
+ * `/api/v1/lists` — POST (create) + GET (the caller's own list picker).
  *
- * Body: `{ name, isPublic?, description?, coverMode?, coverImageUrl?,
- *          collaboratorInvites?: [{ uid, username? }] }`
+ *   POST body: `{ name, isPublic?, description?, coverMode?, coverImageUrl?,
+ *                collaboratorInvites?: [{ uid, username? }] }`
+ *     Returns: `{ listId }`. The list is created at
+ *     `users/{verified-uid}/lists/{listId}` — no ownerId in the body.
  *
- * Returns: `{ listId }`. The list is created at
- * `users/{verified-uid}/lists/{listId}` — no ownerId in the body.
+ *   GET → `{ lists: ListSummary[] }` — every list the caller owns, private
+ *     included, via `getUserLists(auth.uid)` (the SAME helper backing the
+ *     public `GET /api/v1/users/[uid]/lists`, which already returns a user's
+ *     full list set unfiltered — so this route just scopes it to the
+ *     authenticated caller instead of adding a new query shape). Powers a
+ *     destination-list picker — e.g. the iOS share extension / `/extract`
+ *     save flow. One query, no per-list movies-subcollection reads.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -14,7 +21,7 @@ import {
   optionsHandler,
   BadRequestError,
 } from '@/lib/api-handler';
-import { createList, ListValidationError } from '@/lib/lists-server';
+import { createList, getUserLists, ListValidationError } from '@/lib/lists-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -54,6 +61,10 @@ export const POST = apiRoute(async (req, { auth }) => {
     if (err instanceof ListValidationError) throw new BadRequestError(err.message);
     throw err;
   }
+});
+
+export const GET = apiRoute(async (_req, { auth }) => {
+  return getUserLists(auth.uid);
 });
 
 export const OPTIONS = optionsHandler;

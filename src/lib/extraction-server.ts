@@ -46,6 +46,15 @@ const CACHE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 /** A pipeline "claim" on a urlHash is live for ~3 min; after that the winner is
  *  assumed dead and the urlHash is re-claimable. Bounds the worst-case pipeline. */
 const CLAIM_TTL_MS = 3 * 60 * 1000;
+/** Throttle for the best-effort `lastPolledAt` stamp in `getExtraction` — a
+ *  live poll loop (the share-extension drawer or the `/extract` screen) can
+ *  fire every few seconds; this caps the write to about once per 15s/job. */
+const POLL_STAMP_THROTTLE_MS = 15 * 1000;
+/** `sendExtractionCompletionPush` treats a `lastPolledAt` within this window as
+ *  "actively watching" and skips the completion push. Deliberately a bit wider
+ *  than `POLL_STAMP_THROTTLE_MS` so a continuously-polling client's throttled
+ *  stamp never reads stale at the exact moment the pipeline finishes. */
+const LIVE_WATCH_WINDOW_MS = 20 * 1000;
 
 /** The shared per-video cache doc — also the cache-stampede coordination point. */
 type CacheDoc = {
@@ -147,6 +156,12 @@ type JobDoc = {
    *  check-and-set guard `sendExtractionCompletionPush` claims transactionally
    *  so re-entry can never fire it twice. Absent for stub/no-key jobs. */
   pushSentAt?: FirebaseFirestore.Timestamp;
+  /** Best-effort, throttled stamp written by `getExtraction` on every
+   *  successful OWNER read (~once per `POLL_STAMP_THROTTLE_MS`). Lets
+   *  `sendExtractionCompletionPush` detect a live poller (the share-extension
+   *  drawer or the `/extract` screen, both poll every few seconds) and skip a
+   *  redundant completion push. Absent until the job's first poll. */
+  lastPolledAt?: FirebaseFirestore.Timestamp;
 };
 
 function toView(jobId: string, d: JobDoc): ExtractionJobView {
@@ -254,6 +269,13 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
   if (!snap.exists) throw new NotFoundError('Extraction not found.');
   const d = snap.data() as JobDoc;
   if (d.uid !== uid) throw new ForbiddenError();
+
+  // Best-effort "someone is watching" signal for `sendExtractionCompletionPush`
+  // — throttled off the doc data already in hand (no extra read), fire-and-
+  // forget so a stamp failure can never affect this response.
+  if (Date.now() - tsMillis(d.lastPolledAt) > POLL_STAMP_THROTTLE_MS) {
+    ref.update({ lastPolledAt: FieldValue.serverTimestamp() }).catch(() => {});
+  }
 
   if (d.status === 'processing' && d.urlHash) {
     const c = (await db.collection(CACHE).doc(d.urlHash).get()).data() as CacheDoc | undefined;
@@ -528,14 +550,32 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  * pipeline's self-healing re-entry (see `getExtraction`'s cache patch-back)
  * or any future retry can never fire it twice for the same job.
  *
+ * The SAME transaction snapshot also reads `lastPolledAt` (stamped by
+ * `getExtraction` on every owner poll): if the owner polled within
+ * `LIVE_WATCH_WINDOW_MS`, they're actively watching a live surface (the
+ * share-extension drawer or the `/extract` screen, both poll every few
+ * seconds) — `pushSentAt` is still claimed (so no later re-entry can send),
+ * but the actual push is skipped since a simultaneous ding would be noise.
+ *
  * Best-effort: never throws — a push failure must never fail an otherwise-
  * successful extraction. Awaited (not fire-and-forget) by the caller: this
  * runs inside `after()`, already detached from the HTTP response, so there's
  * no latency to protect — and awaiting avoids the run's execution context
  * tearing down mid-send on a fire-and-forgotten promise.
  *
- * Exported for direct testing of the idempotency guard (see
- * `44-extractions-auth.test.ts`).
+ * Returns a result string (rather than void) so the idempotency guard and the
+ * watched-suppression are directly testable without mocking `sendPushToUser`:
+ *   - 'sent'              — claimed, and a delivery attempt was made.
+ *   - 'skipped_watched'   — claimed (blocks any later re-entry), but no send:
+ *                           the owner is actively polling a live surface.
+ *   - 'skipped_duplicate' — `pushSentAt` was already set, so nothing was
+ *                           (re-)claimed; also the defensive fallback if the
+ *                           claim transaction itself errors.
+ *   - 'skipped_zero_films'— no films, so nothing was touched at all.
+ * The caller in `runRealPipeline` ignores the return value.
+ *
+ * Exported for direct testing of the idempotency + watched-suppression guards
+ * (see `44-extractions-auth.test.ts`).
  */
 export async function sendExtractionCompletionPush(
   db: FirebaseFirestore.Firestore,
@@ -543,17 +583,28 @@ export async function sendExtractionCompletionPush(
   jobId: string,
   uid: string,
   filmCount: number,
-): Promise<void> {
-  if (filmCount < 1) return; // no push for zero-film results
-  try {
-    const claimed = await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      if (!snap.exists || snap.data()?.pushSentAt) return false;
-      tx.update(ref, { pushSentAt: FieldValue.serverTimestamp() });
-      return true;
-    });
-    if (!claimed) return; // already sent — re-entry, never fire twice
+): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_zero_films'> {
+  if (filmCount < 1) return 'skipped_zero_films'; // no push for zero-film results
 
+  let claim: 'duplicate' | 'watched' | 'claimed';
+  try {
+    claim = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      const data = snap.data() as JobDoc | undefined;
+      if (!snap.exists || data?.pushSentAt) return 'duplicate';
+      const watched = Date.now() - tsMillis(data?.lastPolledAt) < LIVE_WATCH_WINDOW_MS;
+      // Claim either way — a live watcher still blocks any later re-entry.
+      tx.update(ref, { pushSentAt: FieldValue.serverTimestamp() });
+      return watched ? 'watched' : 'claimed';
+    });
+  } catch (err) {
+    console.error('[extraction] completion push claim failed for', jobId, err);
+    return 'skipped_duplicate'; // defensive — this function must never throw
+  }
+  if (claim === 'duplicate') return 'skipped_duplicate'; // already sent — re-entry, never fire twice
+  if (claim === 'watched') return 'skipped_watched'; // live surface is polling — a ding here is noise
+
+  try {
     const body = filmCount === 1
       ? '1 film found in your reel. tap to pick lists.'
       : `${filmCount} films found in your reel. tap to pick lists.`;
@@ -563,8 +614,9 @@ export async function sendExtractionCompletionPush(
       data: { type: 'extraction_done', jobId, url: `/extract?jobId=${jobId}` },
     });
   } catch (err) {
-    console.error('[extraction] completion push failed for', jobId, err);
+    console.error('[extraction] completion push send failed for', jobId, err);
   }
+  return 'sent';
 }
 
 /** REAL pipeline: Apify acquire → Gemini watch → TMDB ground (match-or-drop). */
