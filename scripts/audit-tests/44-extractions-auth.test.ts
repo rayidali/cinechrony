@@ -8,11 +8,13 @@
  *   - GET returns the OWNER their job, 403s anyone else, 404s a missing one
  *   - the burst rate-limit (5/min) trips on the 6th call (429)
  *   - an identical URL resolves from the shared cache as `done`
- *   - the completion-push `pushSentAt` claim never fires twice for one job
+ *   - the completion-push `pushSentAt` claim never fires twice for one job,
+ *     and is suppressed (but still claimed) while a live poller is watching
  */
 
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
+import { Timestamp } from 'firebase-admin/firestore';
 import {
   setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
@@ -152,12 +154,15 @@ test('completion push fires at most once per job (pushSentAt guards re-entry)', 
   const ref = adminDb().doc(`extraction_jobs/${jobId}`);
 
   // Exercises the same claim `runRealPipeline` uses at completion — no
-  // Gemini/Apify needed, this only asserts the idempotency guard.
-  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  // Gemini/Apify needed, this only asserts the idempotency guard. No
+  // lastPolledAt has been stamped yet, so this is a normal 'sent'.
+  const firstResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  assert.equal(firstResult, 'sent');
   const first = (await ref.get()).data()?.pushSentAt;
   assert.ok(first, 'first call claims pushSentAt');
 
-  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const secondResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  assert.equal(secondResult, 'skipped_duplicate');
   const second = (await ref.get()).data()?.pushSentAt;
   assert.equal(
     second?.toMillis?.(), first?.toMillis?.(),
@@ -168,7 +173,35 @@ test('completion push fires at most once per job (pushSentAt guards re-entry)', 
 test('completion push never claims/fires for a zero-film result', async () => {
   const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-zero');
   const ref = adminDb().doc(`extraction_jobs/${jobId}`);
-  await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 0);
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 0);
+  assert.equal(result, 'skipped_zero_films');
   const snap = await ref.get();
   assert.equal(snap.data()?.pushSentAt, undefined, 'no films → no claim, no push');
+});
+
+test('completion push is skipped (but pushSentAt still claimed) when lastPolledAt is fresh', async () => {
+  const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-watched');
+  const ref = adminDb().doc(`extraction_jobs/${jobId}`);
+  // The owner's poll loop (share-extension drawer / `/extract` screen) just
+  // hit GET /api/v1/extractions/[jobId], which stamped this.
+  await ref.update({ lastPolledAt: Timestamp.now() });
+
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  assert.equal(result, 'skipped_watched', 'a live watcher suppresses the ding');
+
+  const snap = await ref.get();
+  assert.ok(snap.data()?.pushSentAt, 'pushSentAt is still claimed so no later re-entry can send');
+});
+
+test('completion push sends when lastPolledAt is stale or absent', async () => {
+  const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-stale');
+  const ref = adminDb().doc(`extraction_jobs/${jobId}`);
+  // Stale: older than the LIVE_WATCH_WINDOW_MS (20s) sendExtractionCompletionPush checks.
+  await ref.update({ lastPolledAt: Timestamp.fromMillis(Date.now() - 30_000) });
+
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 3);
+  assert.equal(result, 'sent', 'a stale lastPolledAt does not suppress the push');
+
+  const snap = await ref.get();
+  assert.ok(snap.data()?.pushSentAt, 'pushSentAt claimed');
 });

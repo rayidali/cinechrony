@@ -3,6 +3,7 @@
  *
  * Covers:
  *   - POST   /api/v1/lists                          (create)
+ *   - GET    /api/v1/lists                          (caller's own list picker; incl. private)
  *   - PATCH  /api/v1/lists/[ownerId]/[listId]       (collapsed rename/desc/visibility)
  *   - DELETE /api/v1/lists/[ownerId]/[listId]       (cascade + revoke invites)
  *   - POST   /api/v1/lists/[ownerId]/[listId]/cover (R2 input validation; AUDIT 1.5)
@@ -19,7 +20,7 @@ import {
   clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
-import { POST as createListPost } from '@/app/api/v1/lists/route';
+import { POST as createListPost, GET as getOwnLists } from '@/app/api/v1/lists/route';
 import { PATCH as patchList, DELETE as deleteList } from '@/app/api/v1/lists/[ownerId]/[listId]/route';
 import { POST as postCover, DELETE as deleteCover } from '@/app/api/v1/lists/[ownerId]/[listId]/cover/route';
 
@@ -93,6 +94,37 @@ test('POST /lists: valid create persists with defaults', async () => {
   assert.equal(doc?.isPublic, false, 'v3 default: private');
   assert.equal(doc?.coverMode, 'auto');
   assert.equal(doc?.isDefault, false);
+});
+
+// ─── GET /api/v1/lists (the caller's own list picker) ────────────────────
+
+test('GET /lists: unauth → 401', async () => {
+  const res = await callRoute(getOwnLists, 'GET');
+  assert.equal(res.status, 401);
+});
+
+test('GET /lists: owner gets own lists, including private ones', async () => {
+  // Seeded via the real POST route (not the raw seedList() helper below) so
+  // createdAt is a real serverTimestamp — getUserLists orders by createdAt,
+  // and Firestore silently excludes docs missing an orderBy field.
+  const token = await owner.getIdToken();
+  const pub = await callRoute<{ listId: string }>(createListPost, 'POST', {
+    token, body: { name: 'Public One', isPublic: true },
+  });
+  const priv = await callRoute<{ listId: string }>(createListPost, 'POST', {
+    token, body: { name: 'Private One', isPublic: false },
+  });
+  const publicId = pub.body.ok ? pub.body.data.listId : '';
+  const privateId = priv.body.ok ? priv.body.data.listId : '';
+  assert.ok(publicId && privateId, 'both lists were created');
+
+  const res = await callRoute<{ lists: { id: string; isPublic: boolean }[] }>(getOwnLists, 'GET', { token });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+  if (res.body.ok !== true) return;
+  const ids = res.body.data.lists.map((l) => l.id);
+  assert.ok(ids.includes(publicId), 'includes the public list');
+  assert.ok(ids.includes(privateId), 'includes the private list too — a list picker needs them all');
 });
 
 // ─── PATCH /api/v1/lists/[ownerId]/[listId] ──────────────────────────────
