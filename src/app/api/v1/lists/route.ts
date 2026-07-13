@@ -7,12 +7,9 @@
  *     `users/{verified-uid}/lists/{listId}` — no ownerId in the body.
  *
  *   GET → `{ lists: ListSummary[] }` — every list the caller owns, private
- *     included, via `getUserLists(auth.uid)` (the SAME helper backing the
- *     public `GET /api/v1/users/[uid]/lists`, which already returns a user's
- *     full list set unfiltered — so this route just scopes it to the
- *     authenticated caller instead of adding a new query shape). Powers a
- *     destination-list picker — e.g. the iOS share extension / `/extract`
- *     save flow. One query, no per-list movies-subcollection reads.
+ *     included, via `getUserLists(auth.uid)`. Powers a destination-list
+ *     picker — e.g. the iOS share extension / `/extract` save flow. One
+ *     query, no per-list movies-subcollection reads.
  */
 
 import { revalidatePath } from 'next/cache';
@@ -24,6 +21,19 @@ import {
 import { createList, getUserLists, ListValidationError } from '@/lib/lists-server';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * `GET /api/v1/lists` — the caller's own lists (id/name/movieCount/etc.),
+ * newest first, private included. Added for the iOS Share Extension's
+ * destination picker (`PHASE-C-SHARE-EXTENSION.md` Corner-style in-place
+ * drawer) — the extension has no Firestore SDK, so it can't use the web
+ * client's real-time `users/{uid}/lists` listener. Bearer-authed, unlike the
+ * public `GET /api/v1/users/[uid]/lists`, which filters to public lists for
+ * anyone but the owner.
+ */
+export const GET = apiRoute(async (_req, { auth }) => {
+  return getUserLists(auth.uid);
+});
 
 type CreateListBody = {
   name?: string;

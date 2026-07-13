@@ -1,65 +1,99 @@
 //
 //  ShareViewController.swift
-//  Cinechrony Share Extension (Phase C.3)
+//  Cinechrony Share Extension (Phase C.3 — Corner-style in-place drawer)
 //
 //  The native doorway: from TikTok / Instagram / YouTube, the user taps
-//  Share → Cinechrony and lands in the in-app extractor.
+//  Share → Cinechrony and a drawer slides up RIGHT THERE — the scan runs
+//  in-place (narrated progress), films appear, the user picks a destination
+//  and saves, the drawer closes. The host app does NOT open in the happy
+//  path; a completion push (server-side) is the safety net if the user closes
+//  early.
 //
-//  DESIGN (thin, fast, never-lose-a-share capture-and-forward):
+//  DESIGN:
 //   1. Robustly pull the first http(s) URL out of whatever was shared — a URL
 //      attachment, plain text containing a link, or the item's content text.
-//      We do ZERO network/auth here (the extension is sandboxed, memory-limited,
-//      short-lived); all real work happens in the authenticated main app.
-//   2. DURABLE: append the URL to a shared App Group queue in the SAME format
-//      @capacitor/preferences reads, so the main app can drain it even if the
-//      hand-off open fails (the redundancy net — a share is never lost).
-//   3. PRIMARY: open the host app deep link `cinechrony://extract?url=…`
-//      (official extensionContext.open first, responder-chain fallback).
-//   4. Complete the request quickly so iOS never kills us mid-flight.
+//      Zero network/auth here — this part is UNCHANGED from the original
+//      bounce-to-app flow.
+//   2. DURABLE: append the URL to the shared App Group queue in the SAME
+//      format @capacitor/preferences reads (UNCHANGED) — belt-and-braces even
+//      though the happy path never needs it: if the user backgrounds the host
+//      app mid-scan and the completion push is somehow missed, the app still
+//      picks the URL up on next foreground.
+//   3. Present a UIHostingController wrapping ShareFlowView — the SwiftUI
+//      drawer that does the scanning/saving over URLSession
+//      (ExtensionAPI.swift), authenticated via the shared keychain
+//      (ExtensionKeychain.swift / the App target's SharedAuthPlugin).
+//   4. Opening the host app (`cinechrony://extract?url=…`) is now RARE — only
+//      reachable from the drawer's signed-out/error states via "open
+//      cinechrony". See ShareFlowModel.onOpenApp.
 //
-//  Built on the wizard's SLComposeServiceViewController template so NO storyboard
-//  or extra Xcode wiring is needed — we just skip the compose UI and act on
-//  appearance. Constants below MUST match Xcode config (App Group + URL scheme).
+//  Plain UIViewController (NOT SLComposeServiceViewController — that class's
+//  built-in compose chrome is the wrong shape for a full custom drawer) set as
+//  NSExtensionPrincipalClass in Info.plist (no storyboard). Constants below
+//  MUST match Xcode config (App Group + URL scheme) — see PHASE-C-SHARE-EXTENSION.md.
 //
 
 import UIKit
-import Social
+import SwiftUI
 import UniformTypeIdentifiers
 import ObjectiveC
 
-class ShareViewController: SLComposeServiceViewController {
+class ShareViewController: UIViewController {
 
-    // MARK: - Config (must match Xcode / Info.plist)
+    // MARK: - Config (must match Xcode / Info.plist / the app's deep-link setup)
     private let appGroupId = "group.com.cinechrony.shared"
     private let appScheme  = "cinechrony"
     private let pendingKey = "cc_pending_shares" // stored as "CapacitorStorage.cc_pending_shares"
 
     private var didComplete = false
+    private var hostingController: UIHostingController<ShareFlowView>?
 
-    // We don't use the compose box — do the work as soon as the sheet appears.
-    override func presentationAnimationDidFinish() {
-        super.presentationAnimationDidFinish()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .clear
 
-        // Hard safety net: a share extension must never hang the share sheet.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { [weak self] in self?.finish() }
-
-        resolveSharedURL { [weak self] url in
-            guard let self = self else { return }
-            if let url = url {
-                self.saveToAppGroup(url)   // 1) durable — never lose the share
-                self.openHostApp(url)      // 2) primary — wake the app into /extract
-            } else {
+        var handled = false
+        let handleResolvedURL: (URL?) -> Void = { [weak self] url in
+            guard !handled else { return }
+            handled = true
+            guard let self else { return }
+            guard let url else {
+                // Nothing to scan (a share with no link at all) — there's
+                // nothing the drawer could do, so close quietly. Zero
+                // network/auth happened, so there's nothing to clean up.
                 self.finish()
+                return
             }
+            self.saveToAppGroup(url) // durable belt-and-braces (see header)
+            self.presentFlow(for: url)
         }
+
+        // Hard safety net: if URL resolution never calls back (a misbehaving
+        // share source), don't leave the user staring at a blank transparent
+        // screen forever. No-ops once real resolution already handled it.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 8) { handleResolvedURL(nil) }
+
+        resolveSharedURL { url in handleResolvedURL(url) }
     }
 
-    // SLComposeServiceViewController plumbing (we auto-complete, so these are no-ops).
-    override func isContentValid() -> Bool { return true }
-    override func didSelectPost() { finish() }
-    override func configurationItems() -> [Any]! { return [] }
+    private func presentFlow(for url: URL) {
+        let model = ShareFlowModel(sharedURL: url)
+        model.onFinish = { [weak self] in self?.finish() }
+        model.onOpenApp = { [weak self] url in self?.openHostApp(url) }
 
-    // MARK: - URL resolution (robust across every way a URL can arrive)
+        let hosting = UIHostingController(rootView: ShareFlowView(model: model))
+        hosting.view.backgroundColor = .clear
+        addChild(hosting)
+        hosting.view.frame = view.bounds
+        hosting.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.addSubview(hosting.view)
+        hosting.didMove(toParent: self)
+        hostingController = hosting
+
+        model.start()
+    }
+
+    // MARK: - URL resolution (robust across every way a URL can arrive) — UNCHANGED
 
     private func resolveSharedURL(completion: @escaping (URL?) -> Void) {
         let items = (extensionContext?.inputItems as? [NSExtensionItem]) ?? []
@@ -114,7 +148,7 @@ class ShareViewController: SLComposeServiceViewController {
         return detector.firstMatch(in: text, options: [], range: range)?.url
     }
 
-    // MARK: - Durable hand-off (App Group queue, @capacitor/preferences format)
+    // MARK: - Durable hand-off (App Group queue, @capacitor/preferences format) — UNCHANGED
 
     private func saveToAppGroup(_ url: URL) {
         guard let defaults = UserDefaults(suiteName: appGroupId) else { return }
@@ -133,7 +167,7 @@ class ShareViewController: SLComposeServiceViewController {
         }
     }
 
-    // MARK: - Primary hand-off (open the app)
+    // MARK: - Fallback hand-off — the ONLY app-open path (signed-out / error "open cinechrony")
 
     private func openHostApp(_ url: URL) {
         guard let deepLink = makeDeepLink(for: url) else { finish(); return }

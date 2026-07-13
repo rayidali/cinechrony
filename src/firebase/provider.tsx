@@ -6,6 +6,7 @@ import { Firestore } from 'firebase/firestore';
 import { Auth, User, onAuthStateChanged } from 'firebase/auth';
 import { FirebaseStorage, getStorage } from 'firebase/storage';
 import { FirebaseErrorListener } from '@/components/FirebaseErrorListener'
+import { syncSharedAuth, clearSharedAuth } from '@/lib/shared-auth';
 
 interface FirebaseProviderProps {
   children: ReactNode;
@@ -81,6 +82,13 @@ export const FirebaseProvider: React.FC<FirebaseProviderProps> = ({
       auth,
       (firebaseUser) => { // Auth state determined
         setUserAuthState({ user: firebaseUser, isUserLoading: false, userError: null });
+        // Keep the iOS Share Extension's shared-keychain credential in sync —
+        // see src/lib/shared-auth.ts. No-ops on web/Android.
+        if (firebaseUser) {
+          void syncSharedAuth(firebaseUser);
+        } else {
+          void clearSharedAuth();
+        }
       },
       (error) => { // Auth listener error
         console.error("FirebaseProvider: onAuthStateChanged error:", error);
