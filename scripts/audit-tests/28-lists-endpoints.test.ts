@@ -21,6 +21,7 @@ import {
 } from './harness.ts';
 import { callRoute } from './lib/route-call.ts';
 import { POST as createListPost, GET as getOwnLists } from '@/app/api/v1/lists/route';
+import { GET as getUserListsPublic } from '@/app/api/v1/users/[uid]/lists/route';
 import { PATCH as patchList, DELETE as deleteList } from '@/app/api/v1/lists/[ownerId]/[listId]/route';
 import { POST as postCover, DELETE as deleteCover } from '@/app/api/v1/lists/[ownerId]/[listId]/cover/route';
 
@@ -125,6 +126,63 @@ test('GET /lists: owner gets own lists, including private ones', async () => {
   const ids = res.body.data.lists.map((l) => l.id);
   assert.ok(ids.includes(publicId), 'includes the public list');
   assert.ok(ids.includes(privateId), 'includes the private list too — a list picker needs them all');
+});
+
+// ─── GET /api/v1/users/[uid]/lists (public profile lists) ────────────────
+
+test('GET /users/[uid]/lists: non-owners see only public lists (privacy fix)', async () => {
+  // Seeded via the real POST route — see the createdAt note above.
+  const token = await owner.getIdToken();
+  const pub = await callRoute<{ listId: string }>(createListPost, 'POST', {
+    token, body: { name: 'Public One', isPublic: true },
+  });
+  const priv = await callRoute<{ listId: string }>(createListPost, 'POST', {
+    token, body: { name: 'Secret Gift Ideas', isPublic: false },
+  });
+  const publicId = pub.body.ok ? pub.body.data.listId : '';
+  const privateId = priv.body.ok ? priv.body.data.listId : '';
+  assert.ok(publicId && privateId, 'both lists were created');
+
+  // Anonymous caller: public lists only.
+  const anon = await callRoute<{ lists: { id: string }[] }>(getUserListsPublic, 'GET', {
+    params: { uid: owner.uid },
+  });
+  assert.equal(anon.status, 200);
+  assert.equal(anon.body.ok, true);
+  if (anon.body.ok !== true) return;
+  const anonIds = anon.body.data.lists.map((l) => l.id);
+  assert.ok(anonIds.includes(publicId), 'anon sees the public list');
+  assert.ok(!anonIds.includes(privateId), 'anon must NOT see a private list (name/cover/count are user content)');
+
+  // A different signed-in user: same as anonymous.
+  const strangerRes = await callRoute<{ lists: { id: string }[] }>(getUserListsPublic, 'GET', {
+    token: await stranger.getIdToken(),
+    params: { uid: owner.uid },
+  });
+  assert.equal(strangerRes.body.ok, true);
+  if (strangerRes.body.ok !== true) return;
+  const strangerIds = strangerRes.body.data.lists.map((l) => l.id);
+  assert.ok(!strangerIds.includes(privateId), 'another user must NOT see a private list either');
+});
+
+test('GET /users/[uid]/lists: the owner still sees private lists', async () => {
+  const token = await owner.getIdToken();
+  const priv = await callRoute<{ listId: string }>(createListPost, 'POST', {
+    token, body: { name: 'Private One', isPublic: false },
+  });
+  const privateId = priv.body.ok ? priv.body.data.listId : '';
+  assert.ok(privateId, 'private list was created');
+
+  const res = await callRoute<{ lists: { id: string }[] }>(getUserListsPublic, 'GET', {
+    token,
+    params: { uid: owner.uid },
+  });
+  assert.equal(res.body.ok, true);
+  if (res.body.ok !== true) return;
+  assert.ok(
+    res.body.data.lists.map((l) => l.id).includes(privateId),
+    'owner viewing their own profile keeps seeing private lists',
+  );
 });
 
 // ─── PATCH /api/v1/lists/[ownerId]/[listId] ──────────────────────────────
