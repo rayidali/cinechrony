@@ -6,8 +6,24 @@
 > in a tappable result. This replaces "wait or get one ding" with continuous
 > presence.
 
-Status: PLANNED (this doc). The outcome pushes + drawer detach (shipped
-2026-07-14, `d45a792`) are the fallback layer this builds on, not a competitor.
+Status: **P1 + P2 + P3 SHIPPED** (2026-07-14). Server plumbing
+(`src/lib/live-activity-server.ts` + pipeline hooks + token routes), the
+`ScanActivityWidget` WidgetKit target, and the app glue
+(`LiveActivityPlugin.swift` + `src/lib/live-activity-native.ts`) are all in.
+The outcome pushes + drawer detach (`d45a792`) remain the fallback ladder.
+P4 (poster in the terminal card, multi-device fan-out, pendingState buffer)
+stays open.
+
+**To turn it on** (feature is dormant until these exist in Vercel env):
+- `APNS_KEY_ID` — the 10-char id from the `AuthKey_XXXXXXXXXX.p8` filename
+- `APNS_PRIVATE_KEY` — the .p8 file's full PEM contents (paste as multiline,
+  or with `\n` escapes — both work). Same key already uploaded to Firebase;
+  it never enters the repo.
+- (`APPLE_TEAM_ID` defaults to GBR6GTFYCL; `APNS_BUNDLE_ID` to
+  com.cinechrony.app; `LIVE_ACTIVITY_ENABLED=0` is the kill switch.)
+Xcode-installed builds live in the APNs SANDBOX, TestFlight in production —
+the server discovers each token's environment automatically (BadDeviceToken
+→ try the other host) and remembers it, so both build types just work.
 
 ---
 

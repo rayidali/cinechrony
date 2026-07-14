@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { useUser } from '@/firebase';
 import { useRouter } from '@/lib/native-nav';
 import { registerNativePushIfApplicable } from '@/lib/native-push';
+import { initLiveActivityBridge } from '@/lib/live-activity-native';
 
 const registered = new Set<string>();
 
@@ -25,6 +26,9 @@ export function NativePushRegistration() {
     if (registered.has(user.uid)) return;
     registered.add(user.uid);
     void registerNativePushIfApplicable(router);
+    // Same gate (authenticated, once per session): wire the Live Activity
+    // token bridge so the pipeline can drive the lock-screen scan tracker.
+    void initLiveActivityBridge();
   }, [user, isUserLoading, router]);
 
   return null;

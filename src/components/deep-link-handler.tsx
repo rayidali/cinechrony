@@ -139,13 +139,17 @@ function routeFromUrl(rawUrl: string, router: ReturnType<typeof useRouter>): voi
   // Our own WebView origin round-tripping a tap we already handled — skip.
   if (url.protocol === 'capacitor:' || url.host === 'localhost') return;
 
-  // Share Extension → the extractor. Custom scheme makes "extract" the HOST;
-  // a Universal Link makes it the first path segment.
+  // Share Extension / Live Activity tap → the extractor. Custom scheme makes
+  // "extract" the HOST; a Universal Link makes it the first path segment.
   if (url.host === 'extract' || url.pathname.startsWith('/extract')) {
     const shared = url.searchParams.get('url');
+    const jobId = url.searchParams.get('jobId');
     if (shared && /^https?:\/\//.test(shared)) {
       markShareHandled(); // so the App Group drain doesn't re-fire this one
       router.push(`/extract?url=${encodeURIComponent(shared)}`);
+    } else if (jobId && /^[A-Za-z0-9_-]{1,64}$/.test(jobId)) {
+      // The lock-screen scan card deep-links its job (cinechrony://extract?jobId=…).
+      router.push(`/extract?jobId=${encodeURIComponent(jobId)}`);
     } else {
       router.push('/extract');
     }

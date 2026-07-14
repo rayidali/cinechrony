@@ -28,6 +28,18 @@ import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
 import { createList } from '@/lib/lists-server';
 import { rehostImageToR2 } from '@/lib/r2-server';
 import { sendPushToUser } from '@/lib/push-server';
+import {
+  getLiveActivityStartToken,
+  isLiveActivityConfigured,
+  noteLiveActivityEnv,
+  pruneLiveActivityToken,
+  sendLiveActivityEnd,
+  sendLiveActivityStart,
+  sendLiveActivityUpdate,
+  type LaContentState,
+  type LaEnv,
+  type LaStartToken,
+} from '@/lib/live-activity-server';
 import { parseVideoUrl, youTubeThumbnail } from '@/lib/video-utils';
 import type { SearchResult } from '@/lib/types';
 import type {
@@ -171,6 +183,27 @@ type JobDoc = {
    *  drawer or the `/extract` screen, both poll every few seconds) and skip a
    *  redundant completion push. Absent until the job's first poll. */
   lastPolledAt?: FirebaseFirestore.Timestamp;
+  /** The per-job Live Activity state machine (LIVE-ACTIVITY-PLAN.md §4).
+   *  Every field is a transactional claim or an eventually-consistent fact
+   *  reported back by the device — never rendered to the client. */
+  liveActivity?: LiveActivityJobState;
+};
+
+type LiveActivityJobState = {
+  /** Push-to-start sent (claimed transactionally — starts exactly once). */
+  requestedAt?: FirebaseFirestore.Timestamp;
+  /** Reported by the app once the activity exists; may never arrive. */
+  activityId?: string;
+  /** The activity's own APNs token — needed for update/end pushes. */
+  updateToken?: string;
+  /** Which APNs environment this device's tokens live in (learned on the
+   *  first successful send — dev builds are sandbox, TestFlight is prod). */
+  env?: LaEnv;
+  /** Monotonic dedupe guard: a stage push is sent only if its ordinal
+   *  strictly exceeds this (guards self-heal re-entry + async races). */
+  lastStageSent?: number;
+  /** Terminal push sent (claimed transactionally, like `pushSentAt`). */
+  endedAt?: FirebaseFirestore.Timestamp;
 };
 
 function toView(jobId: string, d: JobDoc): ExtractionJobView {
@@ -329,6 +362,184 @@ export async function detachExtraction(uid: string, jobId: string): Promise<{ de
   if ((snap.data() as JobDoc).uid !== uid) throw new ForbiddenError();
   await ref.update({ lastPolledAt: FieldValue.delete() }).catch(() => {});
   return { detached: true };
+}
+
+// ── Live Activity (the lock-screen scan tracker — LIVE-ACTIVITY-PLAN.md) ─────
+// The pipeline is the single driver: it starts the activity (push-to-start),
+// narrates the stages, and resolves the card. The extension and app stay
+// passive. Every send is claimed transactionally BEFORE it happens (start
+// once, stage ordinals strictly increasing, end once) and every push carries
+// the full card state, so at-most-once APNs delivery can never corrupt it.
+
+/** queued 0 · fetching 1 · watching 2 · matching 3 · terminal 4. */
+function stageOrdinal(stage: ExtractionStage): number {
+  switch (stage) {
+    case 'fetching': return 1;
+    case 'watching': return 2;
+    case 'matching': return 3;
+    case 'done':
+    case 'failed': return 4;
+    default: return 0;
+  }
+}
+
+/** Same copy the drawer narrates, so every surface tells one story. */
+function stageCardLabel(stage: ExtractionStage): string {
+  switch (stage) {
+    case 'watching': return 'watching it';
+    case 'matching': return 'matching films';
+    default: return 'getting the video';
+  }
+}
+
+const workingState = (ordinal: number, label: string): LaContentState =>
+  ({ stage: ordinal, label, detail: null, state: 'working' });
+
+/** The terminal card — headline + one detail line built from the outcome. */
+function laEndStateFor(outcome: ExtractionPushOutcome): LaContentState {
+  if (outcome.kind === 'failed') {
+    return { stage: 4, label: 'that reel put up a fight', detail: 'tap to run it back', state: 'failed' };
+  }
+  if (outcome.kind === 'zero') {
+    return { stage: 4, label: 'no films in this one', detail: 'just vibes, apparently', state: 'zero' };
+  }
+  const films = outcome.films;
+  const first = films[0];
+  const year = first?.year ? ` (${first.year})` : '';
+  const imdb = first?.imdbRating ? ` · imdb ${first.imdbRating}` : '';
+  const more = films.length > 1 ? ` and ${films.length - 1} more` : '';
+  return {
+    stage: 4,
+    label: `${films.length} ${films.length === 1 ? 'film' : 'films'} found`,
+    detail: first ? `${first.title}${year}${imdb}${more}` : null,
+    state: 'done',
+  };
+}
+
+/** Outcome as reconstructed from a finished job doc (the late-token flush). */
+function outcomeFromJob(d: JobDoc): ExtractionPushOutcome {
+  if (d.status === 'failed') return { kind: 'failed' };
+  const films = d.films ?? [];
+  if (!films.length) return { kind: 'zero' };
+  return { kind: 'films', films: films.map((f) => ({ title: f.title, year: f.year, imdbRating: f.imdbRating })) };
+}
+
+/**
+ * One mid-pipeline stage emit. First emit push-to-STARTS the activity (claim:
+ * `requestedAt`); later emits ride the activity's update token IF the app has
+ * reported it yet (the token handshake is eventually consistent — a missed
+ * stage is fine, the next full-state push repairs it). Best-effort by design:
+ * never throws, and a slow APNs is capped by the transport timeout so the
+ * tracker can't stall the pipeline it decorates.
+ *
+ * Exported for direct testing of the claims (49-live-activity.test.ts).
+ */
+export async function emitScanActivity(
+  db: FirebaseFirestore.Firestore,
+  ref: FirebaseFirestore.DocumentReference,
+  jobId: string,
+  startToken: LaStartToken | null,
+  ordinal: number,
+  label: string,
+): Promise<void> {
+  if (!isLiveActivityConfigured() || !startToken) return;
+  try {
+    const decision = await db.runTransaction(async (tx) => {
+      const snap = await tx.get(ref);
+      if (!snap.exists) return { kind: 'skip' as const };
+      const la = (snap.data() as JobDoc).liveActivity ?? {};
+      if (la.endedAt) return { kind: 'skip' as const };
+      if (!la.requestedAt) {
+        tx.update(ref, {
+          'liveActivity.requestedAt': FieldValue.serverTimestamp(),
+          'liveActivity.lastStageSent': ordinal,
+        });
+        return { kind: 'start' as const };
+      }
+      if (la.updateToken && ordinal > (la.lastStageSent ?? 0)) {
+        tx.update(ref, { 'liveActivity.lastStageSent': ordinal });
+        return { kind: 'update' as const, token: la.updateToken, env: la.env ?? null };
+      }
+      return { kind: 'skip' as const };
+    });
+
+    if (decision.kind === 'start') {
+      const res = await sendLiveActivityStart(startToken.token, startToken.env, jobId, workingState(ordinal, label));
+      if (res.ok && res.env) {
+        noteLiveActivityEnv(startToken.ref, res.env);
+        ref.update({ 'liveActivity.env': res.env }).catch(() => {});
+      } else if (res.unregistered) {
+        pruneLiveActivityToken(startToken.ref);
+      }
+    } else if (decision.kind === 'update') {
+      await sendLiveActivityUpdate(decision.token, decision.env, workingState(ordinal, label));
+    }
+  } catch (err) {
+    console.warn('[extraction] live-activity stage emit failed for', jobId, err);
+  }
+}
+
+/**
+ * `POST /extractions/[jobId]/live-activity-token` — the app observed the
+ * activity (started by our push) mint its update token and reports it here.
+ * Stores it, then FLUSHES the freshest state at it immediately: the token
+ * usually lands seconds after push-to-start, i.e. after stages the activity
+ * missed — and can even land after the job finished, in which case the card
+ * is resolved right now instead of dangling "scanning" forever (read-repair).
+ */
+export async function attachExtractionLiveActivityToken(
+  uid: string,
+  jobId: string,
+  activityId: unknown,
+  token: unknown,
+): Promise<{ attached: boolean }> {
+  if (typeof token !== 'string' || !/^[0-9a-f]{32,512}$/i.test(token)) {
+    throw new BadRequestError('Invalid token.');
+  }
+  const cleanActivityId = typeof activityId === 'string' ? activityId.slice(0, 128) : '';
+
+  const db = getDb();
+  const ref = db.collection(JOBS).doc(jobId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new NotFoundError('Extraction not found.');
+  if ((snap.data() as JobDoc).uid !== uid) throw new ForbiddenError();
+
+  type Flush =
+    | { kind: 'none' }
+    | { kind: 'end'; env: LaEnv | null; state: LaContentState }
+    | { kind: 'update'; env: LaEnv | null; state: LaContentState };
+
+  const flush = await db.runTransaction<Flush>(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return { kind: 'none' };
+    const d = s.data() as JobDoc;
+    const la = d.liveActivity ?? {};
+    const updates: Record<string, FieldValue | string | number> = {
+      'liveActivity.updateToken': token,
+      'liveActivity.activityId': cleanActivityId || FieldValue.delete(),
+    };
+    const env = la.env ?? null;
+    const terminal = d.status === 'done' || d.status === 'failed';
+    if (terminal && !la.endedAt) {
+      updates['liveActivity.endedAt'] = FieldValue.serverTimestamp();
+      tx.update(ref, updates);
+      return { kind: 'end', env, state: laEndStateFor(outcomeFromJob(d)) };
+    }
+    const ordinal = stageOrdinal(d.stage);
+    if (!terminal && ordinal > (la.lastStageSent ?? 0)) {
+      updates['liveActivity.lastStageSent'] = ordinal;
+      tx.update(ref, updates);
+      return { kind: 'update', env, state: workingState(ordinal, stageCardLabel(d.stage)) };
+    }
+    tx.update(ref, updates);
+    return { kind: 'none' };
+  });
+
+  if (isLiveActivityConfigured()) {
+    if (flush.kind === 'end') await sendLiveActivityEnd(token, flush.env, flush.state);
+    else if (flush.kind === 'update') await sendLiveActivityUpdate(token, flush.env, flush.state);
+  }
+  return { attached: true };
 }
 
 // ── Save (C.1d) — confirmed films → lists ────────────────────────────────────
@@ -643,24 +854,50 @@ export async function sendExtractionCompletionPush(
   jobId: string,
   uid: string,
   outcome: ExtractionPushOutcome,
-): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate'> {
+): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_live_activity'> {
   let claim: 'duplicate' | 'watched' | 'claimed';
+  let laToken: string | null = null;
+  let laEnv: LaEnv | null = null;
   try {
-    claim = await db.runTransaction(async (tx) => {
+    const result = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
       const data = snap.data() as JobDoc | undefined;
-      if (!snap.exists || data?.pushSentAt) return 'duplicate';
+      if (!snap.exists || data?.pushSentAt) return { claim: 'duplicate' as const };
       const watched = Date.now() - tsMillis(data?.lastPolledAt) < LIVE_WATCH_WINDOW_MS;
       // Claim either way — a live watcher still blocks any later re-entry.
-      tx.update(ref, { pushSentAt: FieldValue.serverTimestamp() });
-      return watched ? 'watched' : 'claimed';
+      const updates: Record<string, FieldValue | string | number> = { pushSentAt: FieldValue.serverTimestamp() };
+      // A confirmed Live Activity resolves in the SAME claim: the terminal
+      // state rides the card (end push below), exactly once.
+      const la = data?.liveActivity;
+      const token = la?.updateToken && !la.endedAt ? la.updateToken : null;
+      if (token) updates['liveActivity.endedAt'] = FieldValue.serverTimestamp();
+      tx.update(ref, updates);
+      return { claim: watched ? ('watched' as const) : ('claimed' as const), token, env: la?.env ?? null };
     });
+    claim = result.claim;
+    laToken = 'token' in result ? result.token ?? null : null;
+    laEnv = 'env' in result ? result.env ?? null : null;
   } catch (err) {
     console.error('[extraction] completion push claim failed for', jobId, err);
     return 'skipped_duplicate'; // defensive — this function must never throw
   }
   if (claim === 'duplicate') return 'skipped_duplicate'; // already sent — re-entry, never fire twice
+
+  // Resolve the lock-screen card regardless of watched state — a card left
+  // saying "scanning" forever would be a lie. If the end push lands, it IS
+  // the notification: the result sits on the lock screen, so the FCM ding
+  // on top of it would be noise.
+  let cardResolved = false;
+  if (laToken && isLiveActivityConfigured()) {
+    try {
+      cardResolved = (await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome))).ok;
+    } catch (err) {
+      console.warn('[extraction] live-activity end failed for', jobId, err);
+    }
+  }
+
   if (claim === 'watched') return 'skipped_watched'; // live surface is polling — a ding here is noise
+  if (cardResolved) return 'skipped_live_activity'; // the card carries the result
 
   try {
     await sendPushToUser(uid, {
@@ -688,7 +925,12 @@ async function runRealPipeline(jobId: string): Promise<void> {
     if (!snap.exists) return;
     job = snap.data() as JobDoc;
 
+    // One lookup per pipeline: the owner's freshest push-to-start token.
+    // Null (feature unconfigured / app never registered) disables every emit.
+    const laStart = await getLiveActivityStartToken(db, job.uid);
+
     await setStage(ref, 'fetching');
+    await emitScanActivity(db, ref, jobId, laStart, 1, 'getting the video');
     const video = await acquireVideo(job.canonicalUrl, job.provider);
     if (!video) {
       await failJob(ref, 'FETCH_FAILED');
@@ -698,6 +940,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     }
 
     await setStage(ref, 'watching');
+    await emitScanActivity(db, ref, jobId, laStart, 2, 'watching it');
     let analysis: GeminiAnalysis;
     try {
       analysis = await analyzeForFilms(video);
@@ -711,6 +954,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     }
 
     await setStage(ref, 'matching');
+    await emitScanActivity(db, ref, jobId, laStart, 3, 'matching films');
     // Ground the films + capture the clip's poster frame concurrently.
     const [films, videoThumbnail] = await Promise.all([
       groundFilms(analysis.films),

@@ -190,13 +190,24 @@ export default function ExtractClient() {
 
   // Auto-start when arriving via a share doorway (`/extract?url=…`), or
   // resume a scan when arriving via a completion push (`/extract?jobId=…`).
+  //
+  // NOT a mount-once effect, deliberately: a notification tap while this
+  // screen is ALREADY mounted only changes the query (same route → no
+  // remount), and on a cold start the params can land before auth has
+  // restored (apiCall would 401 into a bogus failed state). So: wait for
+  // auth, re-run on param changes, and key each doorway so re-renders (or
+  // the same param) can never double-start a scan.
+  const handledDoorway = useRef<string | null>(null);
   useEffect(() => {
+    if (isUserLoading || !user) return;
     const u = search.get('url');
-    if (u) { start(u); return; }
     const jobId = search.get('jobId');
-    if (jobId) resume(jobId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    const key = u ? `url:${u}` : jobId ? `job:${jobId}` : null;
+    if (!key || handledDoorway.current === key) return;
+    handledDoorway.current = key;
+    if (u) start(u);
+    else if (jobId) resume(jobId);
+  }, [search, user, isUserLoading, start, resume]);
 
   useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current); }, []);
 
