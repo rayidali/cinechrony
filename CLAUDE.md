@@ -2,8 +2,30 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-13)
+## Current state (2026-07-14)
 
+- **Live Activity scan tracker — SHIPPED, device test pending (2026-07-14,
+  `563b34f` + `3510b8a`).** The DoorDash-style lock-screen/Dynamic Island
+  card that narrates a reel scan and resolves into the result
+  (LIVE-ACTIVITY-PLAN.md P1-P3). Server: direct APNs over HTTP/2 with an
+  ES256 JWT (`live-activity-server.ts`; FCM can't push-to-start and skips
+  the sandbox) — DORMANT until the owner sets `APNS_KEY_ID` +
+  `APNS_PRIVATE_KEY` (the .p8 contents) in Vercel; sandbox/prod discovered
+  per token via BadDeviceToken-walk + memoized. Pipeline emits stage pushes
+  behind transactional claims (start-once `requestedAt`, monotonic
+  `lastStageSent`, end-once `endedAt`); a confirmed card SUPPRESSES the FCM
+  ding (`'skipped_live_activity'`) and the outcome push remains the
+  fallback ladder. iOS: new `ScanActivityWidget` target (+`ios/App/Shared/`
+  attributes in both targets), `LiveActivityPlugin` ferries the two token
+  streams to `/me/live-activity-token` + `/extractions/[jobId]/
+  live-activity-token`, read-repair on foreground. Same commit:
+  **`FirebaseApp.configure()`** added to AppDelegate (was missing — killed
+  the FirebaseAuthentication plugin at launch), **notification-tap fixes**
+  (the `/extract` doorway effect now waits for auth + re-fires on param
+  change; `cinechrony://extract?jobId=` no longer drops the id), and the
+  drawer got confidence chips on EVERY film (web tiers verbatim) + an
+  aesthetic pass (check circles, stage dots, SCAN COMPLETE header). Tests
+  49-live-activity (9) + suites 31/31; xcodebuild green.
 - **Gemini model retirement outage — FIXED (2026-07-13 night, `e83b17a`).** The
   first on-device share test failed because Google retired the entire 2.x model
   chain at once (2.5-flash/2.0-flash refusing traffic, 2.5-flash-lite 404) —
