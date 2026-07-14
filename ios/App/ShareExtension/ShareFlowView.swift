@@ -42,6 +42,15 @@ private enum Brand {
         light: UIColor(white: 0.32, alpha: 1),
         dark: UIColor(white: 0.68, alpha: 1)
     )
+    /// The web ConfidenceChip buckets: sage = strong, amber = decent.
+    static let sage = Color(
+        light: UIColor(red: 0x4F / 255, green: 0x6E / 255, blue: 0x3F / 255, alpha: 1),
+        dark: UIColor(red: 0x9D / 255, green: 0xBE / 255, blue: 0x8D / 255, alpha: 1)
+    )
+    static let amber = Color(
+        light: UIColor(red: 0x9A / 255, green: 0x6D / 255, blue: 0x14 / 255, alpha: 1),
+        dark: UIColor(red: 0xD9 / 255, green: 0xA4 / 255, blue: 0x41 / 255, alpha: 1)
+    )
 }
 
 private extension Color {
@@ -84,6 +93,7 @@ private struct PrimaryButton: View {
             .frame(height: 50)
             .background(disabled ? Brand.filmRed.opacity(0.45) : Brand.filmRed)
             .clipShape(Capsule())
+            .shadow(color: Brand.filmRed.opacity(disabled ? 0 : 0.32), radius: 12, x: 0, y: 5)
         }
         .disabled(disabled)
         .buttonStyle(.plain)
@@ -168,7 +178,7 @@ struct ShareFlowView: View {
     private var content: some View {
         switch model.phase {
         case .working(let stage, let thumbnail):
-            WorkingStateView(stageLabel: model.stageLabels[stage] ?? "working", thumbnailUrl: thumbnail)
+            WorkingStateView(stage: stage, stageLabel: model.stageLabels[stage] ?? "working", thumbnailUrl: thumbnail)
         case .signedOut:
             SignedOutStateView(onOpenApp: { model.openApp() })
         case .error(let message):
@@ -184,30 +194,58 @@ struct ShareFlowView: View {
 // MARK: - State 1: resolving/submitting + scanning
 
 private struct WorkingStateView: View {
+    let stage: String
     let stageLabel: String
     let thumbnailUrl: String?
+    @State private var pulse = false
+
+    /// queued 0 · fetching 1 · watching 2 · matching 3 — the same 4-dot
+    /// progress the lock-screen Live Activity card draws.
+    private var ordinal: Int {
+        switch stage {
+        case "fetching": return 1
+        case "watching": return 2
+        case "matching": return 3
+        default: return 0
+        }
+    }
 
     var body: some View {
-        VStack(spacing: 14) {
+        VStack(spacing: 16) {
             if let thumbnailUrl, let url = URL(string: thumbnailUrl) {
                 AsyncImage(url: url) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
                 } placeholder: {
                     Rectangle().fill(Brand.sunken)
                 }
-                .frame(width: 92, height: 92)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 18))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18).stroke(Brand.hairline, lineWidth: 1)
+                )
             }
 
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: Brand.filmRed))
-                .scaleEffect(1.15)
+            HStack(spacing: 9) {
+                ForEach(0..<4, id: \.self) { index in
+                    Circle()
+                        .fill(index < ordinal ? Brand.filmRed : (index == ordinal ? Brand.filmRed.opacity(0.55) : Brand.hairline))
+                        .frame(width: 8, height: 8)
+                        .scaleEffect(index == ordinal && pulse ? 1.45 : 1)
+                }
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.65).repeatForever(autoreverses: true)) {
+                    pulse = true
+                }
+            }
 
             Text(stageLabel)
-                .font(.system(size: 20, weight: .bold))
+                .font(.system(size: 21, weight: .bold))
                 .foregroundColor(Brand.ink)
+                .id(stageLabel)
+                .transition(.opacity)
 
-            Text("close anytime. we'll ping you when it's ready.")
+            Text("close anytime. the scan keeps going and we'll ping you.")
                 .font(.system(size: 14))
                 .foregroundColor(Brand.muted)
                 .multilineTextAlignment(.center)
@@ -278,27 +316,39 @@ private struct ResultStateView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(countLabel)
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(Brand.ink)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 20)
-                .padding(.top, 4)
-                .padding(.bottom, 12)
+            VStack(alignment: .leading, spacing: 3) {
+                Text("SCAN COMPLETE")
+                    .font(.system(size: 10, weight: .bold, design: .monospaced))
+                    .foregroundColor(Brand.filmRed)
+                Text(countLabel)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundColor(Brand.ink)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 20)
+            .padding(.top, 2)
+            .padding(.bottom, 14)
 
             destinationSection
 
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(model.films) { film in
+                    ForEach(Array(model.films.enumerated()), id: \.element.tmdbId) { index, film in
                         FilmRow(
                             film: film,
                             isIncluded: model.included.contains(film.tmdbId),
                             onToggle: { model.toggleIncluded(film.tmdbId) }
                         )
-                        Rectangle().fill(Brand.hairline).frame(height: 1)
+                        if index < model.films.count - 1 {
+                            Rectangle().fill(Brand.hairline).frame(height: 1).padding(.leading, 74)
+                        }
                     }
                 }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 4)
+                .background(
+                    RoundedRectangle(cornerRadius: 16).stroke(Brand.hairline, lineWidth: 1)
+                )
                 .padding(.horizontal, 20)
             }
             .frame(maxHeight: 300)
@@ -392,32 +442,51 @@ private struct FilmRow: View {
     let onToggle: () -> Void
 
     var body: some View {
-        HStack(spacing: 12) {
-            poster
-            VStack(alignment: .leading, spacing: 3) {
-                Text(film.title)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(Brand.ink)
-                    .lineLimit(1)
-                HStack(spacing: 4) {
+        Button(action: {
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) { onToggle() }
+        }) {
+            HStack(spacing: 12) {
+                poster
+                    .opacity(isIncluded ? 1 : 0.4)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(film.title)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Brand.ink)
+                        .lineLimit(1)
                     Text(metaLabel)
                         .font(.system(size: 11, weight: .medium, design: .monospaced))
                         .foregroundColor(Brand.muted)
-                    if let match = matchLabel {
-                        Text("· \(match)")
-                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                            .foregroundColor(matchIsLow ? Brand.filmRed : Brand.muted)
-                    }
+                        .lineLimit(1)
+                    matchChip
                 }
-                .lineLimit(1)
+                .opacity(isIncluded ? 1 : 0.45)
+                Spacer(minLength: 8)
+                checkCircle
             }
-            Spacer()
-            Toggle("", isOn: Binding(get: { isIncluded }, set: { _ in onToggle() }))
-                .labelsHidden()
-                .tint(Brand.filmRed)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 10)
-        .frame(minHeight: 44)
+        .buttonStyle(.plain)
+    }
+
+    /// Keep / skip — a branded check circle instead of a settings-style
+    /// switch (matches the picker's checkmark language).
+    private var checkCircle: some View {
+        ZStack {
+            Circle()
+                .fill(isIncluded ? Brand.filmRed : Color.clear)
+                .frame(width: 26, height: 26)
+            Circle()
+                .stroke(isIncluded ? Brand.filmRed : Brand.hairline, lineWidth: 1.5)
+                .frame(width: 26, height: 26)
+            if isIncluded {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.white)
+            }
+        }
     }
 
     /// "1984 · imdb 7.4" — year (or media kind) plus the IMDb score when known.
@@ -429,16 +498,23 @@ private struct FilmRow: View {
         return parts.joined(separator: " · ")
     }
 
-    /// Same confidence tiers as the web ConfidenceChip: silent when the match
-    /// is strong, a percentage when decent, a film-red warning when shaky.
-    private var matchLabel: String? {
-        guard let c = film.confidence, c < 0.8 else { return nil }
-        if c < 0.6 { return "low match, double-check" }
-        return "\(Int((c * 100).rounded()))% match"
-    }
-
-    private var matchIsLow: Bool {
-        (film.confidence ?? 1) < 0.6
+    /// The web ConfidenceChip, verbatim tiers — ALWAYS visible so every film
+    /// carries its receipt: sage "strong match" ≥ 0.8, amber "NN% match"
+    /// ≥ 0.6, film-red "low · double-check" below.
+    @ViewBuilder
+    private var matchChip: some View {
+        let confidence = film.confidence ?? 0.8
+        let (text, tint): (String, Color) =
+            confidence >= 0.8 ? ("strong match", Brand.sage)
+            : confidence >= 0.6 ? ("\(Int((confidence * 100).rounded()))% match", Brand.amber)
+            : ("low · double-check", Brand.filmRed)
+        Text(text)
+            .font(.system(size: 10, weight: .bold, design: .monospaced))
+            .foregroundColor(tint)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(tint.opacity(0.12))
+            .clipShape(Capsule())
     }
 
     @ViewBuilder
@@ -449,10 +525,19 @@ private struct FilmRow: View {
             } placeholder: {
                 Rectangle().fill(Brand.sunken)
             }
-            .frame(width: 44, height: 66)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .frame(width: 48, height: 72)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10).stroke(Brand.hairline, lineWidth: 1)
+            )
         } else {
-            RoundedRectangle(cornerRadius: 8).fill(Brand.sunken).frame(width: 44, height: 66)
+            ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(Brand.sunken)
+                Image(systemName: "film")
+                    .font(.system(size: 16))
+                    .foregroundColor(Brand.muted)
+            }
+            .frame(width: 48, height: 72)
         }
     }
 }
@@ -613,13 +698,21 @@ private struct ListPickerView: View {
 
 private struct DoneStateView: View {
     let listName: String
+    @State private var popped = false
+
     var body: some View {
         VStack(spacing: 14) {
             ZStack {
-                Circle().fill(Brand.filmRed.opacity(0.1)).frame(width: 64, height: 64)
+                Circle().fill(Brand.filmRed).frame(width: 64, height: 64)
+                    .shadow(color: Brand.filmRed.opacity(0.35), radius: 14, x: 0, y: 6)
                 Image(systemName: "checkmark")
-                    .font(.system(size: 24, weight: .bold))
-                    .foregroundColor(Brand.filmRed)
+                    .font(.system(size: 26, weight: .bold))
+                    .foregroundColor(.white)
+            }
+            .scaleEffect(popped ? 1 : 0.4)
+            .onAppear {
+                UINotificationFeedbackGenerator().notificationOccurred(.success)
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.6)) { popped = true }
             }
             Text("added to \(listName)")
                 .font(.system(size: 20, weight: .bold))

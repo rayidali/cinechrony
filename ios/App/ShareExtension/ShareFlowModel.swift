@@ -199,11 +199,13 @@ final class ShareFlowModel: ObservableObject {
         if included.contains(tmdbId) { included.remove(tmdbId) } else { included.insert(tmdbId) }
     }
 
+    /// The dropdown row's value line. For a new list this is a STATIC label —
+    /// the name lives in the field right below, so echoing it here would show
+    /// the same text twice.
     var destinationLabel: String {
         switch destination {
         case .newList:
-            let trimmed = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? "new list" : trimmed
+            return "a new list"
         case .existing(_, _, let name):
             return name
         }
@@ -319,7 +321,16 @@ final class ShareFlowModel: ObservableObject {
 
     private func saveSucceeded() {
         isSaving = false
-        let name = destinationLabel
+        // The done state names the ACTUAL destination (destinationLabel says
+        // "a new list" for the dropdown — here we want the real list name).
+        let name: String
+        switch destination {
+        case .newList:
+            let trimmed = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
+            name = trimmed.isEmpty ? "new list" : trimmed
+        case .existing(_, _, let existingName):
+            name = existingName
+        }
         phase = .done(listName: name)
         scheduleAutoClose()
     }
