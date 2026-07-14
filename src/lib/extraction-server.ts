@@ -81,9 +81,12 @@ function isFreshDone(c?: CacheDoc): boolean {
   const done = c.status === 'done' || (c.status === undefined && Array.isArray(c.films));
   return done && (!c.createdAt || Date.now() - tsMillis(c.createdAt) < CACHE_TTL_MS);
 }
-/** Someone is actively working this urlHash right now (claim not yet stale). */
+/** Someone is actively working this urlHash right now (claim not yet stale).
+ *  A `failed` claim is NOT live — a user retry of a just-failed scan should
+ *  re-claim and run a fresh pipeline immediately, not become a follower doomed
+ *  to spin against a dead cache until the claim goes stale. */
 function claimLive(c?: CacheDoc): boolean {
-  return (c?.status === 'processing' || c?.status === 'failed') && Date.now() - tsMillis(c?.startedAt) < CLAIM_TTL_MS;
+  return c?.status === 'processing' && Date.now() - tsMillis(c?.startedAt) < CLAIM_TTL_MS;
 }
 
 // ── URL canonicalization + provider classification ───────────────────────────
@@ -301,8 +304,9 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
       await ref.update(patch).catch(() => {});
       return toView(jobId, { ...d, ...patch });
     }
-    // Follower whose winner died (claim went stale with no result) → fail fast.
-    if (d.follower && Date.now() - tsMillis(c?.startedAt) > CLAIM_TTL_MS) {
+    // Follower whose winner FAILED or died (claim stale, no result) → fail fast
+    // instead of spinning out the rest of the claim window.
+    if (d.follower && (c?.status === 'failed' || Date.now() - tsMillis(c?.startedAt) > CLAIM_TTL_MS)) {
       const patch = { status: 'failed' as const, stage: 'failed' as const, errorCode: 'FETCH_FAILED' as const, updatedAt: FieldValue.serverTimestamp() };
       await ref.update(patch).catch(() => {});
       return toView(jobId, { ...d, ...patch });

@@ -16,7 +16,13 @@
 import type { AcquiredVideo } from '@/lib/video-acquire-server';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
-const DEFAULT_MODEL = 'gemini-2.5-flash';
+const DEFAULT_MODEL = 'gemini-3.5-flash';
+/** Rolling aliases Google re-points at the current generation — appended to
+ *  EVERY chain (env-pinned or default) so a retired model id can degrade a
+ *  scan's latency but never kill the pipeline outright. (The 2026-07 outage:
+ *  the whole 2.x chain died at once — 2.5-flash/2.0-flash refusing traffic,
+ *  2.5-flash-lite 404 "no longer available to new users".) */
+const LAST_RESORT_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 const INLINE_VIDEO_MAX_BYTES = 18 * 1024 * 1024; // keep the request under Gemini's ~20MB inline cap
 const VIDEO_FETCH_TIMEOUT_MS = 20_000;
 
@@ -183,15 +189,16 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const GEMINI_ATTEMPTS_PER_MODEL = 2;
 
-/** The model fallback chain: primary first, then distinct-capacity fallbacks.
- *  Override via GEMINI_MODEL (primary) + GEMINI_MODEL_FALLBACKS (csv). */
+/** The model fallback chain: primary first, then distinct-capacity fallbacks,
+ *  then the rolling-alias last resorts (always, deduped). Override via
+ *  GEMINI_MODEL (primary) + GEMINI_MODEL_FALLBACKS (csv). */
 function modelChain(): string[] {
   const primary = (process.env.GEMINI_MODEL || DEFAULT_MODEL).trim();
-  const fallbacks = (process.env.GEMINI_MODEL_FALLBACKS || 'gemini-2.0-flash,gemini-2.5-flash-lite')
+  const fallbacks = (process.env.GEMINI_MODEL_FALLBACKS || 'gemini-3-flash-preview,gemini-3.1-flash-lite')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
-  return [primary, ...fallbacks.filter((m) => m && m !== primary)];
+  return [...new Set([primary, ...fallbacks, ...LAST_RESORT_MODELS])];
 }
 
 function parseAnalysis(text: string): GeminiAnalysis {
