@@ -25,6 +25,9 @@ const DEFAULT_MODEL = 'gemini-3.5-flash';
 const LAST_RESORT_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
 const INLINE_VIDEO_MAX_BYTES = 18 * 1024 * 1024; // keep the request under Gemini's ~20MB inline cap
 const VIDEO_FETCH_TIMEOUT_MS = 20_000;
+const IMAGE_FETCH_TIMEOUT_MS = 12_000;
+const INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024; // per slide
+const INLINE_IMAGES_TOTAL_BYTES = 16 * 1024 * 1024; // whole slideshow budget
 
 /** A candidate film straight from Gemini — pre-TMDB-grounding. */
 export type RawFilmCandidate = {
@@ -45,18 +48,21 @@ export type GeminiAnalysis = {
   isFilmContent: boolean;
   suggestedListName: string | null;
   films: RawFilmCandidate[];
-  /** Which model actually answered + whether it saw footage or caption only —
-   *  persisted (analyzedBy) so a bad extraction is diagnosable from its doc. */
+  /** Which model actually answered + whether it saw footage, slides, or the
+   *  caption only — persisted (analyzedBy) so a bad extraction is diagnosable
+   *  from its doc. */
   model?: string;
-  mode?: 'video' | 'caption-only';
+  mode?: 'video' | 'images' | 'caption-only';
 };
 
 export function isGeminiConfigured(): boolean {
   return !!process.env.GEMINI_API_KEY;
 }
 
-const PROMPT = `You are watching a short social video (a TikTok, Reel, or YouTube Short) to find
-the movies and TV shows it actually references.
+const PROMPT = `You are analysing a short social post (a TikTok, Reel, YouTube Short, OR an
+image carousel/slideshow of photo slides) to find the movies and TV shows it
+actually references. Slides often carry the titles as styled text over stills —
+read every slide's text carefully.
 
 PRECISION OVER QUANTITY. Only include a title when you have CLEAR evidence for it:
   - its name is spoken in the audio, or
@@ -122,10 +128,14 @@ type GeminiPart =
   | { fileData: { fileUri: string; mimeType?: string } }
   | { inlineData: { mimeType: string; data: string } };
 
-/** Build the video part — YouTube URL, inline bytes, or none (caption-only). */
-async function buildVideoPart(video: AcquiredVideo): Promise<GeminiPart | null> {
+/** Build the media parts — YouTube URL, inline video bytes, inline image
+ *  slides, or none (caption-only). */
+async function buildMediaParts(video: AcquiredVideo): Promise<GeminiPart[]> {
   if (video.kind === 'youtube') {
-    return { fileData: { fileUri: video.youtubeUrl } };
+    return [{ fileData: { fileUri: video.youtubeUrl } }];
+  }
+  if (video.kind === 'images') {
+    return buildImageParts(video.imageUrls);
   }
   // media: try to inline the bytes (small clips only).
   try {
@@ -133,38 +143,77 @@ async function buildVideoPart(video: AcquiredVideo): Promise<GeminiPart | null> 
     const timer = setTimeout(() => ctrl.abort(), VIDEO_FETCH_TIMEOUT_MS);
     const res = await fetch(video.videoUrl, { signal: ctrl.signal });
     clearTimeout(timer);
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     const len = Number(res.headers.get('content-length') || 0);
-    if (len > INLINE_VIDEO_MAX_BYTES) return null; // too big to inline → caption-only
+    if (len > INLINE_VIDEO_MAX_BYTES) return []; // too big to inline → caption-only
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > INLINE_VIDEO_MAX_BYTES) return null;
+    if (buf.byteLength > INLINE_VIDEO_MAX_BYTES) return [];
     const mime = res.headers.get('content-type')?.split(';')[0] || 'video/mp4';
-    return { inlineData: { mimeType: mime.startsWith('video/') ? mime : 'video/mp4', data: buf.toString('base64') } };
+    return [{ inlineData: { mimeType: mime.startsWith('video/') ? mime : 'video/mp4', data: buf.toString('base64') } }];
   } catch {
-    return null; // network/timeout → caption-only
+    return []; // network/timeout → caption-only
   }
 }
 
-/** Analyse the acquired video. Throws if Gemini isn't configured or the call fails hard. */
-export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnalysis> {
+/** Fetch the carousel's slides concurrently and inline what fits the budget.
+ *  Slide order is preserved (lists number their picks); a slide that fails to
+ *  download is simply skipped — partial slides beat no slides. */
+async function buildImageParts(imageUrls: string[]): Promise<GeminiPart[]> {
+  const fetched = await Promise.all(imageUrls.map(async (url) => {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), IMAGE_FETCH_TIMEOUT_MS);
+      const res = await fetch(url, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      if (buf.byteLength === 0 || buf.byteLength > INLINE_IMAGE_MAX_BYTES) return null;
+      const mime = res.headers.get('content-type')?.split(';')[0] || 'image/jpeg';
+      return { mime: mime.startsWith('image/') ? mime : 'image/jpeg', buf };
+    } catch {
+      return null;
+    }
+  }));
+
+  const parts: GeminiPart[] = [];
+  let total = 0;
+  for (const img of fetched) {
+    if (!img) continue;
+    if (total + img.buf.byteLength > INLINE_IMAGES_TOTAL_BYTES) break;
+    total += img.buf.byteLength;
+    parts.push({ inlineData: { mimeType: img.mime, data: img.buf.toString('base64') } });
+  }
+  return parts;
+}
+
+/** Analyse the acquired media. Throws if Gemini isn't configured or the call
+ *  fails hard. `modelOverride` replaces the whole fallback chain with one
+ *  model — the confidence-escalation retry (extraction-server) uses it to
+ *  re-run a weak result on the pro tier, best-effort. */
+export async function analyzeForFilms(
+  video: AcquiredVideo,
+  modelOverride?: string,
+): Promise<GeminiAnalysis> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured');
 
-  const videoPart = await buildVideoPart(video);
-  const caption = video.caption ? `\n\nThe video's caption is: """${video.caption}"""` : '';
-  // Degraded mode: the footage couldn't be attached (download failed / too big),
-  // so the model reads only the caption. Guessing "films that fit the
+  const mediaParts = await buildMediaParts(video);
+  const caption = video.caption ? `\n\nThe post's caption is: """${video.caption}"""` : '';
+  // Degraded mode: no footage/slides could be attached (download failed / too
+  // big), so the model reads only the caption. Guessing "films that fit the
   // description" from prose produces confident garbage — forbid it explicitly.
-  const captionOnlyNote = !videoPart && video.kind !== 'youtube'
-    ? '\n\nIMPORTANT: the video itself could NOT be attached — you are reading ONLY its caption. Include ONLY films the caption EXPLICITLY names. Do not infer films from descriptions, plot summaries, or vibes.'
+  const captionOnlyNote = !mediaParts.length && video.kind !== 'youtube'
+    ? '\n\nIMPORTANT: the media itself could NOT be attached — you are reading ONLY its caption. Include ONLY films the caption EXPLICITLY names. Do not infer films from descriptions, plot summaries, or vibes.'
     : '';
-  const parts: GeminiPart[] = [];
-  if (videoPart) parts.push(videoPart);
-  parts.push({ text: PROMPT + captionOnlyNote + caption });
-  const mode: GeminiAnalysis['mode'] = videoPart ? 'video' : 'caption-only';
+  const slideNote = video.kind === 'images' && mediaParts.length
+    ? `\n\nThis post is an IMAGE CAROUSEL/SLIDESHOW — the ${mediaParts.length} image(s) attached are its slides, in order.`
+    : '';
+  const parts: GeminiPart[] = [...mediaParts, { text: PROMPT + slideNote + captionOnlyNote + caption }];
+  const mode: GeminiAnalysis['mode'] =
+    mediaParts.length ? (video.kind === 'images' ? 'images' : 'video') : 'caption-only';
 
-  // No video AND no caption → nothing to analyse.
-  if (!videoPart && !video.caption) {
+  // No media AND no caption → nothing to analyse.
+  if (!mediaParts.length && !video.caption) {
     return { isFilmContent: false, suggestedListName: null, films: [], mode };
   }
 
@@ -182,17 +231,23 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
   // fallback model usually answers immediately. We try each model in the chain
   // with a couple of backed-off retries; a non-retryable 4xx (bad key/request)
   // aborts the whole thing (no other model will fix it).
-  const models = modelChain();
+  const models = modelOverride ? [modelOverride] : modelChain();
   let lastErr = 'Gemini unavailable';
   for (const model of models) {
     for (let attempt = 0; attempt < GEMINI_ATTEMPTS_PER_MODEL; attempt++) {
       let res: Response;
       try {
+        // Hard per-request timeout: a hung upstream must degrade to the next
+        // model/attempt, never wedge the pipeline against the function limit.
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), GEMINI_REQUEST_TIMEOUT_MS);
         res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${encodeURIComponent(key)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: reqBody,
+          signal: ctrl.signal,
         });
+        clearTimeout(timer);
       } catch (e) {
         lastErr = `Gemini network (${model}): ${String((e as Error)?.message || e)}`;
         await sleep(900 * (attempt + 1));
@@ -215,6 +270,7 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const GEMINI_ATTEMPTS_PER_MODEL = 2;
+const GEMINI_REQUEST_TIMEOUT_MS = 110_000;
 
 /** The model fallback chain: primary first, then distinct-capacity fallbacks,
  *  then the rolling-alias last resorts (always, deduped). Override via

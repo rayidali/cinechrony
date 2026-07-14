@@ -371,6 +371,14 @@ export async function detachExtraction(uid: string, jobId: string): Promise<{ de
 // once, stage ordinals strictly increasing, end once) and every push carries
 // the full card state, so at-most-once APNs delivery can never corrupt it.
 
+/** Self-explaining breadcrumb: the LAST notable Live Activity event, written
+ *  onto the job doc (fire-and-forget) so a silent lock screen is diagnosable
+ *  from the doc alone — 'unconfigured', 'no_token', 'start:ok:sandbox',
+ *  'start:fail:InvalidProviderToken', 'end:no_update_token', … */
+function laTrace(ref: FirebaseFirestore.DocumentReference, event: string): void {
+  ref.update({ 'liveActivity.trace': event }).catch(() => {});
+}
+
 /** queued 0 · fetching 1 · watching 2 · matching 3 · terminal 4. */
 function stageOrdinal(stage: ExtractionStage): number {
   switch (stage) {
@@ -467,12 +475,16 @@ export async function emitScanActivity(
       const res = await sendLiveActivityStart(startToken.token, startToken.env, jobId, workingState(ordinal, label));
       if (res.ok && res.env) {
         noteLiveActivityEnv(startToken.ref, res.env);
-        ref.update({ 'liveActivity.env': res.env }).catch(() => {});
+        ref.update({ 'liveActivity.env': res.env, 'liveActivity.trace': `start:ok:${res.env}` }).catch(() => {});
       } else if (res.unregistered) {
         pruneLiveActivityToken(startToken.ref);
+        laTrace(ref, 'start:unregistered');
+      } else {
+        laTrace(ref, `start:fail:${res.reason ?? 'send'}`);
       }
     } else if (decision.kind === 'update') {
-      await sendLiveActivityUpdate(decision.token, decision.env, workingState(ordinal, label));
+      const res = await sendLiveActivityUpdate(decision.token, decision.env, workingState(ordinal, label));
+      if (!res.ok) laTrace(ref, `update${ordinal}:fail:${res.reason ?? 'send'}`);
     }
   } catch (err) {
     console.warn('[extraction] live-activity stage emit failed for', jobId, err);
@@ -744,13 +756,69 @@ async function captureThumbnail(job: JobDoc, video: AcquiredVideo): Promise<stri
       const vid = parseVideoUrl(job.canonicalUrl)?.videoId;
       return vid ? youTubeThumbnail(vid) : null;
     }
-    if (video.kind !== 'media' || !video.thumbnailUrl) return null;
+    // Both downloadable videos AND image posts (carousel/slideshow — first
+    // slide) carry a thumbnail; only the youtube kind doesn't need one.
+    if (video.kind === 'youtube' || !video.thumbnailUrl) return null;
     const key = `extraction-thumbs/${job.urlHash}.jpg`;
     const rehosted = await rehostImageToR2(video.thumbnailUrl, key);
     return rehosted || video.thumbnailUrl;
   } catch {
     return null;
   }
+}
+
+// ── Confidence escalation (accuracy over cost, but only when it matters) ─────
+
+/** The pro-tier retry model — a ROLLING alias by default so it can never be
+ *  retired out from under us. `GEMINI_MODEL_ESCALATION=0` disables. */
+function escalationModel(): string | null {
+  const v = (process.env.GEMINI_MODEL_ESCALATION || '').trim();
+  if (v === '0' || v.toLowerCase() === 'off') return null;
+  return v || 'gemini-pro-latest';
+}
+
+const maxConfidence = (a: GeminiAnalysis): number =>
+  a.films.length ? Math.max(...a.films.map((f) => f.confidence)) : 0;
+
+/** A result worth paying pro prices to double-check: the model SAW the media
+ *  (never caption-only — there's no extra signal to extract from prose) and
+ *  either returned nothing despite a filmy caption, or only shaky guesses. */
+function analysisIsWeak(a: GeminiAnalysis, caption: string | null): boolean {
+  if (a.mode === 'caption-only') return false;
+  if (a.films.length) return maxConfidence(a) < 0.6;
+  const c = caption ?? '';
+  return /movie|film|series|show|watch|cinema|kdrama|anime|netflix|imdb/i.test(c) || captionCandidates(c).length > 0;
+}
+
+/** Escalation must never push a scan past the drawer's poll budget (~3 min)
+ *  or the cache claim TTL — past this point a weak answer NOW beats a
+ *  perfect answer after the surfaces gave up. */
+const ESCALATION_TIME_BUDGET_MS = 75 * 1000;
+
+/** One pro-tier retry for weak results. Best-effort: any failure keeps the
+ *  original answer; the pro answer wins only when it's strictly better. */
+async function escalateWeakAnalysis(
+  video: AcquiredVideo,
+  analysis: GeminiAnalysis,
+  elapsedMs: number,
+): Promise<GeminiAnalysis> {
+  if (!analysisIsWeak(analysis, video.caption)) return analysis;
+  if (elapsedMs > ESCALATION_TIME_BUDGET_MS) {
+    console.info('[extraction] escalation skipped — pipeline already slow', Math.round(elapsedMs / 1000), 's');
+    return analysis;
+  }
+  const pro = escalationModel();
+  if (!pro || pro === analysis.model) return analysis;
+  try {
+    const better = await analyzeForFilms(video, pro);
+    if (better.films.length && (!analysis.films.length || maxConfidence(better) > maxConfidence(analysis))) {
+      console.info(`[extraction] escalation improved a weak read: ${analysis.model} → ${pro}`);
+      return better;
+    }
+  } catch (err) {
+    console.warn('[extraction] escalation failed (kept the original answer):', err);
+  }
+  return analysis;
 }
 
 async function failJob(
@@ -828,24 +896,54 @@ export type ExtractionPushOutcome =
 
 /** Notification copy — brand voice (lowercase, no emoji, no em/en dashes),
  *  detailed enough to be worth a lock screen: names the films, carries the
- *  IMDb score when we have it. */
-function pushBodyFor(outcome: ExtractionPushOutcome): string {
-  if (outcome.kind === 'failed') return 'that reel put up a fight. tap to run it back.';
-  if (outcome.kind === 'zero') return 'we watched your reel twice. no films in this one, just vibes.';
+ *  IMDb score when we have it. Several voices per outcome, picked
+ *  deterministically per job — the same scan always says the same thing,
+ *  but across scans the app never repeats itself (variable reward). */
+function pushBodyFor(outcome: ExtractionPushOutcome, seed: string): string {
+  const pick = <T>(options: T[]): T =>
+    options[[...seed].reduce((a, c) => a + c.charCodeAt(0), 0) % options.length];
+
+  if (outcome.kind === 'failed') {
+    return pick([
+      'that reel put up a fight. tap to run it back.',
+      'that reel would not cooperate. one tap runs it back.',
+      'the scan tripped on that one. tap to give it another go.',
+    ]);
+  }
+  if (outcome.kind === 'zero') {
+    return pick([
+      'we watched your reel twice. no films in this one, just vibes.',
+      'we watched it so you did not have to. no films, just vibes.',
+      'scanned it twice. that one is films free.',
+    ]);
+  }
   const films = outcome.films;
   if (films.length === 1) {
     const f = films[0];
     const year = f.year ? ` (${f.year})` : '';
     const imdb = f.imdbRating ? `. imdb ${f.imdbRating}` : '';
-    return `your reel was hiding ${f.title}${year}${imdb}. tap to shelve it.`;
+    return pick([
+      `your reel was hiding ${f.title}${year}${imdb}. tap to shelve it.`,
+      `found it. ${f.title}${year}${imdb}. give it a home?`,
+      `one reel, one gem. ${f.title}${year}${imdb}. tap to save it.`,
+    ]);
   }
   if (films.length === 2) {
-    return `your reel name-dropped ${films[0].title} and ${films[1].title}. tap to sort them into lists.`;
+    return pick([
+      `your reel name-dropped ${films[0].title} and ${films[1].title}. tap to sort them into lists.`,
+      `${films[0].title} and ${films[1].title}, both bagged from one reel. tap to file them.`,
+    ]);
   }
   if (films.length === 3) {
-    return `${films[0].title}, ${films[1].title} and ${films[2].title} were all in that reel. tap to sort them.`;
+    return pick([
+      `${films[0].title}, ${films[1].title} and ${films[2].title} were all in that reel. tap to sort them.`,
+      `three for three. ${films[0].title}, ${films[1].title} and ${films[2].title}. tap to sort them.`,
+    ]);
   }
-  return `${films.length} films hiding in one reel. we caught every one. tap to pick your keepers.`;
+  return pick([
+    `${films.length} films hiding in one reel. we caught every one. tap to pick your keepers.`,
+    `a whole watchlist in one reel. ${films.length} films caught. come pick your keepers.`,
+  ]);
 }
 
 export async function sendExtractionCompletionPush(
@@ -858,6 +956,7 @@ export async function sendExtractionCompletionPush(
   let claim: 'duplicate' | 'watched' | 'claimed';
   let laToken: string | null = null;
   let laEnv: LaEnv | null = null;
+  let laRequested = false;
   try {
     const result = await db.runTransaction(async (tx) => {
       const snap = await tx.get(ref);
@@ -872,11 +971,17 @@ export async function sendExtractionCompletionPush(
       const token = la?.updateToken && !la.endedAt ? la.updateToken : null;
       if (token) updates['liveActivity.endedAt'] = FieldValue.serverTimestamp();
       tx.update(ref, updates);
-      return { claim: watched ? ('watched' as const) : ('claimed' as const), token, env: la?.env ?? null };
+      return {
+        claim: watched ? ('watched' as const) : ('claimed' as const),
+        token,
+        env: la?.env ?? null,
+        requested: Boolean(la?.requestedAt),
+      };
     });
     claim = result.claim;
     laToken = 'token' in result ? result.token ?? null : null;
     laEnv = 'env' in result ? result.env ?? null : null;
+    laRequested = 'requested' in result ? Boolean(result.requested) : false;
   } catch (err) {
     console.error('[extraction] completion push claim failed for', jobId, err);
     return 'skipped_duplicate'; // defensive — this function must never throw
@@ -890,10 +995,16 @@ export async function sendExtractionCompletionPush(
   let cardResolved = false;
   if (laToken && isLiveActivityConfigured()) {
     try {
-      cardResolved = (await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome))).ok;
+      const endResult = await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome));
+      cardResolved = endResult.ok;
+      laTrace(ref, endResult.ok ? 'end:ok' : `end:fail:${endResult.reason ?? 'send'}`);
     } catch (err) {
       console.warn('[extraction] live-activity end failed for', jobId, err);
     }
+  } else if (laRequested) {
+    // The start push went out but the app never reported the activity's
+    // update token — the handshake never completed. Name it.
+    laTrace(ref, 'end:no_update_token');
   }
 
   if (claim === 'watched') return 'skipped_watched'; // live surface is polling — a ding here is noise
@@ -902,7 +1013,7 @@ export async function sendExtractionCompletionPush(
   try {
     await sendPushToUser(uid, {
       title: 'cinechrony',
-      body: pushBodyFor(outcome),
+      body: pushBodyFor(outcome, jobId),
       data: {
         type: outcome.kind === 'failed' ? 'extraction_failed' : 'extraction_done',
         jobId,
@@ -920,6 +1031,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
   const db = getDb();
   const ref = db.collection(JOBS).doc(jobId);
   let job: JobDoc | null = null;
+  const pipelineStartedAt = Date.now();
   try {
     const snap = await ref.get();
     if (!snap.exists) return;
@@ -928,6 +1040,8 @@ async function runRealPipeline(jobId: string): Promise<void> {
     // One lookup per pipeline: the owner's freshest push-to-start token.
     // Null (feature unconfigured / app never registered) disables every emit.
     const laStart = await getLiveActivityStartToken(db, job.uid);
+    if (!isLiveActivityConfigured()) laTrace(ref, 'unconfigured');
+    else if (!laStart) laTrace(ref, 'no_token');
 
     await setStage(ref, 'fetching');
     await emitScanActivity(db, ref, jobId, laStart, 1, 'getting the video');
@@ -952,6 +1066,9 @@ async function runRealPipeline(jobId: string): Promise<void> {
       console.warn('[extraction] gemini unavailable — caption fallback,', cands.length, 'candidate(s)');
       analysis = { isFilmContent: true, suggestedListName: null, films: cands, model: 'caption-net', mode: 'caption-only' };
     }
+    // Weak read (nothing found on filmy media, or footage-guess confidence
+    // only)? One pro-tier second opinion — pro prices paid ONLY on hard cases.
+    analysis = await escalateWeakAnalysis(video, analysis, Date.now() - pipelineStartedAt);
 
     await setStage(ref, 'matching');
     await emitScanActivity(db, ref, jobId, laStart, 3, 'matching films');

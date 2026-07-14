@@ -11,12 +11,21 @@
 
 import { apiRoute, optionsHandler, BadRequestError } from '@/lib/api-handler';
 import { attachExtractionLiveActivityToken } from '@/lib/extraction-server';
+import { checkRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
 type RouteParams = { jobId: string };
 
 export const POST = apiRoute<RouteParams>(async (req, { auth, params }) => {
+  const rl = await checkRateLimit(auth.uid, 'pushSubscribe');
+  if (!rl.ok) {
+    return new Response(
+      JSON.stringify({ ok: false, error: { code: 'RATE_LIMITED', message: rl.error } }),
+      { status: 429, headers: { 'content-type': 'application/json' } },
+    );
+  }
+
   let body: { activityId?: unknown; token?: unknown };
   try {
     body = await req.json();

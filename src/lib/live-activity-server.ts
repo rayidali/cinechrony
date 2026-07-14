@@ -49,7 +49,14 @@ export type LaContentState = {
   state: 'working' | 'done' | 'zero' | 'failed';
 };
 
-export type LaSendResult = { ok: boolean; env?: LaEnv; unregistered?: boolean };
+export type LaSendResult = {
+  ok: boolean;
+  env?: LaEnv;
+  unregistered?: boolean;
+  /** APNs rejection reason / failure class — carried into the job doc's
+   *  liveActivity.trace so a dead card names its own cause. */
+  reason?: string;
+};
 
 export type LaStartToken = {
   token: string;
@@ -162,11 +169,15 @@ function parseReason(body: string): string {
   }
 }
 
+const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
  * Send one `liveactivity` push, walking environments until one accepts the
  * token. `BadDeviceToken` = wrong APNs environment for this token → try the
  * other host. 410/Unregistered = the token is dead forever → report it so
- * the caller can prune. Never throws.
+ * the caller can prune. Start/end sends (the ones that matter) get one
+ * retry on transient 5xx/network; stage updates are disposable — the next
+ * full-state push repairs a missed one. Never throws.
  */
 async function apnsSend(
   kind: 'start' | 'update' | 'end',
@@ -184,28 +195,39 @@ async function apnsSend(
   const order: LaEnv[] = envHint
     ? [envHint, envHint === 'production' ? 'sandbox' : 'production']
     : ['production', 'sandbox'];
+  const attemptsPerEnv = kind === 'update' ? 1 : 2;
 
+  let lastReason = 'send_failed';
   for (const env of order) {
-    try {
-      const transport = transportOverride ?? realTransport;
-      const headers = transportOverride
-        ? baseHeaders
-        : { ...baseHeaders, authorization: `bearer ${apnsJwt()}` };
-      const res = await transport(env, deviceToken, headers, body);
-      if (res.status === 200) return { ok: true, env };
-      const reason = parseReason(res.body);
-      if (res.status === 410 || reason === 'Unregistered' || reason === 'ExpiredToken') {
-        return { ok: false, unregistered: true };
+    let wrongEnvironment = false;
+    for (let attempt = 0; attempt < attemptsPerEnv; attempt++) {
+      try {
+        const transport = transportOverride ?? realTransport;
+        const headers = transportOverride
+          ? baseHeaders
+          : { ...baseHeaders, authorization: `bearer ${apnsJwt()}` };
+        const res = await transport(env, deviceToken, headers, body);
+        if (res.status === 200) return { ok: true, env };
+        const reason = parseReason(res.body) || `http_${res.status}`;
+        lastReason = reason;
+        if (res.status === 410 || reason === 'Unregistered' || reason === 'ExpiredToken') {
+          return { ok: false, unregistered: true, reason };
+        }
+        if (reason === 'BadDeviceToken') { wrongEnvironment = true; break; }
+        if (res.status >= 500 && attempt < attemptsPerEnv - 1) { await delay(400); continue; }
+        console.warn('[live-activity] apns rejected', kind, env, res.status, reason);
+        return { ok: false, reason };
+      } catch (err) {
+        lastReason = 'transport';
+        if (attempt < attemptsPerEnv - 1) { await delay(400); continue; }
+        console.warn('[live-activity] apns transport failed', kind, env, err);
+        return { ok: false, reason: 'transport' };
       }
-      if (reason === 'BadDeviceToken') continue; // wrong environment — try the other host
-      console.warn('[live-activity] apns rejected', kind, env, res.status, reason);
-      return { ok: false };
-    } catch (err) {
-      console.warn('[live-activity] apns transport failed', kind, env, err);
-      return { ok: false }; // network failure — don't risk a double-send on the other host
     }
+    if (!wrongEnvironment) return { ok: false, reason: lastReason };
+    // BadDeviceToken → this token lives in the OTHER APNs environment.
   }
-  return { ok: false };
+  return { ok: false, reason: lastReason };
 }
 
 // ── Payloads ──────────────────────────────────────────────────────────────
@@ -279,11 +301,18 @@ export async function registerLiveActivityToken(
     throw new BadRequestError('Invalid token.');
   }
   const db = getDb();
-  await db.collection('users').doc(uid).collection('laTokens').doc(deviceId).set({
+  const laTokens = db.collection('users').doc(uid).collection('laTokens');
+  await laTokens.doc(deviceId).set({
     token,
     platform: 'ios',
     updatedAt: FieldValue.serverTimestamp(),
   }, { merge: true });
+  // Hygiene: keep only the newest few device leases — reinstalls mint fresh
+  // deviceIds and abandoned docs would otherwise accumulate forever.
+  try {
+    const all = await laTokens.orderBy('updatedAt', 'desc').get();
+    await Promise.all(all.docs.slice(3).map((d) => d.ref.delete()));
+  } catch { /* best-effort */ }
   return { saved: true };
 }
 

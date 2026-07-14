@@ -69,19 +69,37 @@ function deviceId(): string {
   }
 }
 
+/** Unacked tokens are retried on every app foreground — a failed POST (bad
+ *  network, server hiccup) must never orphan a token until the next launch. */
+const pending = {
+  pushToStart: null as string | null,
+  updates: new Map<string, { activityId: string; token: string }>(),
+};
+
 async function savePushToStartToken(token: string): Promise<void> {
+  pending.pushToStart = token;
   try {
     await apiCall('POST', '/api/v1/me/live-activity-token', { deviceId: deviceId(), token });
+    if (pending.pushToStart === token) pending.pushToStart = null;
   } catch (err) {
-    console.warn('[live-activity] push-to-start token save failed:', err);
+    console.warn('[live-activity] push-to-start token save failed (will retry on foreground):', err);
   }
 }
 
 async function saveUpdateToken(jobId: string, activityId: string, token: string): Promise<void> {
+  pending.updates.set(jobId, { activityId, token });
   try {
     await apiCall('POST', `/api/v1/extractions/${jobId}/live-activity-token`, { activityId, token });
+    if (pending.updates.get(jobId)?.token === token) pending.updates.delete(jobId);
   } catch (err) {
-    console.warn('[live-activity] update token save failed:', err);
+    console.warn('[live-activity] update token save failed (will retry on foreground):', err);
+  }
+}
+
+async function retryPendingTokens(): Promise<void> {
+  if (pending.pushToStart) void savePushToStartToken(pending.pushToStart);
+  for (const [jobId, u] of [...pending.updates]) {
+    void saveUpdateToken(jobId, u.activityId, u.token);
   }
 }
 
@@ -157,7 +175,10 @@ export async function initLiveActivityBridge(): Promise<void> {
 
     void reconcileActivities();
     const { App } = await import('@capacitor/app');
-    await App.addListener('resume', () => { void reconcileActivities(); });
+    await App.addListener('resume', () => {
+      void retryPendingTokens();
+      void reconcileActivities();
+    });
   } catch (err) {
     // An older installed native build won't have the plugin — fine, the
     // outcome-push fallback ladder covers those devices entirely.
