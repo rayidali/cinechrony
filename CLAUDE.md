@@ -4,6 +4,33 @@
 
 ## Current state (2026-07-14)
 
+- **Excellence pass: LA diagnosis + image posts + escalation + reveal
+  choreography (2026-07-14 night).** Prod-Firestore forensics proved WHY the
+  first Live Activity test showed nothing: `users/*/laTokens` was EMPTY (the
+  push-to-start token never registered — the app bundle's missing API base
+  URL at test time, fixed in `199ab66`, starved the upload; server correctly
+  fell back to outcome pushes). Every link now self-reports:
+  `liveActivity.trace` on the job doc names its own failure ('unconfigured' /
+  'no_token' / 'start:ok:sandbox' / 'start:fail:REASON' /
+  'end:no_update_token'), APNs start/end sends retry once on 5xx, token
+  leases prune to 3 devices, unacked token POSTs retry on app foreground,
+  attach route rate-limited. SECOND finding: Vercel `GEMINI_MODEL` is STILL
+  the retired `gemini-2.5-flash` pin (today's scans rode Google's brownout
+  roulette; last night the fallback chain rescued them) — owner env update
+  remains open. NEW capability: **image posts** — IG carousels + TikTok
+  slideshows/photo mode (`kind:'images'` in video-acquire-server, defensive
+  parsers incl. the raw `imagePost.imageURL.urlList` shape; gemini-server
+  inlines up to 10 slides ≤16MB total) — VERIFIED LIVE: two raw TMDB stills →
+  Gemini named Interstellar + Spirited Away (lang=ja) at 0.95 → grounded to
+  exact ids. **Confidence escalation**: weak reads (0 films on filmy media,
+  or footage-only confidence <0.6) get ONE pro-tier retry
+  (`GEMINI_MODEL_ESCALATION`, default rolling `gemini-pro-latest`), budget-
+  gated at 75s elapsed so it can't blow the drawer's 3-min poll; every Gemini
+  request now hard-aborts at 110s. **Reveal choreography** (drawer): films
+  land one-by-one (spring + per-film haptic, header counts up), rotating
+  anticipation lines per stage, dedicated zero-films state, push copy has
+  deterministic per-job variants. Mux evaluated and rejected (playback
+  analytics, not content ID). Tests 37/37; xcodebuild green.
 - **Live Activity scan tracker — SHIPPED, device test pending (2026-07-14,
   `563b34f` + `3510b8a`).** The DoorDash-style lock-screen/Dynamic Island
   card that narrates a reel scan and resolves into the result

@@ -16,6 +16,7 @@
 
 import Foundation
 import Combine
+import UIKit
 
 @MainActor
 final class ShareFlowModel: ObservableObject {
@@ -37,6 +38,10 @@ final class ShareFlowModel: ObservableObject {
 
     @Published private(set) var phase: Phase
     @Published private(set) var films: [ExtractionFilmDTO] = []
+    /// The reveal choreography: rows land one by one (spring + haptic per
+    /// film) and the header counts up with them — the payoff moment after
+    /// the wait. The view renders `films.prefix(revealedCount)`.
+    @Published private(set) var revealedCount = 0
     @Published var included: Set<Int> = []
     @Published var destination: Destination = .newList
     @Published var newListName: String = "new films"
@@ -70,6 +75,7 @@ final class ShareFlowModel: ObservableObject {
     private var pollAttempt = 0
     private var submittedAt = Date()
     private var runTask: Task<Void, Never>?
+    private var revealTask: Task<Void, Never>?
 
     init(sharedURL: URL) {
         self.sharedURL = sharedURL
@@ -102,6 +108,7 @@ final class ShareFlowModel: ObservableObject {
     /// the extension is torn down; the non-scanning paths close instantly.
     func close() {
         runTask?.cancel()
+        revealTask?.cancel()
         if let jobId, case .working = phase {
             let api = self.api
             Task { [onFinish] in
@@ -178,6 +185,25 @@ final class ShareFlowModel: ObservableObject {
         self.destination = .newList
         self.saveErrorMessage = nil
         self.phase = .ready
+        startReveal(count: films.count)
+    }
+
+    /// The slot-machine payoff: films land one at a time, each with its own
+    /// haptic tick, the last one heavier. The view animates on
+    /// `revealedCount`; skipping straight to the end (tiny lists) would waste
+    /// the wait the user just paid for.
+    private func startReveal(count: Int) {
+        revealTask?.cancel()
+        revealedCount = 0
+        guard count > 0 else { return }
+        revealTask = Task { [weak self] in
+            for i in 1...count {
+                try? await Task.sleep(nanoseconds: i == 1 ? 300_000_000 : 380_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.revealedCount = i
+                UIImpactFeedbackGenerator(style: i == count ? .medium : .light).impactOccurred()
+            }
+        }
     }
 
     private func handle(error: Error) async {

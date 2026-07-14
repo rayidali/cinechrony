@@ -198,6 +198,7 @@ private struct WorkingStateView: View {
     let stageLabel: String
     let thumbnailUrl: String?
     @State private var pulse = false
+    @State private var lineIndex = 0
 
     /// queued 0 · fetching 1 · watching 2 · matching 3 — the same 4-dot
     /// progress the lock-screen Live Activity card draws.
@@ -210,8 +211,19 @@ private struct WorkingStateView: View {
         }
     }
 
+    /// Anticipation lines, rotating under the stage label — the wait should
+    /// feel like the machine is WORKING for you, not like a spinner.
+    private var anticipationLines: [String] {
+        switch stage {
+        case "fetching": return ["pulling the reel", "sneaking past the algorithm", "grabbing every frame"]
+        case "watching": return ["watching every frame", "reading the on screen text", "listening for title drops"]
+        case "matching": return ["cross checking tmdb", "pulling imdb scores", "double checking the years"]
+        default: return ["warming up the projector", "finding our seats"]
+        }
+    }
+
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: 14) {
             if let thumbnailUrl, let url = URL(string: thumbnailUrl) {
                 AsyncImage(url: url) { image in
                     image.resizable().aspectRatio(contentMode: .fill)
@@ -239,19 +251,36 @@ private struct WorkingStateView: View {
                 }
             }
 
-            Text(stageLabel)
-                .font(.system(size: 21, weight: .bold))
-                .foregroundColor(Brand.ink)
-                .id(stageLabel)
-                .transition(.opacity)
+            VStack(spacing: 5) {
+                Text(stageLabel)
+                    .font(.system(size: 21, weight: .bold))
+                    .foregroundColor(Brand.ink)
+                    .id(stageLabel)
+                    .transition(.opacity)
+
+                Text(anticipationLines[lineIndex % anticipationLines.count])
+                    .font(.system(size: 13, weight: .medium, design: .monospaced))
+                    .foregroundColor(Brand.muted)
+                    .id(lineIndex)
+                    .transition(.opacity)
+            }
+            .task(id: stage) {
+                lineIndex = 0
+                while !Task.isCancelled {
+                    try? await Task.sleep(nanoseconds: 2_300_000_000)
+                    guard !Task.isCancelled else { return }
+                    withAnimation(.easeInOut(duration: 0.35)) { lineIndex += 1 }
+                }
+            }
 
             Text("close anytime. the scan keeps going and we'll ping you.")
-                .font(.system(size: 14))
-                .foregroundColor(Brand.muted)
+                .font(.system(size: 13))
+                .foregroundColor(Brand.muted.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
+                .padding(.top, 4)
         }
-        .padding(.vertical, 34)
+        .padding(.vertical, 32)
         .frame(maxWidth: .infinity)
     }
 }
@@ -315,13 +344,28 @@ private struct ResultStateView: View {
     @ObservedObject var model: ShareFlowModel
 
     var body: some View {
+        Group {
+            if model.films.isEmpty {
+                EmptyResultView(onClose: { model.close() })
+            } else {
+                resultBody
+            }
+        }
+        .sheet(isPresented: $model.showPicker) {
+            ListPickerView(model: model)
+        }
+    }
+
+    /// Rows land one by one (`revealedCount` drives it from the model, each
+    /// with its own haptic) — the payoff after the wait, not a data dump.
+    private var resultBody: some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("SCAN COMPLETE")
                     .font(.system(size: 10, weight: .bold, design: .monospaced))
                     .foregroundColor(Brand.filmRed)
                 Text(countLabel)
-                    .font(.system(size: 22, weight: .bold))
+                    .font(.system(size: 22, weight: .bold).monospacedDigit())
                     .foregroundColor(Brand.ink)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -333,13 +377,17 @@ private struct ResultStateView: View {
 
             ScrollView {
                 VStack(spacing: 0) {
-                    ForEach(Array(model.films.enumerated()), id: \.element.tmdbId) { index, film in
+                    ForEach(Array(model.films.prefix(model.revealedCount).enumerated()), id: \.element.tmdbId) { index, film in
                         FilmRow(
                             film: film,
                             isIncluded: model.included.contains(film.tmdbId),
                             onToggle: { model.toggleIncluded(film.tmdbId) }
                         )
-                        if index < model.films.count - 1 {
+                        .transition(.asymmetric(
+                            insertion: .move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.94)),
+                            removal: .opacity
+                        ))
+                        if index < model.revealedCount - 1 {
                             Rectangle().fill(Brand.hairline).frame(height: 1).padding(.leading, 74)
                         }
                     }
@@ -350,6 +398,7 @@ private struct ResultStateView: View {
                     RoundedRectangle(cornerRadius: 16).stroke(Brand.hairline, lineWidth: 1)
                 )
                 .padding(.horizontal, 20)
+                .animation(.spring(response: 0.42, dampingFraction: 0.72), value: model.revealedCount)
             }
             .frame(maxHeight: 300)
             .padding(.top, 12)
@@ -365,20 +414,17 @@ private struct ResultStateView: View {
             PrimaryButton(
                 title: model.isSaving ? "saving" : "add \(model.includedCount) \(model.includedCount == 1 ? "film" : "films")",
                 isLoading: model.isSaving,
-                disabled: model.includedCount == 0 || model.isSaving,
+                disabled: model.includedCount == 0 || model.isSaving || model.revealedCount < model.films.count,
                 action: { model.save() }
             )
             .padding(.horizontal, 20)
             .padding(.top, 14)
             .padding(.bottom, 20)
         }
-        .sheet(isPresented: $model.showPicker) {
-            ListPickerView(model: model)
-        }
     }
 
     private var countLabel: String {
-        let n = model.films.count
+        let n = model.revealedCount
         return "\(n) \(n == 1 ? "film" : "films") found"
     }
 
@@ -433,6 +479,34 @@ private struct ResultStateView: View {
             }
         }
         .padding(.horizontal, 20)
+    }
+}
+
+/// The scan came back clean — own the moment instead of showing "0 films
+/// found" over an empty box.
+private struct EmptyResultView: View {
+    let onClose: () -> Void
+    var body: some View {
+        VStack(spacing: 14) {
+            ZStack {
+                Circle().fill(Brand.sunken).frame(width: 64, height: 64)
+                Image(systemName: "sparkles")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundColor(Brand.muted)
+            }
+            Text("no films in this one")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(Brand.ink)
+            Text("we watched it twice. just vibes. share another and we'll catch the next one.")
+                .font(.system(size: 14))
+                .foregroundColor(Brand.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 32)
+            SecondaryButton(title: "close", action: onClose)
+                .padding(.top, 4)
+        }
+        .padding(.vertical, 36)
+        .frame(maxWidth: .infinity)
     }
 }
 
