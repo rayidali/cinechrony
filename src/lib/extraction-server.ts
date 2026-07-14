@@ -315,6 +315,22 @@ export async function getExtraction(uid: string, jobId: string): Promise<Extract
   return toView(jobId, d);
 }
 
+/** The owner's live surface (share-extension drawer / `/extract`) closed while
+ *  the job was still running. Clearing `lastPolledAt` disarms the live-watcher
+ *  suppression in `sendExtractionCompletionPush` — without this, a poll stamped
+ *  seconds before the drawer closed keeps looking "watched" for the whole
+ *  `LIVE_WATCH_WINDOW_MS`, and a pipeline finishing inside that window would
+ *  stay silent for someone who explicitly walked away expecting the ping. */
+export async function detachExtraction(uid: string, jobId: string): Promise<{ detached: boolean }> {
+  const db = getDb();
+  const ref = db.collection(JOBS).doc(jobId);
+  const snap = await ref.get();
+  if (!snap.exists) throw new NotFoundError('Extraction not found.');
+  if ((snap.data() as JobDoc).uid !== uid) throw new ForbiddenError();
+  await ref.update({ lastPolledAt: FieldValue.delete() }).catch(() => {});
+  return { detached: true };
+}
+
 // ── Save (C.1d) — confirmed films → lists ────────────────────────────────────
 
 const MAX_SAVE_ITEMS = 25;
@@ -495,6 +511,7 @@ async function finishJob(
     suggestedListName: films.length ? suggestedListName : null,
     isFilmContent,
     videoThumbnail: videoThumbnail ?? null,
+    analyzedBy, // model|mode — makes a bad extraction diagnosable from its doc
     errorCode: null,
     updatedAt: FieldValue.serverTimestamp(),
   });
@@ -576,6 +593,10 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  * no latency to protect — and awaiting avoids the run's execution context
  * tearing down mid-send on a fire-and-forgotten promise.
  *
+ * Fires for EVERY terminal outcome — films found, zero films, or a failed
+ * pipeline — so someone who closed the drawer mid-scan always gets closure
+ * (the original films-only ping made failures look like the app went silent).
+ *
  * Returns a result string (rather than void) so the idempotency guard and the
  * watched-suppression are directly testable without mocking `sendPushToUser`:
  *   - 'sent'              — claimed, and a delivery attempt was made.
@@ -584,21 +605,31 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  *   - 'skipped_duplicate' — `pushSentAt` was already set, so nothing was
  *                           (re-)claimed; also the defensive fallback if the
  *                           claim transaction itself errors.
- *   - 'skipped_zero_films'— no films, so nothing was touched at all.
  * The caller in `runRealPipeline` ignores the return value.
  *
  * Exported for direct testing of the idempotency + watched-suppression guards
  * (see `44-extractions-auth.test.ts`).
  */
+export type ExtractionPushOutcome =
+  | { kind: 'films'; count: number }
+  | { kind: 'zero' }
+  | { kind: 'failed' };
+
+function pushBodyFor(outcome: ExtractionPushOutcome): string {
+  if (outcome.kind === 'failed') return "we couldn't finish scanning your reel. tap to try again.";
+  if (outcome.kind === 'zero') return "scan finished. we couldn't spot any films in this reel.";
+  return outcome.count === 1
+    ? '1 film found in your reel. tap to pick lists.'
+    : `${outcome.count} films found in your reel. tap to pick lists.`;
+}
+
 export async function sendExtractionCompletionPush(
   db: FirebaseFirestore.Firestore,
   ref: FirebaseFirestore.DocumentReference,
   jobId: string,
   uid: string,
-  filmCount: number,
-): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_zero_films'> {
-  if (filmCount < 1) return 'skipped_zero_films'; // no push for zero-film results
-
+  outcome: ExtractionPushOutcome,
+): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate'> {
   let claim: 'duplicate' | 'watched' | 'claimed';
   try {
     claim = await db.runTransaction(async (tx) => {
@@ -618,13 +649,14 @@ export async function sendExtractionCompletionPush(
   if (claim === 'watched') return 'skipped_watched'; // live surface is polling — a ding here is noise
 
   try {
-    const body = filmCount === 1
-      ? '1 film found in your reel. tap to pick lists.'
-      : `${filmCount} films found in your reel. tap to pick lists.`;
     await sendPushToUser(uid, {
       title: 'cinechrony',
-      body,
-      data: { type: 'extraction_done', jobId, url: `/extract?jobId=${jobId}` },
+      body: pushBodyFor(outcome),
+      data: {
+        type: outcome.kind === 'failed' ? 'extraction_failed' : 'extraction_done',
+        jobId,
+        url: `/extract?jobId=${jobId}`,
+      },
     });
   } catch (err) {
     console.error('[extraction] completion push send failed for', jobId, err);
@@ -647,6 +679,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     if (!video) {
       await failJob(ref, 'FETCH_FAILED');
       await markCacheFailed(db, job);
+      await sendExtractionCompletionPush(db, ref, jobId, job.uid, { kind: 'failed' });
       return;
     }
 
@@ -660,7 +693,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
       const cands = video.caption ? captionCandidates(video.caption) : [];
       if (!cands.length) throw err;
       console.warn('[extraction] gemini unavailable — caption fallback,', cands.length, 'candidate(s)');
-      analysis = { isFilmContent: true, suggestedListName: null, films: cands };
+      analysis = { isFilmContent: true, suggestedListName: null, films: cands, model: 'caption-net', mode: 'caption-only' };
     }
 
     await setStage(ref, 'matching');
@@ -670,12 +703,19 @@ async function runRealPipeline(jobId: string): Promise<void> {
       captureThumbnail(job, video),
     ]);
 
-    await finishJob(db, ref, job, films, analysis.suggestedListName, 'gemini', videoThumbnail);
-    await sendExtractionCompletionPush(db, ref, jobId, job.uid, films.length);
+    const analyzedBy = `${analysis.model ?? 'unknown'}|${analysis.mode ?? 'unknown'}`;
+    await finishJob(db, ref, job, films, analysis.suggestedListName, analyzedBy, videoThumbnail);
+    await sendExtractionCompletionPush(
+      db, ref, jobId, job.uid,
+      films.length ? { kind: 'films', count: films.length } : { kind: 'zero' },
+    );
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
     await failJob(ref, classifyError(err));
-    if (job) await markCacheFailed(db, job);
+    if (job) {
+      await markCacheFailed(db, job);
+      await sendExtractionCompletionPush(db, ref, jobId, job.uid, { kind: 'failed' });
+    }
   }
 }
 
@@ -704,20 +744,41 @@ function titleBigrams(s: string): Set<string> {
   return set;
 }
 
-/** Dice-coefficient + substring title match. Lenient enough for "the dark knight"
- *  vs "dark knight", strict enough to reject TMDB's popular-but-unrelated top hit
- *  (which it returns for almost any query) — so grounded hallucinations get dropped. */
-function titleSimilar(a: string, b: string): boolean {
-  const na = normTitle(a);
-  const nb = normTitle(b);
-  if (!na || !nb) return false;
-  if (na === nb || na.includes(nb) || nb.includes(na)) return true;
+function diceOf(na: string, nb: string): number {
   const ba = titleBigrams(na);
   const bb = titleBigrams(nb);
-  if (!ba.size || !bb.size) return false;
+  if (!ba.size || !bb.size) return 0;
   let inter = 0;
   for (const g of ba) if (bb.has(g)) inter++;
-  return (2 * inter) / (ba.size + bb.size) >= 0.55;
+  return (2 * inter) / (ba.size + bb.size);
+}
+
+const stripArticle = (s: string) => s.replace(/^(the|a|an) /, '');
+
+/** Best title-affinity tier between any candidate title (common + original) and
+ *  any result title (localized + original):
+ *    100 — exact match, leading articles ignored ("Dark Knight" = "The Dark Knight")
+ *     85 — near-identical (Dice ≥ 0.8: punctuation/spacing variants)
+ *     30 — merely similar (substring or Dice ≥ 0.55) — needs corroboration
+ *      0 — unrelated.
+ *  The tiers are the fix for the "Party (1984)" class of miss: a substring hit
+ *  ("Party" ⊂ "Bachelor Party") must never outrank an exact-title hit that sits
+ *  lower in TMDB's popularity ordering. */
+function titleCloseness(cands: Array<string | null | undefined>, results: Array<string | null | undefined>): number {
+  let best = 0;
+  for (const c of cands) {
+    const nc = c ? normTitle(c) : '';
+    if (!nc) continue;
+    for (const r of results) {
+      const nr = r ? normTitle(r) : '';
+      if (!nr) continue;
+      if (nc === nr || stripArticle(nc) === stripArticle(nr)) return 100;
+      const dice = diceOf(nc, nr);
+      if (dice >= 0.8) best = Math.max(best, 85);
+      else if (dice >= 0.55 || nc.includes(nr) || nr.includes(nc)) best = Math.max(best, 30);
+    }
+  }
+  return best;
 }
 
 const EVIDENCE_CHANNELS = ['audio', 'on-screen', 'caption', 'footage', 'other'] as const;
@@ -754,26 +815,69 @@ export async function groundFilms(candidates: RawFilmCandidate[]): Promise<Extra
   return [...byId.values()];
 }
 
+type TmdbSearchResult = {
+  id: number;
+  title?: string;
+  name?: string;
+  original_title?: string;
+  original_name?: string;
+  original_language?: string;
+  release_date?: string;
+  first_air_date?: string;
+  poster_path?: string | null;
+  popularity?: number;
+};
+
+/** Accept floor for the scored match. Tier math: exact title alone (100)
+ *  passes; similar + exact year (55) passes; similar + language match (55)
+ *  passes; similar + year-off-by-one (42) passes; a bare substring hit (30)
+ *  or one contradicted by the year (30 + 25 − 40 = 15) does not. */
+const GROUND_ACCEPT_MIN = 40;
+
 async function groundOne(c: RawFilmCandidate): Promise<ExtractionFilm | null> {
   try {
     const path = c.mediaType === 'tv' ? 'tv' : 'movie';
-    const yearParam = c.year ? `&${path === 'tv' ? 'first_air_date_year' : 'year'}=${c.year}` : '';
-    const url = `https://api.themoviedb.org/3/search/${path}?query=${encodeURIComponent(c.title)}${yearParam}&include_adult=false&language=en-US&page=1`;
-    const res = await fetch(url, { headers: { Authorization: `Bearer ${tmdbToken()}` } });
-    if (!res.ok) return null;
-    const j = (await res.json()) as {
-      results?: Array<{ id: number; title?: string; name?: string; release_date?: string; first_air_date?: string; poster_path?: string | null }>;
+    const search = async (withYear: boolean): Promise<TmdbSearchResult[]> => {
+      const yearParam = withYear && c.year ? `&${path === 'tv' ? 'first_air_date_year' : 'year'}=${c.year}` : '';
+      const url = `https://api.themoviedb.org/3/search/${path}?query=${encodeURIComponent(c.title)}${yearParam}&include_adult=false&language=en-US&page=1`;
+      const res = await fetch(url, { headers: { Authorization: `Bearer ${tmdbToken()}` } });
+      if (!res.ok) return [];
+      const j = (await res.json()) as { results?: TmdbSearchResult[] };
+      return j.results || [];
     };
-    const results = j.results || [];
+    // Gemini's year can be off (festival vs release year) — if the year-filtered
+    // search comes up dry, retry unfiltered and let the scorer weigh the year.
+    let results = await search(true);
+    if (!results.length && c.year) results = await search(false);
     if (!results.length) return null;
-    // Year match is strong corroboration — trust it. Otherwise only accept TMDB's
-    // top hit if its title actually resembles the candidate (TMDB returns a popular
-    // result for almost any string, so this rejects grounded hallucinations).
-    const byYear = c.year
-      ? results.find((r) => (r.release_date || r.first_air_date || '').startsWith(c.year!))
-      : null;
-    const best = byYear || (titleSimilar(c.title, results[0].title || results[0].name || '') ? results[0] : null);
-    if (!best) return null;
+
+    // Score EVERY hit, take the best above the floor — never "first that passes".
+    // TMDB orders by popularity, which is exactly wrong for foreign films that
+    // share a title+year with a popular hit ("Party" 1984 hi vs "Bachelor Party"
+    // 1984 en). Exact titles dominate; year and original-language corroborate;
+    // popularity is only a whisper of a tiebreak.
+    let best: TmdbSearchResult | null = null;
+    let bestScore = -Infinity;
+    for (const r of results) {
+      const closeness = titleCloseness(
+        [c.title, c.originalTitle],
+        [r.title ?? r.name, r.original_title ?? r.original_name],
+      );
+      if (!closeness) continue; // the title must resemble — a year alone is never enough
+      let score = closeness;
+      const rYear = (r.release_date || r.first_air_date || '').slice(0, 4);
+      if (c.year && rYear) {
+        const dy = Math.abs(Number(rYear) - Number(c.year));
+        score += dy === 0 ? 25 : dy === 1 ? 12 : -40;
+      }
+      if (c.originalLanguage && r.original_language === c.originalLanguage) score += 25;
+      score += Math.min(r.popularity ?? 0, 10) * 0.3;
+      if (score > bestScore) {
+        bestScore = score;
+        best = r;
+      }
+    }
+    if (!best || bestScore < GROUND_ACCEPT_MIN) return null;
     const date = best.release_date || best.first_air_date || '';
     // IMDb rating is best-effort (OMDB) — it must never block or fail grounding.
     const imdbRating = await imdbRatingFor(best.id, c.mediaType);

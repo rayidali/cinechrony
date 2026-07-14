@@ -22,7 +22,7 @@ import { callRoute } from './lib/route-call.ts';
 import { POST as createExtraction } from '@/app/api/v1/extractions/route';
 import { GET as getExtraction } from '@/app/api/v1/extractions/[jobId]/route';
 import {
-  runExtractionPipeline, createExtraction as createExtractionFn, sendExtractionCompletionPush,
+  runExtractionPipeline, createExtraction as createExtractionFn, sendExtractionCompletionPush, detachExtraction,
 } from '@/lib/extraction-server';
 
 let me_: TestUser, other: TestUser;
@@ -156,12 +156,12 @@ test('completion push fires at most once per job (pushSentAt guards re-entry)', 
   // Exercises the same claim `runRealPipeline` uses at completion — no
   // Gemini/Apify needed, this only asserts the idempotency guard. No
   // lastPolledAt has been stamped yet, so this is a normal 'sent'.
-  const firstResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const firstResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'films', count: 2 });
   assert.equal(firstResult, 'sent');
   const first = (await ref.get()).data()?.pushSentAt;
   assert.ok(first, 'first call claims pushSentAt');
 
-  const secondResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const secondResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'films', count: 2 });
   assert.equal(secondResult, 'skipped_duplicate');
   const second = (await ref.get()).data()?.pushSentAt;
   assert.equal(
@@ -170,13 +170,18 @@ test('completion push fires at most once per job (pushSentAt guards re-entry)', 
   );
 });
 
-test('completion push never claims/fires for a zero-film result', async () => {
+test('zero-film and failed outcomes also push (closure for a closed drawer)', async () => {
   const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-zero');
   const ref = adminDb().doc(`extraction_jobs/${jobId}`);
-  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 0);
-  assert.equal(result, 'skipped_zero_films');
-  const snap = await ref.get();
-  assert.equal(snap.data()?.pushSentAt, undefined, 'no films → no claim, no push');
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'zero' });
+  assert.equal(result, 'sent', 'a zero-film scan still tells the user it finished');
+  assert.ok((await ref.get()).data()?.pushSentAt, 'zero outcome claims pushSentAt');
+
+  const { jobId: failedId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-failed');
+  const failedRef = adminDb().doc(`extraction_jobs/${failedId}`);
+  const failedResult = await sendExtractionCompletionPush(adminDb(), failedRef, failedId, me_.uid, { kind: 'failed' });
+  assert.equal(failedResult, 'sent', 'a failed scan pings instead of going silent');
+  assert.ok((await failedRef.get()).data()?.pushSentAt, 'failed outcome claims pushSentAt');
 });
 
 test('completion push is skipped (but pushSentAt still claimed) when lastPolledAt is fresh', async () => {
@@ -186,11 +191,25 @@ test('completion push is skipped (but pushSentAt still claimed) when lastPolledA
   // hit GET /api/v1/extractions/[jobId], which stamped this.
   await ref.update({ lastPolledAt: Timestamp.now() });
 
-  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 2);
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'films', count: 2 });
   assert.equal(result, 'skipped_watched', 'a live watcher suppresses the ding');
 
   const snap = await ref.get();
   assert.ok(snap.data()?.pushSentAt, 'pushSentAt is still claimed so no later re-entry can send');
+});
+
+test('detach disarms the live-watcher suppression (closed drawer → ping fires)', async () => {
+  const { jobId } = await createExtractionFn(me_.uid, 'https://www.tiktok.com/@x/video/push-detach');
+  const ref = adminDb().doc(`extraction_jobs/${jobId}`);
+  // Drawer was polling seconds ago…
+  await ref.update({ lastPolledAt: Timestamp.now() });
+  // …then the user closed it: the drawer fires detach on the way out.
+  const detach = await detachExtraction(me_.uid, jobId);
+  assert.equal(detach.detached, true);
+  assert.equal((await ref.get()).data()?.lastPolledAt, undefined, 'lastPolledAt cleared');
+
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'films', count: 1 });
+  assert.equal(result, 'sent', 'no live watcher left — the push fires');
 });
 
 test('completion push sends when lastPolledAt is stale or absent', async () => {
@@ -199,7 +218,7 @@ test('completion push sends when lastPolledAt is stale or absent', async () => {
   // Stale: older than the LIVE_WATCH_WINDOW_MS (20s) sendExtractionCompletionPush checks.
   await ref.update({ lastPolledAt: Timestamp.fromMillis(Date.now() - 30_000) });
 
-  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, 3);
+  const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'films', count: 3 });
   assert.equal(result, 'sent', 'a stale lastPolledAt does not suppress the push');
 
   const snap = await ref.get();

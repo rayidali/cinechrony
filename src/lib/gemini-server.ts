@@ -33,12 +33,22 @@ export type RawFilmCandidate = {
   mediaType: 'movie' | 'tv';
   confidence: number;
   evidence: { channel: string; quote: string; timestampSec: number | null } | null;
+  /** ISO 639-1 guess at the film's original language ("hi", "ko", …) — lets
+   *  TMDB grounding disambiguate same-title/same-year films across cinemas
+   *  (the "Party (1984, hi)" vs "Bachelor Party (1984, en)" class of miss). */
+  originalLanguage: string | null;
+  /** Native-script or original-release title when it differs from `title`. */
+  originalTitle: string | null;
 };
 
 export type GeminiAnalysis = {
   isFilmContent: boolean;
   suggestedListName: string | null;
   films: RawFilmCandidate[];
+  /** Which model actually answered + whether it saw footage or caption only —
+   *  persisted (analyzedBy) so a bad extraction is diagnosable from its doc. */
+  model?: string;
+  mode?: 'video' | 'caption-only';
 };
 
 export function isGeminiConfigured(): boolean {
@@ -59,14 +69,22 @@ Hard rules:
   - Do NOT split ONE film into several entries. The same movie shown across multiple
     scenes/shots is ONE title, listed once.
   - Each distinct title appears at most ONCE.
+  - Do NOT include films that appear only as a comparison, reference point, or hook
+    ("it reminds me of Casablanca", "if you liked X…", a classic flashed briefly to
+    set up the real subject). Include ONLY the films the video is actually
+    recommending, discussing, or showcasing.
   - Set confidence HONESTLY: ~0.9+ only when the title is explicitly named (audio) or
     shown as text (on-screen/caption); use 0.4-0.7 when it rests on footage/poster
     recognition alone. A wrong guess at high confidence is worse than omitting it.
 
 For each title give: the title, the release year if determinable (else null),
-mediaType ("movie" or "tv"), a confidence 0-1, and evidence (which channel it came
+mediaType ("movie" or "tv"), a confidence 0-1, evidence (which channel it came
 from — "audio" | "on-screen" | "caption" | "footage" — a short quote, and the
-timestamp in seconds if visible, else null).
+timestamp in seconds if visible, else null), the film's original language as an
+ISO 639-1 code if you know it (e.g. "hi" for a Hindi film, "en", "ko" — else null),
+and its original-release title if that differs from the common title (else null).
+The language matters: it is how we tell apart same-name films from different
+countries, so state it whenever you recognize the film's cinema of origin.
 
 If the video is a curated list (e.g. "top 5 crime films"), suggest a short LOWERCASE
 list name and include every DISTINCT film it lists. If the video references no
@@ -89,6 +107,8 @@ const RESPONSE_SCHEMA = {
           evidenceChannel: { type: 'string', enum: ['audio', 'on-screen', 'caption', 'footage', 'other'] },
           evidenceQuote: { type: 'string' },
           evidenceTimestampSec: { type: 'number' },
+          originalLanguage: { type: 'string' },
+          originalTitle: { type: 'string' },
         },
         required: ['title', 'mediaType', 'confidence'],
       },
@@ -132,13 +152,20 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
 
   const videoPart = await buildVideoPart(video);
   const caption = video.caption ? `\n\nThe video's caption is: """${video.caption}"""` : '';
+  // Degraded mode: the footage couldn't be attached (download failed / too big),
+  // so the model reads only the caption. Guessing "films that fit the
+  // description" from prose produces confident garbage — forbid it explicitly.
+  const captionOnlyNote = !videoPart && video.kind !== 'youtube'
+    ? '\n\nIMPORTANT: the video itself could NOT be attached — you are reading ONLY its caption. Include ONLY films the caption EXPLICITLY names. Do not infer films from descriptions, plot summaries, or vibes.'
+    : '';
   const parts: GeminiPart[] = [];
   if (videoPart) parts.push(videoPart);
-  parts.push({ text: PROMPT + caption });
+  parts.push({ text: PROMPT + captionOnlyNote + caption });
+  const mode: GeminiAnalysis['mode'] = videoPart ? 'video' : 'caption-only';
 
   // No video AND no caption → nothing to analyse.
   if (!videoPart && !video.caption) {
-    return { isFilmContent: false, suggestedListName: null, films: [] };
+    return { isFilmContent: false, suggestedListName: null, films: [], mode };
   }
 
   const reqBody = JSON.stringify({
@@ -174,7 +201,7 @@ export async function analyzeForFilms(video: AcquiredVideo): Promise<GeminiAnaly
       if (res.ok) {
         const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
         const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-        return parseAnalysis(text);
+        return { ...parseAnalysis(text), model, mode };
       }
       lastErr = `Gemini ${res.status} (${model}): ${(await res.text()).slice(0, 200)}`;
       if (res.status === 401 || res.status === 403) throw new Error(lastErr); // bad key — no model helps
@@ -221,12 +248,16 @@ function parseAnalysis(text: string): GeminiAnalysis {
       const channel = typeof f.evidenceChannel === 'string' ? f.evidenceChannel : 'other';
       const quote = typeof f.evidenceQuote === 'string' ? f.evidenceQuote : '';
       const ts = typeof f.evidenceTimestampSec === 'number' ? f.evidenceTimestampSec : null;
+      const lang = typeof f.originalLanguage === 'string' ? f.originalLanguage.trim().toLowerCase() : '';
+      const origTitle = typeof f.originalTitle === 'string' ? f.originalTitle.trim() : '';
       return {
         title,
         year: /^\d{4}$/.test(yearStr) ? yearStr : null,
         mediaType,
         confidence: typeof f.confidence === 'number' ? Math.max(0, Math.min(1, f.confidence)) : 0.5,
         evidence: quote || ts != null ? { channel, quote, timestampSec: ts } : { channel, quote: '', timestampSec: ts },
+        originalLanguage: /^[a-z]{2}$/.test(lang) ? lang : null,
+        originalTitle: origTitle && origTitle.toLowerCase() !== title.toLowerCase() ? origTitle : null,
       } as RawFilmCandidate;
     })
     .filter((f): f is RawFilmCandidate => f !== null);
@@ -266,6 +297,7 @@ export function captionCandidates(caption: string): RawFilmCandidate[] {
     out.push({
       title: t, year, mediaType: 'movie', confidence: 0.4,
       evidence: { channel: 'caption', quote: caption.slice(0, 140), timestampSec: null },
+      originalLanguage: null, originalTitle: null,
     });
   };
   // "Title (2014)" — the strongest textual signal.

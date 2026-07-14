@@ -93,9 +93,26 @@ final class ShareFlowModel: ObservableObject {
 
     /// X close, at any point. The job (if any) keeps running server-side and
     /// the completion push is the safety net — no extra UI needed here.
+    ///
+    /// Closing MID-SCAN additionally tells the server this live surface is
+    /// gone (detach): our own polling stamps `lastPolledAt`, and a pipeline
+    /// finishing within the live-watcher window after the close would
+    /// otherwise suppress the very push the user walked away expecting. The
+    /// short bounded delay gives the request time to leave the process before
+    /// the extension is torn down; the non-scanning paths close instantly.
     func close() {
         runTask?.cancel()
-        onFinish?()
+        if let jobId, case .working = phase {
+            let api = self.api
+            Task { [onFinish] in
+                let detachTask = Task { await api.detach(jobId: jobId) }
+                try? await Task.sleep(nanoseconds: 600_000_000)
+                detachTask.cancel()
+                onFinish?()
+            }
+        } else {
+            onFinish?()
+        }
     }
 
     private func run() async {

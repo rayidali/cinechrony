@@ -150,4 +150,12 @@ actor ExtensionAPI {
         let data = try JSONEncoder().encode(body)
         return try await authedRequest("/api/v1/extractions/\(jobId)/save", method: "POST", body: data)
     }
+
+    /// Best-effort, fire-and-forget: the drawer is closing while the scan is
+    /// still running. Clears the server's live-watcher stamp so the completion
+    /// push fires instead of being suppressed by our own recent poll.
+    func detach(jobId: String) async {
+        struct DetachResponse: Decodable { let detached: Bool? }
+        let _: DetachResponse? = try? await authedRequest("/api/v1/extractions/\(jobId)/detach", method: "POST")
+    }
 }
