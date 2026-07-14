@@ -4,6 +4,23 @@
 
 ## Current state (2026-07-13)
 
+- **Gemini model retirement outage — FIXED (2026-07-13 night, `e83b17a`).** The
+  first on-device share test failed because Google retired the entire 2.x model
+  chain at once (2.5-flash/2.0-flash refusing traffic, 2.5-flash-lite 404) —
+  every scan silently degraded to the caption net (ANALYSIS_FAILED / 0 films).
+  Defaults are now `gemini-3.5-flash` + 3-flash-preview/3.1-flash-lite, and the
+  rolling `gemini-flash-latest`/`flash-lite-latest` aliases are appended to
+  EVERY chain (`gemini-server.ts` LAST_RESORT_MODELS) so a retired pin can
+  never kill the pipeline again. Also: a `failed` cache claim is re-claimable
+  immediately (a retry runs a fresh pipeline; followers of a failed winner fail
+  fast). Owner: update `GEMINI_MODEL` in Vercel to `gemini-3.5-flash` + drop
+  `GEMINI_MODEL_FALLBACKS`. Same night: **APNs push VERIFIED live** (test ping
+  delivered to the device), **Google + Apple sign-in providers enabled** (Apple
+  via Identity Toolkit REST; fresh GoogleService-Info.plist with
+  REVERSED_CLIENT_ID installed + URL scheme `1504dfc`), authorizedDomains got
+  the prod domains, and `expiresAt` is stamped on extraction docs (`6955ff4`)
+  for the console TTL policies (owner: Firestore → TTL → `extraction_jobs` +
+  `extraction_cache` on `expiresAt`).
 - **Corner-style in-extension share flow — CODE COMPLETE, device test pending
   (2026-07-13, on `main`, tip `34b6d37`).** The paid Apple Developer account is
   ACTIVE (Team `GBR6GTFYCL`; capabilities registered; the app builds+runs on a
