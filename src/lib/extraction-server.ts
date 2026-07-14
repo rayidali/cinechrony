@@ -19,7 +19,7 @@
 
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
-import { FieldValue } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
 import { acquireVideo, type AcquiredVideo } from '@/lib/video-acquire-server';
@@ -69,6 +69,12 @@ type CacheDoc = {
   createdAt?: FirebaseFirestore.Timestamp;
 };
 const tsMillis = (t?: FirebaseFirestore.Timestamp) => (t?.toMillis ? t.toMillis() : 0);
+/** Absolute expiry stamp for the Firestore TTL policy (which deletes docs once
+ *  `expiresAt` is in the past — the policy field must be a future time, NOT
+ *  `createdAt`). Matches CACHE_TTL_MS so physical deletion tracks the soft TTL
+ *  in `isFreshDone`; jobs share the same lifetime (an expired `/extract?jobId=`
+ *  resume shows the built-in not-found state). */
+const expireStamp = () => Timestamp.fromMillis(Date.now() + CACHE_TTL_MS);
 /** A usable DONE result (handles legacy docs written before the `status` field). */
 function isFreshDone(c?: CacheDoc): boolean {
   if (!c) return false;
@@ -216,6 +222,7 @@ export async function createExtraction(
       videoThumbnail: cached!.videoThumbnail ?? null,
       fromCache: true,
       createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+      expiresAt: expireStamp(),
     });
     return { jobId: ref.id, status: 'done' };
   }
@@ -229,7 +236,7 @@ export async function createExtraction(
     const fresh = (await tx.get(cacheRef)).data() as CacheDoc | undefined;
     if (isFreshDone(fresh)) return 'follow'; // filled between our read + the tx
     if (claimLive(fresh)) return 'follow'; // someone else is already on it
-    tx.set(cacheRef, { status: 'processing', startedAt: FieldValue.serverTimestamp(), canonicalUrl, provider });
+    tx.set(cacheRef, { status: 'processing', startedAt: FieldValue.serverTimestamp(), canonicalUrl, provider, expiresAt: expireStamp() });
     return 'claim';
   });
 
@@ -240,6 +247,7 @@ export async function createExtraction(
     stage: decision === 'claim' ? 'queued' : 'watching',
     follower: decision !== 'claim',
     createdAt: FieldValue.serverTimestamp(), updatedAt: FieldValue.serverTimestamp(),
+    expiresAt: expireStamp(),
   });
 
   if (decision === 'claim') {
@@ -474,6 +482,7 @@ async function finishJob(
     videoThumbnail: videoThumbnail ?? null,
     analyzedBy,
     createdAt: FieldValue.serverTimestamp(),
+    expiresAt: expireStamp(),
   });
   await ref.update({
     status: 'done',
