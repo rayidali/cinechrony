@@ -89,10 +89,40 @@ struct ListSummaryDTO: Decodable, Identifiable {
     let id: String
     let name: String
     let movieCount: Int?
+    let isPublic: Bool?
+    let coverImageUrl: String?
+    let ownerId: String?
 }
 
 struct ListsResponse: Decodable {
     let lists: [ListSummaryDTO]
+}
+
+/// A list shared WITH the caller (collaborator) — GET /api/v1/me/collaborative-lists
+/// (mirrors CollaborativeListSummary in lists-server.ts).
+struct SharedListDTO: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let ownerId: String
+    let isPublic: Bool?
+    let coverImageUrl: String?
+    let ownerUsername: String?
+    let ownerDisplayName: String?
+}
+
+struct SharedListsResponse: Decodable {
+    let lists: [SharedListDTO]
+}
+
+/// One row of the destination picker — own + shared lists, pre-labelled, so
+/// the view stays dumb (mirrors the web ListPickerSheet's PickableList).
+struct PickerListItem: Identifiable, Equatable {
+    let id: String
+    let ownerId: String
+    let name: String
+    let coverImageUrl: String?
+    /// "private · 18 films" | "public · 14 films" | "shared by murt"
+    let subtitle: String
 }
 
 // MARK: - Save (mirrors the EXACT body extract/client.tsx's save() sends to

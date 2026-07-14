@@ -332,11 +332,44 @@ private struct ResultStateView: View {
         return "\(n) \(n == 1 ? "film" : "films") found"
     }
 
-    @ViewBuilder
+    /// The in-app pattern (list-picker hosts): the destination itself is ALWAYS
+    /// a dropdown row — tap it to open the picker — and the new-list name field
+    /// appears beneath it only while "create a new list" is the destination.
     private var destinationSection: some View {
-        switch model.destination {
-        case .newList:
-            VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            Button(action: { model.openPicker() }) {
+                HStack(spacing: 12) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(Brand.filmRed.opacity(0.1))
+                            .frame(width: 40, height: 40)
+                        Image(systemName: "text.badge.plus")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(Brand.filmRed)
+                    }
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("adding to")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(Brand.muted)
+                            .textCase(.uppercase)
+                        Text(model.destinationLabel)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundColor(Brand.ink)
+                            .lineLimit(1)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Brand.muted)
+                }
+                .padding(.horizontal, 12)
+                .frame(height: 60)
+                .background(Brand.sunken)
+                .clipShape(RoundedRectangle(cornerRadius: 14))
+            }
+            .buttonStyle(.plain)
+
+            if case .newList = model.destination {
                 TextField("name your new list", text: $model.newListName)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(Brand.ink)
@@ -347,41 +380,9 @@ private struct ResultStateView: View {
                         RoundedRectangle(cornerRadius: 14).stroke(Brand.filmRed.opacity(0.28), lineWidth: 1)
                     )
                     .clipShape(RoundedRectangle(cornerRadius: 14))
-
-                Button(action: { model.openPicker() }) {
-                    Text("add to an existing list instead")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Brand.filmRed)
-                        .frame(height: 32)
-                }
-                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 20)
-        case .existing(_, let name):
-            Button(action: { model.openPicker() }) {
-                HStack(spacing: 12) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("adding to")
-                            .font(.system(size: 10, weight: .bold))
-                            .foregroundColor(Brand.muted)
-                            .textCase(.uppercase)
-                        Text(name)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(Brand.ink)
-                            .lineLimit(1)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.down")
-                        .foregroundColor(Brand.muted)
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 56)
-                .background(Brand.sunken)
-                .clipShape(RoundedRectangle(cornerRadius: 14))
-            }
-            .buttonStyle(.plain)
-            .padding(.horizontal, 20)
         }
+        .padding(.horizontal, 20)
     }
 }
 
@@ -398,9 +399,17 @@ private struct FilmRow: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(Brand.ink)
                     .lineLimit(1)
-                Text(subtitle)
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(Brand.muted)
+                HStack(spacing: 4) {
+                    Text(metaLabel)
+                        .font(.system(size: 11, weight: .medium, design: .monospaced))
+                        .foregroundColor(Brand.muted)
+                    if let match = matchLabel {
+                        Text("· \(match)")
+                            .font(.system(size: 11, weight: .semibold, design: .monospaced))
+                            .foregroundColor(matchIsLow ? Brand.filmRed : Brand.muted)
+                    }
+                }
+                .lineLimit(1)
             }
             Spacer()
             Toggle("", isOn: Binding(get: { isIncluded }, set: { _ in onToggle() }))
@@ -411,9 +420,25 @@ private struct FilmRow: View {
         .frame(minHeight: 44)
     }
 
-    private var subtitle: String {
-        if let year = film.year, !year.isEmpty { return year }
-        return film.mediaType == "tv" ? "tv series" : "film"
+    /// "1984 · imdb 7.4" — year (or media kind) plus the IMDb score when known.
+    private var metaLabel: String {
+        var parts: [String] = []
+        if let year = film.year, !year.isEmpty { parts.append(year) }
+        else { parts.append(film.mediaType == "tv" ? "tv series" : "film") }
+        if let imdb = film.imdbRating, !imdb.isEmpty { parts.append("imdb \(imdb)") }
+        return parts.joined(separator: " · ")
+    }
+
+    /// Same confidence tiers as the web ConfidenceChip: silent when the match
+    /// is strong, a percentage when decent, a film-red warning when shaky.
+    private var matchLabel: String? {
+        guard let c = film.confidence, c < 0.8 else { return nil }
+        if c < 0.6 { return "low match, double-check" }
+        return "\(Int((c * 100).rounded()))% match"
+    }
+
+    private var matchIsLow: Bool {
+        (film.confidence ?? 1) < 0.6
     }
 
     @ViewBuilder
@@ -432,63 +457,154 @@ private struct FilmRow: View {
     }
 }
 
-// MARK: - Destination picker sheet
+// MARK: - Destination picker sheet (mirrors the app's ListPickerSheet:
+// highlighted create-new card → "your lists" mono header → cover + name +
+// visibility·count / shared-by rows. Tapping a row picks it and dismisses.)
 
 private struct ListPickerView: View {
     @ObservedObject var model: ShareFlowModel
 
     var body: some View {
-        NavigationView {
-            Group {
-                if model.isLoadingLists && model.lists.isEmpty {
-                    ProgressView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    List {
-                        Button(action: { model.pickNew() }) {
-                            HStack {
-                                Text("create a new list")
-                                    .foregroundColor(Brand.ink)
-                                    .fontWeight(.semibold)
-                                Spacer()
-                                if case .newList = model.destination {
-                                    Image(systemName: "checkmark").foregroundColor(Brand.filmRed)
-                                }
-                            }
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(Brand.hairline)
+                .frame(width: 40, height: 4)
+                .padding(.top, 10)
+
+            HStack {
+                Text("add to")
+                    .font(.system(size: 19, weight: .bold))
+                    .foregroundColor(Brand.ink)
+                Spacer()
+                Button(action: { model.showPicker = false }) {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(Brand.ink)
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.plain)
+            }
+            .padding(.leading, 20)
+            .padding(.trailing, 8)
+            .padding(.top, 6)
+
+            if model.isLoadingLists && model.lists.isEmpty {
+                Spacer()
+                ProgressView()
+                    .progressViewStyle(CircularProgressViewStyle(tint: Brand.filmRed))
+                Spacer()
+            } else {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        createNewRow
+
+                        if !model.lists.isEmpty {
+                            Text("your lists")
+                                .font(.system(size: 11, weight: .bold, design: .monospaced))
+                                .foregroundColor(Brand.muted)
+                                .textCase(.uppercase)
+                                .padding(.horizontal, 12)
+                                .padding(.top, 16)
+                                .padding(.bottom, 6)
                         }
-                        .buttonStyle(.plain)
 
                         ForEach(model.lists) { list in
-                            Button(action: { model.pick(list) }) {
-                                HStack {
-                                    VStack(alignment: .leading, spacing: 2) {
-                                        Text(list.name)
-                                            .foregroundColor(Brand.ink)
-                                            .fontWeight(.semibold)
-                                        let count = list.movieCount ?? 0
-                                        Text("\(count) \(count == 1 ? "film" : "films")")
-                                            .font(.system(size: 12))
-                                            .foregroundColor(Brand.muted)
-                                    }
-                                    Spacer()
-                                    if case .existing(let id, _) = model.destination, id == list.id {
-                                        Image(systemName: "checkmark").foregroundColor(Brand.filmRed)
-                                    }
-                                }
-                            }
-                            .buttonStyle(.plain)
+                            listRow(list)
                         }
                     }
-                    .listStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 28)
                 }
             }
-            .navigationTitle("choose a list")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("done") { model.showPicker = false }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Brand.paper.ignoresSafeArea())
+    }
+
+    private var isNewActive: Bool {
+        if case .newList = model.destination { return true }
+        return false
+    }
+
+    private var createNewRow: some View {
+        Button(action: { model.pickNew() }) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(Brand.filmRed.opacity(0.1))
+                        .frame(width: 44, height: 44)
+                    Image(systemName: "text.badge.plus")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(Brand.filmRed)
+                }
+                Text("create a new list")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Brand.filmRed)
+                Spacer()
+                if isNewActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Brand.filmRed)
                 }
             }
+            .padding(12)
+            .background(isNewActive ? Brand.filmRed.opacity(0.06) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func listRow(_ list: PickerListItem) -> some View {
+        let isActive: Bool = {
+            if case .existing(let id, _, _) = model.destination, id == list.id { return true }
+            return false
+        }()
+        return Button(action: { model.pick(list) }) {
+            HStack(spacing: 12) {
+                cover(list)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(list.name)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(Brand.ink)
+                        .lineLimit(1)
+                    Text(list.subtitle)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(Brand.muted)
+                        .lineLimit(1)
+                }
+                Spacer()
+                if isActive {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(Brand.filmRed)
+                }
+            }
+            .padding(.vertical, 8)
+            .padding(.horizontal, 12)
+            .background(isActive ? Brand.filmRed.opacity(0.06) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 14))
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private func cover(_ list: PickerListItem) -> some View {
+        if let coverUrl = list.coverImageUrl, let url = URL(string: coverUrl) {
+            AsyncImage(url: url) { image in
+                image.resizable().aspectRatio(contentMode: .fill)
+            } placeholder: {
+                RoundedRectangle(cornerRadius: 10).fill(Brand.sunken)
+            }
+            .frame(width: 44, height: 44)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 10).fill(Brand.sunken)
+                Image(systemName: "film")
+                    .font(.system(size: 16))
+                    .foregroundColor(Brand.muted)
+            }
+            .frame(width: 44, height: 44)
         }
     }
 }

@@ -146,6 +146,13 @@ actor ExtensionAPI {
         return res.lists
     }
 
+    /// Lists shared WITH the caller (collaborator) — so the picker matches the
+    /// in-app one and films can land in a friend's list.
+    func getSharedLists() async throws -> [SharedListDTO] {
+        let res: SharedListsResponse = try await authedRequest("/api/v1/me/collaborative-lists")
+        return res.lists
+    }
+
     func saveExtraction(jobId: String, body: SaveBody) async throws -> SaveResponseDTO {
         let data = try JSONEncoder().encode(body)
         return try await authedRequest("/api/v1/extractions/\(jobId)/save", method: "POST", body: data)

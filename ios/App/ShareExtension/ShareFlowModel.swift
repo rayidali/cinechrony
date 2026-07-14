@@ -30,7 +30,7 @@ final class ShareFlowModel: ObservableObject {
 
     enum Destination: Equatable {
         case newList
-        case existing(id: String, name: String)
+        case existing(id: String, ownerId: String, name: String)
     }
 
     // MARK: - Published state
@@ -43,7 +43,7 @@ final class ShareFlowModel: ObservableObject {
     @Published var isSaving = false
     @Published var saveErrorMessage: String?
     @Published var showPicker = false
-    @Published var lists: [ListSummaryDTO] = []
+    @Published var lists: [PickerListItem] = []
     @Published var isLoadingLists = false
 
     /// Same labels as the web client's STAGE_LABEL (src/app/extract/client.tsx)
@@ -204,7 +204,7 @@ final class ShareFlowModel: ObservableObject {
         case .newList:
             let trimmed = newListName.trimmingCharacters(in: .whitespacesAndNewlines)
             return trimmed.isEmpty ? "new list" : trimmed
-        case .existing(_, let name):
+        case .existing(_, _, let name):
             return name
         }
     }
@@ -213,24 +213,51 @@ final class ShareFlowModel: ObservableObject {
         films.filter { included.contains($0.tmdbId) }.count
     }
 
-    /// Opens the destination picker, lazily fetching the caller's lists the
-    /// first time (never pre-fetched — keeps the happy path to one less call).
+    /// Opens the destination picker, lazily fetching the caller's own AND
+    /// shared-with-them lists the first time (never pre-fetched — keeps the
+    /// happy path to one less call). Mirrors the in-app picker: own lists
+    /// first with visibility + count, then collaborator lists as "shared by X".
     func openPicker() {
         showPicker = true
         guard lists.isEmpty, !isLoadingLists else { return }
         isLoadingLists = true
         Task { [weak self] in
             guard let self else { return }
-            let fetched = try? await self.api.getLists()
+            async let ownFetch = try? self.api.getLists()
+            async let sharedFetch = try? self.api.getSharedLists()
+            let (own, shared) = await (ownFetch, sharedFetch)
+            let uid = await self.api.credentialUid() ?? ""
+
+            var items: [PickerListItem] = []
+            for l in own ?? [] {
+                let count = l.movieCount ?? 0
+                let visibility = (l.isPublic ?? false) ? "public" : "private"
+                items.append(PickerListItem(
+                    id: l.id,
+                    ownerId: l.ownerId ?? uid,
+                    name: l.name,
+                    coverImageUrl: l.coverImageUrl,
+                    subtitle: "\(visibility) · \(count) \(count == 1 ? "film" : "films")"
+                ))
+            }
+            for l in shared ?? [] {
+                items.append(PickerListItem(
+                    id: l.id,
+                    ownerId: l.ownerId,
+                    name: l.name,
+                    coverImageUrl: l.coverImageUrl,
+                    subtitle: "shared by \(l.ownerDisplayName ?? l.ownerUsername ?? "a friend")"
+                ))
+            }
             await MainActor.run {
                 self.isLoadingLists = false
-                if let fetched { self.lists = fetched }
+                if !items.isEmpty { self.lists = items }
             }
         }
     }
 
-    func pick(_ list: ListSummaryDTO) {
-        destination = .existing(id: list.id, name: list.name)
+    func pick(_ list: PickerListItem) {
+        destination = .existing(id: list.id, ownerId: list.ownerId, name: list.name)
         showPicker = false
     }
 
@@ -250,7 +277,6 @@ final class ShareFlowModel: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let uid = await self.api.credentialUid() ?? ""
                 let body: SaveBody
                 switch await self.destinationSnapshot() {
                 case .newList:
@@ -262,12 +288,12 @@ final class ShareFlowModel: ObservableObject {
                                      target: SaveTarget(tempId: "new", ownerId: nil, listId: nil))
                         }
                     )
-                case .existing(let listId, _):
+                case .existing(let listId, let ownerId, _):
                     body = SaveBody(
                         createLists: [],
                         items: selected.map {
                             SaveItem(tmdbId: $0.tmdbId, mediaType: $0.mediaType,
-                                     target: SaveTarget(tempId: nil, ownerId: uid, listId: listId))
+                                     target: SaveTarget(tempId: nil, ownerId: ownerId, listId: listId))
                         }
                     )
                 }

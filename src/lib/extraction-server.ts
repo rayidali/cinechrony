@@ -611,16 +611,30 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  * (see `44-extractions-auth.test.ts`).
  */
 export type ExtractionPushOutcome =
-  | { kind: 'films'; count: number }
+  | { kind: 'films'; films: Array<{ title: string; year?: string | null; imdbRating?: string | null }> }
   | { kind: 'zero' }
   | { kind: 'failed' };
 
+/** Notification copy — brand voice (lowercase, no emoji, no em/en dashes),
+ *  detailed enough to be worth a lock screen: names the films, carries the
+ *  IMDb score when we have it. */
 function pushBodyFor(outcome: ExtractionPushOutcome): string {
-  if (outcome.kind === 'failed') return "we couldn't finish scanning your reel. tap to try again.";
-  if (outcome.kind === 'zero') return "scan finished. we couldn't spot any films in this reel.";
-  return outcome.count === 1
-    ? '1 film found in your reel. tap to pick lists.'
-    : `${outcome.count} films found in your reel. tap to pick lists.`;
+  if (outcome.kind === 'failed') return 'that reel put up a fight. tap to run it back.';
+  if (outcome.kind === 'zero') return 'we watched your reel twice. no films in this one, just vibes.';
+  const films = outcome.films;
+  if (films.length === 1) {
+    const f = films[0];
+    const year = f.year ? ` (${f.year})` : '';
+    const imdb = f.imdbRating ? `. imdb ${f.imdbRating}` : '';
+    return `your reel was hiding ${f.title}${year}${imdb}. tap to shelve it.`;
+  }
+  if (films.length === 2) {
+    return `your reel name-dropped ${films[0].title} and ${films[1].title}. tap to sort them into lists.`;
+  }
+  if (films.length === 3) {
+    return `${films[0].title}, ${films[1].title} and ${films[2].title} were all in that reel. tap to sort them.`;
+  }
+  return `${films.length} films hiding in one reel. we caught every one. tap to pick your keepers.`;
 }
 
 export async function sendExtractionCompletionPush(
@@ -707,7 +721,9 @@ async function runRealPipeline(jobId: string): Promise<void> {
     await finishJob(db, ref, job, films, analysis.suggestedListName, analyzedBy, videoThumbnail);
     await sendExtractionCompletionPush(
       db, ref, jobId, job.uid,
-      films.length ? { kind: 'films', count: films.length } : { kind: 'zero' },
+      films.length
+        ? { kind: 'films', films: films.map((f) => ({ title: f.title, year: f.year, imdbRating: f.imdbRating })) }
+        : { kind: 'zero' },
     );
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
