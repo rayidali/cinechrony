@@ -46,23 +46,57 @@ enum LiveActivityTokenRelay {
         started = true
         guard #available(iOS 17.2, *) else { return }
 
+        // A background launch gets suspended fast — hold a background-time
+        // assertion so the activity can register and mint its update token
+        // before iOS puts us to sleep. (~30s is granted; we ask for less.)
+        holdBackgroundWindow(seconds: 25)
+
         Task {
             for await tokenData in Activity<ScanActivityAttributes>.pushToStartTokenUpdates {
                 await upload(path: "/api/v1/me/live-activity-token",
                              body: ["deviceId": nativeDeviceId(), "token": hex(tokenData)])
             }
         }
+        // ORDER MATTERS: subscribe to activityUpdates FIRST, THEN sweep the
+        // existing list — a push-started activity registers with this process
+        // moments after launch, and enumerate-then-subscribe loses exactly
+        // that moment (observed in prod: push-to-start token uploaded fine,
+        // update token never yielded). The dedup set makes overlap harmless;
+        // the delayed re-sweeps catch any stragglers.
         Task {
-            for activity in Activity<ScanActivityAttributes>.activities {
-                observe(activity)
-            }
             for await activity in Activity<ScanActivityAttributes>.activityUpdates {
-                observe(activity)
+                await observe(activity)
+            }
+        }
+        Task {
+            for delayMs in [50, 1_000, 3_000, 10_000] {
+                try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+                for activity in Activity<ScanActivityAttributes>.activities {
+                    await observe(activity)
+                }
             }
         }
     }
 
+    /// Keep the process alive briefly on background launches. Safe to call
+    /// from any launch kind; the assertion self-expires.
+    private static func holdBackgroundWindow(seconds: TimeInterval) {
+        DispatchQueue.main.async {
+            var taskId: UIBackgroundTaskIdentifier = .invalid
+            taskId = UIApplication.shared.beginBackgroundTask(withName: "la-token-relay") {
+                if taskId != .invalid { UIApplication.shared.endBackgroundTask(taskId) }
+            }
+            guard taskId != .invalid else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+                UIApplication.shared.endBackgroundTask(taskId)
+            }
+        }
+    }
+
+    /// MainActor-isolated: two Tasks (the subscription + the sweeps) both
+    /// funnel here, and the dedup set must be mutated serially.
     @available(iOS 17.2, *)
+    @MainActor
     private static func observe(_ activity: Activity<ScanActivityAttributes>) {
         guard !observedActivityIds.contains(activity.id) else { return }
         observedActivityIds.insert(activity.id)

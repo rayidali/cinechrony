@@ -78,20 +78,31 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         // Stream 2: activities (existing + newly push-started) → each one's
-        // update-token stream. One sequential Task walks both, so the
-        // dedupe set never races.
+        // update-token stream. Subscribe FIRST, then sweep the existing list
+        // (with delayed re-sweeps) — enumerate-then-subscribe drops an
+        // activity that registers between the two, which is exactly when a
+        // push-started activity arrives. The dedupe set makes overlap safe.
         Task { [weak self] in
             guard let self else { return }
-            for activity in Activity<ScanActivityAttributes>.activities {
-                self.observeUpdateToken(of: activity)
-            }
             for await activity in Activity<ScanActivityAttributes>.activityUpdates {
-                self.observeUpdateToken(of: activity)
+                await self.observeUpdateToken(of: activity)
+            }
+        }
+        Task { [weak self] in
+            for delayMs in [50, 1_000, 3_000, 10_000] {
+                try? await Task.sleep(nanoseconds: UInt64(delayMs) * 1_000_000)
+                guard let self else { return }
+                for activity in Activity<ScanActivityAttributes>.activities {
+                    await self.observeUpdateToken(of: activity)
+                }
             }
         }
     }
 
+    /// MainActor-isolated: the subscription Task and the sweep Task both
+    /// funnel here — the dedup set must be mutated serially.
     @available(iOS 17.2, *)
+    @MainActor
     private func observeUpdateToken(of activity: Activity<ScanActivityAttributes>) {
         guard !observedActivityIds.contains(activity.id) else { return }
         observedActivityIds.insert(activity.id)
