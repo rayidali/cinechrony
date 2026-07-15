@@ -23,11 +23,37 @@ const DEFAULT_MODEL = 'gemini-3.5-flash';
  *  the whole 2.x chain died at once — 2.5-flash/2.0-flash refusing traffic,
  *  2.5-flash-lite 404 "no longer available to new users".) */
 const LAST_RESORT_MODELS = ['gemini-flash-latest', 'gemini-flash-lite-latest'];
-const INLINE_VIDEO_MAX_BYTES = 18 * 1024 * 1024; // keep the request under Gemini's ~20MB inline cap
-const VIDEO_FETCH_TIMEOUT_MS = 20_000;
+/** Inline cap (Gemini's request limit is ~20MB) — env-tunable so the Files
+ *  API path is testable without a giant fixture. */
+const inlineVideoMaxBytes = () =>
+  Number(process.env.GEMINI_INLINE_VIDEO_MAX_BYTES) || 18 * 1024 * 1024;
+/** Videos past the inline cap go through the Gemini FILES API instead of
+ *  silently degrading to caption-only (the old behavior — a long reel used
+ *  to mean "the model never saw the footage", the single worst accuracy
+ *  cliff in the pipeline). Files auto-expire server-side after ~48h. */
+const FILES_VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+const FILE_ACTIVE_POLL_TIMEOUT_MS = 60_000;
+const VIDEO_FETCH_TIMEOUT_MS = 45_000;
 const IMAGE_FETCH_TIMEOUT_MS = 12_000;
 const INLINE_IMAGE_MAX_BYTES = 4 * 1024 * 1024; // per slide
 const INLINE_IMAGES_TOTAL_BYTES = 16 * 1024 * 1024; // whole slideshow budget
+
+/** Media URLs come from third-party actor output — refuse anything that
+ *  isn't plainly a public http(s) host before fetching it server-side. */
+function isSafeRemoteUrl(raw: string): boolean {
+  try {
+    const u = new URL(raw);
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+    const h = u.hostname.toLowerCase();
+    if (h === 'localhost' || h.endsWith('.local') || h.endsWith('.internal')) return false;
+    if (/^(127\.|10\.|192\.168\.|169\.254\.|0\.)/.test(h)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return false;
+    if (h === '::1' || h.startsWith('[')) return false;
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /** A candidate film straight from Gemini — pre-TMDB-grounding. */
 export type RawFilmCandidate = {
@@ -61,14 +87,31 @@ export function isGeminiConfigured(): boolean {
 
 const PROMPT = `You are analysing a short social post (a TikTok, Reel, YouTube Short, OR an
 image carousel/slideshow of photo slides) to find the movies and TV shows it
-actually references. Slides often carry the titles as styled text over stills —
+actually features. Slides often carry the titles as styled text over stills —
 read every slide's text carefully.
+
+THE MEDIA IS THE GROUND TRUTH. The caption is only supporting context.
+First decide what kind of post this is, then apply its rule:
+  - SCENE/EDIT POST — the footage shows scene(s) from one or a few specific,
+    identifiable films. The post's films are EXACTLY the ones appearing in the
+    footage. Films mentioned ONLY in the caption (comparisons, "also watch",
+    the same director's other work, hashtags) are NOT part of this post —
+    EXCLUDE them. Example: a clip showing only an Inglourious Basterds scene,
+    with a caption that also name-drops Django Unchained and Once Upon a Time
+    in Hollywood → return ONLY Inglourious Basterds.
+  - LIST/RECOMMENDATION POST — the post itself presents multiple titles
+    (spoken narration, an on-screen text list, or one title per slide).
+    Include every DISTINCT title the post presents.
+  - CAPTION-DRIVEN POST — the footage/slides are generic or aesthetic (not
+    from any identifiable film) and the caption is what names the films. Only
+    then do the caption's explicit titles carry the content; mark their
+    evidence channel "caption".
 
 PRECISION OVER QUANTITY. Only include a title when you have CLEAR evidence for it:
   - its name is spoken in the audio, or
-  - its title is shown as text on screen, or
-  - its title appears in the caption, or
-  - you recognize it unmistakably from its poster or a well-known scene.
+  - its title is shown as text on screen / on a slide, or
+  - you recognize it unmistakably from its footage, poster, or a well-known scene, or
+  - (caption-driven posts only) its title appears explicitly in the caption.
 
 Hard rules:
   - Do NOT guess from ambiguous footage. If you are not reasonably sure, leave it out.
@@ -77,11 +120,13 @@ Hard rules:
   - Each distinct title appears at most ONCE.
   - Do NOT include films that appear only as a comparison, reference point, or hook
     ("it reminds me of Casablanca", "if you liked X…", a classic flashed briefly to
-    set up the real subject). Include ONLY the films the video is actually
+    set up the real subject). Include ONLY the films the post is actually
     recommending, discussing, or showcasing.
-  - Set confidence HONESTLY: ~0.9+ only when the title is explicitly named (audio) or
-    shown as text (on-screen/caption); use 0.4-0.7 when it rests on footage/poster
-    recognition alone. A wrong guess at high confidence is worse than omitting it.
+  - Set confidence HONESTLY: ~0.9+ only when the title is explicitly named in the
+    audio or shown as text in the media, or the footage is unmistakably that film;
+    0.4-0.7 for less certain footage/poster recognition. A film named ONLY in the
+    caption and never seen or heard in the media gets AT MOST 0.6. A wrong guess
+    at high confidence is worse than omitting it.
 
 For each title give: the title, the release year if determinable (else null),
 mediaType ("movie" or "tv"), a confidence 0-1, evidence (which channel it came
@@ -137,21 +182,94 @@ async function buildMediaParts(video: AcquiredVideo): Promise<GeminiPart[]> {
   if (video.kind === 'images') {
     return buildImageParts(video.imageUrls);
   }
-  // media: try to inline the bytes (small clips only).
+  // media: inline small clips; route bigger ones through the Files API so a
+  // long reel never silently degrades to caption-only.
   try {
+    if (!isSafeRemoteUrl(video.videoUrl)) return [];
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), VIDEO_FETCH_TIMEOUT_MS);
     const res = await fetch(video.videoUrl, { signal: ctrl.signal });
     clearTimeout(timer);
     if (!res.ok) return [];
     const len = Number(res.headers.get('content-length') || 0);
-    if (len > INLINE_VIDEO_MAX_BYTES) return []; // too big to inline → caption-only
+    if (len > FILES_VIDEO_MAX_BYTES) return []; // beyond even the upload budget
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > INLINE_VIDEO_MAX_BYTES) return [];
-    const mime = res.headers.get('content-type')?.split(';')[0] || 'video/mp4';
-    return [{ inlineData: { mimeType: mime.startsWith('video/') ? mime : 'video/mp4', data: buf.toString('base64') } }];
+    if (buf.byteLength > FILES_VIDEO_MAX_BYTES) return [];
+    const mime0 = res.headers.get('content-type')?.split(';')[0] || 'video/mp4';
+    const mime = mime0.startsWith('video/') ? mime0 : 'video/mp4';
+    if (buf.byteLength <= inlineVideoMaxBytes()) {
+      return [{ inlineData: { mimeType: mime, data: buf.toString('base64') } }];
+    }
+    const fileUri = await uploadVideoToFilesApi(buf, mime);
+    return fileUri ? [{ fileData: { fileUri, mimeType: mime } }] : [];
   } catch {
     return []; // network/timeout → caption-only
+  }
+}
+
+/**
+ * Gemini Files API — resumable upload + wait-for-ACTIVE. Returns the file
+ * URI usable as a `fileData` part, or null on any failure (the caller
+ * degrades to caption-only, exactly as before — this only ADDS a path).
+ * Uploaded files auto-delete server-side (~48h), so no cleanup pass needed.
+ */
+async function uploadVideoToFilesApi(buf: Buffer, mimeType: string): Promise<string | null> {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  try {
+    const start = await fetch(`https://generativelanguage.googleapis.com/upload/v1beta/files?key=${encodeURIComponent(key)}`, {
+      method: 'POST',
+      headers: {
+        'X-Goog-Upload-Protocol': 'resumable',
+        'X-Goog-Upload-Command': 'start',
+        'X-Goog-Upload-Header-Content-Length': String(buf.byteLength),
+        'X-Goog-Upload-Header-Content-Type': mimeType,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ file: { display_name: 'cinechrony-scan' } }),
+    });
+    const uploadUrl = start.headers.get('x-goog-upload-url');
+    if (!start.ok || !uploadUrl) {
+      console.warn('[gemini] files api start failed:', start.status);
+      return null;
+    }
+
+    const finish = await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: {
+        'X-Goog-Upload-Command': 'upload, finalize',
+        'X-Goog-Upload-Offset': '0',
+        'Content-Length': String(buf.byteLength),
+      },
+      body: new Uint8Array(buf),
+    });
+    if (!finish.ok) {
+      console.warn('[gemini] files api upload failed:', finish.status);
+      return null;
+    }
+    const uploaded = (await finish.json()) as { file?: { name?: string; uri?: string; state?: string } };
+    const name = uploaded.file?.name;
+    const uri = uploaded.file?.uri;
+    if (!name || !uri) return null;
+
+    // The file needs server-side processing before it's usable in a prompt.
+    let state = uploaded.file?.state ?? 'PROCESSING';
+    const deadline = Date.now() + FILE_ACTIVE_POLL_TIMEOUT_MS;
+    while (state === 'PROCESSING' && Date.now() < deadline) {
+      await sleep(1500);
+      const poll = await fetch(`${GEMINI_BASE}/files/${name.replace(/^files\//, '')}?key=${encodeURIComponent(key)}`);
+      if (!poll.ok) continue;
+      state = ((await poll.json()) as { state?: string }).state ?? state;
+    }
+    if (state !== 'ACTIVE') {
+      console.warn('[gemini] files api file never became ACTIVE:', state);
+      return null;
+    }
+    console.info(`[gemini] files api path used (${Math.round(buf.byteLength / 1024 / 1024)}MB video)`);
+    return uri;
+  } catch (err) {
+    console.warn('[gemini] files api path failed:', err);
+    return null;
   }
 }
 
@@ -159,7 +277,7 @@ async function buildMediaParts(video: AcquiredVideo): Promise<GeminiPart[]> {
  *  Slide order is preserved (lists number their picks); a slide that fails to
  *  download is simply skipped — partial slides beat no slides. */
 async function buildImageParts(imageUrls: string[]): Promise<GeminiPart[]> {
-  const fetched = await Promise.all(imageUrls.map(async (url) => {
+  const fetched = await Promise.all(imageUrls.filter(isSafeRemoteUrl).map(async (url) => {
     try {
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), IMAGE_FETCH_TIMEOUT_MS);
@@ -203,7 +321,7 @@ export async function analyzeForFilms(
   // big), so the model reads only the caption. Guessing "films that fit the
   // description" from prose produces confident garbage — forbid it explicitly.
   const captionOnlyNote = !mediaParts.length && video.kind !== 'youtube'
-    ? '\n\nIMPORTANT: the media itself could NOT be attached — you are reading ONLY its caption. Include ONLY films the caption EXPLICITLY names. Do not infer films from descriptions, plot summaries, or vibes.'
+    ? '\n\nIMPORTANT: the media itself could NOT be attached — you are reading ONLY its caption. Include ONLY films the caption EXPLICITLY names. Do not infer films from descriptions, plot summaries, or vibes. Nothing here was visually verified, so cap every confidence at 0.5.'
     : '';
   const slideNote = video.kind === 'images' && mediaParts.length
     ? `\n\nThis post is an IMAGE CAROUSEL/SLIDESHOW — the ${mediaParts.length} image(s) attached are its slides, in order.`
@@ -256,7 +374,7 @@ export async function analyzeForFilms(
       if (res.ok) {
         const json = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
         const text = json.candidates?.[0]?.content?.parts?.map((p) => p.text || '').join('') || '';
-        return { ...parseAnalysis(text), model, mode };
+        return clampConfidence({ ...parseAnalysis(text), model, mode });
       }
       lastErr = `Gemini ${res.status} (${model}): ${(await res.text()).slice(0, 200)}`;
       if (res.status === 401 || res.status === 403) throw new Error(lastErr); // bad key — no model helps
@@ -282,6 +400,20 @@ function modelChain(): string[] {
     .map((s) => s.trim())
     .filter(Boolean);
   return [...new Set([primary, ...fallbacks, ...LAST_RESORT_MODELS])];
+}
+
+/** Defense in depth BEHIND the prompt's footage-primacy rules: a candidate
+ *  the model itself attributes only to the caption can never wear a
+ *  strong-match chip, and a caption-only read (no media attached at all) is
+ *  capped harder — nothing in it was visually verified. Model disobedience
+ *  ends here, not on the user's screen. */
+function clampConfidence(analysis: GeminiAnalysis): GeminiAnalysis {
+  const films = analysis.films.map((f) => {
+    if (analysis.mode === 'caption-only') return { ...f, confidence: Math.min(f.confidence, 0.55) };
+    if (f.evidence?.channel === 'caption') return { ...f, confidence: Math.min(f.confidence, 0.6) };
+    return f;
+  });
+  return { ...analysis, films };
 }
 
 function parseAnalysis(text: string): GeminiAnalysis {

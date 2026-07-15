@@ -196,9 +196,12 @@ final class ShareFlowModel: ObservableObject {
         revealTask?.cancel()
         revealedCount = 0
         guard count > 0 else { return }
+        // Big lists reveal faster per row — the drama scales, the total wait
+        // doesn't (10 films at full stagger would gate saving for ~4s).
+        let stepNs: UInt64 = count > 5 ? 230_000_000 : 380_000_000
         revealTask = Task { [weak self] in
             for i in 1...count {
-                try? await Task.sleep(nanoseconds: i == 1 ? 300_000_000 : 380_000_000)
+                try? await Task.sleep(nanoseconds: i == 1 ? 300_000_000 : stepNs)
                 guard let self, !Task.isCancelled else { return }
                 self.revealedCount = i
                 UIImpactFeedbackGenerator(style: i == count ? .medium : .light).impactOccurred()

@@ -63,13 +63,17 @@ struct ScanActivityLiveActivity: Widget {
                         .padding(.trailing, 2)
                 }
             } compactLeading: {
-                Image(systemName: "film.fill")
-                    .foregroundColor(CardBrand.filmRed)
+                Image("CinechronyIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
             } compactTrailing: {
                 CompactStatus(state: context.state)
             } minimal: {
-                Image(systemName: "film.fill")
-                    .foregroundColor(CardBrand.filmRed)
+                Image("CinechronyIcon")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 20, height: 20)
             }
             .widgetURL(deepLink(context.attributes.jobId))
             .keylineTint(CardBrand.filmRed)
@@ -110,18 +114,15 @@ private struct LockScreenCard: View {
 
 // MARK: - Pieces
 
-/// The brand tile — a film glyph on a film-red wash, constant across states
-/// (the trailing status carries the state; the tile carries the brand).
+/// The brand tile — the cinechrony popcorn itself (bundled asset), constant
+/// across states (the trailing status carries the state; the tile carries
+/// the brand).
 private struct IconTile: View {
     var body: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: 11)
-                .fill(CardBrand.filmRed.opacity(0.18))
-            Image(systemName: "film.fill")
-                .font(.system(size: 17, weight: .semibold))
-                .foregroundColor(CardBrand.filmRed)
-        }
-        .frame(width: 40, height: 40)
+        Image("CinechronyIcon")
+            .resizable()
+            .scaledToFit()
+            .frame(width: 38, height: 38)
     }
 }
 

@@ -77,6 +77,7 @@ type CacheDoc = {
   videoThumbnail?: string | null;
   canonicalUrl?: string;
   provider?: ExtractionProvider;
+  analyzedBy?: string;
   startedAt?: FirebaseFirestore.Timestamp;
   createdAt?: FirebaseFirestore.Timestamp;
 };
@@ -87,11 +88,20 @@ const tsMillis = (t?: FirebaseFirestore.Timestamp) => (t?.toMillis ? t.toMillis(
  *  in `isFreshDone`; jobs share the same lifetime (an expired `/extract?jobId=`
  *  resume shows the built-in not-found state). */
 const expireStamp = () => Timestamp.fromMillis(Date.now() + CACHE_TTL_MS);
+/** A degraded read (the model never saw the media — caption mining only)
+ *  must not poison the cache for a month: a later re-scan of the same URL
+ *  deserves a fresh shot at the real pipeline once the transient cause
+ *  (download failure, model outage) has passed. */
+const DEGRADED_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+
 /** A usable DONE result (handles legacy docs written before the `status` field). */
 function isFreshDone(c?: CacheDoc): boolean {
   if (!c) return false;
   const done = c.status === 'done' || (c.status === undefined && Array.isArray(c.films));
-  return done && (!c.createdAt || Date.now() - tsMillis(c.createdAt) < CACHE_TTL_MS);
+  if (!done) return false;
+  const degraded = typeof c.analyzedBy === 'string' && c.analyzedBy.endsWith('|caption-only');
+  const ttl = degraded ? DEGRADED_CACHE_TTL_MS : CACHE_TTL_MS;
+  return !c.createdAt || Date.now() - tsMillis(c.createdAt) < ttl;
 }
 /** Someone is actively working this urlHash right now (claim not yet stale).
  *  A `failed` claim is NOT live — a user retry of a just-failed scan should

@@ -15,6 +15,10 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if FirebaseApp.app() == nil {
             FirebaseApp.configure()
         }
+        // Live Activity token relay — must run from launch (including the
+        // BACKGROUND launch for a push-started activity), independent of the
+        // WebView/JS lifecycle. See LiveActivityTokenRelay.swift.
+        LiveActivityTokenRelay.start()
         return true
     }
 
