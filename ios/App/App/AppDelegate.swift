@@ -8,13 +8,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        // Configure Firebase FIRST — the @capacitor-firebase plugins
-        // (Authentication in particular) expect the default app to exist at
-        // launch; without this the console logs I-COR000003 and the
-        // FirebaseAuthentication plugin throws a RuntimeError on load.
-        if FirebaseApp.app() == nil {
-            FirebaseApp.configure()
-        }
+        // Configure Firebase FIRST — the @capacitor-firebase plugins expect
+        // the default app to exist at launch. Unconditional on purpose:
+        // probing `FirebaseApp.app() == nil` first is what EMITS the
+        // confusing I-COR000003 warning, and nothing else can have
+        // configured before didFinishLaunching (plugins load later).
+        FirebaseApp.configure()
         // Live Activity token relay — must run from launch (including the
         // BACKGROUND launch for a push-started activity), independent of the
         // WebView/JS lifecycle. See LiveActivityTokenRelay.swift.
