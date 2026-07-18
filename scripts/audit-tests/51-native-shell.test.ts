@@ -40,6 +40,10 @@ test('Info.plist: photo-library add + read usage descriptions present (story "Sa
   assert.match(plist, /<key>NSPhotoLibraryUsageDescription<\/key>\s*<string>.{10,}<\/string>/);
 });
 
+test('Info.plist: export-compliance declared (skips the questionnaire on every upload)', () => {
+  assert.match(read(INFO_PLIST), /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/);
+});
+
 test('Info.plist: Live Activities + remote-notification background mode still declared', () => {
   const plist = read(INFO_PLIST);
   assert.match(plist, /<key>NSSupportsLiveActivities<\/key>\s*<true\/>/);

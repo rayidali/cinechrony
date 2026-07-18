@@ -41,6 +41,11 @@
 	<string>$(MARKETING_VERSION)</string>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<!-- HTTPS-only app → exempt from export-compliance review. Declaring it
+	     here skips the compliance questionnaire on EVERY App Store Connect
+	     upload (TestFlight + release). -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<!-- Privacy usage descriptions. iOS KILLS the process (no error, no
