@@ -69,8 +69,7 @@ src/components/
 ├── Navigation & Layout
 │   ├── bottom-nav.tsx          # Mobile bottom navigation
 │   ├── theme-toggle.tsx        # Dark/light mode
-│   ├── theme-provider.tsx      # next-themes wrapper
-│   └── grid-view-hint.tsx      # First-time hint tooltip
+│   └── theme-provider.tsx      # next-themes wrapper
 │
 └── Error Handling
     └── FirebaseErrorListener.tsx  # Global error toasts
@@ -300,7 +299,7 @@ movie-list.tsx
 │   │   └── review-card.tsx
 │   ├── rating-slider.tsx
 │   └── fullscreen-text-input.tsx
-└── grid-view-hint.tsx
+(grid-view-hint.tsx — the v1 "tap any poster" pill — was DELETED 2026-07-18)
 
 user-avatar.tsx
 ├── avatar-picker.tsx

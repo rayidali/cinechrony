@@ -152,7 +152,7 @@ export function FavoriteMoviesPicker({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg border border-border shadow-photo">
+      <DialogContent aria-describedby={undefined} className="max-w-lg border border-border shadow-photo">
         <DialogHeader>
           <DialogTitle className="text-xl font-headline flex items-center gap-2">
             <Star className="h-5 w-5 text-muted-foreground" />

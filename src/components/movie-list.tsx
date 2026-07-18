@@ -9,7 +9,6 @@ import { MovieDetailsModal } from './movie-details-modal';
 import { PublicMovieDetailsModal } from './public-movie-details-modal';
 import { NotesBoard } from './v3/notes-board';
 import { NoteSheet } from './v3/note-sheet';
-import { GridViewHint } from './grid-view-hint';
 import { Segmented } from '@/components/v3/segmented';
 import { SheetMenu, SheetMenuItem, SheetMenuLabel } from '@/components/ui/sheet-menu';
 import { Search, X, SlidersHorizontal } from 'lucide-react';
@@ -442,9 +441,6 @@ export function MovieList({
           onClose={() => setNoteSheet({ open: false, movie: null, text: '' })}
         />
       )}
-
-      {/* One-time hint for grid view on mobile */}
-      {!isNotes && viewMode === 'grid' && <GridViewHint />}
     </div>
   );
 }
