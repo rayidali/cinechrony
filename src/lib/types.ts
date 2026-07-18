@@ -365,6 +365,7 @@ export type NotificationType =
   | 'follow'
   | 'like'
   | 'list_invite'
+  | 'invite_accepted' // Someone accepted your list invite (they joined)
   | 'list_like' // Someone liked one of your public lists
   | 'post_tag' // Someone tagged you in a post
   | 'post_like' // Someone liked your post

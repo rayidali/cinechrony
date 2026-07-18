@@ -15,6 +15,8 @@ import { getDb } from '@/firebase/admin';
 import type { ListMember } from '@/lib/types';
 import { createTtlCache, cached } from '@/lib/server-cache';
 import { getVerifiedUids } from '@/lib/verified-server';
+import { isBlockedBetween } from '@/lib/blocks-server';
+import { sendPushToUser } from '@/lib/push-server';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
@@ -143,6 +145,9 @@ export async function createList(
       const inviterPhotoUrl = userDoc.data()?.photoURL ?? null;
       for (const invitee of invites) {
         if (!invitee?.uid || invitee.uid === uid) continue;
+        // A blocked pair can't invite each other — skip quietly so one bad
+        // invitee never fails the list creation itself.
+        if (await isBlockedBetween(db, uid, invitee.uid)) continue;
         const inviteRef = db.collection('invites').doc();
         await inviteRef.set({
           id: inviteRef.id,
@@ -156,6 +161,11 @@ export async function createList(
           status: 'pending',
           createdAt: FieldValue.serverTimestamp(),
         });
+        // Notification + push mirror inviteToList (this path previously
+        // wrote the doc but never pushed — a silent invite).
+        const inviteeDoc = await db.collection('users').doc(invitee.uid).get();
+        const inviteePrefs = inviteeDoc.data()?.notificationPreferences;
+        if (inviteePrefs && inviteePrefs.listInvites === false) continue;
         await db.collection('notifications').add({
           userId: invitee.uid,
           type: 'list_invite',
@@ -170,6 +180,20 @@ export async function createList(
           read: false,
           createdAt: FieldValue.serverTimestamp(),
         });
+        const inviterName = inviterUsername
+          ? `@${inviterUsername}`
+          : inviterDisplayName || 'Someone';
+        void sendPushToUser(invitee.uid, {
+          title: `${inviterName} invited you`,
+          body: `to "${name}"`,
+          data: {
+            type: 'list_invite',
+            inviteId: inviteRef.id,
+            listId: listRef.id,
+            listOwnerId: uid,
+            url: '/notifications',
+          },
+        }).catch((err) => console.error('[createList] push failed:', err));
       }
     } catch (err) {
       console.error('[createList] invite fan-out failed:', err);
@@ -504,14 +528,18 @@ export async function likeList(
   });
   if (result.kind === 'err') throw result.error;
 
-  // Notify the owner — best-effort, never self.
+  // Notify the owner — best-effort, never self, never across a block.
   if (listOwnerId !== callerUid) {
     try {
       const ownerDoc = await db.collection('users').doc(listOwnerId).get();
       const prefs = ownerDoc.data()?.notificationPreferences;
-      if (!prefs || prefs.likes !== false) {
+      if (
+        (!prefs || prefs.likes !== false) &&
+        !(await isBlockedBetween(db, callerUid, listOwnerId))
+      ) {
         const likerDoc = await db.collection('users').doc(callerUid).get();
         const likerData = likerDoc.data();
+        const listName = result.listData?.name || 'your list';
         await db.collection('notifications').add({
           userId: listOwnerId,
           type: 'list_like',
@@ -521,10 +549,24 @@ export async function likeList(
           fromPhotoUrl: likerData?.photoURL || null,
           listId,
           listOwnerId,
-          listName: result.listData?.name || 'your list',
+          listName,
           read: false,
           createdAt: FieldValue.serverTimestamp(),
         });
+        // This creator previously wrote the doc but never pushed.
+        const likerName = likerData?.username
+          ? `@${likerData.username}`
+          : likerData?.displayName || 'Someone';
+        void sendPushToUser(listOwnerId, {
+          title: `${likerName} liked your list`,
+          body: `"${listName}"`,
+          data: {
+            type: 'list_like',
+            listId,
+            listOwnerId,
+            url: `/lists/${listId}`,
+          },
+        }).catch((err) => console.error('[likeList] push failed:', err));
       }
     } catch (err) {
       console.error('[likeList] notification create failed:', err);

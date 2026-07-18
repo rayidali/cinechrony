@@ -330,6 +330,71 @@ test('POST /invites/accept: by inviteCode, happy path', async () => {
   assert.ok(listData?.collaboratorIds.includes(invitee.uid));
 });
 
+test('POST /invites/accept: notifies the inviter (invite_accepted doc)', async () => {
+  await seedList({ collaborators: [] });
+  const inviteRef = await adminDb().collection('invites').add({
+    listId: LIST_ID, listOwnerId: owner.uid, inviterId: owner.uid,
+    status: 'pending', inviteeId: invitee.uid, listName: 'A list',
+  });
+  const token = await invitee.getIdToken();
+  const res = await callRoute(acceptPost, 'POST', {
+    token, body: { inviteId: inviteRef.id },
+  });
+  assert.equal(res.status, 200);
+
+  const notifSnap = await adminDb().collection('notifications')
+    .where('userId', '==', owner.uid)
+    .where('type', '==', 'invite_accepted')
+    .get();
+  assert.equal(notifSnap.size, 1);
+  const n = notifSnap.docs[0].data();
+  assert.equal(n.fromUserId, invitee.uid);
+  assert.equal(n.fromUsername, 'inviteeuser');
+  assert.equal(n.listId, LIST_ID);
+  assert.equal(n.listOwnerId, owner.uid);
+  assert.equal(n.listName, 'A list');
+});
+
+test('POST /invites/accept: inviter with listInvites pref off → no invite_accepted doc', async () => {
+  await seedList({ collaborators: [] });
+  await adminDb().collection('users').doc(owner.uid).set(
+    { notificationPreferences: { listInvites: false } }, { merge: true },
+  );
+  const inviteRef = await adminDb().collection('invites').add({
+    listId: LIST_ID, listOwnerId: owner.uid, inviterId: owner.uid,
+    status: 'pending', inviteeId: invitee.uid, listName: 'A list',
+  });
+  const token = await invitee.getIdToken();
+  const res = await callRoute(acceptPost, 'POST', {
+    token, body: { inviteId: inviteRef.id },
+  });
+  assert.equal(res.status, 200);
+
+  const notifSnap = await adminDb().collection('notifications')
+    .where('userId', '==', owner.uid)
+    .where('type', '==', 'invite_accepted')
+    .get();
+  assert.equal(notifSnap.size, 0);
+});
+
+test('POST /invites: blocked pair → 404 (no invite, no existence oracle)', async () => {
+  await seedList();
+  await adminDb().collection('blocks').doc(`${invitee.uid}_${owner.uid}`).set({
+    blockerId: invitee.uid, blockedId: owner.uid,
+  });
+  const token = await owner.getIdToken();
+  const res = await callRoute(listInvitePost, 'POST', {
+    token,
+    params: { ownerId: owner.uid, listId: LIST_ID },
+    body: { inviteeId: invitee.uid },
+  });
+  assert.equal(res.status, 404);
+
+  const invitesSnap = await adminDb().collection('invites')
+    .where('inviteeId', '==', invitee.uid).get();
+  assert.equal(invitesSnap.size, 0);
+});
+
 test('POST /invites/accept: revoked invite → 409', async () => {
   await seedList({ collaborators: [] });
   const inviteRef = await adminDb().collection('invites').add({

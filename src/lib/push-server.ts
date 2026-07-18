@@ -186,8 +186,16 @@ async function sendFcm(
  */
 export async function sendPushToUser(
   uid: string,
-  payload: PushPayload,
+  rawPayload: PushPayload,
 ): Promise<PushSendResult> {
+  // Every push must land somewhere when tapped. Both tap routers (native
+  // `native-push.ts` and web `public/sw.js`) navigate to `data.url` — a
+  // payload without one is a dead tap on iOS. Callers set a specific deep
+  // link; anything else falls back to the notifications inbox.
+  const payload: PushPayload = {
+    ...rawPayload,
+    data: { url: '/notifications', ...(rawPayload.data ?? {}) },
+  };
   const db = getDb();
   const subs = db.collection('users').doc(uid).collection('pushSubscriptions');
 

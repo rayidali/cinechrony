@@ -65,7 +65,9 @@ export default function ListSettingsPage() {
   const [isProcessingImage, setIsProcessingImage] = useState(false);
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [isInviteOpen, setIsInviteOpen] = useState(false);
+  // ?invite=1 deep-links straight into the invite flow (the list page's
+  // "+" in the collaborator row) — add-people is one tap, not a settings hunt.
+  const [isInviteOpen, setIsInviteOpen] = useState(() => searchParams.get('invite') === '1');
   const [memberToRemove, setMemberToRemove] = useState<ListMember | null>(null);
   const [isRemoveOpen, setIsRemoveOpen] = useState(false);
   const [isLeaveOpen, setIsLeaveOpen] = useState(false);

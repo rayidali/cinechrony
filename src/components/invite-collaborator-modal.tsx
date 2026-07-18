@@ -48,7 +48,9 @@ export function InviteCollaboratorModal({
   const [searchResults, setSearchResults] = useState<UserProfile[]>([]);
   const [pendingInvites, setPendingInvites] = useState<ListInvite[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [isInviting, setIsInviting] = useState(false);
+  /** The uid whose invite is in flight — keyed per row so the spinner only
+   *  shows on the tapped result, never on its neighbors. */
+  const [invitingUid, setInvitingUid] = useState<string | null>(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [isCopied, setIsCopied] = useState(false);
   const [isCreatingLink, setIsCreatingLink] = useState(false);
@@ -118,16 +120,16 @@ export function InviteCollaboratorModal({
   }, [searchQuery, user, members, pendingInvites]);
 
   const handleInviteUser = async (inviteeId: string) => {
-    if (!user) return;
+    if (!user || invitingUid) return;
 
-    setIsInviting(true);
+    setInvitingUid(inviteeId);
     try {
       await apiCall(
         'POST',
         `/api/v1/lists/${listOwnerId}/${listId}/invites`,
         { inviteeId },
       );
-      toast({ title: 'Invite Sent', description: 'User has been invited to collaborate.' });
+      toast({ title: 'invite sent', description: "they'll get a notification." });
       setSearchQuery('');
       setSearchResults([]);
       setStep('options');
@@ -145,7 +147,7 @@ export function InviteCollaboratorModal({
         description: error instanceof ApiClientError ? error.message : 'Failed to send invite',
       });
     } finally {
-      setIsInviting(false);
+      setInvitingUid(null);
     }
   };
 
@@ -224,7 +226,7 @@ export function InviteCollaboratorModal({
               >
                 <X className="h-5 w-5" />
               </button>
-              <Drawer.Title className="text-lg font-semibold">Invite to {listName}</Drawer.Title>
+              <Drawer.Title className="font-headline text-[19px] font-bold lowercase tracking-[-0.01em]">invite to {listName}</Drawer.Title>
               <div className="w-9" />
             </div>
 
@@ -245,7 +247,7 @@ export function InviteCollaboratorModal({
                 className="w-full h-12 rounded-xl mb-4 justify-start px-4"
               >
                 <Search className="h-4 w-4 mr-3 text-muted-foreground" />
-                <span className="text-muted-foreground">Search by username...</span>
+                <span className="text-muted-foreground">search by username...</span>
               </Button>
 
               {/* Invite Link Section */}
@@ -332,8 +334,9 @@ export function InviteCollaboratorModal({
 
       {/* Step 2: Search - Fullscreen (NOT Vaul - iOS Safari safe) */}
       {isOpen && step === 'search' && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in duration-150">
-          {/* Header */}
+        <div className="fixed inset-0 z-50 flex flex-col bg-background animate-in fade-in duration-150 pt-safe">
+          {/* Header — pt-safe on the container keeps this below the status
+              bar / Dynamic Island (this overlay reaches the top edge). */}
           <div className="flex items-center gap-2 px-4 py-3 border-b border-border flex-shrink-0">
             <button
               onClick={() => {
@@ -348,7 +351,7 @@ export function InviteCollaboratorModal({
             <div className="flex-1 relative">
               <input
                 type="text"
-                placeholder="Search by username..."
+                placeholder="search by username..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 autoFocus
@@ -367,7 +370,7 @@ export function InviteCollaboratorModal({
             {searchQuery.length < 2 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Search className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>Type at least 2 characters to search</p>
+                <p>type at least 2 characters to search</p>
               </div>
             ) : searchResults.length > 0 ? (
               <div className="space-y-2">
@@ -391,15 +394,15 @@ export function InviteCollaboratorModal({
                     <Button
                       size="sm"
                       onClick={() => handleInviteUser(profile.uid)}
-                      disabled={isInviting}
+                      disabled={invitingUid !== null}
                       className="rounded-full"
                     >
-                      {isInviting ? (
+                      {invitingUid === profile.uid ? (
                         <Loader2 className="h-4 w-4 animate-spin" />
                       ) : (
                         <>
                           <UserPlus className="h-4 w-4 mr-1" />
-                          Invite
+                          invite
                         </>
                       )}
                     </Button>
@@ -409,7 +412,7 @@ export function InviteCollaboratorModal({
             ) : !isSearching ? (
               <div className="text-center py-12 text-muted-foreground">
                 <Search className="h-12 w-12 mx-auto mb-3 opacity-30" />
-                <p>No users found</p>
+                <p>no users found</p>
               </div>
             ) : null}
           </div>

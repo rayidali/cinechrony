@@ -43,6 +43,19 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Privacy usage descriptions. iOS KILLS the process (no error, no
+	     recovery) if a privacy-gated API is touched without its key. The
+	     WKWebView file inputs (list cover, avatar, post media) offer
+	     "Take Photo" natively, and the share sheet offers "Save Image" on
+	     story cards — all four keys below are load-bearing. -->
+	<key>NSCameraUsageDescription</key>
+	<string>cinechrony uses the camera when you take a photo for a list cover, your profile, or a post.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>cinechrony uses the microphone when you record a video for a post.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>cinechrony saves an image to your photo library only when you choose to save a shared card.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>cinechrony uses your photo library when you pick a photo for a list cover, your profile, or a post.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>UIBackgroundModes</key>

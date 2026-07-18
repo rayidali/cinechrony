@@ -2,8 +2,30 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-14)
+## Current state (2026-07-18)
 
+- **Theatre-bug sweep: camera crash class + safe-area class + the invite loop
+  (2026-07-18).** The "take photo for a list cover" crash was `Info.plist`
+  having ZERO privacy usage descriptions (iOS TCC kill, not an exception) —
+  camera/microphone/photo-add/photo-read keys added (post-composer video
+  capture + story-share "Save Image" were the same latent crash). The invite
+  search overlay sat under the status bar → `pt-safe`; its single `isInviting`
+  spinner now keys per row (`invitingUid`). Class sweeps then fixed every
+  sibling: `fullscreen-text-input` header, find-friends back button,
+  `ToastViewport` top inset (app-wide toasts were under the clock). Push
+  layer hardening: `sendPushToUser` defaults `data.url` → `/notifications`
+  (both tap routers ONLY open `data.url` — most pushes were dead taps),
+  per-type deep links added, `createList` initial-invitee path now pushes
+  (was doc-only), `list_like` now pushes, `post_comment` rides the `replies`
+  pref (had none), and **blocks now suppress notification + push at CREATION
+  time** (were read-time filters only — blocked users could still buzz your
+  phone). NEW: `invite_accepted` notification + push ("@x joined <list>") on
+  accept, rendered + deep-linked on the notifications page; the list page
+  collaborator row gained a dashed **+** (add people) → `settings?invite=1`
+  auto-opens the invite modal (was buried in settings). New CI net:
+  `scripts/audit-tests/51-native-shell.test.ts` (plist usage keys, pbxproj
+  Sources membership, AppDelegate launch wiring, contentInset, App Group in
+  both entitlements — every past native-shell incident class).
 - **Excellence pass: LA diagnosis + image posts + escalation + reveal
   choreography (2026-07-14 night).** Prod-Firestore forensics proved WHY the
   first Live Activity test showed nothing: `users/*/laTokens` was EMPTY (the

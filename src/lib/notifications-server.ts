@@ -14,7 +14,7 @@
 import { FieldValue } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
 import { createTtlCache, cached } from '@/lib/server-cache';
-import { getBlockSet } from '@/lib/blocks-server';
+import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
 import { sendPushToUser, type PushPayload } from '@/lib/push-server';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -34,6 +34,26 @@ function firePush(uid: string, payload: PushPayload): void {
 
 function fromName(ctx: { fromUsername: string | null; fromDisplayName: string | null }): string {
   return ctx.fromUsername ? `@${ctx.fromUsername}` : ctx.fromDisplayName || 'Someone';
+}
+
+/**
+ * A block must silence the phone, not just the inbox. `listNotifications`
+ * filters blocked rows at READ time, but a push that already buzzed the
+ * recipient defeats the point of blocking — so every social creator below
+ * checks at CREATION time. Fails open (false): losing the check to a
+ * transient error must not drop legitimate notifications.
+ */
+async function quietlyBlocked(
+  db: FirebaseFirestore.Firestore,
+  a: string,
+  b: string,
+): Promise<boolean> {
+  try {
+    return await isBlockedBetween(db, a, b);
+  } catch (err) {
+    console.error('[notifications-server] block check failed:', err);
+    return false;
+  }
 }
 
 // ─── @-mention extraction ─────────────────────────────────────────────────
@@ -104,6 +124,7 @@ export async function createMentionNotifications(
     if (mentionedUserId === ctx.fromUserId) continue;
     const prefs = userData?.notificationPreferences;
     if (prefs && prefs.mentions === false) continue;
+    if (await quietlyBlocked(db, ctx.fromUserId, mentionedUserId)) continue;
 
     const notifRef = db.collection('notifications').doc();
     batch.set(notifRef, {
@@ -138,10 +159,18 @@ export async function createMentionNotifications(
           reviewId: ctx.reviewId,
           tmdbId: String(ctx.tmdbId),
           mediaType: ctx.mediaType,
+          url: reviewsWallUrl(ctx),
         },
       });
     }
   }
+}
+
+/** Tap destination for review-flavoured pushes — mirrors the notifications
+ *  page's `notifTarget` for mention/reply/like. */
+function reviewsWallUrl(ctx: { tmdbId: number; mediaType: 'movie' | 'tv'; movieTitle: string }): string {
+  const p = new URLSearchParams({ title: ctx.movieTitle, type: ctx.mediaType });
+  return `/movie/${ctx.tmdbId}/comments?${p.toString()}`;
 }
 
 // ─── Reply notification ───────────────────────────────────────────────────
@@ -156,6 +185,7 @@ export async function createReplyNotification(
   ctx: ReviewContext & { parentAuthorId: string },
 ): Promise<void> {
   if (ctx.parentAuthorId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, ctx.parentAuthorId)) return;
 
   const userDoc = await db.collection('users').doc(ctx.parentAuthorId).get();
   const prefs = userDoc.data()?.notificationPreferences;
@@ -188,6 +218,7 @@ export async function createReplyNotification(
       reviewId: ctx.reviewId,
       tmdbId: String(ctx.tmdbId),
       mediaType: ctx.mediaType,
+      url: reviewsWallUrl(ctx),
     },
   });
 }
@@ -216,6 +247,7 @@ export async function createLikeNotification(
   ctx: LikeNotificationCtx,
 ): Promise<void> {
   if (ctx.reviewAuthorId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, ctx.reviewAuthorId)) return;
 
   const authorDoc = await db.collection('users').doc(ctx.reviewAuthorId).get();
   const prefs = authorDoc.data()?.notificationPreferences;
@@ -248,6 +280,7 @@ export async function createLikeNotification(
       reviewId: ctx.reviewId,
       tmdbId: String(ctx.tmdbId),
       mediaType: ctx.mediaType,
+      url: reviewsWallUrl(ctx),
     },
   });
 }
@@ -277,6 +310,7 @@ export async function createPostTagNotification(
   ctx: PostTagNotificationCtx,
 ): Promise<void> {
   if (ctx.recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, ctx.recipientId)) return;
 
   if (ctx.respectMentionsPref) {
     const userDoc = await db.collection('users').doc(ctx.recipientId).get();
@@ -300,7 +334,7 @@ export async function createPostTagNotification(
   firePush(ctx.recipientId, {
     title: `${fromName(ctx)} tagged you in a post`,
     body: ctx.previewText,
-    data: { type: 'post_tag', postId: ctx.postId },
+    data: { type: 'post_tag', postId: ctx.postId, url: `/post/${ctx.postId}` },
   });
 }
 
@@ -323,6 +357,7 @@ export async function createPostLikeNotification(
   ctx: PostLikeNotificationCtx,
 ): Promise<void> {
   if (ctx.postAuthorId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, ctx.postAuthorId)) return;
 
   const authorDoc = await db.collection('users').doc(ctx.postAuthorId).get();
   const prefs = authorDoc.data()?.notificationPreferences;
@@ -344,7 +379,7 @@ export async function createPostLikeNotification(
   firePush(ctx.postAuthorId, {
     title: `${fromName(ctx)} liked your post`,
     body: ctx.previewText,
-    data: { type: 'post_like', postId: ctx.postId },
+    data: { type: 'post_like', postId: ctx.postId, url: `/post/${ctx.postId}` },
   });
 }
 
@@ -371,6 +406,13 @@ export async function createPostCommentNotification(
   ctx: PostCommentNotificationCtx,
 ): Promise<void> {
   if (ctx.recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, ctx.recipientId)) return;
+
+  // A comment on your post is a reply in spirit — it rides the `replies`
+  // pref (this creator previously had NO opt-out at all).
+  const recipientDoc = await db.collection('users').doc(ctx.recipientId).get();
+  const prefs = recipientDoc.data()?.notificationPreferences;
+  if (prefs && prefs.replies === false) return;
 
   await db.collection('notifications').add({
     userId: ctx.recipientId,
@@ -388,7 +430,7 @@ export async function createPostCommentNotification(
   firePush(ctx.recipientId, {
     title: `${fromName(ctx)} commented on your post`,
     body: ctx.previewText,
-    data: { type: 'post_comment', postId: ctx.postId },
+    data: { type: 'post_comment', postId: ctx.postId, url: `/post/${ctx.postId}` },
   });
 }
 

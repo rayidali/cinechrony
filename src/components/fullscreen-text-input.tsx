@@ -115,8 +115,9 @@ export function FullscreenTextInput({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in fade-in duration-150">
-      {/* Header */}
+    <div className="fixed inset-0 z-[100] flex flex-col bg-background animate-in fade-in duration-150 pt-safe">
+      {/* Header — pt-safe on the container keeps Cancel/Done below the
+          status bar / Dynamic Island (this overlay reaches the top edge). */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 bg-background">
         <button
           onClick={onClose}

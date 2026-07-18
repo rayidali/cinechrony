@@ -114,7 +114,7 @@ export function FindFriendsScreen({
     <div className="flex flex-col items-center justify-center min-h-screen p-4">
       <button
         onClick={onBack}
-        className="absolute top-4 left-4 p-2 rounded-full hover:bg-secondary transition-colors"
+        className="absolute left-4 top-[calc(env(safe-area-inset-top)+1rem)] p-2 rounded-full hover:bg-secondary transition-colors"
       >
         <ArrowLeft className="h-6 w-6" />
       </button>

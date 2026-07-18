@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Link } from '@/lib/native-nav';
-import { Settings2, Share } from 'lucide-react';
+import { Plus, Settings2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useStoryShare } from '@/components/story-share-provider';
@@ -179,6 +179,15 @@ export function ListHeader({
               )
             )}
           </div>
+        )}
+        {(isOwner || isCollaborator) && (
+          <Link
+            href={`${settingsUrl}${settingsUrl.includes('?') ? '&' : '?'}invite=1`}
+            aria-label="add people"
+            className="flex h-7 w-7 items-center justify-center rounded-full border border-dashed border-muted-foreground/50 text-muted-foreground transition-colors hover:bg-secondary active:scale-95"
+          >
+            <Plus className="h-4 w-4" strokeWidth={2.2} />
+          </Link>
         )}
         <span className="font-mono text-[11px] tabular-nums text-muted-foreground">
           {memberCountLabel}

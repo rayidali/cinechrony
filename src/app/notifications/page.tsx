@@ -34,6 +34,8 @@ function typeGlyph(type: NotificationType) {
       return <UserPlus className="h-[18px] w-[18px] text-success" strokeWidth={2} aria-hidden />;
     case 'list_invite':
       return <Users className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
+    case 'invite_accepted':
+      return <Users className="h-[18px] w-[18px] text-success" strokeWidth={2} aria-hidden />;
     default:
       return null;
   }
@@ -46,6 +48,10 @@ function notifTarget(n: Notification): string | null {
       return n.fromUsername ? `/profile/${n.fromUsername}` : null;
     case 'list_invite':
       return '/lists';
+    case 'invite_accepted':
+      return n.listId
+        ? `/lists/${n.listId}${n.listOwnerId ? `?owner=${n.listOwnerId}` : ''}`
+        : null;
     case 'list_like':
       return n.listId ? `/lists/${n.listId}` : null;
     case 'post_tag':
@@ -256,6 +262,7 @@ export default function NotificationsPage() {
         {n.type === 'like' && <>liked your comment on <span className="font-semibold">{n.movieTitle}</span></>}
         {n.type === 'follow' && <>started following you</>}
         {n.type === 'list_invite' && <>invited you to join <span className="font-semibold">{n.listName}</span></>}
+        {n.type === 'invite_accepted' && <>joined <span className="font-semibold">{n.listName}</span></>}
         {n.type === 'list_like' && <>liked your list <span className="font-semibold">{n.listName}</span></>}
         {n.type === 'post_tag' && <>tagged you in a post</>}
         {n.type === 'post_like' && <>liked your post</>}

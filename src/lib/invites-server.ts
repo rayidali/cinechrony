@@ -24,6 +24,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { randomInt } from 'node:crypto';
 import { getDb } from '@/firebase/admin';
 import { MAX_LIST_MEMBERS, invalidateCollaborativeLists, invalidateListMembers } from '@/lib/lists-server';
+import { isBlockedBetween } from '@/lib/blocks-server';
 import { sendPushToUser } from '@/lib/push-server';
 import type { ListInvite } from '@/lib/types';
 
@@ -218,6 +219,12 @@ export async function inviteToList(
   const inviteeDoc = await db.collection('users').doc(inviteeId).get();
   if (!inviteeDoc.exists) throw new InviteeNotFoundError();
 
+  // A blocked pair can't invite each other. Same error as not-found so the
+  // response is no existence-oracle for the block itself.
+  if (await isBlockedBetween(db, inviterUid, inviteeId)) {
+    throw new InviteeNotFoundError();
+  }
+
   const existing = await db
     .collection('invites')
     .where('listId', '==', listId)
@@ -279,6 +286,8 @@ export async function inviteToList(
           inviteId: inviteRef.id,
           listId,
           listOwnerId,
+          // accept/decline live on the notifications page — land there.
+          url: '/notifications',
         },
       }).catch((err) => console.error('[inviteToList] push failed:', err));
     }
@@ -453,7 +462,13 @@ export async function acceptInvite(
     throw new InviteValidationError('inviteId or inviteCode is required.');
   }
 
-  type TxOk = { kind: 'ok'; listId: string; listOwnerId: string };
+  type TxOk = {
+    kind: 'ok';
+    listId: string;
+    listOwnerId: string;
+    inviterId: string | null;
+    listName: string;
+  };
   type TxErr = { kind: 'err'; error: Error };
   const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
     const inviteSnap = await tx.get(inviteRef);
@@ -494,7 +509,13 @@ export async function acceptInvite(
     });
     tx.update(inviteRef, { status: 'accepted', inviteeId: callerUid });
 
-    return { kind: 'ok' as const, listId: data.listId, listOwnerId: data.listOwnerId };
+    return {
+      kind: 'ok' as const,
+      listId: data.listId,
+      listOwnerId: data.listOwnerId,
+      inviterId: data.inviterId ?? null,
+      listName: data.listName ?? 'Untitled List',
+    };
   });
 
   if (result.kind === 'err') throw result.error;
@@ -518,6 +539,51 @@ export async function acceptInvite(
     }
   } catch (err) {
     console.error('[acceptInvite] notification cleanup failed:', err);
+  }
+
+  // Close the loop: tell the inviter their invite was accepted. This is the
+  // one membership event worth a ping besides the invite itself — declines
+  // stay silent on purpose. Best-effort; rides the inviter's listInvites pref.
+  if (result.inviterId && result.inviterId !== callerUid) {
+    try {
+      const [accepterDoc, inviterDoc] = await Promise.all([
+        db.collection('users').doc(callerUid).get(),
+        db.collection('users').doc(result.inviterId).get(),
+      ]);
+      const accepter = accepterDoc.data();
+      const prefs = inviterDoc.data()?.notificationPreferences;
+      if (!prefs || prefs.listInvites !== false) {
+        await db.collection('notifications').add({
+          userId: result.inviterId,
+          type: 'invite_accepted',
+          fromUserId: callerUid,
+          fromUsername: accepter?.username || null,
+          fromDisplayName: accepter?.displayName || null,
+          fromPhotoUrl: accepter?.photoURL || null,
+          listId: result.listId,
+          listOwnerId: result.listOwnerId,
+          listName: result.listName,
+          read: false,
+          createdAt: FieldValue.serverTimestamp(),
+        });
+
+        const accepterName = accepter?.username
+          ? `@${accepter.username}`
+          : accepter?.displayName || 'someone';
+        void sendPushToUser(result.inviterId, {
+          title: `${accepterName} joined`,
+          body: `"${result.listName}"`,
+          data: {
+            type: 'invite_accepted',
+            listId: result.listId,
+            listOwnerId: result.listOwnerId,
+            url: `/lists/${result.listId}?owner=${result.listOwnerId}`,
+          },
+        }).catch((err) => console.error('[acceptInvite] push failed:', err));
+      }
+    } catch (err) {
+      console.error('[acceptInvite] accepted-notification failed:', err);
+    }
   }
 
   return { listId: result.listId, listOwnerId: result.listOwnerId };

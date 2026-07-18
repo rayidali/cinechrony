@@ -159,8 +159,12 @@ export async function followUser(
         : callerData?.displayName || 'Someone';
       void sendPushToUser(targetUid, {
         title: `${callerName} followed you`,
-        body: 'Tap to view their profile.',
-        data: { type: 'follow', fromUserId: callerUid },
+        body: 'tap to see their profile.',
+        data: {
+          type: 'follow',
+          fromUserId: callerUid,
+          ...(callerData?.username ? { url: `/profile/${callerData.username}` } : {}),
+        },
       }).catch((err) => console.error('[followUser] push failed:', err));
     }
   } catch (err) {
