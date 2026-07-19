@@ -4,6 +4,29 @@
 
 ## Current state (2026-07-18)
 
+- **TestFlight prep — readiness verified, playbook delivered (2026-07-18
+  evening).** Upload readiness checked against the repo AND live services:
+  popcorn app icon at 1024 in the asset catalog (not a placeholder), versions
+  1.0 (1) consistent across app + ShareExtension + widget
+  (`GENERATE_INFOPLIST_FILE` injects for the extension targets),
+  `ITSAppUsesNonExemptEncryption=false` declared (`ea56598`, guarded in suite
+  51) so uploads skip the compliance question, privacy URL live at
+  www.cinechrony.com/privacy, Firebase authorizedDomains ALREADY contains
+  `app.cinechrony.com` + `cinechrony.com`, and the applinks entitlement has
+  carried `app.cinechrony.com` since 07-13. Owner playbook (checklist
+  artifact, phases 0–7 incl. the domain answer):
+  https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed —
+  owner was mid-Phase-1 (creating the ASC app record: name Cinechrony,
+  bundle `com.cinechrony.app`, SKU `cinechrony-ios`). Key decisions: the
+  domain move is ADDITIVE (add `app.cinechrony.com` to the SAME Vercel
+  project; `movienight-kappa.vercel.app` stays attached forever, so existing
+  PWA installs + old native builds keep working — when DNS is live, flip the
+  three pinned URLs: `package.json` build:static default,
+  `ExtensionAPI.swift`, `LiveActivityTokenRelay.swift`, then rebuild);
+  public-link tester cap starts at **150** until Blaze. Same day
+  (`d77926c`): the v1 "tap any poster" GridViewHint DELETED (was the last
+  first-prototype leftover) + favorite-movies-picker aria fix (the repeated
+  DialogContent console warning).
 - **Theatre-bug sweep: camera crash class + safe-area class + the invite loop
   (2026-07-18).** The "take photo for a list cover" crash was `Info.plist`
   having ZERO privacy usage descriptions (iOS TCC kill, not an exception) —
@@ -456,25 +479,31 @@
   REQUIRES a privacy-policy URL + support URL to submit). The polished marketing
   landing page (hero, App Store screenshots + badge, feature sections) can be built
   **during the TestFlight beta window** — it gates public launch, not the beta.
-- **Owner actions:** ~~firestore indexes/rules~~ · ~~`cap sync`~~ · ~~`APIFY_TOKEN`~~ ·
-  ~~`RESEND_API_KEY`~~ · ~~Sentry DSN in Vercel~~ · ~~`NEXT_PUBLIC_POSTHOG_KEY`/`HOST`
-  in Vercel~~ · ~~`/privacy` + `/support` pages~~ · ~~marketing website~~ **(all
-  DONE)**. **Remaining (pre-TestFlight):** point **`cinechrony.com` → Vercel** as
-  the single prod origin + set the iOS `NEXT_PUBLIC_API_BASE_URL` to it (see
-  `PHASE-B-HANDOFF.md` §9); **buy the paid Apple Developer account** ($99/yr);
-  enable **Blaze** before any beta cohort past ~150 users. Optional: add
-  `NEXT_PUBLIC_SENTRY_DSN` to `.env.local` if you want Sentry in the native build.
-- **NOW (analytics + website + legal all DONE):** the critical path to a beta is
-  (1) **buy the paid Apple Developer account** ($99/yr) → unlocks (2) the **iOS
-  Share Extension** (the native "Share → Cinechrony" doorway; `/extract?url=`
-  ready) + **native push (APNs)** + the async "get pinged without opening the app"
-  flow (all gated on the paid account — see `DEFERRED-PAID-APPLE-ACCOUNT.md`);
-  (3) **TestFlight** public-link beta; (4) enable **Blaze** before the cohort
-  grows; then **App Store** submission. Parallel/optional: the app-repo PWA
-  `<InstallPrompt>`; point `cinechrony.com` → Vercel as the single prod origin;
-  direct-to-IG pasteboard plugin (0.7.6.2/3); welcome-on-signup email (module
-  ready); an `@cinechrony` admin/moderation console (the `admin` claim is
-  provisioned).
+- **Owner actions:** ~~firestore indexes/rules~~ · ~~`APIFY_TOKEN`~~ ·
+  ~~`RESEND_API_KEY`~~ · ~~Sentry DSN~~ · ~~PostHog keys~~ · ~~`/privacy` +
+  `/support`~~ · ~~marketing website~~ · ~~paid Apple Developer account~~ ·
+  ~~APNs key in Firebase + Vercel~~ · ~~Apple/Google sign-in providers~~ ·
+  ~~`GEMINI_MODEL` env cleanup~~ **(all DONE)**. **Remaining:** walk the
+  TestFlight playbook (see NOW); add **`app.cinechrony.com`** in Vercel +
+  DNS (additive — nothing existing breaks; Firebase + entitlements already
+  wired; Claude then flips the 3 pinned URLs + rebuilds); enable **Blaze**
+  before any cohort past ~150; Firestore console TTL policies
+  (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not yet
+  clicked; EU **trader status** in ASC (App Store gate, not TestFlight).
+- **NOW — TestFlight (playbook:
+  https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed):**
+  (1) ASC app record (owner was mid-flight) → (2) Xcode Archive → Upload →
+  (3) internal group = owner installs OTA, the cable retires → (4) friends
+  via external group + one-time Beta review (needs a demo account — the app
+  requires sign-in) → (5) the **public link** on the website's "iOS beta"
+  button, tester cap **150 until Blaze** → App Store submission after the
+  beta bakes. Do the `app.cinechrony.com` domain-add before the public link
+  goes wide. Parallel/optional: PWA `<InstallPrompt>`; direct-to-IG
+  pasteboard plugin (0.7.6.2/3); welcome-on-signup email (module ready);
+  `@cinechrony` admin console (the `admin` claim is provisioned); Live
+  Activity P4 (poster in terminal card, multi-device fan-out); Maestro UI
+  flows on the simulator (owner asked for a better device-testing process —
+  offered, not yet commissioned).
 
 ## Quick Reference
 

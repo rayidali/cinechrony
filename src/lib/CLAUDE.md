@@ -33,7 +33,9 @@ src/lib/
 ├── lists-server.ts           # createList, updateListFields, deleteList,
 │                              # transferOwnership, setListCover, list reads
 ├── movies-server.ts          # addMovieToList, updateMovieStatus, …
-├── invites-server.ts         # inviteToList, acceptInvite, revokeInvite, …
+├── invites-server.ts         # inviteToList (block-gated 404, push w/ url),
+│                              # acceptInvite (+ invite_accepted notif+push to
+│                              # the inviter), revokeInvite, …
 ├── follows-server.ts         # followUser, unfollowUser, getFollowRelationship
 ├── reviews-server.ts         # createReview, like/unlike (= "helpful"), threading,
 │                              # getReviewHighlights (hot-takes), reactReview/
@@ -45,8 +47,17 @@ src/lib/
 ├── activities-server.ts      # getActivityFeed, likeActivity, …
 ├── posts-server.ts           # createPost, updatePost, deletePost, likePost
 ├── post-comments-server.ts   # createPostComment + likes
-├── notifications-server.ts   # All notification creators + push-sub CRUD
-├── push-server.ts            # ★ Unified FCM + web-push fan-out (Phase B.3)
+├── notifications-server.ts   # All notification creators + push-sub CRUD.
+│                              # 2026-07-18: creators check blocks at CREATION
+│                              # time (quietlyBlocked — a block silences the
+│                              # phone, not just the inbox); post_comment rides
+│                              # the replies pref; every firePush carries a
+│                              # data.url deep link
+├── push-server.ts            # ★ Unified FCM + web-push fan-out (Phase B.3).
+│                              # sendPushToUser defaults data.url →
+│                              # /notifications — BOTH tap routers (native-push
+│                              # .ts + sw.js) only open data.url, so a payload
+│                              # without one is a dead tap on iOS
 ├── search-server.ts          # User search by username
 ├── tmdb-server.ts            # TMDB/OMDB proxies (server-side OMDB key)
 ├── bookmarks-server.ts       # saveItem, unsaveItem, getSavedFeed

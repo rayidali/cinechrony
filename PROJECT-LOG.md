@@ -718,6 +718,64 @@ after every native-affecting change** — pushing to `main` only updates the web
 
 ---
 
+## The native launch stretch (2026-07-10 → 18)
+
+The paid Apple account landed on the 10th and eight days later the app is on
+the doorstep of TestFlight. In between: the **share extension** shipped as a
+Corner-style drawer that runs the whole scan-and-save INSIDE Instagram
+(share → narrated scan → film toggles → pick a list → save; the app never
+opens on the happy path), and the **Live Activity scan tracker** went live —
+the server births a lock-screen card over raw APNs push-to-start and
+narrates the pipeline into it, suppressing the redundant push when the card
+confirms. Getting the card truthful took two rounds of production
+forensics, and the second round produced the lesson worth keeping: the
+frozen-card bug was a **subscribe/enumerate race** (enumerate
+`Activity.activities`, then subscribe `activityUpdates`, and an activity
+that registers between the two is lost — which is exactly when a
+push-started activity arrives). The durable fix was subscribe-first plus
+delayed re-sweeps, and a pure-Swift token relay that runs from
+`didFinishLaunching` so the WebView is never on the critical path. Just as
+durable: every link in the chain now writes a `liveActivity.trace`
+breadcrumb onto the job doc, so the next failure names itself instead of
+requiring a debugging session.
+
+Accuracy got its own pass after a caption fooled the model (an Inglourious
+Basterds clip "identified" as the two films its caption name-dropped):
+the prompt now treats footage as ground truth and captions as context, with
+code-level confidence clamps behind it; oversized videos go through the
+Files API instead of silently degrading to caption-only; weak reads earn
+one pro-tier retry inside a strict time budget; and image posts (carousels,
+slideshows) became first-class input — verified live. Google retiring its
+entire 2.x model line mid-test also forced the right architecture: rolling
+`-latest` aliases are appended to every fallback chain, so a retired pin
+can never zero the pipeline again.
+
+Then the owner went to the movies and found three bugs in five minutes —
+and each was a **class**, not an instance. "Take photo" crashed the app
+because `Info.plist` had zero privacy usage descriptions (iOS kills the
+process outright; the simulator has no camera, so no test had ever touched
+the path). The invite search sat under the status bar — and a sweep found
+three sibling surfaces with the same flaw, including every toast in the
+app. One shared spinner made every search row spin — and a sweep proved it
+was the last of its kind. The same evening's push audit found that most
+pushes were DEAD on tap (no `data.url` for the tap routers), that blocking
+someone didn't stop their pushes, and that accepting an invite told nobody
+— all fixed, plus an `invite_accepted` push that closes the invite loop.
+The method is the takeaway: **one reported bug → sweep the whole class →
+fix every sibling → teach CI the class** (`51-native-shell.test.ts` now
+asserts the plist keys, pbxproj membership, launch wiring, and entitlements
+that no TypeScript build can see). 522/522.
+
+TestFlight prep closed the stretch: readiness verified against the repo and
+live services (real 1024 icon, consistent versions, compliance declared,
+`app.cinechrony.com` already authorized in Firebase and pre-wired in the
+applinks entitlement), and the owner got a phased playbook — internal
+testing retires the cable, the public link goes on the website capped at
+150 until Blaze, and the domain move is additive, so nothing already on
+anyone's phone ever breaks.
+
+---
+
 *Companion docs: `CLAUDE.md` (architecture reference) · `AUDIT.md` (every
 security/integrity item + progress log) · `LAUNCH.md` (the full phase plan,
 C–E specs) · `PHASE-C-PLAN.md` (the decided Phase C tracker) ·

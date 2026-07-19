@@ -1,5 +1,13 @@
 # Phase C.3 — iOS Share Extension setup (owner Xcode steps)
 
+> **DONE — SHIPPED AND DEVICE-VERIFIED 2026-07-13.** The extension exists in
+> the Xcode project and evolved past this doc: it now runs the WHOLE flow
+> in-place (Corner-style SwiftUI drawer over IG/TikTok — scan → toggle films
+> → pick list → save) instead of opening the app; the app-open path below
+> survives only as the signed-out/error fallback. This file is historical
+> setup notes; current architecture lives in `CLAUDE.md` "Current state"
+> (2026-07-13 entry) + `ios/App/ShareExtension/*`.
+
 > The code is written and in the repo. What's left can only be done in Xcode
 > (adding a new target edits the `.pbxproj` in ways that aren't safe to script).
 > Budget ~20 minutes. After this, sharing a TikTok/Reel/Short → **Cinechrony**

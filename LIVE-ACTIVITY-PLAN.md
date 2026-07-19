@@ -6,7 +6,18 @@
 > in a tappable result. This replaces "wait or get one ding" with continuous
 > presence.
 
-Status: **P1 + P2 + P3 SHIPPED** (2026-07-14). Server plumbing
+Status: **LIVE IN PROD** (2026-07-14 night → 18). The APNs env is SET in
+Vercel and the full chain is prod-proven: card starts in ~½s, stages tick,
+`liveActivity.trace=end:ok`, FCM ding suppressed; the late-token
+attach-flush self-heal also observed working. The frozen-card bug was the
+**subscribe/enumerate race** (enumerating `Activity.activities` before
+subscribing `activityUpdates` loses the push-started activity) — fixed
+subscribe-first + delayed sweeps + `@MainActor` dedup in BOTH observers,
+plus `LiveActivityTokenRelay.swift` (pure Swift from `didFinishLaunching`,
+independent of the WebView, share-extension auth pattern) so background
+launches always deliver the update token (`988ae10`).
+
+Earlier status: **P1 + P2 + P3 SHIPPED** (2026-07-14). Server plumbing
 (`src/lib/live-activity-server.ts` + pipeline hooks + token routes), the
 `ScanActivityWidget` WidgetKit target, and the app glue
 (`LiveActivityPlugin.swift` + `src/lib/live-activity-native.ts`) are all in.
@@ -14,7 +25,7 @@ The outcome pushes + drawer detach (`d45a792`) remain the fallback ladder.
 P4 (poster in the terminal card, multi-device fan-out, pendingState buffer)
 stays open.
 
-**To turn it on** (feature is dormant until these exist in Vercel env):
+**Env (SET in Vercel since 2026-07-14 — kept for reference):**
 - `APNS_KEY_ID` — the 10-char id from the `AuthKey_XXXXXXXXXX.p8` filename
 - `APNS_PRIVATE_KEY` — the .p8 file's full PEM contents (paste as multiline,
   or with `\n` escapes — both work). Same key already uploaded to Firebase;

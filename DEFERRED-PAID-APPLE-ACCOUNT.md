@@ -6,6 +6,14 @@
 > submission**, so getting it is the single highest-leverage step toward launch.
 >
 > Created 2026-06-28. Return here once the paid account + APNs key are set up.
+>
+> **RESOLVED 2026-07-10 → 14: the account is ACTIVE (team `GBR6GTFYCL`,
+> paid through 2027-07-02), the APNs key is uploaded to Firebase AND set in
+> Vercel, and every item in this file has SHIPPED** — the share extension
+> (in-place drawer, 07-13), async extraction with pushes + the Live Activity
+> scan tracker (07-14, live in prod), native Apple/Google sign-in, and
+> Universal Links (AASA with the real Team ID). This file is now historical;
+> current status lives in `CLAUDE.md` "Current state" and `HANDOFF.md`.
 
 ---
 

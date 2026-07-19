@@ -320,6 +320,12 @@ Key features:
 - `spotsLeft = 10 - members.length` (max 10 collaborators)
 - Pending invites show X button to revoke via `revokeInvite()` action
 - Search uses fullscreen overlay (not Vaul) for iOS keyboard compatibility
+- 2026-07-18: the fullscreen search is `pt-safe` (its header sat under the
+  iOS status bar on device); the invite pending state keys per row
+  (`invitingUid` — one shared boolean used to spin EVERY row's button);
+  copy lowercased to v3 voice. Reachable in one tap from the list page:
+  the collaborator row's dashed "+" links to `settings?invite=1`, which
+  auto-opens this modal.
 
 ```typescript
 // Revoke invite handler

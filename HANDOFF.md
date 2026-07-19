@@ -1,50 +1,142 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-07. Project: a social movie-watchlist app
+> Last updated 2026-07-18. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
-> **Resuming?** Latest stretch (all on `main`):
-> 0. **Analytics + observability + iOS-native UX fixes (2026-07-04→07).**
->    **Sentry** live (DSN set in Vercel) + **PostHog** wired (posthog-js,
->    DSN-gated, minimal named taxonomy; owner added `NEXT_PUBLIC_POSTHOG_KEY/HOST`,
->    verified baked into the prod bundle). New **`/support`** page; **`/privacy`**
->    now discloses PostHog·Sentry·Apify·Gemini; **`.env.example`** documents every
->    env var. **Marketing website DONE** (separate repo — cinechrony.com/{privacy,
->    terms,support} live). **Blaze deferred** until user volume. **iOS native UI
->    fixes** (commit `c84189e`): create-list keyboard trap + `contentInset`
->    `automatic`→`never` (double top-inset) + a parallel audit's safe-area/keyboard
->    follow-ups. **Gotcha:** the iOS app runs a FROZEN `out/` snapshot — run
->    `npm run build:static && npx cap sync ios` after every native change (web
->    auto-deploys, native does NOT). See "Analytics + observability + native UX".
-> 1. **Extraction precision pass + visible confidence scores — MERGED to `main`**
->    (commit `5fa8472`, 2026-07-01). Fixes "one film in the reel gets identified
->    as two or three" and surfaces a confidence chip per film. No new API cost.
->    See "Extraction precision + confidence" below.
-> 2. **Marketing-website handover written** — `WEBSITE-HANDOFF.md` at repo root,
->    for a **separate website repo + Claude Code session** (marketing site +
->    waitlist + legal/support + PWA-install explainer). See "Website + demos" below.
-> 3. **iOS native bring-up + native-quality pass — MERGED to `main`** (the app
->    runs on Simulator AND a real iPhone; WebView bugs fixed; app icon; Vaul
->    menus; keyboard; swipe-back). Plus Letterboxd-import **cost cap** + **reviews
->    fault-tolerance**. See "iOS native bring-up" below.
-> 4. **Phase C — the AI "share a video → extract films" hero feature: web-first
->    flow COMPLETE & MERGED to `main`** (merge `34bd93e`, 2026-06-28). C.1a–d +
->    C.2; validated live on the Vercel preview across Instagram, YouTube, and
->    TikTok. Hardened for scale + reliability (cache-stampede dedup, self-healing
->    jobs, multi-model Gemini fallback, caption net). See "Phase C".
+> **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
+> carries the per-arc detail — this list is the map):
+> 0. **TestFlight prep + the theatre-bug sweep (2026-07-18).** Upload
+>    readiness VERIFIED (1024 popcorn icon · versions 1.0(1) all targets ·
+>    export-compliance declared `ea56598` · privacy URL live · Firebase
+>    already authorizes `app.cinechrony.com` · applinks entitlement pre-wired).
+>    Owner playbook artifact (phases 0–7, checklist):
+>    https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed —
+>    owner was mid-Phase-1 (creating the ASC app record) at session end.
+>    Same day: the camera CRASH was `Info.plist` having zero privacy usage
+>    keys (all four added); safe-area class fixed on 4 surfaces; per-row
+>    invite spinner; push layer hardened (every push now tap-routable via
+>    `data.url`, invite_accepted push added, creation-time block
+>    suppression); list page got a "+" add-people entry; v1 "tap any poster"
+>    hint deleted. New CI net `scripts/audit-tests/51-native-shell.test.ts`.
+>    Tests **522/522**. See "The native launch stretch" below.
+> 1. **Live Activity scan tracker LIVE IN PROD (2026-07-13→14).** Server-side
+>    APNs push-to-start (HTTP/2 + ES256), two token streams, transactional
+>    stage claims, FCM-ding suppression when the card confirms. The
+>    subscribe/enumerate RACE (card froze at stage 1) was fixed by
+>    `LiveActivityTokenRelay.swift` (pure-Swift, subscribe-first + delayed
+>    sweeps + background window) — proven in prod (`trace=end:ok`, and the
+>    late-token attach-flush self-heal). `LIVE-ACTIVITY-PLAN.md` P1–P3 done.
+> 2. **Extraction excellence pass (2026-07-14).** Footage-primacy prompt +
+>    confidence clamps (the Tarantino caption over-trust bug), **image posts**
+>    (IG carousels + TikTok slideshows, live-verified), Files API for >18MB
+>    videos, pro-tier escalation on weak reads (75s budget), 110s hard abort,
+>    reveal choreography in the drawer, deterministic push copy. Gemini
+>    retirement outage fixed for good (3.5-flash defaults + rolling aliases
+>    on every chain; prod env cleaned — `gemini-3.5-flash` serving).
+> 3. **iOS Share Extension SHIPPED + device-verified (2026-07-13).** The
+>    corner-style in-extension drawer: share a reel → scan with narrated
+>    stages → toggle films → pick/create list → save, without opening the
+>    app. SharedAuthPlugin keychain bridge, completion push with
+>    live-watcher suppression, App Group `group.com.cinechrony.shared`,
+>    AASA with the real Team ID. Apple + Google native sign-in enabled.
+> 4. **Paid Apple Developer account ACTIVE (2026-07-10, team `GBR6GTFYCL`).**
+>    Everything in `DEFERRED-PAID-APPLE-ACCOUNT.md` is unlocked and shipped.
 >
-> **Immediate next: C.3 — iOS Share Extension** (the native "Share → Cinechrony"
-> doorway; `/extract?url=` is already wired for it — the share extension just
-> needs to pass the shared URL into it). **iOS distribution:** once the owner buys
-> the paid Apple Developer account ($99/yr), **TestFlight** is the "one-button"
-> beta channel — a public link → tester taps Install (up to 10,000 external
-> testers; first external build needs a light beta review). **Owner TODO:** add
-> `APIFY_ACTOR_INSTAGRAM` to Vercel (IG works without it via a built-in fallback);
-> rebuild the iOS app in Xcode to get `/extract` in-app; optionally set a Firestore
-> TTL on `extraction_jobs.createdAt`. The thin website slice (`cinechrony.com`
-> origin + a `/support` page — `/privacy`+`/terms` exist) is still a
-> pre-TestFlight to-do; the full marketing site now has its own handover.
+> **Immediate next: TestFlight.** Owner walks the playbook (phases 1–4 =
+> app record → archive/upload → internal group → cable retired; phase 5 =
+> friends + Beta review with a demo account; phase 6 = public link CAPPED AT
+> 150 until Blaze). Before the public link goes wide: **add
+> `app.cinechrony.com`** in Vercel + DNS (entitlements + Firebase already
+> wired — additive, breaks nothing on existing phones), then Claude flips
+> the three pinned URLs (`package.json` build default, `ExtensionAPI.swift`,
+> `LiveActivityTokenRelay.swift`) and rebuilds. **Enable Blaze** before any
+> cohort past ~150. Console TTL policies (extraction_jobs + extraction_cache
+> on `expiresAt`) still open if not yet clicked. EU trader status in ASC
+> before App Store release (not TestFlight).
+
+---
+
+## The native launch stretch (2026-07-10 → 18)
+
+Five arcs, all on `main`, all device- or prod-verified. `CLAUDE.md` "Current
+state" has the full per-arc detail; this is the working summary + the gotchas
+worth carrying.
+
+**1 · Share extension (07-13, tip `34bd93e`→`1504dfc`).** Share a reel from
+IG/TikTok → a SwiftUI drawer scans IN PLACE (never opens the app on the happy
+path): narrated stages → film toggles with confidence chips → pick/create
+list → save. Auth rides a keychain bridge (`SharedAuthPlugin` syncs
+`{refreshToken, apiKey, uid}` to the shared keychain group; the extension
+mints its own ID tokens via securetoken). Server: completion push with
+`pushSentAt` guard + live-watcher suppression, `/extract?jobId=` resume,
+`GET /api/v1/lists`. Same night: Gemini retired its whole 2.x chain mid-test
+— defaults now `gemini-3.5-flash` + rolling `-latest` aliases appended to
+EVERY fallback chain so a retired pin can never zero the pipeline again.
+
+**2 · Live Activity (07-13→14, `563b34f`→`988ae10`).** The lock-screen /
+Dynamic Island card that narrates the scan. Server births the activity via
+APNs push-to-start (extensions can't; HTTP/2 + ES256 JWT in
+`live-activity-server.ts`; sandbox/prod discovered per token). Two rotating
+tokens ferried by BOTH a JS path and `LiveActivityTokenRelay.swift` (pure
+Swift, runs from `didFinishLaunching` even on background launches). THE bug:
+enumerating `Activity.activities` before subscribing `activityUpdates`
+misses an activity that registers in between — subscribe FIRST, then delayed
+re-sweeps, `@MainActor` dedup, ~25s background-task hold. Every link
+self-reports into `liveActivity.trace` on the job doc, so prod forensics
+name their own failure. A confirmed card SUPPRESSES the FCM ding; outcome
+pushes stay as the fallback ladder for decliners of Apple's one-time
+"Always Allow" prompt.
+
+**3 · Extraction excellence (07-14).** Footage-primacy prompt (media is
+ground truth, caption is context; code-level clamps cap caption-only
+evidence at 0.6) — kills the Inglourious-Basterds-caption bug. Image posts
+(`kind:'images'`: IG carousels, TikTok slideshows, raw
+`imagePost.imageURL.urlList` shape) live-verified in prod. >18MB videos go
+through the Gemini Files API instead of silently degrading to captions.
+Weak reads get ONE pro-tier escalation (`gemini-pro-latest`) inside a 75s
+elapsed budget; every Gemini call hard-aborts at 110s. The drawer reveals
+films one by one (spring + per-film haptic, count-up header) with rotating
+anticipation lines. Mux was evaluated and rejected (playback analytics, not
+content ID).
+
+**4 · The theatre sweep (07-18, `8feb71c`+`d77926c`+`ea56598`).** Owner hit
+three bugs at the movies; each was a class: (a) "take photo" crashed the
+app → `Info.plist` had ZERO privacy usage descriptions (iOS TCC kill) —
+camera/mic/photo-add/photo-read added; (b) the invite search header sat
+under the status bar → `pt-safe`, plus sweep-found siblings
+(fullscreen-text-input header, find-friends back button, app-wide
+ToastViewport); (c) one shared invite spinner → keyed per row. The push
+audit found and fixed: pushes without `data.url` were DEAD TAPS on iOS
+(fan-out now defaults to `/notifications`, per-type deep links added),
+createList invitees never got pushed, list_like never pushed, post_comment
+had no pref, and **blocks didn't suppress pushes** (creation-time guards
+now). NEW: `invite_accepted` push to the inviter; a dashed "+" on the list
+page collaborator row deep-links into the invite flow. The v1 "tap any
+poster" hint is deleted. `51-native-shell.test.ts` codifies every
+native-shell incident class in CI.
+
+**5 · TestFlight prep (07-18).** Readiness verified against the repo and
+live services: popcorn icon at 1024, versions 1.0(1) on all three targets,
+export compliance declared, privacy URL live, `app.cinechrony.com` already
+in Firebase authorizedDomains AND the applinks entitlement. Owner playbook
+(checklist artifact, phases 0–7):
+https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed
+The domain move is ADDITIVE (movienight-kappa.vercel.app stays attached to
+the same Vercel project forever — existing PWA installs and old native
+builds keep working; accounts live in Firebase, not the domain).
+
+**Gotchas worth carrying:**
+- Run the **App** scheme, never ScanActivityWidget (launch/archive trap).
+- Piping `xcodebuild` through `tail` eats BUILD FAILED (exit 0) — redirect
+  full logs to a file and check `$?` + grep.
+- Files in `ios/App/App/` need explicit pbxproj Sources entries (the App
+  target is NOT a file-system-synchronized group); extension/widget targets
+  ARE synchronized. Suite 51 guards the known set.
+- `FirebaseApp.app() == nil` probes EMIT the I-COR000003 warning — keep
+  `configure()` unconditional.
+- The iOS app is a FROZEN `out/` snapshot: `npm run build:static && npx cap
+  sync ios` after every native-affecting change.
 
 ---
 
