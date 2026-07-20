@@ -50,6 +50,19 @@ test('Info.plist: Live Activities + remote-notification background mode still de
   assert.match(plist, /remote-notification/);
 });
 
+test('ShareExtension Info.plist: activation rule is the dictionary form, never TRUEPREDICATE', () => {
+  // ITMS-90362 (found live 2026-07-20): TRUEPREDICATE works on every dev
+  // build but App Store Connect rejects the upload. Only the dictionary
+  // form is guaranteed valid for distribution.
+  const plist = read('ios/App/ShareExtension/Info.plist');
+  assert.ok(
+    !/<string>\s*TRUEPREDICATE/.test(plist),
+    'TRUEPREDICATE is dev-only — App Store Connect rejects it at upload (ITMS-90362)',
+  );
+  assert.match(plist, /<key>NSExtensionActivationSupportsWebURLWithMaxCount<\/key>/);
+  assert.match(plist, /<key>NSExtensionActivationSupportsText<\/key>/);
+});
+
 // ─── pbxproj membership — a file on disk that isn't in Sources never builds ─
 
 test('pbxproj: local plugins + relay are compiled into the App target', () => {

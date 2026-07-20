@@ -8,8 +8,16 @@
 	<dict>
 		<key>NSExtensionAttributes</key>
 		<dict>
+			<!-- App Store validation (ITMS-90362) rejects TRUEPREDICATE; the
+			     dictionary form must stay in sync with what ShareViewController
+			     can actually ingest: a URL attachment or text carrying a link. -->
 			<key>NSExtensionActivationRule</key>
-			<string>TRUEPREDICATE</string>
+			<dict>
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
+				<key>NSExtensionActivationSupportsText</key>
+				<true/>
+			</dict>
 		</dict>
 		<key>NSExtensionPrincipalClass</key>
 		<string>$(PRODUCT_MODULE_NAME).ShareViewController</string>
