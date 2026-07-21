@@ -2,8 +2,35 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-18)
+## Current state (2026-07-21)
 
+- **TestFlight LIVE — build 1.0 (1) uploaded, beta review submitted, all
+  from the terminal (2026-07-20→21).** CLI archive + upload
+  (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` REQUIRED on
+  this Mac; ExportOptions `method: app-store-connect` + `destination:
+  upload`, auth via Xcode's session), then an **ASC API key**
+  (`AuthKey_S3DLZRLGPZ.p8` in `~/.appstoreconnect/private_keys/`, issuer
+  `ce940602-…`, caller **`scripts/asc-api.tmp.mjs`** untracked) drove every
+  remaining phase. Upload #1 REJECTED — ShareExtension
+  `NSExtensionActivationRule` was `TRUEPREDICATE` (dev-only wildcard;
+  ITMS-90362) → dictionary form (web URL + text, `e680559`); suite 51
+  guards the class; tests **524/524**; upload #2 accepted, processed VALID.
+  Done via API: Test Information (feedback **support@cinechrony.com**),
+  `internal` group with `hasAccessToAllBuilds` (every future build flows
+  automatically; owner INVITED via `rayid.awesome@gmail.com` — internal
+  groups take ASC TEAM USERS only), `friends` group + public link
+  **https://testflight.apple.com/join/CRPFhKen** (capped **150**, inert
+  until review passes), review details (contactPhone REQUIRED by the API),
+  prod demo account **@cinechronydemo** / demo@cinechrony.com
+  (`scripts/create-demo-account.tmp.ts`, provisioned via the app's own
+  onboarding helpers, "movie night" list + 3 films), submission
+  **WAITING_FOR_REVIEW** since 2026-07-20 20:56 PT (~24h; first build
+  only). App id `6792422740`. **EMAILS RULE:** rayid@/support@cinechrony.com
+  only — never Apple-ID gmails from logs (owner directive). **Strategy:**
+  TestFlight testers must install Apple's TestFlight app (no one-tap native
+  beta exists) → short friends bake, then **App Store = the true one-tap
+  channel** (owner gates: EU trader status, Blaze). Full detail + ASC API
+  gotchas: `HANDOFF.md` § "TestFlight liftoff".
 - **TestFlight prep — readiness verified, playbook delivered (2026-07-18
   evening).** Upload readiness checked against the repo AND live services:
   popcorn app icon at 1024 in the asset catalog (not a placeholder), versions
@@ -483,27 +510,36 @@
   ~~`RESEND_API_KEY`~~ · ~~Sentry DSN~~ · ~~PostHog keys~~ · ~~`/privacy` +
   `/support`~~ · ~~marketing website~~ · ~~paid Apple Developer account~~ ·
   ~~APNs key in Firebase + Vercel~~ · ~~Apple/Google sign-in providers~~ ·
-  ~~`GEMINI_MODEL` env cleanup~~ **(all DONE)**. **Remaining:** walk the
-  TestFlight playbook (see NOW); add **`app.cinechrony.com`** in Vercel +
+  ~~`GEMINI_MODEL` env cleanup~~ · ~~ASC app record~~ · ~~ASC API key~~
+  **(all DONE)**. **Remaining:** install Apple's TestFlight app + accept
+  the internal invite (in the `rayid.awesome@gmail.com` inbox) — the first
+  OTA install, the cable retires; add **`app.cinechrony.com`** in Vercel +
   DNS (additive — nothing existing breaks; Firebase + entitlements already
-  wired; Claude then flips the 3 pinned URLs + rebuilds); enable **Blaze**
-  before any cohort past ~150; Firestore console TTL policies
+  wired; Claude then flips the 3 pinned URLs + ships build 2); enable
+  **Blaze** before any cohort past ~150; Firestore console TTL policies
   (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not yet
-  clicked; EU **trader status** in ASC (App Store gate, not TestFlight).
-- **NOW — TestFlight (playbook:
-  https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed):**
-  (1) ASC app record (owner was mid-flight) → (2) Xcode Archive → Upload →
-  (3) internal group = owner installs OTA, the cable retires → (4) friends
-  via external group + one-time Beta review (needs a demo account — the app
-  requires sign-in) → (5) the **public link** on the website's "iOS beta"
-  button, tester cap **150 until Blaze** → App Store submission after the
-  beta bakes. Do the `app.cinechrony.com` domain-add before the public link
-  goes wide. Parallel/optional: PWA `<InstallPrompt>`; direct-to-IG
-  pasteboard plugin (0.7.6.2/3); welcome-on-signup email (module ready);
-  `@cinechrony` admin console (the `admin` claim is provisioned); Live
-  Activity P4 (poster in terminal card, multi-device fan-out); Maestro UI
-  flows on the simulator (owner asked for a better device-testing process —
-  offered, not yet commissioned).
+  clicked; EU **trader status** in ASC (gates App Store submission, not
+  TestFlight).
+- **NOW — beta review verdict, then friends, then the App Store.** The
+  playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the checklist
+  artifact survives at
+  https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed).
+  Build 1.0 (1) is WAITING_FOR_REVIEW — check with `node
+  scripts/asc-api.tmp.mjs GET
+  /v1/betaAppReviewSubmissions/d4661455-4128-491e-99a8-bea644a273c1`. When
+  APPROVED: the public link activates → friends install (they need Apple's
+  TestFlight app first — two minutes, standard indie practice; put the link
+  behind the website's "iOS beta" button with one line of setup copy). Do
+  the domain add before sharing wide. Then **App Store submission prep**
+  (the one-tap goal): screenshots, listing copy, age rating, privacy
+  nutrition labels — largely Claude-doable, much via the ASC API.
+  **"Ship a new build" is now a one-liner**: CLI archive + upload; the
+  internal group auto-receives it; TestFlight updates testers itself.
+  Parallel/optional: PWA `<InstallPrompt>`; direct-to-IG pasteboard plugin
+  (0.7.6.2/3); welcome-on-signup email (module ready); `@cinechrony` admin
+  console (the `admin` claim is provisioned); Live Activity P4 (poster in
+  terminal card, multi-device fan-out); Maestro UI flows on the simulator
+  (offered, not yet commissioned).
 
 ## Quick Reference
 

@@ -774,6 +774,27 @@ testing retires the cable, the public link goes on the website capped at
 150 until Blaze, and the domain move is additive, so nothing already on
 anyone's phone ever breaks.
 
+**2026-07-20 → 21 — TestFlight liftoff, entirely from the terminal.** At
+the playbook's archive step the owner asked "can't you do this on your
+own?", and the honest answer was yes: `xcodebuild` archived and uploaded
+build 1.0 (1), and an App Store Connect API key turned every remaining
+phase into API calls — Test Information, an internal group set to
+auto-receive every future build, an external friends group with its public
+link pre-capped at 150, review contact details, and the Beta App Review
+submission itself. Apple's package analysis earned its keep on the first
+attempt: the ShareExtension still carried its development-era
+`TRUEPREDICATE` activation rule, which every cable build tolerates and App
+Store distribution never accepts — replaced with the dictionary form,
+guarded in suite 51 (the class joins the CI net, per the theatre-sweep
+lesson), re-uploaded, accepted. Apple's reviewers got a demo account
+provisioned through the app's own onboarding helpers, indistinguishable
+from a real signup. The stretch also settled a product question: TestFlight
+testers must install Apple's TestFlight app first — there is no one-tap
+native beta on iOS — so the beta stays an inner-circle proving ground with
+soft marketing, and the App Store, the true one-tap channel, becomes the
+explicit next target. From here, "ship a new build" is a one-line request:
+archive, upload, and testers update themselves.
+
 ---
 
 *Companion docs: `CLAUDE.md` (architecture reference) · `AUDIT.md` (every

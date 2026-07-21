@@ -1,59 +1,182 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-18. Project: a social movie-watchlist app
+> Last updated 2026-07-21. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
-> 0. **TestFlight prep + the theatre-bug sweep (2026-07-18).** Upload
+> 0. **TestFlight LIVE — build 1.0 (1) on App Store Connect, beta review
+>    submitted (2026-07-20→21).** The ENTIRE pipeline ran from the terminal:
+>    CLI archive + upload, then an ASC API key drove Test Information, both
+>    beta groups, the demo account plumbing, and the review submission.
+>    Upload #1 caught a real App-Store-only bug — ShareExtension's
+>    TRUEPREDICATE activation rule (ITMS-90362) → dictionary form
+>    (`e680559`), suite 51 guards the class, tests **524/524**. App id
+>    `6792422740`; internal group auto-receives every build (owner's invite
+>    pending their TestFlight install); friends group + public link
+>    https://testflight.apple.com/join/CRPFhKen (capped 150, inert until
+>    review passes); prod demo account `@cinechronydemo` for Apple's
+>    reviewers. Review state at session end: WAITING_FOR_REVIEW. See
+>    "TestFlight liftoff" below — including the ASC API gotchas and the
+>    distribution-strategy decision (App Store = the one-tap goal).
+> 1. **TestFlight prep + the theatre-bug sweep (2026-07-18).** Upload
 >    readiness VERIFIED (1024 popcorn icon · versions 1.0(1) all targets ·
 >    export-compliance declared `ea56598` · privacy URL live · Firebase
 >    already authorizes `app.cinechrony.com` · applinks entitlement pre-wired).
 >    Owner playbook artifact (phases 0–7, checklist):
->    https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed —
->    owner was mid-Phase-1 (creating the ASC app record) at session end.
+>    https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed
 >    Same day: the camera CRASH was `Info.plist` having zero privacy usage
 >    keys (all four added); safe-area class fixed on 4 surfaces; per-row
 >    invite spinner; push layer hardened (every push now tap-routable via
 >    `data.url`, invite_accepted push added, creation-time block
 >    suppression); list page got a "+" add-people entry; v1 "tap any poster"
 >    hint deleted. New CI net `scripts/audit-tests/51-native-shell.test.ts`.
->    Tests **522/522**. See "The native launch stretch" below.
-> 1. **Live Activity scan tracker LIVE IN PROD (2026-07-13→14).** Server-side
+>    See "The native launch stretch" below.
+> 2. **Live Activity scan tracker LIVE IN PROD (2026-07-13→14).** Server-side
 >    APNs push-to-start (HTTP/2 + ES256), two token streams, transactional
 >    stage claims, FCM-ding suppression when the card confirms. The
 >    subscribe/enumerate RACE (card froze at stage 1) was fixed by
 >    `LiveActivityTokenRelay.swift` (pure-Swift, subscribe-first + delayed
 >    sweeps + background window) — proven in prod (`trace=end:ok`, and the
 >    late-token attach-flush self-heal). `LIVE-ACTIVITY-PLAN.md` P1–P3 done.
-> 2. **Extraction excellence pass (2026-07-14).** Footage-primacy prompt +
+> 3. **Extraction excellence pass (2026-07-14).** Footage-primacy prompt +
 >    confidence clamps (the Tarantino caption over-trust bug), **image posts**
 >    (IG carousels + TikTok slideshows, live-verified), Files API for >18MB
 >    videos, pro-tier escalation on weak reads (75s budget), 110s hard abort,
 >    reveal choreography in the drawer, deterministic push copy. Gemini
 >    retirement outage fixed for good (3.5-flash defaults + rolling aliases
 >    on every chain; prod env cleaned — `gemini-3.5-flash` serving).
-> 3. **iOS Share Extension SHIPPED + device-verified (2026-07-13).** The
+> 4. **iOS Share Extension SHIPPED + device-verified (2026-07-13).** The
 >    corner-style in-extension drawer: share a reel → scan with narrated
 >    stages → toggle films → pick/create list → save, without opening the
 >    app. SharedAuthPlugin keychain bridge, completion push with
 >    live-watcher suppression, App Group `group.com.cinechrony.shared`,
 >    AASA with the real Team ID. Apple + Google native sign-in enabled.
-> 4. **Paid Apple Developer account ACTIVE (2026-07-10, team `GBR6GTFYCL`).**
+> 5. **Paid Apple Developer account ACTIVE (2026-07-10, team `GBR6GTFYCL`).**
 >    Everything in `DEFERRED-PAID-APPLE-ACCOUNT.md` is unlocked and shipped.
 >
-> **Immediate next: TestFlight.** Owner walks the playbook (phases 1–4 =
-> app record → archive/upload → internal group → cable retired; phase 5 =
-> friends + Beta review with a demo account; phase 6 = public link CAPPED AT
-> 150 until Blaze). Before the public link goes wide: **add
-> `app.cinechrony.com`** in Vercel + DNS (entitlements + Firebase already
-> wired — additive, breaks nothing on existing phones), then Claude flips
-> the three pinned URLs (`package.json` build default, `ExtensionAPI.swift`,
-> `LiveActivityTokenRelay.swift`) and rebuilds. **Enable Blaze** before any
-> cohort past ~150. Console TTL policies (extraction_jobs + extraction_cache
-> on `expiresAt`) still open if not yet clicked. EU trader status in ASC
-> before App Store release (not TestFlight).
+> **Immediate next:** (1) owner installs Apple's TestFlight app + accepts
+> the internal invite (sent to `rayid.awesome@gmail.com`) → first OTA
+> install, the cable retires; (2) the beta review verdict (~24h from
+> 2026-07-20 20:56 PT — check with `node scripts/asc-api.tmp.mjs GET
+> /v1/betaAppReviewSubmissions/d4661455-4128-491e-99a8-bea644a273c1`); once
+> APPROVED the public link activates for friends; (3) **add
+> `app.cinechrony.com`** in Vercel + DNS BEFORE the link goes wide
+> (entitlements + Firebase already wired — additive, breaks nothing on
+> existing phones), then Claude flips the three pinned URLs (`package.json`
+> build default, `ExtensionAPI.swift`, `LiveActivityTokenRelay.swift`) and
+> ships build 2; (4) **App Store submission prep** in parallel — the true
+> one-tap install channel and the explicit target after a short beta bake
+> (screenshots, listing copy, age rating, privacy labels are Claude-doable;
+> owner gates: EU trader status in ASC, Blaze past ~150). Console TTL
+> policies (extraction_jobs + extraction_cache on `expiresAt`) still open
+> if not yet clicked.
+
+---
+
+## TestFlight liftoff — build 1 uploaded, beta review submitted (2026-07-20 → 21)
+
+The owner hit Phase 2 of the playbook and asked "can't you do this on your
+own?" — the answer was yes for nearly everything. The whole TestFlight
+pipeline now runs from the terminal; the Xcode GUI is out of the loop, and
+"ship a new build" is a one-liner request from here on.
+
+**CLI archive + upload.** Fresh `build:static` + `cap sync ios` first (the
+frozen-snapshot rule), then `xcodebuild … -scheme App -destination
+'generic/platform=iOS' archive -allowProvisioningUpdates` and `xcodebuild
+-exportArchive` with an ExportOptions.plist of `method: app-store-connect ·
+destination: upload · signingStyle: automatic · teamID: GBR6GTFYCL ·
+manageAppVersionAndBuildNumber: true`. Upload auth rides Xcode's signed-in
+session. **`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` is
+REQUIRED** — xcode-select on this Mac points at CommandLineTools and every
+bare `xcodebuild` fails without it.
+
+**ITMS-90362 — the one real find (`e680559`).** Upload #1 was rejected by
+Apple's package analysis: the ShareExtension's `NSExtensionActivationRule`
+was still `TRUEPREDICATE`, the development-era wildcard every cable build
+tolerates and App Store distribution never accepts. Fixed to the dictionary
+form (`SupportsWebURLWithMaxCount: 1` + `SupportsText: true` — exactly what
+`ShareViewController` ingests: a URL attachment or text carrying a link).
+Suite 51 now guards the class (no `<string>TRUEPREDICATE` value + the dict
+keys present — the guard regexes around the plist COMMENT that names the
+literal). Upload #2 accepted; the build processed to VALID within the hour.
+Tests **524/524**. Side effect worth knowing: the share sheet now offers
+Cinechrony on URL/text shares specifically, not on everything.
+
+**ASC API automation (the key that unlocked phases 3–6).** The owner
+generated a team API key (role App Manager): `AuthKey_S3DLZRLGPZ.p8` lives
+at `~/.appstoreconnect/private_keys/` (OUTSIDE the repo, always), issuer id
+`ce940602-7ac5-40d9-b778-00fcbfe4d622`. **`scripts/asc-api.tmp.mjs`**
+(untracked, repo tmp convention) is the generic caller — `node
+scripts/asc-api.tmp.mjs GET|POST|PATCH <path> [json-body]` — minting a
+fresh ES256 JWT per call via the repo's own `jsonwebtoken`. Everything
+below was done through it:
+
+- **App record** — the ONE step Apple's API cannot do (browser only; owner
+  created it): Cinechrony, app id **`6792422740`**, bundle
+  `com.cinechrony.app`, SKU `cinechrony-ios`.
+- **Build 1.0 (1)** — id `d4661455-4128-491e-99a8-bea644a273c1`, VALID.
+- **Test Information** (betaAppLocalization `e6fb0029…`): beta description,
+  feedback email **support@cinechrony.com**, marketing + privacy URLs; plus
+  a `whatsNew` note on the build itself.
+- **`internal` group** (`d9009179…`) with `hasAccessToAllBuilds: true` —
+  every future upload flows to it automatically, no attach step ever.
+  Tester `rayid.awesome@gmail.com` state INVITED (owner installs TestFlight
+  → accepts → first OTA install).
+- **`friends` group** (external, `4bfbd788…`): build 1 attached, public
+  link **https://testflight.apple.com/join/CRPFhKen** with
+  `publicLinkLimit: 150` — inert until beta review passes, so it can't
+  leak early.
+- **Beta review details**: contact Rayid Ali / rayid@cinechrony.com / phone
+  on file; demo account credentials; reviewer notes explaining the sign-in
+  and the share-a-reel hero flow. **Submission filed 2026-07-20 20:56 PT →
+  `WAITING_FOR_REVIEW`** (~24h typical; only the FIRST build of an app
+  needs this — later builds usually go straight through).
+
+**Demo account (prod, for Apple's reviewers).** `demo@cinechrony.com` /
+`@cinechronydemo` (uid `e3TLo4EKNjTaCVzHcHdWzsXSez53`) — provisioned via
+the app's OWN onboarding helpers (`createUserProfileWithUsername`,
+`createList`, `addMovieToList`), so it is indistinguishable from a real
+signup: default watchlist + a public "movie night" list with three films.
+Idempotent script: `scripts/create-demo-account.tmp.ts` (untracked). The
+password lives in that script and in ASC review details — deliberately NOT
+in this committed file.
+
+**Emails — the corrected rule (2026-07-20).** Cinechrony contact fields use
+**rayid@cinechrony.com** (owner/business) and **support@cinechrony.com**
+(user-facing). `raheelalimasood@gmail.com` is an Apple ID from Xcode's
+signing logs — the owner said remove/ignore it everywhere (it briefly
+landed in the TestFlight feedback-email field; fixed same hour).
+`rayid.awesome@gmail.com` is the ASC team-user login — correct ONLY inside
+ASC team/tester contexts, never as a public contact.
+
+**Distribution strategy (owner conversation, 07-21).** The owner expected a
+one-tap tester install and learned that every TestFlight tester must first
+install Apple's TestFlight app — Apple's rule, no native-beta alternative
+(ad-hoc is strictly worse). Framing agreed: the beta is for the tolerant
+inner circle ("join the iOS beta" on the website is standard indie
+practice — Apple's join page itself walks users through the two installs;
+soft marketing only), and **the App Store is the true one-tap channel and
+the explicit target** — short beta bake, then submit, optionally
+quiet/unlisted at first. App Store prep (screenshots, listing copy, age
+rating, privacy nutrition labels) is largely Claude-doable, much of it via
+the same API; the owner-only gates are **EU trader status** in ASC and
+**Blaze**.
+
+**ASC API gotchas (learned the 4xx way):**
+- Internal beta groups accept ASC TEAM USERS only — POSTing an arbitrary
+  email to betaTesters for an internal group → 409 "Tester(s) cannot be
+  assigned". Find the team roster via `GET /v1/users`.
+- `contactPhone` is REQUIRED on betaAppReviewDetails — the PATCH 409s
+  without it and discards the whole attribute set.
+- The betaBuildLocalizations attribute is **`whatsNew`** now — `whatToTest`
+  no longer exists (409 ENTITY_ERROR.ATTRIBUTE.UNKNOWN).
+- Listing betaAppReviewSubmissions requires `filter[build]` — poll the
+  direct resource `GET /v1/betaAppReviewSubmissions/<buildId>` instead.
+- App records cannot be created via the API. Period.
+- macOS TCC blocks the harness shell from `~/Downloads` even unsandboxed —
+  have the owner drag downloaded files to the Desktop (readable) instead.
 
 ---
 
