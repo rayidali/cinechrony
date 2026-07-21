@@ -17,7 +17,8 @@
 >    pending their TestFlight install); friends group + public link
 >    https://testflight.apple.com/join/CRPFhKen (capped 150, inert until
 >    review passes); prod demo account `@cinechronydemo` for Apple's
->    reviewers. Review state at session end: WAITING_FOR_REVIEW. See
+>    reviewers. Beta review **APPROVED** (2026-07-21, ~7h after
+>    submission) — the public link is LIVE. See
 >    "TestFlight liftoff" below — including the ASC API gotchas and the
 >    distribution-strategy decision (App Store = the one-tap goal).
 > 1. **TestFlight prep + the theatre-bug sweep (2026-07-18).** Upload
@@ -58,10 +59,8 @@
 >
 > **Immediate next:** (1) owner installs Apple's TestFlight app + accepts
 > the internal invite (sent to `rayid.awesome@gmail.com`) → first OTA
-> install, the cable retires; (2) the beta review verdict (~24h from
-> 2026-07-20 20:56 PT — check with `node scripts/asc-api.tmp.mjs GET
-> /v1/betaAppReviewSubmissions/d4661455-4128-491e-99a8-bea644a273c1`); once
-> APPROVED the public link activates for friends; (3) **add
+> install, the cable retires; (2) ~~the beta review verdict~~ **APPROVED
+> 2026-07-21** — the public link is live for friends now; (3) **add
 > `app.cinechrony.com`** in Vercel + DNS BEFORE the link goes wide
 > (entitlements + Firebase already wired — additive, breaks nothing on
 > existing phones), then Claude flips the three pinned URLs (`package.json`
@@ -130,9 +129,10 @@ below was done through it:
   leak early.
 - **Beta review details**: contact Rayid Ali / rayid@cinechrony.com / phone
   on file; demo account credentials; reviewer notes explaining the sign-in
-  and the share-a-reel hero flow. **Submission filed 2026-07-20 20:56 PT →
-  `WAITING_FOR_REVIEW`** (~24h typical; only the FIRST build of an app
-  needs this — later builds usually go straight through).
+  and the share-a-reel hero flow. Submission filed 2026-07-20 20:56 PT;
+  **APPROVED 2026-07-21 (~7h turnaround)** — only the FIRST build of an app
+  needs this review; later builds usually go straight through. The public
+  link is therefore LIVE and installable (still capped at 150).
 
 **Demo account (prod, for Apple's reviewers).** `demo@cinechrony.com` /
 `@cinechronydemo` (uid `e3TLo4EKNjTaCVzHcHdWzsXSez53`) — provisioned via

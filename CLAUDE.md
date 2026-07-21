@@ -23,9 +23,10 @@
   until review passes), review details (contactPhone REQUIRED by the API),
   prod demo account **@cinechronydemo** / demo@cinechrony.com
   (`scripts/create-demo-account.tmp.ts`, provisioned via the app's own
-  onboarding helpers, "movie night" list + 3 films), submission
-  **WAITING_FOR_REVIEW** since 2026-07-20 20:56 PT (~24h; first build
-  only). App id `6792422740`. **EMAILS RULE:** rayid@/support@cinechrony.com
+  onboarding helpers, "movie night" list + 3 films), beta review
+  **APPROVED 2026-07-21** (~7h after the 07-20 20:56 PT submission; first
+  build only — later builds usually skip review) → the public link is
+  LIVE. App id `6792422740`. **EMAILS RULE:** rayid@/support@cinechrony.com
   only — never Apple-ID gmails from logs (owner directive). **Strategy:**
   TestFlight testers must install Apple's TestFlight app (no one-tap native
   beta exists) → short friends bake, then **App Store = the true one-tap
@@ -524,13 +525,11 @@
   playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the checklist
   artifact survives at
   https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed).
-  Build 1.0 (1) is WAITING_FOR_REVIEW — check with `node
-  scripts/asc-api.tmp.mjs GET
-  /v1/betaAppReviewSubmissions/d4661455-4128-491e-99a8-bea644a273c1`. When
-  APPROVED: the public link activates → friends install (they need Apple's
-  TestFlight app first — two minutes, standard indie practice; put the link
-  behind the website's "iOS beta" button with one line of setup copy). Do
-  the domain add before sharing wide. Then **App Store submission prep**
+  Build 1.0 (1) is **APPROVED** (2026-07-21) — the public link
+  https://testflight.apple.com/join/CRPFhKen is live: friends can install
+  today (they need Apple's TestFlight app first — two minutes, standard
+  indie practice; put the link behind the website's "iOS beta" button with
+  one line of setup copy). Do the domain add before sharing wide. Then **App Store submission prep**
   (the one-tap goal): screenshots, listing copy, age rating, privacy
   nutrition labels — largely Claude-doable, much via the ASC API.
   **"Ship a new build" is now a one-liner**: CLI archive + upload; the
