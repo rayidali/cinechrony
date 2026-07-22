@@ -793,7 +793,11 @@ testers must install Apple's TestFlight app first — there is no one-tap
 native beta on iOS — so the beta stays an inner-circle proving ground with
 soft marketing, and the App Store, the true one-tap channel, becomes the
 explicit next target. From here, "ship a new build" is a one-line request:
-archive, upload, and testers update themselves.
+archive, upload, and testers update themselves. Postscript, same night: a
+session monitor polling Apple every half hour caught the verdict —
+**APPROVED in about seven hours**, not the typical day. Only an app's first
+build faces that review, so the public link went live then and there;
+everything after this line is distribution, not permission.
 
 ---
 

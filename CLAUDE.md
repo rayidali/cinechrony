@@ -1011,13 +1011,16 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-07 — analytics (PostHog) + observability (Sentry) live;
-`/support` + privacy-processor disclosure + `.env.example` added; marketing
-website DONE (separate repo); iOS-native UX fixes merged (`c84189e`: create-list
-keyboard, `contentInset:never`, safe-area/keyboard audit follow-ups). Earlier:
-Phase C web-first (`34bd93e`) + extraction precision (`5fa8472`). The "Current
-state" section at the top of this file is the authoritative status; the dated
-sections below are a historical changelog.*
+*Last updated: 2026-07-21 — TestFlight LIVE: build 1.0 (1) uploaded from the
+terminal, beta review APPROVED in ~7h, public link live (capped 150); ASC
+API automation via `scripts/asc-api.tmp.mjs`; ShareExtension TRUEPREDICATE
+→ dictionary activation rule (`e680559`, ITMS-90362). Before that: the
+2026-07-10→18 native launch stretch (share extension · Live Activity ·
+extraction excellence · theatre sweep · TestFlight prep — see `HANDOFF.md`).
+Earlier: analytics/observability live (07-07), Phase C web-first
+(`34bd93e`), extraction precision (`5fa8472`). The "Current state" section
+at the top of this file is the authoritative status; the dated sections
+below are a historical changelog.*
 
 ## Recent Changes (January 2025)
 
