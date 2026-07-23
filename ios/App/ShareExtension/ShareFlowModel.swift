@@ -25,6 +25,12 @@ final class ShareFlowModel: ObservableObject {
         case working(stage: String, thumbnail: String?)
         case signedOut
         case error(message: String)
+        /// The weekly free-scan quota is spent (server `QUOTA_EXCEEDED`).
+        /// Distinct from `.error`: it renders INLINE with no retry / open-app
+        /// button — retrying would just fail again, and this is a product
+        /// limit, not a broken share, so it must never bounce the user out to
+        /// the host app.
+        case quotaExceeded
         case ready
         case done(listName: String)
     }
@@ -214,6 +220,9 @@ final class ShareFlowModel: ObservableObject {
             switch apiError {
             case .unauthorized, .noCredential:
                 phase = .signedOut
+                return
+            case .quotaExceeded:
+                phase = .quotaExceeded
                 return
             default:
                 break

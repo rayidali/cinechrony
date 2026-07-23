@@ -41,6 +41,7 @@ export type ApiErrorCode =
   | 'BAD_REQUEST'
   | 'CONFLICT'
   | 'RATE_LIMITED'
+  | 'QUOTA_EXCEEDED'
   | 'INTERNAL';
 
 const STATUS_FOR_CODE: Record<ApiErrorCode, number> = {
@@ -50,6 +51,7 @@ const STATUS_FOR_CODE: Record<ApiErrorCode, number> = {
   BAD_REQUEST: 400,
   CONFLICT: 409,
   RATE_LIMITED: 429,
+  QUOTA_EXCEEDED: 429,
   INTERNAL: 500,
 };
 
@@ -81,6 +83,11 @@ export class ConflictError extends ApiError {
 export class RateLimitedError extends ApiError {
   constructor(message = "You're doing that too fast. Please slow down and try again shortly.") {
     super('RATE_LIMITED', message);
+  }
+}
+export class QuotaExceededError extends ApiError {
+  constructor(message = "you're out of scans this week. they refresh monday.") {
+    super('QUOTA_EXCEEDED', message);
   }
 }
 

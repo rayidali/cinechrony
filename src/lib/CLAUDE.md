@@ -586,3 +586,10 @@ Env: `GEMINI_API_KEY` · `GEMINI_MODEL` (gemini-2.5-flash) · `APIFY_TOKEN` ·
 `APIFY_ACTOR_ID` · `APIFY_ACTOR_INSTAGRAM`. **Every Apify run is cost-capped**
 (the Letterboxd `startRun` was the cautionary tale — its uncapped default ran an
 hour at ~$3.70). Tests: `44-extractions-auth` (10) + `45-extraction-save` (6).
+**Weekly scan quota (2026-07-23):** only a CLAIM (a fresh Apify+Gemini run —
+cache hits and followers are free) is metered, 7/week free tier (`PLAN_LIMITS`,
+`SCAN_WEEKLY_LIMIT`-overridable), Monday 00:00 UTC reset, counted inside the
+same claim transaction on client-inaccessible `users_private/{uid}.scanUsage`
+(a rejected claim never writes the cache, so it can't poison the urlHash for
+another user). `QuotaExceededError` (429 `QUOTA_EXCEEDED`, `api-handler.ts`);
+`getScanQuota` backs `GET /api/v1/me/scan-quota`. Tests: `52-scan-quota` (7).

@@ -5,6 +5,12 @@
  *   Body: `{ url: string }`  (a TikTok / Instagram / YouTube link)
  *   → `{ jobId, status: 'processing' | 'done' }`
  *
+ * WEEKLY QUOTA: only a cache MISS that wins the claim (a fresh Apify+Gemini
+ * pipeline run) counts against the free tier's 7 scans/week — cache hits and
+ * followers are free. A quota-exhausted claim throws `QuotaExceededError`
+ * (`QUOTA_EXCEEDED`, 429) instead of writing the cache claim. See
+ * `getScanQuota` / `GET /api/v1/me/scan-quota`.
+ *
  * On a cache miss the pipeline runs AFTER the response (see extraction-server);
  * the client polls `GET /api/v1/extractions/[jobId]`. Unsupported/malformed URL
  * → 400. Phase C.1a (pipeline stubbed — fixture films, no keys needed).

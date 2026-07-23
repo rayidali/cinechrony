@@ -36,13 +36,22 @@ popcorn avatar, top-5 canon, three ratings.
 appPriceSchedule/appAvailability until you POST one. Privacy nutrition
 labels (`appDataUsages`) are NOT on the public API — ASC UI only.
 
-## Code change riding build 2
+## Code changes riding build 2
 
 - **iPhone-only** (`TARGETED_DEVICE_FAMILY = 1`, was `"1,2"`, all 6 configs)
   — the UI is phone-designed; claiming iPad would demand a 13" screenshot
   set + iPad-layout review, and a device family can never be REMOVED after
   release. Pre-release is the only window. iPads still run iPhone apps in
   compatibility mode. Suite 51 green (13/13) after the change.
+- **Weekly scan quota (2026-07-23)** — 7 fresh scans/week free tier, Monday
+  00:00 UTC reset; only a pipeline CLAIM is metered (cache hits + followers
+  free), counted atomically inside the claim transaction on server-only
+  `users_private/{uid}.scanUsage`; 429 `QUOTA_EXCEEDED`. Web /extract shows
+  the remaining count + a calm full state (live on next deploy); the
+  ShareExtension drawer's inline quota state ships with build 2 (old builds
+  show the server message via the generic error state — still friendly
+  copy). Tier-ready: `PLAN_LIMITS` map + `users_private.plan`. Tests:
+  `52-scan-quota` (7); suite 531/531.
 
 ## Remaining before submission
 

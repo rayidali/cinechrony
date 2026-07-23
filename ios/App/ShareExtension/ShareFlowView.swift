@@ -183,6 +183,8 @@ struct ShareFlowView: View {
             SignedOutStateView(onOpenApp: { model.openApp() })
         case .error(let message):
             ErrorStateView(message: message, onRetry: { model.retry() }, onOpenApp: { model.openApp() })
+        case .quotaExceeded:
+            QuotaStateView()
         case .ready:
             ResultStateView(model: model)
         case .done(let listName):
@@ -332,6 +334,27 @@ private struct ErrorStateView: View {
                 SecondaryButton(title: "open cinechrony", action: onOpenApp)
             }
             .padding(.top, 6)
+        }
+        .padding(.vertical, 34)
+        .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: - State 3b: quota exceeded (inline — no retry, no open-app fallback;
+// the drawer's header X is the only affordance, same as every other state)
+
+private struct QuotaStateView: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            Text("out of scans for this week")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(Brand.ink)
+                .multilineTextAlignment(.center)
+            Text("scans refresh every monday.")
+                .font(.system(size: 15))
+                .foregroundColor(Brand.muted)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 24)
         }
         .padding(.vertical, 34)
         .frame(maxWidth: .infinity)

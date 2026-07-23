@@ -15,13 +15,23 @@
  * Collections (both server-only — `firestore.rules` denies all client access):
  *   /extraction_jobs/{jobId}     — per-request, uid-scoped
  *   /extraction_cache/{urlHash}  — shared across users, results only (no uid)
+ *
+ * WEEKLY SCAN QUOTA: only a CLAIM (a fresh Apify+Gemini pipeline run) costs
+ * real money — cache hits (`isFreshDone`) and followers ride someone else's
+ * claim for free. The claim transaction below meters claims against a
+ * per-week counter on `users_private/{uid}` (client-inaccessible; see
+ * `firestore.rules`) and throws `QuotaExceededError` once the free tier's
+ * weekly budget (`PLAN_LIMITS`, `SCAN_WEEKLY_LIMIT`-overridable) is spent. A
+ * rejected claim never touches the cache doc, so the urlHash stays open for
+ * the next caller. `getScanQuota` serves the read-only `{ used, limit, … }`
+ * view behind `GET /api/v1/me/scan-quota`.
  */
 
 import { createHash } from 'node:crypto';
 import { after } from 'next/server';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
+import { BadRequestError, ForbiddenError, NotFoundError, QuotaExceededError } from '@/lib/api-handler';
 import { acquireVideo, type AcquiredVideo } from '@/lib/video-acquire-server';
 import { analyzeForFilms, captionCandidates, isGeminiConfigured, type GeminiAnalysis, type RawFilmCandidate } from '@/lib/gemini-server';
 import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
@@ -67,6 +77,56 @@ const POLL_STAMP_THROTTLE_MS = 15 * 1000;
  *  than `POLL_STAMP_THROTTLE_MS` so a continuously-polling client's throttled
  *  stamp never reads stale at the exact moment the pipeline finishes. */
 const LIVE_WATCH_WINDOW_MS = 20 * 1000;
+
+// ── Weekly scan quota (only a CLAIM costs money — cache hits + followers are
+// free, see the claim transaction in `createExtraction`) ─────────────────────
+
+/** Per-plan weekly scan budget. Only `free` exists today; an unrecognized or
+ *  missing plan string falls back to it. */
+export const PLAN_LIMITS: Record<string, { scansPerWeek: number }> = {
+  free: { scansPerWeek: 7 },
+};
+
+/** Free-tier weekly limit, env-overridable — read at CALL time (like the other
+ *  env reads in this file, e.g. `confidenceFloor`) so it's robust to env
+ *  arriving after import. Falls back to `PLAN_LIMITS.free` when unset/invalid. */
+function freeWeeklyLimit(): number {
+  const v = Number(process.env.SCAN_WEEKLY_LIMIT);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : PLAN_LIMITS.free.scansPerWeek;
+}
+
+/** Resolves the weekly scan limit for a plan string. Unknown/missing plans are
+ *  the free tier (and so pick up the env override); a recognized paid plan
+ *  (none yet) uses its own fixed `scansPerWeek`. */
+function weeklyLimitFor(plan: string | undefined): number {
+  const limits = (plan && PLAN_LIMITS[plan]) || PLAN_LIMITS.free;
+  return limits === PLAN_LIMITS.free ? freeWeeklyLimit() : limits.scansPerWeek;
+}
+
+/** The Monday of `now`'s UTC week, as `'YYYY-MM-DD'` — the quota bucket key.
+ *  Quota resets Monday 00:00 UTC, so a scan's usage lands under whichever
+ *  Monday its calendar week started on. Exported for the audit suite. */
+export function currentWeekKey(now: Date = new Date()): string {
+  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const day = d.getUTCDay(); // 0 = Sunday … 6 = Saturday
+  const sinceMonday = day === 0 ? 6 : day - 1;
+  d.setUTCDate(d.getUTCDate() - sinceMonday);
+  return d.toISOString().slice(0, 10);
+}
+
+/** ISO instant of the NEXT Monday 00:00:00 UTC after `now` — the quota's reset
+ *  time, surfaced to the client so it can say "they refresh monday" honestly. */
+export function weekResetsAt(now: Date = new Date()): string {
+  const weekStart = new Date(`${currentWeekKey(now)}T00:00:00.000Z`);
+  return new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+}
+
+/** The private, server-only fields `createExtraction`/`getScanQuota` read off
+ *  `users_private/{uid}` (`firestore.rules` denies all client access). */
+type UsersPrivateDoc = {
+  plan?: string;
+  scanUsage?: { week?: string; used?: number };
+};
 
 /** The shared per-video cache doc — also the cache-stampede coordination point. */
 type CacheDoc = {
@@ -273,18 +333,36 @@ export async function createExtraction(
     return { jobId: ref.id, status: 'done' };
   }
 
-  // CACHE-STAMPEDE PREVENTION. Atomically claim this urlHash: only the WINNER
-  // runs the (expensive) Apify+Gemini pipeline. Concurrent scans of the SAME
-  // video become "followers" that resolve from the shared cache once the winner
-  // fills it (see getExtraction) — collapsing 1000 simultaneous scans of one
-  // viral clip into a SINGLE pipeline run.
+  // CACHE-STAMPEDE PREVENTION + WEEKLY QUOTA. Atomically claim this urlHash:
+  // only the WINNER runs the (expensive) Apify+Gemini pipeline. Concurrent
+  // scans of the SAME video become "followers" that resolve from the shared
+  // cache once the winner fills it (see getExtraction) — collapsing 1000
+  // simultaneous scans of one viral clip into a SINGLE pipeline run.
+  // A claim is the ONLY path that costs money, so it's also the only path
+  // metered against the caller's weekly quota — reject it BEFORE writing the
+  // cache claim, so a quota-exhausted caller can never poison the urlHash for
+  // someone else who still has budget.
+  const privRef = db.collection('users_private').doc(uid);
   const decision = await db.runTransaction(async (tx) => {
-    const fresh = (await tx.get(cacheRef)).data() as CacheDoc | undefined;
+    // Firestore transactions require every read before any write — read both
+    // docs up front even though the quota one is only needed on the claim path.
+    const [freshSnap, privSnap] = await Promise.all([tx.get(cacheRef), tx.get(privRef)]);
+    const fresh = freshSnap.data() as CacheDoc | undefined;
     if (isFreshDone(fresh)) return 'follow'; // filled between our read + the tx
     if (claimLive(fresh)) return 'follow'; // someone else is already on it
+
+    const priv = privSnap.data() as UsersPrivateDoc | undefined;
+    const limit = weeklyLimitFor(priv?.plan ?? 'free');
+    const week = currentWeekKey();
+    const usage = priv?.scanUsage;
+    const effectiveUsed = usage?.week === week ? (usage.used ?? 0) : 0;
+    if (effectiveUsed >= limit) return 'quota';
+
     tx.set(cacheRef, { status: 'processing', startedAt: FieldValue.serverTimestamp(), canonicalUrl, provider, expiresAt: expireStamp() });
+    tx.set(privRef, { scanUsage: { week, used: effectiveUsed + 1 } }, { merge: true });
     return 'claim';
   });
+  if (decision === 'quota') throw new QuotaExceededError();
 
   const ref = db.collection(JOBS).doc();
   await ref.set({
@@ -310,6 +388,27 @@ export async function createExtraction(
   // Followers don't run a pipeline — they self-heal from the cache on poll.
 
   return { jobId: ref.id, status: 'processing' };
+}
+
+/** The caller's weekly scan quota — one read, no write (a stale week is
+ *  resolved LOGICALLY here, same as the claim transaction; the counter only
+ *  gets zeroed for real on that user's next claim). Backs
+ *  `GET /api/v1/me/scan-quota`. */
+export async function getScanQuota(uid: string): Promise<{
+  limit: number;
+  used: number;
+  remaining: number;
+  week: string;
+  resetsAt: string;
+}> {
+  const db = getDb();
+  const snap = await db.collection('users_private').doc(uid).get();
+  const priv = snap.data() as UsersPrivateDoc | undefined;
+  const limit = weeklyLimitFor(priv?.plan ?? 'free');
+  const week = currentWeekKey();
+  const usage = priv?.scanUsage;
+  const used = usage?.week === week ? Math.max(0, usage.used ?? 0) : 0;
+  return { limit, used, remaining: Math.max(0, limit - used), week, resetsAt: weekResetsAt() };
 }
 
 /** Read a job. 404 if missing, 403 if it isn't the caller's.

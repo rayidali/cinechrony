@@ -27,7 +27,7 @@ import type { MovieList } from '@/lib/types';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { ExtractionJobView, ExtractionFilm } from '@/lib/extraction-types';
 
-type Phase = 'input' | 'processing' | 'result' | 'failed' | 'not-found';
+type Phase = 'input' | 'processing' | 'result' | 'failed' | 'not-found' | 'quota';
 
 const STAGE_LABEL: Record<string, string> = {
   queued: 'getting ready',
@@ -38,6 +38,8 @@ const STAGE_LABEL: Record<string, string> = {
   failed: 'failed',
 };
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cc-extract/300/450';
+
+type ScanQuota = { limit: number; used: number; remaining: number };
 
 export default function ExtractClient() {
   const router = useRouter();
@@ -56,11 +58,24 @@ export default function ExtractClient() {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState<{ count: number } | null>(null);
+  const [quota, setQuota] = useState<ScanQuota | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!isUserLoading && !user) router.push('/login');
   }, [user, isUserLoading, router]);
+
+  // The "N of 7 left this week" caption — soft-fail (no toast, just hide the
+  // caption) since it's decoration, never a blocker. Refetched after a scan
+  // is started so the count stays honest.
+  const fetchQuota = useCallback(() => {
+    if (!user) return;
+    apiCall<ScanQuota>('GET', '/api/v1/me/scan-quota')
+      .then(setQuota)
+      .catch(() => setQuota(null));
+  }, [user]);
+
+  useEffect(() => { fetchQuota(); }, [fetchQuota]);
 
   const listsQuery = useMemoFirebase(
     () => (user ? query(collection(firestore, 'users', user.uid, 'lists'), orderBy('updatedAt', 'desc')) : null),
@@ -145,6 +160,7 @@ export default function ExtractClient() {
       try {
         const res = await apiCall<{ jobId: string; status: string }>('POST', '/api/v1/extractions', { url: target });
         track(AnalyticsEvent.ExtractionStarted, { provider: parseVideoUrl(target)?.provider ?? 'other' });
+        fetchQuota(); // a claim just spent one of this week's scans (cache hits/followers don't)
         if (res.status === 'done') {
           const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${res.jobId}`);
           finalize(j);
@@ -152,6 +168,10 @@ export default function ExtractClient() {
           poll(res.jobId);
         }
       } catch (err) {
+        if (err instanceof ApiClientError && err.code === 'QUOTA_EXCEEDED') {
+          setPhase('quota');
+          return;
+        }
         setPhase('input');
         toast({
           variant: 'destructive',
@@ -160,7 +180,7 @@ export default function ExtractClient() {
         });
       }
     },
-    [url, user, finalize, poll, toast],
+    [url, user, finalize, poll, toast, fetchQuota],
   );
 
   // Resume a job by id — the completion-push doorway (`/extract?jobId=…`).
@@ -264,7 +284,7 @@ export default function ExtractClient() {
         {saved ? (
           <SavedState count={saved.count} dest={destLabel} onAgain={resetToInput} onLists={() => router.push('/lists')} />
         ) : phase === 'input' ? (
-          <InputState url={url} setUrl={setUrl} onScan={() => start()} />
+          <InputState url={url} setUrl={setUrl} onScan={() => start()} quota={quota} />
         ) : phase === 'processing' ? (
           <ProcessingState stage={stage} />
         ) : phase === 'failed' ? (
@@ -273,6 +293,12 @@ export default function ExtractClient() {
           <FailedState
             title="we couldn’t find that scan"
             message="it may have expired."
+            onBack={() => setPhase('input')}
+          />
+        ) : phase === 'quota' ? (
+          <FailedState
+            title="out of scans for this week"
+            message="scans refresh every monday. everything you’ve already saved stays put."
             onBack={() => setPhase('input')}
           />
         ) : films.length === 0 ? (
@@ -323,7 +349,14 @@ export default function ExtractClient() {
 
 // ── sub-views ─────────────────────────────────────────────────────────────────
 
-function InputState({ url, setUrl, onScan }: { url: string; setUrl: (s: string) => void; onScan: () => void }) {
+function InputState({
+  url, setUrl, onScan, quota,
+}: {
+  url: string;
+  setUrl: (s: string) => void;
+  onScan: () => void;
+  quota: ScanQuota | null;
+}) {
   return (
     <div className="pt-6">
       <div className="mb-5 flex flex-col items-center text-center">
@@ -356,6 +389,11 @@ function InputState({ url, setUrl, onScan }: { url: string; setUrl: (s: string) 
       >
         <Sparkles className="h-[18px] w-[18px]" /> scan for films
       </button>
+      {quota && (
+        <p className="mt-2.5 text-center font-mono text-xs text-muted-foreground">
+          {quota.remaining} of {quota.limit} scans left this week
+        </p>
+      )}
     </div>
   );
 }

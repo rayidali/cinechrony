@@ -23,6 +23,10 @@ enum APIError: Error {
     case decode
     case badURL
     case server(String)
+    /// `QUOTA_EXCEEDED` (429) — the weekly free-scan quota is spent. Distinct
+    /// from `.server` so the drawer can render an inline "come back monday"
+    /// state instead of the generic error state.
+    case quotaExceeded(String)
 }
 
 actor ExtensionAPI {
@@ -126,6 +130,9 @@ actor ExtensionAPI {
 
         if envelope.ok, let value = envelope.data {
             return value
+        }
+        if envelope.error?.code == "QUOTA_EXCEEDED" {
+            throw APIError.quotaExceeded(envelope.error?.message ?? "you're out of scans this week. they refresh monday.")
         }
         throw APIError.server(envelope.error?.message ?? "Request failed (HTTP \(http.statusCode))")
     }

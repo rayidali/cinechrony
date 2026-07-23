@@ -449,6 +449,11 @@ Branch `feat/phase-c-extraction`. The AI "share a video → extract films" featu
 - **`POST /api/v1/extractions/[jobId]/save`** `{ createLists?, items[] }` →
   per-item results — create caller-owned lists + `addMovieToList` per film with
   the source video as `socialLink`. Per-item `canEditList`, idempotent, integrity.
+- **`GET /api/v1/me/scan-quota`** → `{ limit, used, remaining, week, resetsAt }`
+  — the free tier's weekly scan quota (7/week, Monday 00:00 UTC reset; only a
+  CLAIM counts, cache hits/followers are free). A quota-exhausted claim 429s
+  `QUOTA_EXCEEDED` from `POST /api/v1/extractions` instead. See
+  `getScanQuota` in `src/lib/CLAUDE.md`.
 - **`/extract`** (`page.tsx` Suspense + `client.tsx`) — paste/share a link →
   narrated progress → film cards (poster · year · AI receipt quote · per-film
   destination chip via Vaul `SheetMenu` · remove) + editable AI new-list name →
