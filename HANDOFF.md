@@ -1,11 +1,22 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-21. Project: a social movie-watchlist app
+> Last updated 2026-07-23. Project: a social movie-watchlist app
 > (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
 > `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -1. **App Store listing FILLED via the ASC API (2026-07-23).** Everything
+>    API-settable on version 1.0 in one pass: brand-voice copy, subtitle,
+>    URLs, copyright, categories, the full age-rating questionnaire (→
+>    **12+**), free pricing + all 175 territories (neither exists until
+>    POSTed), App Review details (demo account + UGC note), content
+>    rights, and **5 real 1320x2868 screenshots** — headless-Chrome
+>    captures of prod as the dressed demo account, incl. a LIVE reel scan
+>    (5 films, strong match). Gotchas: screenshots go in **APP_IPHONE_67**
+>    (no APP_IPHONE_69 in the enum); privacy labels are UI-only. iPhone-only
+>    (`TARGETED_DEVICE_FAMILY = 1`) queued for build 2; suite 51 green.
+>    Tracker + owner privacy-label answer sheet: **`APP-STORE-SUBMISSION.md`**.
 > 0. **TestFlight LIVE — build 1.0 (1) on App Store Connect, beta review
 >    submitted (2026-07-20→21).** The ENTIRE pipeline ran from the terminal:
 >    CLI archive + upload, then an ASC API key drove Test Information, both
@@ -59,18 +70,18 @@
 >
 > **Immediate next:** (1) owner installs Apple's TestFlight app + accepts
 > the internal invite (sent to `rayid.awesome@gmail.com`) → first OTA
-> install, the cable retires; (2) ~~the beta review verdict~~ **APPROVED
-> 2026-07-21** — the public link is live for friends now; (3) **add
-> `app.cinechrony.com`** in Vercel + DNS BEFORE the link goes wide
-> (entitlements + Firebase already wired — additive, breaks nothing on
-> existing phones), then Claude flips the three pinned URLs (`package.json`
-> build default, `ExtensionAPI.swift`, `LiveActivityTokenRelay.swift`) and
-> ships build 2; (4) **App Store submission prep** in parallel — the true
-> one-tap install channel and the explicit target after a short beta bake
-> (screenshots, listing copy, age rating, privacy labels are Claude-doable;
-> owner gates: EU trader status in ASC, Blaze past ~150). Console TTL
-> policies (extraction_jobs + extraction_cache on `expiresAt`) still open
-> if not yet clicked.
+> install, the cable retires (still INVITED as of 07-23; 0 public-link
+> joins yet); (2) **add `app.cinechrony.com`** in Vercel + DNS BEFORE the
+> link goes wide (entitlements + Firebase already wired — additive, breaks
+> nothing on existing phones), then Claude flips the three pinned URLs
+> (`package.json` build default, `ExtensionAPI.swift`,
+> `LiveActivityTokenRelay.swift`) and ships build 2 (which also carries
+> iPhone-only); (3) ~~App Store submission prep~~ **DONE Claude-side
+> 2026-07-23** (`APP-STORE-SUBMISSION.md`) — remaining owner gates:
+> **privacy nutrition labels** (~5 min, answer sheet in the tracker), **EU
+> trader status**, then Claude attaches build 2 + submits via API. Console
+> TTL policies (extraction_jobs + extraction_cache on `expiresAt`) still
+> open if not yet clicked.
 
 ---
 
