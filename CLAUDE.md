@@ -2,8 +2,28 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-21)
+## Current state (2026-07-23)
 
+- **App Store listing FILLED via the ASC API (2026-07-23) — submission is
+  now gated on 3 owner steps + build 2.** Version 1.0 record
+  (`f784b7f8…`, PREPARE_FOR_SUBMISSION) got everything API-settable in one
+  pass: brand-voice description/keywords/promo, subtitle "movie nights
+  with friends", URLs, copyright, categories (Entertainment + Social
+  Networking), the FULL age-rating questionnaire → **12+**, free pricing
+  (appPriceSchedule POST — none exists until you create it), all 175
+  territories, App Review details (demo account + UGC-moderation note),
+  `USES_THIRD_PARTY_CONTENT`, and **5 real screenshots** (1320x2868 in the
+  **APP_IPHONE_67** set — `APP_IPHONE_69` does not exist in the API enum).
+  Screenshots are headless-Chrome captures of prod as the demo account
+  (same UI the WebView ships; `scripts/appstore-screenshots.tmp.mjs` +
+  `asc-upload-screenshots.tmp.mjs`), incl. a LIVE scan (5 Rurouni Kenshin
+  films, strong match); demo account dressed (popcorn avatar, top-5 canon,
+  3 ratings — `dress-demo-account.tmp.ts`). Code change riding build 2:
+  **iPhone-only** (`TARGETED_DEVICE_FAMILY = 1`; iPad would demand its own
+  screenshot set + layout review and can never be dropped post-release);
+  suite 51 green. Privacy nutrition labels are NOT API-settable — owner
+  answer sheet + full tracker in **`APP-STORE-SUBMISSION.md`**. Owner
+  gates: privacy labels (~5 min), EU trader status, the domain add.
 - **TestFlight LIVE — build 1.0 (1) uploaded, beta review submitted, all
   from the terminal (2026-07-20→21).** CLI archive + upload
   (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` REQUIRED on
@@ -516,11 +536,13 @@
   the internal invite (in the `rayid.awesome@gmail.com` inbox) — the first
   OTA install, the cable retires; add **`app.cinechrony.com`** in Vercel +
   DNS (additive — nothing existing breaks; Firebase + entitlements already
-  wired; Claude then flips the 3 pinned URLs + ships build 2); enable
-  **Blaze** before any cohort past ~150; Firestore console TTL policies
-  (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not yet
-  clicked; EU **trader status** in ASC (gates App Store submission, not
-  TestFlight).
+  wired; Claude then flips the 3 pinned URLs + ships build 2, which also
+  carries iPhone-only); **privacy nutrition labels** in ASC (~5 min — the
+  exact answers are in `APP-STORE-SUBMISSION.md`; not API-settable); EU
+  **trader status** in ASC (gates App Store submission, not TestFlight);
+  enable **Blaze** before any cohort past ~150; Firestore console TTL
+  policies (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not
+  yet clicked.
 - **NOW — beta review verdict, then friends, then the App Store.** The
   playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the checklist
   artifact survives at
@@ -529,9 +551,12 @@
   https://testflight.apple.com/join/CRPFhKen is live: friends can install
   today (they need Apple's TestFlight app first — two minutes, standard
   indie practice; put the link behind the website's "iOS beta" button with
-  one line of setup copy). Do the domain add before sharing wide. Then **App Store submission prep**
-  (the one-tap goal): screenshots, listing copy, age rating, privacy
-  nutrition labels — largely Claude-doable, much via the ASC API.
+  one line of setup copy). Do the domain add before sharing wide. **App
+  Store submission prep is DONE on the Claude side (2026-07-23,
+  `APP-STORE-SUBMISSION.md`)** — listing copy, age rating (12+),
+  pricing/availability, review details, screenshots all live in ASC; what
+  remains is owner-only (privacy labels, trader status, domain) + attach
+  build 2 and submit (Claude, via API).
   **"Ship a new build" is now a one-liner**: CLI archive + upload; the
   internal group auto-receives it; TestFlight updates testers itself.
   Parallel/optional: PWA `<InstallPrompt>`; direct-to-IG pasteboard plugin
@@ -1011,7 +1036,11 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-21 — TestFlight LIVE: build 1.0 (1) uploaded from the
+*Last updated: 2026-07-23 — App Store listing filled end-to-end via the ASC
+API (copy, 12+ age rating, pricing, 175 territories, review details, 5 live
+screenshots via headless-Chrome captures of prod); iPhone-only device
+family queued for build 2; tracker `APP-STORE-SUBMISSION.md`. Before that
+(07-21): TestFlight LIVE: build 1.0 (1) uploaded from the
 terminal, beta review APPROVED in ~7h, public link live (capped 150); ASC
 API automation via `scripts/asc-api.tmp.mjs`; ShareExtension TRUEPREDICATE
 → dictionary activation rule (`e680559`, ITMS-90362). Before that: the
