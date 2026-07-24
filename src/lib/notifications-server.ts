@@ -434,6 +434,216 @@ export async function createPostCommentNotification(
   });
 }
 
+// ─── Movie Night notifications (MOVIE-NIGHT-PLAN.md) ──────────────────────
+//
+// All six ride EXISTING notification prefs (no new prefs UI, per the plan):
+// the invite/reschedule/cancel/reminder lifecycle rides `listInvites` (a
+// movie night is an invite in spirit — same bucket as `list_invite`); the
+// RSVP + morning-after nudge ride `replies` (a response to the host, same
+// reasoning `post_comment` uses for the `replies` pref). Every creator is
+// block-gated at CREATION time (`quietlyBlocked`) and carries a `data.url`
+// deep link to `/home?night=<id>` (the home sheet mounts on that param).
+
+export type MovieNightNotificationCtx = {
+  nightId: string;
+  movieTitle: string;
+  dateLabel: string; // 'fri 24.07'
+  timeLabel: string; // '8:00 pm'
+  fromUserId: string;
+  fromUsername: string | null;
+  fromDisplayName: string | null;
+  fromPhotoUrl: string | null;
+};
+
+function movieNightUrl(nightId: string): string {
+  return `/home?night=${nightId}`;
+}
+
+async function writeMovieNightNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  type:
+    | 'movie_night_invite' | 'movie_night_rsvp' | 'movie_night_reminder'
+    | 'movie_night_time_changed' | 'movie_night_cancelled' | 'movie_night_morning_after',
+  ctx: MovieNightNotificationCtx,
+  previewText: string,
+  pushTitle: string,
+  /** Overrides the push `data.url` (e.g. the S2 ticker's morning-after check-in
+   *  deep-links straight to the outcome prompt with `&after=1`). Defaults to
+   *  the plain night link. */
+  urlOverride?: string,
+): Promise<void> {
+  await db.collection('notifications').add({
+    userId: recipientId,
+    type,
+    fromUserId: ctx.fromUserId,
+    fromUsername: ctx.fromUsername,
+    fromDisplayName: ctx.fromDisplayName,
+    fromPhotoUrl: ctx.fromPhotoUrl,
+    movieTitle: ctx.movieTitle,
+    previewText,
+    nightId: ctx.nightId,
+    nightDateLabel: ctx.dateLabel,
+    nightTimeLabel: ctx.timeLabel,
+    read: false,
+    createdAt: FieldValue.serverTimestamp(),
+  });
+  firePush(recipientId, {
+    title: pushTitle,
+    body: previewText,
+    data: { type, nightId: ctx.nightId, url: urlOverride ?? movieNightUrl(ctx.nightId) },
+  });
+}
+
+/** Fired on every non-host invitee when a movie night is planned. */
+export async function createMovieNightInviteNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  ctx: MovieNightNotificationCtx,
+): Promise<void> {
+  if (recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, recipientId)) return;
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.listInvites === false) return;
+
+  const previewText = `${fromName(ctx)} planned a movie night: ${ctx.movieTitle}, ${ctx.dateLabel} at ${ctx.timeLabel}`;
+  await writeMovieNightNotification(
+    db, recipientId, 'movie_night_invite', ctx, previewText,
+    `${fromName(ctx)} planned a movie night`,
+  );
+}
+
+export type MovieNightRsvpNotificationCtx = MovieNightNotificationCtx & {
+  answer: 'in' | 'maybe' | 'out';
+  /** Set for a no-account guest RSVP via the share link (S2) — `fromUserId`
+   *  is the empty-string system sentinel in that case (no real uid), and this
+   *  overrides the `@username`/displayName framing with "<name> (from your
+   *  link)". */
+  guestName?: string;
+};
+
+/** Fired on the HOST when an invitee (or a guest, via the share link) RSVPs.
+ *  Never self (the host auto-RSVPs 'in' on create — that never routes
+ *  through here). */
+export async function createMovieNightRsvpNotification(
+  db: FirebaseFirestore.Firestore,
+  hostUid: string,
+  ctx: MovieNightRsvpNotificationCtx,
+): Promise<void> {
+  if (hostUid === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, hostUid)) return;
+  const hostDoc = await db.collection('users').doc(hostUid).get();
+  const prefs = hostDoc.data()?.notificationPreferences;
+  if (prefs && prefs.replies === false) return;
+
+  const verb = ctx.answer === 'in' ? 'is in for' : ctx.answer === 'maybe' ? 'might make it to' : "can't make it to";
+  const who = ctx.guestName ? `${ctx.guestName} (from your link)` : fromName(ctx);
+  const previewText = `${who} ${verb} ${ctx.movieTitle}`;
+  await writeMovieNightNotification(db, hostUid, 'movie_night_rsvp', ctx, previewText, previewText);
+}
+
+/** Fired on every OTHER invitee when the host reschedules. */
+export async function createMovieNightTimeChangedNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  ctx: MovieNightNotificationCtx,
+): Promise<void> {
+  if (recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, recipientId)) return;
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.listInvites === false) return;
+
+  const previewText = `movie night moved to ${ctx.dateLabel} at ${ctx.timeLabel}`;
+  await writeMovieNightNotification(
+    db, recipientId, 'movie_night_time_changed', ctx, previewText, `${ctx.movieTitle}: time changed`,
+  );
+}
+
+/** Fired on every OTHER invitee when the host cancels. */
+export async function createMovieNightCancelledNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  ctx: MovieNightNotificationCtx,
+): Promise<void> {
+  if (recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, recipientId)) return;
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.listInvites === false) return;
+
+  const previewText = `${fromName(ctx)} called off movie night for ${ctx.movieTitle}`;
+  await writeMovieNightNotification(
+    db, recipientId, 'movie_night_cancelled', ctx, previewText, 'movie night called off',
+  );
+}
+
+export type MovieNightMorningAfterNotificationCtx = MovieNightNotificationCtx & {
+  /** 'rate' (default) — an attendee just marked the night complete; nudge the
+   *  others to rate it too. 'prompt' — the S2 ticker's own check-in, fired
+   *  when NOBODY has recorded an outcome by 10am the day after: "did it
+   *  happen?", deep-linking straight to the outcome prompt (`&after=1`). */
+  flavor?: 'rate' | 'prompt';
+};
+
+/** Fired on every OTHER attendee once one attendee completes the night — a
+ *  nudge to rate it themselves (`flavor: 'rate'`, the default) — OR by the S2
+ *  ticker on every in/maybe invitee + the host when a night is still
+ *  unresolved the morning after (`flavor: 'prompt'`). */
+export async function createMovieNightMorningAfterNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  ctx: MovieNightMorningAfterNotificationCtx,
+): Promise<void> {
+  if (recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, recipientId)) return;
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.listInvites === false) return;
+
+  const isPrompt = ctx.flavor === 'prompt';
+  const previewText = isPrompt
+    ? `did movie night happen? ${ctx.movieTitle}, last night`
+    : `how was ${ctx.movieTitle}? rate last night's film.`;
+  await writeMovieNightNotification(
+    db, recipientId, 'movie_night_morning_after', ctx, previewText,
+    isPrompt ? "movie night: how'd it go?" : 'how was it?',
+    isPrompt ? `${movieNightUrl(ctx.nightId)}&after=1` : undefined,
+  );
+}
+
+export type MovieNightReminderNotificationCtx = MovieNightNotificationCtx & {
+  /** Whether the night falls on the recipient's local calendar date (per
+   *  `tzOffsetMinutes`) — the '2h'/'showtime' presets always are; the
+   *  'morning' preset can land on a future date at the edges. Set by the S2
+   *  ticker; drives the "tonight" vs. dated framing. */
+  isTonight: boolean;
+};
+
+/** Fired by the S2 ticker at the night's chosen reminder preset fire time, on
+ *  every invitee (host included — `fromUserId` is the empty-string system
+ *  sentinel, so the usual self-notify guard never excludes them) who hasn't
+ *  answered 'out'. */
+export async function createMovieNightReminderNotification(
+  db: FirebaseFirestore.Firestore,
+  recipientId: string,
+  ctx: MovieNightReminderNotificationCtx,
+): Promise<void> {
+  if (recipientId === ctx.fromUserId) return;
+  if (await quietlyBlocked(db, ctx.fromUserId, recipientId)) return;
+  const userDoc = await db.collection('users').doc(recipientId).get();
+  const prefs = userDoc.data()?.notificationPreferences;
+  if (prefs && prefs.listInvites === false) return;
+
+  const previewText = ctx.isTonight
+    ? `tonight: ${ctx.movieTitle} at ${ctx.timeLabel}. grab your snacks.`
+    : `${ctx.dateLabel}: ${ctx.movieTitle} at ${ctx.timeLabel}`;
+  await writeMovieNightNotification(
+    db, recipientId, 'movie_night_reminder', ctx, previewText, 'movie night starts soon',
+  );
+}
+
 // ═════════════════════════════════════════════════════════════════════════
 // READ / MANAGEMENT (Phase A PR #13)
 // ═════════════════════════════════════════════════════════════════════════
@@ -474,6 +684,9 @@ function notificationFromDoc(doc: FirebaseFirestore.QueryDocumentSnapshot): Noti
     listName: d.listName,
     inviteId: d.inviteId,
     postId: d.postId,
+    nightId: d.nightId,
+    nightDateLabel: d.nightDateLabel,
+    nightTimeLabel: d.nightTimeLabel,
     read: d.read ?? false,
     createdAt: d.createdAt?.toDate?.() ?? new Date(),
   };

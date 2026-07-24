@@ -1,0 +1,376 @@
+/**
+ * Movie Night — S1 server core (MOVIE-NIGHT-PLAN.md).
+ *
+ * Covers `movie-nights-server.ts` + its routes:
+ *   - create: doc shape, host auto-'in', shareCode present, invitee
+ *     notification fan-out; rejects a past datetime; caps invitees at 9
+ *     (MAX_PEOPLE - 1); drops an ineligible invitee (not a list member AND
+ *     not followed) silently, no error; drops a blocked invitee silently
+ *     AND skips their notification
+ *   - getMovieNight: 403 for a stranger
+ *   - rsvp: updates counts + notifies the host; 403 for a non-invitee
+ *   - reschedule: 403 for a non-host; resets `reminderSentAt` + stamps
+ *     `previousScheduledFor`
+ *   - cancel: notifies the other invitees
+ *   - complete: watch docs for every attendee (`watchedAt` = the night's
+ *     `scheduledFor`), the caller's rating applied, second call idempotent
+ *   - upcoming: returns the night for an invitee, not for a stranger
+ *
+ * NOTE: the Firestore emulator does not enforce composite indexes, so
+ * `getUpcomingMovieNights`'s array-contains + equality + range query runs
+ * fine here even though `firestore.indexes.json` needs a deploy in prod.
+ */
+
+import { test, before, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { Timestamp } from 'firebase-admin/firestore';
+import {
+  setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
+} from './harness.ts';
+import { callRoute } from './lib/route-call.ts';
+import { POST as createRoute } from '@/app/api/v1/movie-nights/route';
+import { GET as upcomingRoute } from '@/app/api/v1/movie-nights/upcoming/route';
+import { GET as getRoute, PATCH as patchRoute } from '@/app/api/v1/movie-nights/[id]/route';
+import { POST as rsvpRoute } from '@/app/api/v1/movie-nights/[id]/rsvp/route';
+import { POST as completeRoute } from '@/app/api/v1/movie-nights/[id]/complete/route';
+import { MAX_PEOPLE } from '@/lib/movie-nights-server';
+import type { MovieNightView } from '@/lib/movie-night-types';
+
+let host: TestUser, invitee1: TestUser, stranger: TestUser;
+let hostTok: string, invitee1Tok: string, strangerTok: string;
+
+before(() => { setupTestEnv(); });
+
+beforeEach(async () => {
+  await clearFirestore();
+  await clearAuth();
+  host = await createTestUser('host');
+  invitee1 = await createTestUser('invitee1');
+  stranger = await createTestUser('stranger');
+  hostTok = await host.getIdToken();
+  invitee1Tok = await invitee1.getIdToken();
+  strangerTok = await stranger.getIdToken();
+  // Minimal profile docs — logWatch's review upsert (exercised by `complete`)
+  // needs a real users/{uid} doc, matching the convention in
+  // 42-watches-endpoints.test.ts / 45-post-visibility-watch.test.ts.
+  await Promise.all([host, invitee1, stranger].map((u) =>
+    adminDb().collection('users').doc(u.uid).set({ uid: u.uid, username: u.uid.slice(0, 8), usernameLower: u.uid.slice(0, 8) }),
+  ));
+  // host follows invitee1 — the eligibility path used by most tests below.
+  await follow(host.uid, invitee1.uid);
+});
+
+// ─── Fixtures + helpers ────────────────────────────────────────────────────
+
+const FILM = { tmdbId: 550, mediaType: 'movie' as const, title: 'Fight Club', year: '1999', posterUrl: null, runtime: 139 };
+
+function futureIso(hoursFromNow = 24): string {
+  return new Date(Date.now() + hoursFromNow * 3600_000).toISOString();
+}
+function pastIso(hoursAgo = 2): string {
+  return new Date(Date.now() - hoursAgo * 3600_000).toISOString();
+}
+
+/** Writes a follow edge directly — doesn't require the target to be a real
+ *  auth user (getFollowingIds only reads doc ids). */
+async function follow(followerUid: string, targetUid: string): Promise<void> {
+  await adminDb().doc(`users/${followerUid}/following/${targetUid}`).set({
+    followerId: followerUid, followingId: targetUid, createdAt: new Date(),
+  });
+  await adminDb().doc(`users/${targetUid}/followers/${followerUid}`).set({
+    followerId: followerUid, followingId: targetUid, createdAt: new Date(),
+  });
+}
+
+async function block(blockerUid: string, blockedUid: string): Promise<void> {
+  await adminDb().doc(`blocks/${blockerUid}_${blockedUid}`).set({
+    blockerId: blockerUid, blockedId: blockedUid, createdAt: new Date(),
+  });
+}
+
+async function createNight(
+  token: string,
+  overrides: Record<string, unknown> = {},
+): Promise<{ status: number; body: MovieNightView | undefined; night: MovieNightView | undefined }> {
+  const res = await callRoute<MovieNightView>(createRoute, 'POST', {
+    token,
+    body: { film: FILM, scheduledFor: futureIso(), inviteeUids: [invitee1.uid], ...overrides },
+  });
+  return { status: res.status, body: res.body.ok ? res.body.data : undefined, night: res.body.ok ? res.body.data : undefined };
+}
+
+async function notificationsFor(uid: string, type?: string) {
+  const snap = await adminDb().collection('notifications').where('userId', '==', uid).get();
+  const docs = snap.docs.map((d) => d.data());
+  return type ? docs.filter((d) => d.type === type) : docs;
+}
+
+// ─── createMovieNight ──────────────────────────────────────────────────────
+
+test('create: happy path — doc shape, host auto-in, shareCode, invitee notified', async () => {
+  const { status, night } = await createNight(hostTok);
+  assert.equal(status, 200);
+  assert.ok(night);
+  if (!night) return;
+
+  assert.equal(night.hostUid, host.uid);
+  assert.equal(night.status, 'proposed');
+  assert.deepEqual(night.film, FILM);
+  assert.ok(typeof night.shareCode === 'string' && night.shareCode.length > 0, 'shareCode present for the host');
+  assert.equal(night.previousScheduledFor, null);
+
+  const hostRow = night.invitees.find((i) => i.uid === host.uid);
+  const inviteeRow = night.invitees.find((i) => i.uid === invitee1.uid);
+  assert.ok(hostRow?.isHost, 'host is flagged isHost');
+  assert.equal(hostRow?.answer, 'in', 'host auto-RSVPs in');
+  assert.equal(inviteeRow?.answer, null, 'invitee has not answered yet');
+  assert.equal(night.counts.going, 1);
+  assert.equal(night.counts.waiting, 1);
+
+  const notifs = await notificationsFor(invitee1.uid, 'movie_night_invite');
+  assert.equal(notifs.length, 1, 'invitee got a movie_night_invite notification');
+  assert.equal(notifs[0].nightId, night.id);
+  assert.equal(notifs[0].fromUserId, host.uid);
+
+  // Host is never notified of their own creation.
+  const hostNotifs = await notificationsFor(host.uid, 'movie_night_invite');
+  assert.equal(hostNotifs.length, 0);
+});
+
+test('create: rejects a past datetime', async () => {
+  const res = await callRoute(createRoute, 'POST', {
+    token: hostTok, body: { film: FILM, scheduledFor: pastIso(), inviteeUids: [invitee1.uid] },
+  });
+  assert.equal(res.status, 400);
+});
+
+test('create: caps invitees at MAX_PEOPLE - 1 (9 others)', async () => {
+  const fakeUids = Array.from({ length: 11 }, (_, i) => `fake-invitee-${i + 1}`);
+  await Promise.all(fakeUids.map((uid) => follow(host.uid, uid)));
+
+  const { status, night } = await createNight(hostTok, { inviteeUids: fakeUids });
+  assert.equal(status, 200);
+  assert.ok(night);
+  if (!night) return;
+
+  assert.equal(night.invitees.length, MAX_PEOPLE, 'host + 9 others, never more');
+  const invitedFakeIds = night.invitees.map((i) => i.uid).filter((uid) => uid.startsWith('fake-invitee-'));
+  assert.equal(invitedFakeIds.length, MAX_PEOPLE - 1);
+  // The overflow (10th/11th in submission order) never made it in.
+  assert.ok(!night.invitees.some((i) => i.uid === 'fake-invitee-10'));
+  assert.ok(!night.invitees.some((i) => i.uid === 'fake-invitee-11'));
+});
+
+test('create: an invitee who is neither a list member nor followed is silently dropped', async () => {
+  const { status, night } = await createNight(hostTok, { inviteeUids: [invitee1.uid, stranger.uid] });
+  assert.equal(status, 200);
+  assert.ok(night);
+  if (!night) return;
+
+  assert.ok(night.invitees.some((i) => i.uid === invitee1.uid), 'followed invitee made it in');
+  assert.ok(!night.invitees.some((i) => i.uid === stranger.uid), 'unreachable invitee dropped, not rejected');
+});
+
+test('create: a blocked invitee is silently dropped AND never notified', async () => {
+  await block(host.uid, stranger.uid);
+  await follow(host.uid, stranger.uid); // followed AND blocked — block wins
+
+  const { status, night } = await createNight(hostTok, { inviteeUids: [invitee1.uid, stranger.uid] });
+  assert.equal(status, 200);
+  assert.ok(night);
+  if (!night) return;
+
+  assert.ok(!night.invitees.some((i) => i.uid === stranger.uid), 'blocked invitee dropped');
+  const notifs = await notificationsFor(stranger.uid, 'movie_night_invite');
+  assert.equal(notifs.length, 0, 'blocked invitee gets no notification');
+});
+
+// ─── getMovieNight ─────────────────────────────────────────────────────────
+
+test('getMovieNight: 403 for a stranger', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+  const res = await callRoute(getRoute, 'GET', {
+    token: strangerTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+  });
+  assert.equal(res.status, 403);
+});
+
+// ─── rsvpMovieNight ────────────────────────────────────────────────────────
+
+test('rsvp: updates counts and notifies the host', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightView>(rsvpRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'maybe' },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+  assert.equal(res.body.data.counts.maybe, 1);
+  assert.equal(res.body.data.counts.waiting, 0);
+  const inviteeRow = res.body.data.invitees.find((i) => i.uid === invitee1.uid);
+  assert.equal(inviteeRow?.answer, 'maybe');
+
+  const notifs = await notificationsFor(host.uid, 'movie_night_rsvp');
+  assert.equal(notifs.length, 1);
+  assert.equal(notifs[0].fromUserId, invitee1.uid);
+});
+
+test('rsvp: 403 for a non-invitee', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+  const res = await callRoute(rsvpRoute, 'POST', {
+    token: strangerTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'in' },
+  });
+  assert.equal(res.status, 403);
+});
+
+// ─── updateMovieNight — reschedule / cancel ─────────────────────────────────
+
+test('reschedule: 403 for a non-host', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+  const res = await callRoute(patchRoute, 'PATCH', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: futureIso(48) },
+  });
+  assert.equal(res.status, 403);
+});
+
+test('reschedule: resets reminderSentAt and stamps previousScheduledFor', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  // Simulate the S2 ticker having already sent the reminder for the original time.
+  await adminDb().doc(`movie_nights/${night.id}`).update({ reminderSentAt: Timestamp.now() });
+
+  const newTime = futureIso(72);
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: newTime },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+  assert.equal(res.body.data.previousScheduledFor, night.scheduledFor);
+  assert.equal(res.body.data.status, 'proposed');
+  assert.equal(
+    new Date(res.body.data.scheduledFor).toISOString(),
+    new Date(newTime).toISOString(),
+  );
+
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.reminderSentAt, null, 'reminderSentAt reset to null');
+
+  const notifs = await notificationsFor(invitee1.uid, 'movie_night_time_changed');
+  assert.equal(notifs.length, 1);
+});
+
+test('cancel: notifies the other invitees', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'cancel' },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+  assert.equal(res.body.data.status, 'cancelled');
+
+  const notifs = await notificationsFor(invitee1.uid, 'movie_night_cancelled');
+  assert.equal(notifs.length, 1);
+  const hostNotifs = await notificationsFor(host.uid, 'movie_night_cancelled');
+  assert.equal(hostNotifs.length, 0, 'host never notifies itself');
+});
+
+// ─── completeMovieNight ──────────────────────────────────────────────────────
+
+test('complete: watch docs for every attendee, caller rating applied, idempotent on re-call', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  // Force the night into the past so it's completable.
+  const pastMs = Date.now() - 3 * 3600_000;
+  await adminDb().doc(`movie_nights/${night.id}`).update({ scheduledFor: Timestamp.fromMillis(pastMs) });
+
+  const body = { attendeeUids: [host.uid, invitee1.uid], rating: 8, note: 'so good' };
+  const res = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body,
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+  assert.equal(res.body.data.status, 'completed');
+  assert.deepEqual(res.body.data.completion?.attendeeUids.sort(), [host.uid, invitee1.uid].sort());
+
+  const hostWatches = await adminDb().collection(`users/${host.uid}/watches`).get();
+  const inviteeWatches = await adminDb().collection(`users/${invitee1.uid}/watches`).get();
+  assert.equal(hostWatches.size, 1, 'one watch entry for the host (caller)');
+  assert.equal(inviteeWatches.size, 1, 'one watch entry for the other attendee');
+  assert.equal(hostWatches.docs[0].data().watchedAt.toMillis(), pastMs, "watchedAt = the night's scheduledFor");
+  assert.equal(inviteeWatches.docs[0].data().watchedAt.toMillis(), pastMs);
+  assert.equal(hostWatches.docs[0].data().rating, 8, "caller's rating applied");
+  assert.equal(inviteeWatches.docs[0].data().rating, null, 'other attendee is not auto-rated');
+
+  const morningAfterNotifs = await notificationsFor(invitee1.uid, 'movie_night_morning_after');
+  assert.equal(morningAfterNotifs.length, 1);
+
+  // Second call, same body — idempotent: no duplicate watch docs, still success.
+  const second = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body,
+  });
+  assert.equal(second.status, 200);
+  assert.ok(second.body.ok);
+  if (!second.body.ok) return;
+  assert.equal(second.body.data.status, 'completed');
+
+  const hostWatches2 = await adminDb().collection(`users/${host.uid}/watches`).get();
+  const inviteeWatches2 = await adminDb().collection(`users/${invitee1.uid}/watches`).get();
+  assert.equal(hostWatches2.size, 1, 'no duplicate watch for the host on re-call');
+  assert.equal(inviteeWatches2.size, 1, 'no duplicate watch for the other attendee on re-call');
+
+  const morningAfterNotifs2 = await notificationsFor(invitee1.uid, 'movie_night_morning_after');
+  assert.equal(morningAfterNotifs2.length, 1, 'no duplicate morning-after notification on re-call');
+});
+
+// ─── getUpcomingMovieNights ──────────────────────────────────────────────────
+
+test('upcoming: returns the night for an invitee, not for a stranger', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  const inviteeRes = await callRoute<MovieNightView[]>(upcomingRoute, 'GET', { token: invitee1Tok });
+  assert.equal(inviteeRes.status, 200);
+  assert.ok(inviteeRes.body.ok);
+  if (inviteeRes.body.ok) {
+    assert.ok(inviteeRes.body.data.some((n) => n.id === night.id), 'invitee sees the night in upcoming');
+  }
+
+  const hostRes = await callRoute<MovieNightView[]>(upcomingRoute, 'GET', { token: hostTok });
+  assert.ok(hostRes.body.ok);
+  if (hostRes.body.ok) {
+    assert.ok(hostRes.body.data.some((n) => n.id === night.id), 'host also sees their own night');
+  }
+
+  const strangerRes = await callRoute<MovieNightView[]>(upcomingRoute, 'GET', { token: strangerTok });
+  assert.ok(strangerRes.body.ok);
+  if (strangerRes.body.ok) {
+    assert.ok(!strangerRes.body.data.some((n) => n.id === night.id), 'a stranger never sees it');
+  }
+});

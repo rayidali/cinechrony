@@ -49,6 +49,11 @@ export const RATE_LIMITS: Record<string, RateLimitConfig> = {
   // a Gemini call, so cap both a burst AND a daily total per user.
   extraction:      { limit: 5,  windowMs: 60_000 },
   extractionDaily: { limit: 50, windowMs: 24 * 60 * 60_000 },
+  // Movie Night (MOVIE-NIGHT-PLAN.md) — planning one is a deliberate, rare
+  // action (unlike a like/follow), so the cap is daily, not per-minute.
+  // RSVP is per-minute like the other lightweight social actions.
+  movieNightCreate: { limit: 10, windowMs: 24 * 60 * 60_000 },
+  movieNightRsvp:   { limit: 20, windowMs: 60_000 },
 };
 
 // ─── In-memory per-IP limiter (unauthenticated routes) ─────────────────────

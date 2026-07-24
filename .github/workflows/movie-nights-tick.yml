@@ -1,0 +1,23 @@
+name: movie-nights-tick
+
+# MOVIE-NIGHT-PLAN.md § locked decision 3: no paid Vercel cron, so a GitHub
+# Actions schedule ticks the reminder + morning-after sweep every 10 minutes
+# via the ADMIN_SECRET-gated route. Requires the ADMIN_SECRET repo secret
+# (same value as the Vercel env var) — inert (401s) without it.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  tick:
+    name: tick
+    if: github.repository == 'rayidali/cinechrony'
+    runs-on: ubuntu-latest
+    steps:
+      - name: POST /api/v1/admin/movie-nights-tick
+        run: |
+          curl -sf -X POST \
+            -H "x-admin-token: ${{ secrets.ADMIN_SECRET }}" \
+            https://movienight-kappa.vercel.app/api/v1/admin/movie-nights-tick
