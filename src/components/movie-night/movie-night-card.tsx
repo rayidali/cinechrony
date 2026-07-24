@@ -6,7 +6,7 @@ import { NightPoster } from './night-ui';
 import {
   formatNightDate, formatNightDateShort, formatNightTime, formatNightWeekdayShort, nightPhase,
 } from '@/lib/movie-night-format';
-import type { MovieNightView } from '@/lib/movie-night-types';
+import type { MovieNightCardData } from '@/lib/movie-night-types';
 
 /**
  * The compact movie-night object (MOVIE-NIGHT-PLAN.md § S3b) — the ONE card
@@ -22,6 +22,13 @@ import type { MovieNightView } from '@/lib/movie-night-types';
  * rescheduled night can ALSO be happening tonight). `variant` is an optional
  * override for the phase-driven eyebrow only (pinned/feed/today/soon/now) —
  * omit it and the card reads the room itself via `nightPhase`.
+ *
+ * F5 — `night` is typed `MovieNightCardData` (a Pick over the fields this
+ * card actually reads), NOT the full `MovieNightView` — it's satisfied by
+ * BOTH the full view (host/invitee) and the redacted `MovieNightPinView`
+ * `getListMovieNight` returns to a stranger on a public list. `completion`/
+ * `previousScheduledFor` are optional in that shape, so a stranger's thin
+ * pin just always reads as the plain "N going" variant.
  */
 export type MovieNightCardVariant = 'pinned' | 'feed' | 'today' | 'soon' | 'now' | 'done' | 'moved';
 
@@ -36,7 +43,7 @@ const EYEBROW_TEXT: Record<EyebrowVariant, string> = {
   feed: 'movie night',
 };
 
-function deriveEyebrowVariant(night: MovieNightView): EyebrowVariant {
+function deriveEyebrowVariant(night: MovieNightCardData): EyebrowVariant {
   if (night.completion) return 'done';
   const phase = nightPhase(night.scheduledFor);
   if (phase === 'now') return 'now';
@@ -51,7 +58,7 @@ export function MovieNightCard({
   onTap,
   className = '',
 }: {
-  night: MovieNightView;
+  night: MovieNightCardData;
   /** Override the phase-driven eyebrow (pinned/feed/today/soon/now). Leave
    *  unset to let the card derive it from `nightPhase` — the usual case.
    *  Passing `'done'`/`'moved'` has no extra effect: those are always

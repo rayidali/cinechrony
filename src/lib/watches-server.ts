@@ -50,6 +50,17 @@ export type LogWatchInput = {
   note?: string | null;
   /** ISO string; defaults to now. */
   watchedAt?: string;
+  /** Stamps this watch as belonging to a specific movie-night completion
+   *  (see `movie-nights-server.ts` `completeMovieNight`). When the caller
+   *  already has a watch stamped with THIS SAME movieNightId — from their
+   *  own earlier completion, or from the fan-out write for another
+   *  attendee landing first — `recordWatchEntry` UPDATES that watch's
+   *  rating/note in place instead of creating a second one (a second
+   *  attendee rating the night after the fact used to create a phantom
+   *  rewatch, since the old dedup compared rating equality and null never
+   *  equals a real rating). Purely additive: every existing caller omits
+   *  it and behaves exactly as before. */
+  movieNightId?: string | null;
 };
 
 const MAX_NOTE = 500;
@@ -106,6 +117,26 @@ export async function recordWatchEntry(
   const moviePosterUrl = input.moviePosterUrl ?? null;
   const watchedAtDate = input.watchedAt ? new Date(input.watchedAt) : new Date();
   const watchedAt = Number.isNaN(watchedAtDate.getTime()) ? new Date() : watchedAtDate;
+  const movieNightId = typeof input.movieNightId === 'string' && input.movieNightId ? input.movieNightId : null;
+
+  // Movie-night dedup: a watch already stamped with THIS night's id (the
+  // caller's own earlier completion, or the fan-out write for another
+  // attendee) is the SAME viewing event — update it in place instead of
+  // falling into the time-window dedup below, which compares rating
+  // equality and would treat a later real rating as a genuine rewatch
+  // (null !== 7). Index-free (single-field equality on movieNightId).
+  if (movieNightId) {
+    const nightSnap = await col.where('movieNightId', '==', movieNightId).limit(1).get();
+    if (!nightSnap.empty) {
+      const existingRef = nightSnap.docs[0].ref;
+      const updates: Record<string, unknown> = {};
+      if (rating !== null) updates.rating = rating;
+      if (note !== null) updates.note = note;
+      if (Object.keys(updates).length > 0) await existingRef.update(updates);
+      const fresh = await existingRef.get();
+      return { watch: watchFromDoc(fresh) };
+    }
+  }
 
   // Read this film's existing watches (index-free equality; a film has very few)
   // to derive BOTH the ordinal AND an idempotency guard in one query. A
@@ -146,6 +177,7 @@ export async function recordWatchEntry(
     rating,
     note,
     ordinal,
+    movieNightId,
     createdAt: FieldValue.serverTimestamp(),
   });
 

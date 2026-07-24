@@ -61,6 +61,12 @@ type MovieNightContextValue = {
   openCreate: (args?: OpenCreateArgs) => void;
   /** Open a night's detail (MN10). */
   openNight: (id: string) => void;
+  /** Open the MN25 morning-after prompt for a specific night (C3 — driven
+   *  by the same state the boot auto-offer and the `&after=1` deep link
+   *  use). A `movie_night_morning_after` notification row should call this,
+   *  not `openNight`, so it lands on "how was it?" instead of the plain
+   *  detail sheet. */
+  openMorningAfter: (id: string) => void;
   /** Bumps every time a night mutates (create/RSVP/reschedule/cancel) —
    *  feed/pin surfaces (`movie-night-feed-card.tsx`, `movie-night-pin.tsx`)
    *  fold this into their `useCachedAction` key so they revalidate instead of
@@ -125,14 +131,48 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
     setRefreshToken((n) => n + 1);
   }, []);
 
-  // The boot-time auto-offer — once per authenticated session.
-  const hasCheckedBoot = useRef(false);
+  // C2 — mutual exclusion for the boot-time morning-after auto-offer.
+  // Latest-value refs (NOT the state itself) so the async boot check can
+  // read what's open at RESOLVE time, not just at launch time — a create/
+  // detail/morning-after sheet opened WHILE the `/upcoming` request was in
+  // flight must still win.
+  const openNightIdRef = useRef<string | null>(null);
+  const morningAfterNightIdRef = useRef<string | null>(null);
+  const createArgsRef = useRef<OpenCreateArgs | null>(null);
+  useEffect(() => { openNightIdRef.current = openNightId; }, [openNightId]);
+  useEffect(() => { morningAfterNightIdRef.current = morningAfterNightId; }, [morningAfterNightId]);
+  useEffect(() => { createArgsRef.current = createArgs; }, [createArgs]);
+
+  // A `?night` deep link consumed THIS SESSION (with or without `&after=1`)
+  // permanently skips the boot scan — the user already engaged with a
+  // specific night via the link; the boot auto-offer shouldn't also fire.
+  const nightParamConsumedRef = useRef(false);
+  const handleNightParam = useCallback((id: string) => {
+    nightParamConsumedRef.current = true;
+    openNight(id);
+  }, [openNight]);
+  const handleAfterParam = useCallback((id: string) => {
+    nightParamConsumedRef.current = true;
+    openMorningAfter(id);
+  }, [openMorningAfter]);
+
+  // The boot-time auto-offer — once per authenticated uid this session (keyed
+  // per uid, not a plain boolean, so signing into a DIFFERENT account in the
+  // same app session re-checks for that account instead of staying silent
+  // forever after the first user's boot check ran).
+  const checkedBootForUid = useRef<string | null>(null);
   useEffect(() => {
-    if (!user?.uid || hasCheckedBoot.current) return;
-    hasCheckedBoot.current = true;
+    if (!user?.uid || checkedBootForUid.current === user.uid) return;
+    checkedBootForUid.current = user.uid;
+    if (nightParamConsumedRef.current) return;
     (async () => {
       try {
         const nights = await apiCall<MovieNightView[]>('GET', '/api/v1/movie-nights/upcoming');
+        // Re-check at RESOLVE time — a deep link may have been consumed, or
+        // the create/detail/morning-after sheet may have opened, WHILE this
+        // request was in flight.
+        if (nightParamConsumedRef.current) return;
+        if (openNightIdRef.current || morningAfterNightIdRef.current || createArgsRef.current) return;
         const due = nights.find(
           (n) => n.status === 'proposed' && nightPhase(n.scheduledFor) === 'past' && !isMorningAfterSnoozed(n.id),
         );
@@ -144,14 +184,14 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
   }, [user?.uid]);
 
   const value = useMemo(
-    () => ({ openCreate, openNight, refreshToken, refreshUpcoming }),
-    [openCreate, openNight, refreshToken, refreshUpcoming],
+    () => ({ openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming }),
+    [openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming],
   );
 
   return (
     <MovieNightContext.Provider value={value}>
       <Suspense fallback={null}>
-        <NightParamWatcher onNightParam={openNight} onAfterParam={openMorningAfter} />
+        <NightParamWatcher onNightParam={handleNightParam} onAfterParam={handleAfterParam} />
       </Suspense>
       {children}
       <CreateNightSheet

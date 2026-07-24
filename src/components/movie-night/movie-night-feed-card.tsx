@@ -18,11 +18,19 @@ import type { MovieNightView } from '@/lib/movie-night-types';
  * to a non-post object would be fake, so it's just the byline, the eyebrow,
  * the compact card, and (when the viewer hasn't answered) a one-tap "i'm in"
  * pill. Tapping the card itself opens the detail sheet.
+ *
+ * C4 — `answered` is DERIVED from props on every render (never captured into
+ * `useState` once), so a refetch that shows an answer given elsewhere (the
+ * detail sheet, the boot morning-after flow, another device) makes the pill
+ * disappear/resync instead of staying stuck. `justAnswered` is a separate
+ * purely-optimistic flag for the in-flight tap — it only ever ADDS to
+ * `answered`, never overrides a fresher prop.
  */
 export function MovieNightFeedCard({ night }: { night: MovieNightView }) {
   const { openNight, refreshUpcoming } = useMovieNight();
-  const [answered, setAnswered] = useState(!!night.viewer.answer || night.viewer.isHost);
+  const [justAnswered, setJustAnswered] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const answered = !!night.viewer.answer || night.viewer.isHost || justAnswered;
 
   const hostInvitee = night.invitees.find((i) => i.isHost) ?? null;
   const hostLabel = hostInvitee?.username ? `@${hostInvitee.username}` : hostInvitee?.displayName || 'someone';
@@ -35,7 +43,7 @@ export function MovieNightFeedCard({ night }: { night: MovieNightView }) {
     try {
       await apiCall('POST', `/api/v1/movie-nights/${night.id}/rsvp`, { answer: 'in' });
       haptic('success');
-      setAnswered(true);
+      setJustAnswered(true);
       track(AnalyticsEvent.MovieNightRsvp, { answer: 'in', surface: 'feed' });
       refreshUpcoming();
     } catch (err) {

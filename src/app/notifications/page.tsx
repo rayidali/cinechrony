@@ -134,7 +134,7 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
   const { toast } = useToast();
-  const { openNight, refreshUpcoming } = useMovieNight();
+  const { openNight, openMorningAfter, refreshUpcoming } = useMovieNight();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -311,7 +311,10 @@ export default function NotificationsPage() {
   const handleOpen = (n: Notification) => {
     if (!n.read) markOneRead(n.id);
     if (isMovieNightType(n.type) && n.nightId) {
-      openNight(n.nightId);
+      // C3 — a morning-after row opens the MN25 "how was it?" flow, not the
+      // plain detail sheet (which has no way to record an outcome).
+      if (n.type === 'movie_night_morning_after') openMorningAfter(n.nightId);
+      else openNight(n.nightId);
       return;
     }
     const target = notifTarget(n);

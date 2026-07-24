@@ -87,28 +87,43 @@ MN33 toast instead of a dead banner.
 
 ## Build slices (verify each: typecheck · audit suite · build)
 
-- [ ] **S1 server core** — types, `movie-nights-server.ts`, all authed
+- [x] **S1 server core** — types, `movie-nights-server.ts`, all authed
       routes, rules entry, rate buckets, notifications+push types,
       TTL caches + invalidation, tests `53-movie-nights` (create/rsvp/
       permissions/caps/blocks/reschedule/cancel/complete).
-- [ ] **S2 ticker + guest** — tick() (reminder presets + morning-after,
+- [x] **S2 ticker + guest** — tick() (reminder presets + morning-after,
       claims, tz-aware), admin route, GH Actions workflow, shared/[code]
       public routes + guest rsvp + .ics, tests `54-movie-nights-guest`.
-- [ ] **S3 client: create + object** — MN01–MN09 create flow (drawer
+- [x] **S3 client: create + object** — MN01–MN09 create flow (drawer
       entry, list-header entry, create sheet + date/time/people/reminder
       expanders, confirm), MN10–MN22 detail sheet + RSVP + host controls
       + cards (list pin, home feed) + notifications rows + add-to-calendar
       + skeletons + edges.
-- [ ] **S4 client: lifecycle** — MN23–MN30 + MN32–MN34: day-of/soon/now
+- [x] **S4 client: lifecycle** — MN23–MN30 + MN32–MN34: day-of/soon/now
       variants, morning-after sheets (watched → how-was-it reuse;
       didn't-happen → reschedule), completed/didnt/rescheduled details,
       empty state, coach mark, in-app reminder toast, PostHog events.
-- [ ] **S5 web share page** — `/n/[code]` SSR (static-export `_` shell),
+- [x] **S5 web share page** — `/n/[code]` SSR (static-export `_` shell),
       OG card variant, guest RSVP UI, .ics link, get-the-app CTA,
       MN31/MN35 fidelity.
-- [ ] **S6 finish** — where-to-watch row on the detail sheet, docs
+- [x] **S6 finish** — where-to-watch row on the detail sheet, docs
       (CLAUDE.md files), `build:static` + `cap sync` note, full-suite
       green, owner-action list (indexes deploy, ADMIN_SECRET GH secret).
+
+## Adversarial review pass (2026-07-24, pre-merge)
+
+Three parallel reviewers (races/transactions · security/abuse ·
+client/WebView) over the full diff → **13 confirmed findings, all
+fixed + regression-tested** (suites 53: 21, 54: 12). Highlights: a
+CRITICAL stuck confirm-overlay on the create happy path; the list-pin
+route leaking the full RSVP roster to strangers (now a redacted
+MovieNightPinView); duplicate watch docs in the two-attendee completion
+flow (watch docs now carry movieNightId and update in place);
+reschedule/cancel status guards; create idempotency via clientKey;
+retroactive block filtering; .ics CR injection; attendance consent
+(in/maybe only); morning-after mutual exclusion + correct notification
+routing. Full suite 563/563 · typecheck · build · build:static all
+green at close.
 
 ## Owner actions when this ships
 

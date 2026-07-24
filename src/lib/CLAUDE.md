@@ -96,6 +96,20 @@ src/lib/
 │                              # films THEN creates the list doc w/ final count (no
 │                              # 0→N flicker) + strips LB share-blurb descriptions +
 │                              # skips empty lists.
+├── movie-nights-server.ts    # Movie Night (v1.1): create/get/upcoming/list-pin/
+│                              # rsvp(3-state)/reschedule/cancel/didnt-happen/
+│                              # complete (watches for all attendees), the
+│                              # reminder+morning-after ticker (transactional
+│                              # claims, tz-aware, driven by a 10-min GH Actions
+│                              # cron → adminRoute tick endpoint), guest RSVP via
+│                              # capability shareCode (public routes, per-IP
+│                              # buckets, hostile-name sanitization, no uid in
+│                              # public payloads), RFC 5545 .ics. TTL caches w/
+│                              # write invalidation. Tests: 53 + 54.
+├── movie-night-types.ts      # Wire types (view/public view/enums) — client-safe
+├── movie-night-format.ts     # CLIENT date/time formatters + nightPhase()
+│                              # (upcoming/today/soon/now/past) — must stay in
+│                              # lockstep with the server formatters
 ├── admin-backfills-server.ts # 4 idempotent migration functions
 │
 ├─── Caches + Phase B native helpers ────────────────────────────────

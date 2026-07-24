@@ -82,6 +82,22 @@ function dateLabelFor(d: Date): string {
   return `${format(d, 'EEE').toLowerCase()} · ${format(d, 'd MMM').toLowerCase()}`;
 }
 
+/** F4 — a fresh, random idempotency key minted when the sheet OPENS (see the
+ *  reset-on-open effect below), sent with the create POST. A retry after a
+ *  dropped response (e.g. a 500 whose write actually committed) carries the
+ *  SAME key, so the server returns the already-created night instead of
+ *  planning a duplicate. `crypto.getRandomValues` is available in every
+ *  target this ships to (browser + the Capacitor WKWebView). */
+function generateClientKey(): string {
+  const bytes = new Uint8Array(16);
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(bytes);
+  } else {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 // ── shared bits used by more than one screen ────────────────────────────────
 
 function CtaFooter({
@@ -849,6 +865,8 @@ export function CreateNightSheet({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [createdNight, setCreatedNight] = useState<MovieNightView | null>(null);
+  // F4 — a fresh idempotency key per sheet-open; sent with the create POST.
+  const [clientKey, setClientKey] = useState<string | null>(null);
 
   const hasSeededInviteesRef = useRef(false);
   const hasAutoOpenedPickerRef = useRef(false);
@@ -881,6 +899,7 @@ export function CreateNightSheet({
     setSubmitting(false);
     setError(null);
     setCreatedNight(null);
+    setClientKey(generateClientKey());
     hasSeededInviteesRef.current = false;
     hasAutoOpenedPickerRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -960,6 +979,7 @@ export function CreateNightSheet({
         body.listId = list.id;
         body.listOwnerId = list.ownerId;
       }
+      if (clientKey) body.clientKey = clientKey;
       const night = await apiCall<MovieNightView>('POST', '/api/v1/movie-nights', body);
       haptic('success');
       setCreatedNight(night);
@@ -1120,8 +1140,8 @@ export function CreateNightSheet({
         <ConfirmOverlay
           night={createdNight}
           list={list}
-          onSeeNight={() => { onOpenNight(createdNight.id); onClose(); }}
-          onDismiss={() => onClose()}
+          onSeeNight={() => { const id = createdNight.id; setCreatedNight(null); onOpenNight(id); onClose(); }}
+          onDismiss={() => { setCreatedNight(null); onClose(); }}
         />
       )}
     </>

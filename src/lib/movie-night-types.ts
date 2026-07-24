@@ -71,6 +71,34 @@ export type MovieNightView = {
   counts: MovieNightCounts;
 };
 
+/** The redacted shape `getListMovieNight` returns to a caller who is
+ *  NEITHER the night's host nor an invitee (e.g. an anonymous or unrelated
+ *  visitor of a PUBLIC list's pin) — never a uid, an invitee, a guest name,
+ *  or the share code. Just enough for the compact card ("N going" + the
+ *  film + time). Route stays public — a public list's pin is visible to
+ *  anyone, just not the who's-coming detail. */
+export type MovieNightPinView = {
+  id: string;
+  film: MovieNightFilm;
+  scheduledFor: string; // ISO
+  tzOffsetMinutes: number;
+  status: MovieNightStatus;
+  counts: MovieNightCounts;
+};
+
+/** What the compact `MovieNightCard` actually reads — satisfied by BOTH the
+ *  full `MovieNightView` (host/invitee) and the redacted `MovieNightPinView`
+ *  (everyone else), so one card component tolerates either wire shape. */
+export type MovieNightCardData = {
+  id: string;
+  film: MovieNightFilm;
+  scheduledFor: string; // ISO
+  tzOffsetMinutes: number;
+  counts: MovieNightCounts;
+  completion?: { attendeeUids: string[]; completedAt: string } | null;
+  previousScheduledFor?: string | null; // ISO
+};
+
 /** The public guest-page shape — `GET /api/v1/movie-nights/shared/[code]` (S2).
  *  Deliberately thin: never exposes list contents, invitee identities beyond
  *  a display name, or the share code itself. */

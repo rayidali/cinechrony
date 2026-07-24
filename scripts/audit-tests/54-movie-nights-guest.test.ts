@@ -36,7 +36,7 @@ import { POST as rsvpRoute } from '@/app/api/v1/movie-nights/[id]/rsvp/route';
 import { GET as sharedRoute } from '@/app/api/v1/movie-nights/shared/[code]/route';
 import { POST as guestRsvpRoute } from '@/app/api/v1/movie-nights/shared/[code]/rsvp/route';
 import { GET as icsRoute } from '@/app/api/v1/movie-nights/shared/[code]/calendar.ics/route';
-import { tickMovieNights, MAX_GUEST_RSVPS, GUEST_NAME_MAX } from '@/lib/movie-nights-server';
+import { tickMovieNights, MAX_GUEST_RSVPS, GUEST_NAME_MAX, FILM_TITLE_MAX } from '@/lib/movie-nights-server';
 import type { MovieNightView, MovieNightPublicView } from '@/lib/movie-night-types';
 
 let host: TestUser, invitee1: TestUser, invitee2: TestUser, invitee3: TestUser, invitee4: TestUser;
@@ -382,4 +382,26 @@ test('ics: CRLF line endings, RFC 5545 comma escaping, DTSTART matches scheduled
 test('ics: a malformed short code 404s', async () => {
   const res = await callRawGet(icsRoute, 'http://test/api/v1/movie-nights/shared/short/calendar.ics', 'short');
   assert.equal(res.status, 404);
+});
+
+// T6 (F7) — a hostile \r-laced, over-length title is sanitized/capped on
+// create, and the rendered .ics never contains a bare CR (every \r is part
+// of a real CRLF the line-folding step introduces, never one smuggled in
+// through a field value).
+test('create sanitizes a \\r-laced 300-char title; calendar.ics has no bare CR', async () => {
+  const dirtyTitle = `evil\r\nBEGIN:VEVENT\r${'x'.repeat(300)}`;
+  const { night } = await createNight(hostTok, {
+    inviteeUids: [], film: { ...FILM, title: dirtyTitle },
+  });
+  assert.ok(night?.shareCode);
+  if (!night?.shareCode) return;
+
+  assert.ok(night.film.title.length <= FILM_TITLE_MAX, `stored title capped at ${FILM_TITLE_MAX}`);
+  assert.ok(!night.film.title.includes('\r'), 'stored title has no carriage returns');
+  assert.ok(!night.film.title.includes('\n'), 'stored title has no newlines');
+
+  const res = await callRawGet(icsRoute, `http://test/api/v1/movie-nights/shared/${night.shareCode}/calendar.ics`, night.shareCode);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+  assert.ok(!/\r(?!\n)/.test(text), 'every \\r in the .ics is immediately followed by \\n — no bare CR anywhere');
 });

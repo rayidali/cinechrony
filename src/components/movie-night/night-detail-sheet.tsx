@@ -17,6 +17,7 @@ import { track, AnalyticsEvent } from '@/lib/analytics';
 import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
+import { getCachedDetails, getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
 import { NightHeroCTA, NightPoster, nightFilmMeta } from './night-ui';
 import { RescheduleFlow } from './reschedule-flow';
 import {
@@ -25,7 +26,8 @@ import {
 import {
   formatNightDate, formatNightDateShort, formatNightShareLine, formatNightTime, formatNightWeekdayFull,
 } from '@/lib/movie-night-format';
-import type { MovieNightInviteeView, MovieNightView, RsvpAnswer } from '@/lib/movie-night-types';
+import type { MovieNightFilm, MovieNightInviteeView, MovieNightView, RsvpAnswer } from '@/lib/movie-night-types';
+import type { WatchProvider } from '@/lib/types';
 
 /**
  * MN10 — the movie-night detail sheet (MOVIE-NIGHT-PLAN.md § S3b). Mounted
@@ -456,6 +458,71 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
   );
 }
 
+// ── S6 — MN10's "where to watch" row ────────────────────────────────────
+
+/** One provider chip: the hero (the first stream/rent/buy hit) is a
+ *  bordered "on netflix" pill; everyone else is a plain, borderless chip.
+ *  Mirrors `movie-drawer.tsx`'s `ProviderChip` styling/logo treatment — the
+ *  same TMDB (JustWatch) data, just the two-tier hero/plain layout MN10's
+ *  design calls for instead of the drawer's flat row. */
+function WhereToWatchProvider({ p, hero, link }: { p: WatchProvider; hero: boolean; link: string | null }) {
+  const inner = (
+    <span
+      className={cn(
+        'inline-flex h-11 items-center gap-2 rounded-xl pl-1.5 pr-3',
+        hero ? 'border border-hair bg-card' : 'border border-transparent',
+      )}
+    >
+      <span className="h-8 w-8 flex-shrink-0 overflow-hidden rounded-lg bg-sunken">
+        {p.logoUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={p.logoUrl} alt="" className="h-full w-full object-cover" />
+        ) : null}
+      </span>
+      <span className="font-ui text-[13.5px] font-bold text-foreground">
+        {hero ? `on ${p.name.toLowerCase()}` : p.name.toLowerCase()}
+      </span>
+    </span>
+  );
+  return link ? (
+    <a href={link} target="_blank" rel="noopener noreferrer" className="active:opacity-70 transition-opacity">{inner}</a>
+  ) : inner;
+}
+
+/** Client-direct TMDB fetch via the SAME module-level cache the movie drawer
+ *  uses (`tmdb-details-cache.ts`) — no new server code, and a film the
+ *  viewer already opened elsewhere in the app is an instant cache hit here
+ *  too. Hidden entirely (renders nothing) when there are no providers. */
+function WhereToWatchRow({ film }: { film: MovieNightFilm }) {
+  const [providers, setProviders] = useState(() => getCachedDetails(film.mediaType, film.tmdbId)?.watchProviders ?? null);
+
+  useEffect(() => {
+    const cached = getCachedDetails(film.mediaType, film.tmdbId);
+    if (cached) { setProviders(cached.watchProviders ?? null); return; }
+    let cancelled = false;
+    (async () => {
+      const details = await getMovieOrTVDetails(film.mediaType, film.tmdbId);
+      if (!cancelled) setProviders(details?.watchProviders ?? null);
+    })();
+    return () => { cancelled = true; };
+  }, [film.mediaType, film.tmdbId]);
+
+  if (!providers) return null;
+  const all = [...providers.stream, ...providers.rent, ...providers.buy];
+  if (all.length === 0) return null;
+  const [hero, ...rest] = all;
+
+  return (
+    <div className="mt-5">
+      <div className="mb-2.5"><span className="cc-eyebrow text-muted-foreground">where to watch</span></div>
+      <div className="flex flex-wrap gap-2">
+        <WhereToWatchProvider p={hero} hero link={providers.link} />
+        {rest.slice(0, 4).map((p) => <WhereToWatchProvider key={p.providerId} p={p} hero={false} link={providers.link} />)}
+      </div>
+    </div>
+  );
+}
+
 // ── MN10 — the detail sheet (root) ────────────────────────────────────────
 
 function applyOptimisticRsvp(night: MovieNightView, viewerUid: string, answer: RsvpAnswer): MovieNightView {
@@ -758,6 +825,9 @@ export function NightDetailSheet({
                       )}
                     </>
                   )}
+
+                  {/* S6 — where to watch */}
+                  {isActive && <WhereToWatchRow film={night.film} />}
 
                   {/* add to calendar */}
                   {isActive && (

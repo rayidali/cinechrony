@@ -33,8 +33,9 @@ import { GET as upcomingRoute } from '@/app/api/v1/movie-nights/upcoming/route';
 import { GET as getRoute, PATCH as patchRoute } from '@/app/api/v1/movie-nights/[id]/route';
 import { POST as rsvpRoute } from '@/app/api/v1/movie-nights/[id]/rsvp/route';
 import { POST as completeRoute } from '@/app/api/v1/movie-nights/[id]/complete/route';
+import { GET as listMovieNightRoute } from '@/app/api/v1/lists/[ownerId]/[listId]/movie-night/route';
 import { MAX_PEOPLE } from '@/lib/movie-nights-server';
-import type { MovieNightView } from '@/lib/movie-night-types';
+import type { MovieNightView, MovieNightPinView } from '@/lib/movie-night-types';
 
 let host: TestUser, invitee1: TestUser, stranger: TestUser;
 let hostTok: string, invitee1Tok: string, strangerTok: string;
@@ -103,6 +104,16 @@ async function notificationsFor(uid: string, type?: string) {
   const snap = await adminDb().collection('notifications').where('userId', '==', uid).get();
   const docs = snap.docs.map((d) => d.data());
   return type ? docs.filter((d) => d.type === type) : docs;
+}
+
+/** A minimal public list doc — enough for `getListMovieNight`'s ownership +
+ *  visibility gate (F5/F4 tests only need the pin route, not a real list
+ *  feature surface). */
+async function seedPublicList(ownerId: string, listId = 'pin-list'): Promise<void> {
+  await adminDb().doc(`users/${ownerId}/lists/${listId}`).set({
+    id: listId, name: 'movie night list', ownerId, isPublic: true, collaboratorIds: [], movieCount: 0,
+    createdAt: new Date(), updatedAt: new Date(),
+  });
 }
 
 // ─── createMovieNight ──────────────────────────────────────────────────────
@@ -185,6 +196,41 @@ test('create: a blocked invitee is silently dropped AND never notified', async (
   assert.equal(notifs.length, 0, 'blocked invitee gets no notification');
 });
 
+// T3 (F4) — create idempotency via clientKey.
+test('create: two creates with the same clientKey return the SAME night, one doc', async () => {
+  const clientKey = 'idempotency-test-key-0001';
+  const first = await callRoute<MovieNightView>(createRoute, 'POST', {
+    token: hostTok, body: { film: FILM, scheduledFor: futureIso(), inviteeUids: [invitee1.uid], clientKey },
+  });
+  assert.equal(first.status, 200);
+  assert.ok(first.body.ok);
+  if (!first.body.ok) return;
+
+  const second = await callRoute<MovieNightView>(createRoute, 'POST', {
+    token: hostTok, body: { film: FILM, scheduledFor: futureIso(48), inviteeUids: [invitee1.uid], clientKey },
+  });
+  assert.equal(second.status, 200);
+  assert.ok(second.body.ok);
+  if (!second.body.ok) return;
+
+  assert.equal(second.body.data.id, first.body.data.id, 'the retry returns the SAME night id, not a new one');
+
+  const all = await adminDb().collection('movie_nights').where('hostUid', '==', host.uid).get();
+  assert.equal(all.size, 1, 'exactly one night doc was created');
+});
+
+test('create: a DIFFERENT clientKey (or none) still creates a new night', async () => {
+  const first = await createNight(hostTok, { clientKey: 'key-a-00000000' });
+  assert.ok(first.night);
+  const second = await createNight(hostTok, { clientKey: 'key-b-00000000' });
+  assert.ok(second.night);
+  if (!first.night || !second.night) return;
+  assert.notEqual(first.night.id, second.night.id, 'different keys never collide');
+
+  const all = await adminDb().collection('movie_nights').where('hostUid', '==', host.uid).get();
+  assert.equal(all.size, 2);
+});
+
 // ─── getMovieNight ─────────────────────────────────────────────────────────
 
 test('getMovieNight: 403 for a stranger', async () => {
@@ -195,6 +241,59 @@ test('getMovieNight: 403 for a stranger', async () => {
     token: strangerTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
   });
   assert.equal(res.status, 403);
+});
+
+// T5 (F6) — retroactive blocks: host↔invitee hides the whole night for that
+// invitee; a co-invitee↔co-invitee block only filters the pair from each
+// other's invitees[], counts stay aggregate.
+test('blocks: a host-blocked invitee loses access; a co-invitee block filters the pair, not the counts', async () => {
+  const invitee2 = await createTestUser('invitee2b');
+  const invitee2Tok = await invitee2.getIdToken();
+  await adminDb().collection('users').doc(invitee2.uid).set({
+    uid: invitee2.uid, username: invitee2.uid.slice(0, 8), usernameLower: invitee2.uid.slice(0, 8),
+  });
+  await follow(host.uid, invitee2.uid);
+
+  const { night } = await createNight(hostTok, { inviteeUids: [invitee1.uid, invitee2.uid] });
+  assert.ok(night);
+  if (!night) return;
+
+  // Host blocks invitee1 AFTER the invite went out (the "retroactive" case).
+  await block(host.uid, invitee1.uid);
+
+  const upcoming = await callRoute<MovieNightView[]>(upcomingRoute, 'GET', { token: invitee1Tok });
+  assert.ok(upcoming.body.ok);
+  if (upcoming.body.ok) {
+    assert.ok(!upcoming.body.data.some((n) => n.id === night.id), 'blocked invitee no longer sees it in upcoming');
+  }
+
+  const getRes = await callRoute(getRoute, 'GET', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+  });
+  assert.equal(getRes.status, 404, 'blocked invitee gets not-found, not forbidden — no existence oracle');
+
+  const rsvpRes = await callRoute(rsvpRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'in' },
+  });
+  assert.equal(rsvpRes.status, 404, 'blocked invitee cannot rsvp either — same not-found');
+
+  // Co-invitee pair block: invitee2 blocks invitee1 — NEITHER is the host.
+  await block(invitee2.uid, invitee1.uid);
+
+  const invitee2View = await callRoute<MovieNightView>(getRoute, 'GET', {
+    token: invitee2Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+  });
+  assert.equal(invitee2View.status, 200, 'invitee2 still has access — this pair block never hides the whole night');
+  assert.ok(invitee2View.body.ok);
+  if (invitee2View.body.ok) {
+    const view = invitee2View.body.data;
+    assert.ok(!view.invitees.some((i) => i.uid === invitee1.uid), 'invitee1 filtered out of invitee2 view');
+    assert.ok(view.invitees.some((i) => i.uid === invitee2.uid), 'invitee2 still sees themselves');
+    assert.ok(view.invitees.some((i) => i.uid === host.uid), 'invitee2 still sees the host');
+    const total = view.counts.going + view.counts.maybe + view.counts.out + view.counts.waiting;
+    assert.equal(total, 3, 'counts stay AGGREGATE — all 3 invitees (host+invitee1+invitee2), unaffected by the filter');
+  }
 });
 
 // ─── rsvpMovieNight ────────────────────────────────────────────────────────
@@ -295,12 +394,51 @@ test('cancel: notifies the other invitees', async () => {
   assert.equal(hostNotifs.length, 0, 'host never notifies itself');
 });
 
+// T2 (F3) — reschedule/cancel must guard status === 'proposed' exactly like
+// didnt_happen already does.
+test('reschedule and cancel against a completed night both 400; status stays completed', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  const pastMs = Date.now() - 3 * 3600_000;
+  await adminDb().doc(`movie_nights/${night.id}`).update({ scheduledFor: Timestamp.fromMillis(pastMs) });
+
+  const completeRes = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body: { attendeeUids: [host.uid] },
+  });
+  assert.equal(completeRes.status, 200);
+
+  const rescheduleRes = await callRoute(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: futureIso(48) },
+  });
+  assert.equal(rescheduleRes.status, 400, 'reschedule against a completed night is rejected');
+
+  const cancelRes = await callRoute(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'cancel' },
+  });
+  assert.equal(cancelRes.status, 400, 'cancel against a completed night is rejected');
+
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.status, 'completed', 'status was never disturbed by either rejected attempt');
+});
+
 // ─── completeMovieNight ──────────────────────────────────────────────────────
 
 test('complete: watch docs for every attendee, caller rating applied, idempotent on re-call', async () => {
   const { night } = await createNight(hostTok);
   assert.ok(night);
   if (!night) return;
+
+  // F8 — an attendee must have answered 'in'/'maybe' to be eligible at all
+  // (the caller is exempt from this, but invitee1 here is not the caller).
+  await callRoute(rsvpRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'in' },
+  });
 
   // Force the night into the past so it's completable.
   const pastMs = Date.now() - 3 * 3600_000;
@@ -346,6 +484,128 @@ test('complete: watch docs for every attendee, caller rating applied, idempotent
 
   const morningAfterNotifs2 = await notificationsFor(invitee1.uid, 'movie_night_morning_after');
   assert.equal(morningAfterNotifs2.length, 1, 'no duplicate morning-after notification on re-call');
+});
+
+// T1 (F2) — a SECOND attendee rating the night later (after the host already
+// completed it) updates THEIR OWN watch in place instead of duplicating it.
+test('complete: a second attendee rating later updates their own watch in place, not a duplicate', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  // invitee1 must be 'in'/'maybe' to be an eligible attendee at all (F8).
+  await callRoute(rsvpRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'in' },
+  });
+
+  const pastMs = Date.now() - 3 * 3600_000;
+  await adminDb().doc(`movie_nights/${night.id}`).update({ scheduledFor: Timestamp.fromMillis(pastMs) });
+
+  // A completes with rating 8 (attendees A+B) — the fresh path fans a
+  // (rating: null) watch out to B too.
+  const aComplete = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body: { attendeeUids: [host.uid, invitee1.uid], rating: 8 },
+  });
+  assert.equal(aComplete.status, 200);
+
+  // B completes with rating 7 — the night is already 'completed', so this
+  // rides the 'already' branch and should update B's EXISTING watch.
+  const bComplete = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body: { attendeeUids: [host.uid, invitee1.uid], rating: 7 },
+  });
+  assert.equal(bComplete.status, 200);
+
+  const hostWatches = await adminDb().collection(`users/${host.uid}/watches`).get();
+  const inviteeWatches = await adminDb().collection(`users/${invitee1.uid}/watches`).get();
+  assert.equal(hostWatches.size, 1, 'A still has exactly one watch doc');
+  assert.equal(inviteeWatches.size, 1, 'B has EXACTLY ONE watch doc for the film — updated in place, not duplicated');
+  assert.equal(inviteeWatches.docs[0].data().rating, 7, "B's own rating landed on their existing watch");
+  assert.equal(hostWatches.docs[0].data().rating, 8, "A's rating is untouched by B's later call");
+});
+
+// T7 (F8) — attendeeUids is filtered to invitees whose CURRENT rsvp is
+// 'in'/'maybe'; an 'out' invitee slipped into the request body gets no watch.
+test('complete: an "out" invitee included in attendeeUids gets NO watch doc', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  await callRoute(rsvpRoute, 'POST', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/rsvp`,
+    body: { answer: 'out' },
+  });
+
+  const pastMs = Date.now() - 3 * 3600_000;
+  await adminDb().doc(`movie_nights/${night.id}`).update({ scheduledFor: Timestamp.fromMillis(pastMs) });
+
+  const res = await callRoute<MovieNightView>(completeRoute, 'POST', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}/complete`,
+    body: { attendeeUids: [host.uid, invitee1.uid] },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (res.body.ok) {
+    assert.ok(
+      !res.body.data.completion?.attendeeUids.includes(invitee1.uid),
+      "the 'out' invitee never made it into completion.attendeeUids",
+    );
+  }
+
+  const inviteeWatches = await adminDb().collection(`users/${invitee1.uid}/watches`).get();
+  assert.equal(inviteeWatches.size, 0, "the 'out' invitee gets no watch doc at all");
+});
+
+// T4 (F5) — the list-pin route returns the redacted shape to a stranger AND
+// an unauthenticated caller; the invitee still gets the full view.
+test('list-pin route: stranger + unauthenticated caller get the redacted pin; invitee gets the full view', async () => {
+  await seedPublicList(host.uid);
+  const { night } = await createNight(hostTok, { listId: 'pin-list', listOwnerId: host.uid });
+  assert.ok(night);
+  if (!night) return;
+
+  const strangerRes = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: strangerTok, params: { ownerId: host.uid, listId: 'pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/pin-list/movie-night`,
+  });
+  assert.equal(strangerRes.status, 200);
+  assert.ok(strangerRes.body.ok);
+  if (strangerRes.body.ok) {
+    const json = JSON.stringify(strangerRes.body.data);
+    assert.ok(!json.includes(host.uid), 'stranger response has no host uid');
+    assert.ok(!json.includes(invitee1.uid), 'stranger response has no invitee uid');
+    assert.ok(!('invitees' in (strangerRes.body.data as object)), 'no invitees array');
+    assert.ok(!('guestRsvps' in (strangerRes.body.data as object)), 'no guestRsvps array');
+    assert.ok(!('shareCode' in (strangerRes.body.data as object)), 'no shareCode');
+    assert.ok(!('hostUid' in (strangerRes.body.data as object)), 'no hostUid field');
+    assert.equal(strangerRes.body.data.counts.going, 1, 'aggregate counts are still there — the card needs them');
+  }
+
+  const anonRes = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    params: { ownerId: host.uid, listId: 'pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/pin-list/movie-night`,
+  });
+  assert.equal(anonRes.status, 200);
+  assert.ok(anonRes.body.ok);
+  if (anonRes.body.ok) {
+    const json = JSON.stringify(anonRes.body.data);
+    assert.ok(!json.includes(host.uid), 'anonymous response has no host uid either');
+    assert.ok(!('shareCode' in (anonRes.body.data as object)));
+  }
+
+  const inviteeRes = await callRoute<MovieNightView>(listMovieNightRoute, 'GET', {
+    token: invitee1Tok, params: { ownerId: host.uid, listId: 'pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/pin-list/movie-night`,
+  });
+  assert.equal(inviteeRes.status, 200);
+  assert.ok(inviteeRes.body.ok);
+  if (inviteeRes.body.ok) {
+    assert.ok('invitees' in (inviteeRes.body.data as object), 'the invitee gets the full view');
+    assert.equal(inviteeRes.body.data.hostUid, host.uid);
+    assert.ok(inviteeRes.body.data.invitees.some((i) => i.uid === invitee1.uid));
+  }
 });
 
 // ─── getUpcomingMovieNights ──────────────────────────────────────────────────

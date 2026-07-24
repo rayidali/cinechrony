@@ -38,7 +38,7 @@ export function MovieNightReminderToastBridge({ onOpenNight }: { onOpenNight: (i
       try {
         const { FirebaseMessaging } = await import('@capacitor-firebase/messaging');
         if (removed) return;
-        handle = await FirebaseMessaging.addListener('notificationReceived', (event) => {
+        const added = await FirebaseMessaging.addListener('notificationReceived', (event) => {
           try {
             const data = (event?.notification?.data ?? {}) as Record<string, unknown>;
             if (data?.type !== 'movie_night_reminder') return; // every other type: untouched
@@ -65,6 +65,13 @@ export function MovieNightReminderToastBridge({ onOpenNight }: { onOpenNight: (i
             console.error('[movie-night] foreground reminder toast failed:', err);
           }
         });
+        // C5 — cleanup may have already run while `addListener` was in
+        // flight (the effect can unmount between the two awaits above); if
+        // so, remove the just-added handle immediately instead of leaking
+        // it, and never publish it to the outer `handle` for the cleanup
+        // closure to double-remove.
+        if (removed) { added.remove(); return; }
+        handle = added;
       } catch (err) {
         console.error('[movie-night] notificationReceived listener failed:', err);
       }

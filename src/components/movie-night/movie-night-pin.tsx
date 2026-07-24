@@ -9,7 +9,7 @@ import { haptic } from '@/lib/haptics';
 import { hasSeenMovieNightCoach, markMovieNightCoachSeen } from '@/lib/movie-night-format';
 import { MovieNightCard } from './movie-night-card';
 import { useMovieNight } from './movie-night-provider';
-import type { MovieNightView } from '@/lib/movie-night-types';
+import type { MovieNightPinView, MovieNightView } from '@/lib/movie-night-types';
 
 /**
  * MN30 — the first-run "NEW · MOVIE NIGHT" spotlight, shown the first time a
@@ -60,6 +60,12 @@ function CoachMark({ onDismiss }: { onDismiss: () => void }) {
  * visitor never sees an "add a movie night" affordance anyway, and it keeps
  * an anon page read-free. Renders nothing when there's no pinned night —
  * this is a decoration, not a banner.
+ *
+ * F5 — the route returns the FULL `MovieNightView` only to the night's host
+ * or an invitee; any other signed-in viewer (e.g. a collaborator on the list
+ * who isn't on this particular night) gets the redacted `MovieNightPinView`.
+ * `night` is typed as the union so `'viewer' in night` distinguishes them —
+ * `MovieNightCard` itself only needs the common `MovieNightCardData` shape.
  */
 export function MovieNightPin({
   ownerId,
@@ -75,9 +81,9 @@ export function MovieNightPin({
 }) {
   const { openNight, refreshToken } = useMovieNight();
   const key = viewerUid ? `list-night:${ownerId}:${listId}` : null;
-  const { data: night, refetch } = useCachedAction<MovieNightView | null>(
+  const { data: night, refetch } = useCachedAction<MovieNightView | MovieNightPinView | null>(
     key,
-    () => apiCall<MovieNightView | null>('GET', `/api/v1/lists/${ownerId}/${listId}/movie-night`),
+    () => apiCall<MovieNightView | MovieNightPinView | null>('GET', `/api/v1/lists/${ownerId}/${listId}/movie-night`),
     { staleTime: 60_000 },
   );
 
@@ -92,10 +98,14 @@ export function MovieNightPin({
   }, [refreshToken, refetch]);
 
   // MN30 — offer the coach mark once a pinned night is actually ON SCREEN
-  // for a non-host viewer (the host already knows what they planned).
+  // for a non-host viewer (the host already knows what they planned). The
+  // redacted pin shape has no `viewer` field at all — treat that caller as
+  // "not the host" (they're never the host of a night they're not on).
   const [showCoach, setShowCoach] = useState(false);
   useEffect(() => {
-    if (!night || night.viewer.isHost) return;
+    if (!night) return;
+    const isHost = 'viewer' in night && night.viewer.isHost;
+    if (isHost) return;
     if (hasSeenMovieNightCoach()) return;
     setShowCoach(true);
   }, [night]);

@@ -37,7 +37,7 @@ import { getDb } from '@/firebase/admin';
 import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
 import { createTtlCache, cached } from '@/lib/server-cache';
 import { getFollowingIds } from '@/lib/follows-server';
-import { isBlockedBetween } from '@/lib/blocks-server';
+import { isBlockedBetween, getBlockSet } from '@/lib/blocks-server';
 import { recordWatchEntry, logWatch } from '@/lib/watches-server';
 import { deployOrigin } from '@/lib/share-meta';
 import {
@@ -52,6 +52,7 @@ import {
 import type {
   MovieNightCounts,
   MovieNightFilm,
+  MovieNightPinView,
   MovieNightPublicView,
   MovieNightView,
   ReminderPreset,
@@ -89,6 +90,10 @@ type NightDoc = {
   rsvps: Record<string, RsvpEntry>;
   guestRsvps: Record<string, GuestRsvpEntry>;
   shareCode: string;
+  /** F4 create idempotency — a client-minted key so a retry after a 500
+   *  can't duplicate the night. Optional: absent on any night created
+   *  before this field existed. */
+  clientKey: string | null;
   reminderSentAt: FirebaseFirestore.Timestamp | null;
   morningAfterSentAt: FirebaseFirestore.Timestamp | null;
   completion: { attendeeUids: string[]; completedAt: FirebaseFirestore.Timestamp } | null;
@@ -140,6 +145,18 @@ function generateShareCode(): string {
   return randomBytes(16).toString('base64url');
 }
 
+/** A film title rides into the .ics `SUMMARY` unescaped-by-us (icsEscapeText
+ *  handles the RFC 5545 chars) and into notification previews — hostile
+ *  input by default. Mirrors `sanitizeGuestName`'s approach: strip C0/C1
+ *  control chars (incl. `\r`/`\n`/tabs), collapse whitespace, trim, clamp. */
+export const FILM_TITLE_MAX = 200;
+
+function sanitizeFilmTitle(raw: string): string {
+  const noControl = raw.replace(/[\u0000-\u001F\u007F-\u009F]/g, ' ');
+  const collapsed = noControl.replace(/\s+/g, ' ').trim();
+  return collapsed.slice(0, FILM_TITLE_MAX);
+}
+
 function validateFilm(raw: unknown): MovieNightFilm {
   const f = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   if (typeof f.tmdbId !== 'number' || !Number.isFinite(f.tmdbId)) {
@@ -151,14 +168,23 @@ function validateFilm(raw: unknown): MovieNightFilm {
   if (typeof f.title !== 'string' || !f.title.trim()) {
     throw new BadRequestError('film.title is required.');
   }
+  const title = sanitizeFilmTitle(f.title);
+  if (!title) throw new BadRequestError('film.title is required.');
   return {
     tmdbId: f.tmdbId,
     mediaType: f.mediaType,
-    title: f.title.trim(),
+    title,
     year: typeof f.year === 'string' ? f.year : '',
     posterUrl: typeof f.posterUrl === 'string' && f.posterUrl ? f.posterUrl : null,
     runtime: typeof f.runtime === 'number' && Number.isFinite(f.runtime) ? f.runtime : null,
   };
+}
+
+/** F4 create idempotency — shape-check only (8-64 chars, url-safe-ish). An
+ *  invalid/absent key just means "no idempotency for this request", never
+ *  an error — the feature is purely additive. */
+function isValidClientKey(v: unknown): v is string {
+  return typeof v === 'string' && v.length >= 8 && v.length <= 64;
 }
 
 // ── DTO mapping ──────────────────────────────────────────────────────────
@@ -167,12 +193,23 @@ function tsToIso(t: FirebaseFirestore.Timestamp | null | undefined): string | nu
   return t ? t.toDate().toISOString() : null;
 }
 
-function nightToView(id: string, d: NightDoc, callerUid: string): MovieNightView {
+/**
+ * @param viewerBlockSet F6(b) — the caller's block set (both directions,
+ *   from `getBlockSet`). When a CO-INVITEE (never the host — a host↔caller
+ *   block hides the whole night before any caller reaches this function; see
+ *   the callers below) is in it, that row is filtered out of the returned
+ *   `invitees[]`. Counts are always computed from the FULL unfiltered list
+ *   first, so the tally never lies about who's actually coming. The host's
+ *   OWN view is never filtered (omit or ignore `viewerBlockSet` when
+ *   `callerUid === d.hostUid`) — a host still manages every invitee they
+ *   invited, blocked or not.
+ */
+function nightToView(id: string, d: NightDoc, callerUid: string, viewerBlockSet?: Set<string>): MovieNightView {
   const isHost = d.hostUid === callerUid;
   const isInvitee = d.inviteeUids.includes(callerUid);
   const rsvps = d.rsvps || {};
 
-  const invitees = (d.inviteeUids || []).map((uid) => {
+  const allInvitees = (d.inviteeUids || []).map((uid) => {
     const denorm = d.invitees?.[uid];
     const rsvp = rsvps[uid];
     return {
@@ -186,6 +223,10 @@ function nightToView(id: string, d: NightDoc, callerUid: string): MovieNightView
     };
   });
 
+  const invitees = (!viewerBlockSet || isHost)
+    ? allInvitees
+    : allInvitees.filter((inv) => inv.uid === callerUid || inv.isHost || !viewerBlockSet.has(inv.uid));
+
   const guestRsvps = Object.entries(d.guestRsvps || {}).map(([guestId, g]) => ({
     guestId,
     name: g.name,
@@ -194,7 +235,7 @@ function nightToView(id: string, d: NightDoc, callerUid: string): MovieNightView
   }));
 
   const counts: MovieNightCounts = { going: 0, maybe: 0, out: 0, waiting: 0 };
-  for (const inv of invitees) {
+  for (const inv of allInvitees) {
     if (inv.answer === 'in') counts.going++;
     else if (inv.answer === 'maybe') counts.maybe++;
     else if (inv.answer === 'out') counts.out++;
@@ -229,6 +270,32 @@ function nightToView(id: string, d: NightDoc, callerUid: string): MovieNightView
   };
 }
 
+/** The redacted `getListMovieNight` shape for a caller who's neither the
+ *  night's host nor an invitee — see F5's `MovieNightPinView`. */
+function nightToPinView(id: string, d: NightDoc): MovieNightPinView {
+  const counts: MovieNightCounts = { going: 0, maybe: 0, out: 0, waiting: 0 };
+  for (const uid of d.inviteeUids || []) {
+    const answer = d.rsvps?.[uid]?.answer;
+    if (answer === 'in') counts.going++;
+    else if (answer === 'maybe') counts.maybe++;
+    else if (answer === 'out') counts.out++;
+    else counts.waiting++;
+  }
+  for (const g of Object.values(d.guestRsvps || {})) {
+    if (g.answer === 'in') counts.going++;
+    else if (g.answer === 'maybe') counts.maybe++;
+    else if (g.answer === 'out') counts.out++;
+  }
+  return {
+    id,
+    film: d.film,
+    scheduledFor: d.scheduledFor.toDate().toISOString(),
+    tzOffsetMinutes: d.tzOffsetMinutes ?? 0,
+    status: d.status,
+    counts,
+  };
+}
+
 // ── Caches (server-TTL, write-invalidated — the quota-first rule) ─────────
 
 /** getUpcomingMovieNights — per-uid, since the view itself is caller-specific
@@ -249,7 +316,10 @@ function invalidateListNight(listOwnerId: string | null, listId: string | null):
 // ── Notification fan-out ────────────────────────────────────────────────
 
 /** Notify every invitee EXCEPT `actorUid` with the same lifecycle context —
- *  shared by create (host → all invitees) / reschedule / cancel. */
+ *  shared by create (host → all invitees) / reschedule / cancel. F4 —
+ *  the WHOLE body is wrapped: a notification failure (even the actor-
+ *  profile read itself) must never throw back into a caller that already
+ *  committed the parent mutation — best-effort, logged, swallowed. */
 async function fanOutToOtherInvitees(
   db: FirebaseFirestore.Firestore,
   nightId: string,
@@ -258,24 +328,28 @@ async function fanOutToOtherInvitees(
   scheduledForOverride: FirebaseFirestore.Timestamp,
   send: (db: FirebaseFirestore.Firestore, recipientId: string, ctx: MovieNightNotificationCtx) => Promise<void>,
 ): Promise<void> {
-  const actorDoc = await db.collection('users').doc(actorUid).get();
-  const actor = actorDoc.data() || {};
-  const iso = scheduledForOverride.toDate().toISOString();
-  const ctx: MovieNightNotificationCtx = {
-    nightId,
-    movieTitle: data.film.title,
-    dateLabel: formatNightDate(iso, data.tzOffsetMinutes),
-    timeLabel: formatNightTime(iso, data.tzOffsetMinutes),
-    fromUserId: actorUid,
-    fromUsername: actor.username ?? null,
-    fromDisplayName: actor.displayName ?? null,
-    fromPhotoUrl: actor.photoURL ?? null,
-  };
-  await Promise.all(
-    data.inviteeUids
-      .filter((uid) => uid !== actorUid)
-      .map((uid) => send(db, uid, ctx).catch((err) => console.error('[movie-nights] notify failed:', err))),
-  );
+  try {
+    const actorDoc = await db.collection('users').doc(actorUid).get();
+    const actor = actorDoc.data() || {};
+    const iso = scheduledForOverride.toDate().toISOString();
+    const ctx: MovieNightNotificationCtx = {
+      nightId,
+      movieTitle: data.film.title,
+      dateLabel: formatNightDate(iso, data.tzOffsetMinutes),
+      timeLabel: formatNightTime(iso, data.tzOffsetMinutes),
+      fromUserId: actorUid,
+      fromUsername: actor.username ?? null,
+      fromDisplayName: actor.displayName ?? null,
+      fromPhotoUrl: actor.photoURL ?? null,
+    };
+    await Promise.all(
+      data.inviteeUids
+        .filter((uid) => uid !== actorUid)
+        .map((uid) => send(db, uid, ctx).catch((err) => console.error('[movie-nights] notify failed:', err))),
+    );
+  } catch (err) {
+    console.error('[movie-nights] fan-out failed:', err);
+  }
 }
 
 // ── createMovieNight ────────────────────────────────────────────────────
@@ -288,6 +362,10 @@ export type CreateMovieNightInput = {
   inviteeUids?: unknown;
   listId?: unknown;
   listOwnerId?: unknown;
+  /** F4 create idempotency — a client-minted key (8-64 chars) sent with a
+   *  create request. A retry carrying the SAME key returns the already-
+   *  created night instead of planning a second one. */
+  clientKey?: unknown;
 };
 
 /**
@@ -298,6 +376,27 @@ export type CreateMovieNightInput = {
  * always in `inviteeUids` and auto-RSVPs 'in'.
  */
 export async function createMovieNight(hostUid: string, input: CreateMovieNightInput): Promise<MovieNightView> {
+  const db = getDb();
+
+  // F4 — create idempotency. `hostUid == AND clientKey ==` is an
+  // equality-only query the automatic single-field indexes satisfy via a
+  // merge join — no composite index to deploy. A retry after a dropped
+  // response (e.g. a 500 whose write actually committed) returns the SAME
+  // night instead of planning a duplicate.
+  const clientKey = isValidClientKey(input.clientKey) ? input.clientKey : null;
+  if (clientKey) {
+    const dupe = await db.collection(NIGHTS)
+      .where('hostUid', '==', hostUid)
+      .where('clientKey', '==', clientKey)
+      .limit(1)
+      .get();
+    if (!dupe.empty) {
+      const doc = dupe.docs[0];
+      const blockSet = await getBlockSet(db, hostUid);
+      return nightToView(doc.id, doc.data() as NightDoc, hostUid, blockSet);
+    }
+  }
+
   const film = validateFilm(input.film);
 
   if (typeof input.scheduledFor !== 'string' || !input.scheduledFor) {
@@ -311,8 +410,6 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
 
   const tzOffsetMinutes = clampTzOffset(input.tzOffsetMinutes);
   const reminderPreset: ReminderPreset = isReminderPreset(input.reminderPreset) ? input.reminderPreset : '2h';
-
-  const db = getDb();
 
   let listName: string | null = null;
   let listCollaboratorIds: string[] = [];
@@ -381,6 +478,7 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
     rsvps: { [hostUid]: { answer: 'in', respondedAt: FieldValue.serverTimestamp() } },
     guestRsvps: {},
     shareCode,
+    clientKey,
     reminderSentAt: null,
     morningAfterSentAt: null,
     completion: null,
@@ -403,6 +501,10 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
 
 // ── getMovieNight ────────────────────────────────────────────────────────
 
+/** F6(a) — a host↔caller block (either direction) hides the night entirely:
+ *  `NotFoundError`, not `ForbiddenError` — no existence oracle for a blocked
+ *  relationship. A plain stranger (never invited at all) still gets the
+ *  pre-existing 403 below; only an invited-but-now-blocked caller gets 404. */
 export async function getMovieNight(callerUid: string, id: string): Promise<MovieNightView> {
   const db = getDb();
   const snap = await db.collection(NIGHTS).doc(id).get();
@@ -411,7 +513,9 @@ export async function getMovieNight(callerUid: string, id: string): Promise<Movi
   const isHost = data.hostUid === callerUid;
   const isInvitee = data.inviteeUids.includes(callerUid);
   if (!isHost && !isInvitee) throw new ForbiddenError();
-  return nightToView(id, data, callerUid);
+  const blockSet = await getBlockSet(db, callerUid);
+  if (blockSet.has(data.hostUid)) throw new NotFoundError('Movie night not found.');
+  return nightToView(id, data, callerUid, blockSet);
 }
 
 // ── getUpcomingMovieNights ───────────────────────────────────────────────
@@ -436,7 +540,12 @@ export async function getUpcomingMovieNights(callerUid: string): Promise<MovieNi
       .orderBy('scheduledFor', 'asc')
       .limit(10)
       .get();
-    return snap.docs.map((d) => nightToView(d.id, d.data() as NightDoc, callerUid));
+    // F6(a) — a night hosted by someone blocked either direction with the
+    // caller is excluded entirely (one getBlockSet call for the whole page).
+    const blockSet = await getBlockSet(db, callerUid);
+    return snap.docs
+      .filter((d) => !blockSet.has((d.data() as NightDoc).hostUid))
+      .map((d) => nightToView(d.id, d.data() as NightDoc, callerUid, blockSet));
   });
 }
 
@@ -447,12 +556,18 @@ export async function getUpcomingMovieNights(callerUid: string): Promise<MovieNi
  * as `getListPreview`: public lists are open, private lists require the
  * caller be the owner or a collaborator. Needs a composite index (`listId`
  * ==, `status` ==, `scheduledFor` ASC).
+ *
+ * F5 — the route stays PUBLIC (anonymous public-list viewers may see the
+ * pin), but the payload is gated on IDENTITY, not just list access: a
+ * caller who is neither the night's host nor an invitee gets the redacted
+ * `MovieNightPinView` (no invitee uids, no guest names, no shareCode, no
+ * hostUid) — only the host/invitees get the full `MovieNightView`.
  */
 export async function getListMovieNight(
   callerUid: string | null,
   listOwnerId: string,
   listId: string,
-): Promise<MovieNightView | null> {
+): Promise<MovieNightView | MovieNightPinView | null> {
   const db = getDb();
   const listSnap = await db.collection('users').doc(listOwnerId).collection('lists').doc(listId).get();
   if (!listSnap.exists) return null;
@@ -475,19 +590,33 @@ export async function getListMovieNight(
     return { id: doc.id, data: doc.data() as NightDoc };
   });
   if (!raw) return null;
-  return nightToView(raw.id, raw.data, callerUid ?? '');
+
+  // F6(a) — a night hosted by someone blocked either direction is excluded
+  // for that caller entirely (no existence oracle). An anonymous caller has
+  // no block set at all.
+  const blockSet = callerUid ? await getBlockSet(db, callerUid) : new Set<string>();
+  if (blockSet.has(raw.data.hostUid)) return null;
+
+  const isHost = callerUid != null && raw.data.hostUid === callerUid;
+  const isInvitee = callerUid != null && raw.data.inviteeUids.includes(callerUid);
+  if (!isHost && !isInvitee) return nightToPinView(raw.id, raw.data);
+  return nightToView(raw.id, raw.data, callerUid ?? '', blockSet);
 }
 
 // ── rsvpMovieNight ───────────────────────────────────────────────────────
 
 /** Any invitee (host included) sets their RSVP answer. Notifies the host
- *  (skipped when the host RSVPs to their own night). */
+ *  (skipped when the host RSVPs to their own night). F6(a) — a host↔caller
+ *  block (either direction) 404s instead of updating (no existence oracle):
+ *  the caller's own block set is fetched ONCE, before the transaction, and
+ *  reused both for the in-transaction guard and the returned view. */
 export async function rsvpMovieNight(callerUid: string, id: string, rawAnswer: unknown): Promise<MovieNightView> {
   if (!isRsvpAnswer(rawAnswer)) throw new BadRequestError('answer must be "in", "maybe", or "out".');
   const answer = rawAnswer;
 
   const db = getDb();
   const ref = db.collection(NIGHTS).doc(id);
+  const blockSet = await getBlockSet(db, callerUid);
 
   type TxOk = { kind: 'ok'; data: NightDoc };
   type TxErr = { kind: 'err'; error: Error };
@@ -496,6 +625,7 @@ export async function rsvpMovieNight(callerUid: string, id: string, rawAnswer: u
     if (!snap.exists) return { kind: 'err' as const, error: new NotFoundError('Movie night not found.') };
     const data = snap.data() as NightDoc;
     if (!data.inviteeUids.includes(callerUid)) return { kind: 'err' as const, error: new ForbiddenError() };
+    if (blockSet.has(data.hostUid)) return { kind: 'err' as const, error: new NotFoundError('Movie night not found.') };
     tx.update(ref, {
       [`rsvps.${callerUid}`]: { answer, respondedAt: FieldValue.serverTimestamp() },
       updatedAt: FieldValue.serverTimestamp(),
@@ -529,7 +659,7 @@ export async function rsvpMovieNight(callerUid: string, id: string, rawAnswer: u
   }
 
   const fresh = await ref.get();
-  return nightToView(id, fresh.data() as NightDoc, callerUid);
+  return nightToView(id, fresh.data() as NightDoc, callerUid, blockSet);
 }
 
 // ── updateMovieNight — reschedule / cancel / didnt_happen ───────────────
@@ -557,6 +687,12 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
       if (!snap.exists) return { kind: 'err' as const, error: new NotFoundError('Movie night not found.') };
       const data = snap.data() as NightDoc;
       if (data.hostUid !== callerUid) return { kind: 'err' as const, error: new ForbiddenError('Only the host can reschedule.') };
+      // F3 — a completed/cancelled/didnt_happen night is a closed chapter;
+      // reschedule must guard `status === 'proposed'` exactly like
+      // didnt_happen already does below.
+      if (data.status !== 'proposed') {
+        return { kind: 'err' as const, error: new BadRequestError('This movie night cannot be rescheduled.') };
+      }
       tx.update(ref, {
         previousScheduledFor: data.scheduledFor,
         scheduledFor: scheduledForTs,
@@ -577,7 +713,7 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     );
 
     const fresh = await ref.get();
-    return nightToView(id, fresh.data() as NightDoc, callerUid);
+    return nightToView(id, fresh.data() as NightDoc, callerUid, await getBlockSet(db, callerUid));
   }
 
   if (patch.action === 'cancel') {
@@ -588,6 +724,11 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
       if (!snap.exists) return { kind: 'err' as const, error: new NotFoundError('Movie night not found.') };
       const data = snap.data() as NightDoc;
       if (data.hostUid !== callerUid) return { kind: 'err' as const, error: new ForbiddenError('Only the host can cancel.') };
+      // F3 — same guard: cancelling an already-completed/cancelled/
+      // didnt_happen night makes no sense.
+      if (data.status !== 'proposed') {
+        return { kind: 'err' as const, error: new BadRequestError('This movie night cannot be cancelled.') };
+      }
       tx.update(ref, { status: 'cancelled', updatedAt: FieldValue.serverTimestamp() });
       return { kind: 'ok' as const, data };
     });
@@ -601,7 +742,7 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     );
 
     const fresh = await ref.get();
-    return nightToView(id, fresh.data() as NightDoc, callerUid);
+    return nightToView(id, fresh.data() as NightDoc, callerUid, await getBlockSet(db, callerUid));
   }
 
   if (patch.action === 'didnt_happen') {
@@ -627,7 +768,7 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     invalidateListNight(result.data.listOwnerId, result.data.listId);
 
     const fresh = await ref.get();
-    return nightToView(id, fresh.data() as NightDoc, callerUid);
+    return nightToView(id, fresh.data() as NightDoc, callerUid, await getBlockSet(db, callerUid));
   }
 
   throw new BadRequestError('Unknown action.');
@@ -649,6 +790,18 @@ export type CompleteMovieNightInput = {
  * duplicating it). Idempotent: a re-call on an already-`completed` night
  * skips the attendee fan-out + notifications and just re-applies the
  * caller's own rating path (so returning later to add a rating still works).
+ *
+ * F2 — every watch written here is stamped `movieNightId: id`
+ * (`recordWatchEntry`/`logWatch` in `watches-server.ts`), so a SECOND
+ * attendee rating the night later (their own `complete` call landing after
+ * the night is already `completed` — the 'already' path below) updates
+ * their existing watch in place instead of creating a phantom rewatch.
+ *
+ * F8 — `attendeeUids` is filtered to invitees whose CURRENT rsvp answer is
+ * 'in' or 'maybe'; the caller is always allowed regardless of their own
+ * answer. An invitee who never said they were coming (or said 'out') never
+ * gets a watch logged on their behalf just because someone else typed
+ * their uid into the request body.
  */
 export async function completeMovieNight(
   callerUid: string,
@@ -677,9 +830,12 @@ export async function completeMovieNight(
     if (data.scheduledFor.toMillis() > Date.now()) return { kind: 'too_soon' };
 
     const rawAttendees = Array.isArray(input.attendeeUids) ? input.attendeeUids : [];
-    const attendeeUids = [...new Set(rawAttendees)].filter(
-      (uid): uid is string => typeof uid === 'string' && data.inviteeUids.includes(uid),
-    );
+    const attendeeUids = [...new Set(rawAttendees)].filter((uid): uid is string => {
+      if (typeof uid !== 'string' || !data.inviteeUids.includes(uid)) return false;
+      if (uid === callerUid) return true; // the caller always attends their own completion
+      const answer = data.rsvps?.[uid]?.answer;
+      return answer === 'in' || answer === 'maybe';
+    });
     if (!attendeeUids.includes(callerUid)) return { kind: 'bad_attendees' };
 
     tx.update(ref, {
@@ -704,7 +860,8 @@ export async function completeMovieNight(
   if (result.kind === 'fresh') {
     // Watch entries for every OTHER attendee (the caller's own is applied
     // below, possibly carrying a rating — routed through logWatch instead so
-    // it isn't double-logged).
+    // it isn't double-logged). Stamped with the night's id so a later solo
+    // `complete` call from one of them (F2) updates THIS watch in place.
     await Promise.all(
       result.attendeeUids
         .filter((uid) => uid !== callerUid)
@@ -715,6 +872,7 @@ export async function completeMovieNight(
             movieTitle: data.film.title,
             moviePosterUrl: data.film.posterUrl,
             watchedAt: watchedAtIso,
+            movieNightId: id,
           }).catch((err) => console.error('[completeMovieNight] watch entry failed:', err)),
         ),
     );
@@ -750,7 +908,10 @@ export async function completeMovieNight(
   }
 
   // The caller's own watch/rating path — applies on BOTH a fresh completion
-  // and a later re-entry (e.g. rating it after the fact).
+  // and a later re-entry (e.g. rating it after the fact). F2 — stamped with
+  // the same movieNightId, so a fan-out watch already sitting there (e.g.
+  // another attendee completed first) gets updated in place instead of
+  // duplicated.
   if (rating != null || note) {
     await logWatch(callerUid, {
       tmdbId: data.film.tmdbId,
@@ -760,6 +921,7 @@ export async function completeMovieNight(
       rating,
       note,
       watchedAt: watchedAtIso,
+      movieNightId: id,
     });
   } else {
     await recordWatchEntry(callerUid, {
@@ -768,11 +930,12 @@ export async function completeMovieNight(
       movieTitle: data.film.title,
       moviePosterUrl: data.film.posterUrl,
       watchedAt: watchedAtIso,
+      movieNightId: id,
     });
   }
 
   const fresh = await ref.get();
-  return nightToView(id, fresh.data() as NightDoc, callerUid);
+  return nightToView(id, fresh.data() as NightDoc, callerUid, await getBlockSet(db, callerUid));
 }
 
 // ═════════════════════════════════════════════════════════════════════════
@@ -1224,8 +1387,20 @@ export async function guestRsvpMovieNight(code: unknown, input: GuestRsvpInput):
 
 // ─── movieNightIcs — RFC 5545 VCALENDAR, no timezone component needed ─────
 
+/** F7 — every line-break form (`\r\n`, a lone `\r`, a lone `\n`) becomes the
+ *  RFC 5545 `\n` escape sequence (two literal characters, backslash + n —
+ *  not a real newline), so the output can never contain a bare `\r`: every
+ *  `\r` byte in the finished .ics is part of a real CRLF the line-folding
+ *  step (`icsFoldLine`) introduces between folded/BEGIN/END lines, never one
+ *  smuggled in through a field value (e.g. a hostile title or handle). */
 function icsEscapeText(s: string): string {
-  return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\n/g, '\\n');
+  return s
+    .replace(/\\/g, '\\\\')
+    .replace(/;/g, '\\;')
+    .replace(/,/g, '\\,')
+    .replace(/\r\n/g, '\\n')
+    .replace(/\r/g, '\\n')
+    .replace(/\n/g, '\\n');
 }
 
 /** RFC 5545 §3.1 line folding: lines over 75 OCTETS get split, continuation

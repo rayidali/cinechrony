@@ -240,7 +240,13 @@ function WatchedMomentSheet({
         </div>
         {editingAttendees ? (
           <div className="rounded-2xl border border-hair bg-card p-2">
-            {night.invitees.map((inv) => {
+            {/* F8 — the toggle list itself only offers invitees the server
+             *  will actually accept: 'in'/'maybe' answers, plus the viewer
+             *  (always allowed, regardless of their own answer). An 'out'
+             *  invitee never appears here to toggle on in the first place. */}
+            {night.invitees
+              .filter((inv) => inv.uid === viewerUid || inv.answer === 'in' || inv.answer === 'maybe')
+              .map((inv) => {
               const on = attendees.has(inv.uid);
               const locked = inv.uid === viewerUid;
               return (
