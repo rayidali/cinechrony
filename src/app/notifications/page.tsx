@@ -11,6 +11,7 @@ import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction, setCachedAction, readCachedAction } from '@/lib/use-cached-action';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import { formatDistanceToNow } from 'date-fns';
 import type { Notification, NotificationType } from '@/lib/types';
 import type { RsvpAnswer } from '@/lib/movie-night-types';
@@ -292,6 +293,7 @@ export default function NotificationsPage() {
       await apiCall('POST', `/api/v1/movie-nights/${n.nightId}/rsvp`, { answer });
       haptic('success');
       setNightRsvpDone((p) => ({ ...p, [n.id]: answer }));
+      track(AnalyticsEvent.MovieNightRsvp, { answer, surface: 'notification' });
       refreshUpcoming();
       if (!n.read) markOneRead(n.id);
     } catch (err) {

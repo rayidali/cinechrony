@@ -34,6 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import {
   type MediaDetails, getCachedDetails, getMovieOrTVDetails,
 } from '@/lib/tmdb-details-cache';
@@ -502,6 +503,7 @@ export function MovieDrawer({
     setShowRateOnWatch(false);
     patchStatus('Watched');
     await logWatch(rating, note);
+    track(AnalyticsEvent.MovieMarkedWatched);
     toast(rating != null
       ? { title: 'logged', description: `you rated ${movie.title} ${rating.toFixed(1)}/10` }
       : { title: 'logged', description: `${movie.title} — marked watched` });
@@ -511,6 +513,7 @@ export function MovieDrawer({
     setShowRateOnWatch(false);
     patchStatus('Watched');
     await logWatch(null, '');
+    track(AnalyticsEvent.MovieMarkedWatched);
   };
 
   const refreshWatches = () => {

@@ -3,9 +3,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Drawer } from 'vaul';
-import { addDays, startOfDay } from 'date-fns';
 import {
-  AlertTriangle, Bell, Calendar, CalendarCheck, CalendarDays, CalendarPlus, CalendarX,
+  AlertTriangle, Bell, Calendar, CalendarDays, CalendarPlus, CalendarX,
   Check, ChevronRight, CircleHelp, Clock, Crown, Pencil, X, type LucideIcon,
 } from 'lucide-react';
 
@@ -14,10 +13,14 @@ import { apiCall, ApiClientError, apiOrigin } from '@/lib/api-client';
 import { shareOrigin } from '@/lib/share';
 import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
-import { NightPoster, nightFilmMeta, describeNightCta } from './night-ui';
-import { DateTimeSheet, TimeEntrySheet } from './create-night-sheet';
+import { NightHeroCTA, NightPoster, nightFilmMeta } from './night-ui';
+import { RescheduleFlow } from './reschedule-flow';
+import {
+  CompletedBlock, AttendeeRatingsRail, ShareNightRow, DidntHappenBlock, RescheduledBlock, RescheduledInBar,
+} from './night-past-blocks';
 import {
   formatNightDate, formatNightDateShort, formatNightTime, formatNightWeekdayFull,
 } from '@/lib/movie-night-format';
@@ -32,12 +35,12 @@ import type { MovieNightInviteeView, MovieNightView, RsvpAnswer } from '@/lib/mo
  * future "see the night" transition from create → detail can layer cleanly.
  *
  * Nested overlays (all mutually exclusive host actions, so a shared z tier
- * is safe): the reschedule flow reuses S3a's `DateTimeSheet`/`TimeEntrySheet`
- * (z-93/94, unchanged) at z-92 for its own wrapper-free mount; the cancel
- * confirm and add-to-calendar sheets sit at z-92 too.
+ * is safe): the reschedule flow (`reschedule-flow.tsx`) reuses S3a's
+ * `DateTimeSheet`/`TimeEntrySheet` (z-93/94, unchanged) at z-92 for its own
+ * wrapper-free mount; the cancel confirm and add-to-calendar sheets sit at
+ * z-92 too. S4 adds the lifecycle "after" states (MN26/27/28) via
+ * `night-past-blocks.tsx`.
  */
-
-type TimeOfDay = { hour: number; minute: number };
 
 function timeSplit(label: string): [string, string] {
   const parts = label.split(' ');
@@ -452,108 +455,6 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
   );
 }
 
-// ── host "edit time & details" — reuses S3a's date/time expander ────────
-
-function combineDateAndTime(day: Date, t: TimeOfDay): Date {
-  const d = new Date(day);
-  d.setHours(t.hour, t.minute, 0, 0);
-  return d;
-}
-
-function RescheduleFlow({
-  isOpen, night, onClose, onRescheduled,
-}: { isOpen: boolean; night: MovieNightView; onClose: () => void; onRescheduled: (n: MovieNightView) => void }) {
-  const [selectedDate, setSelectedDate] = useState<Date>(() => startOfDay(new Date(night.scheduledFor)));
-  const [selectedTime, setSelectedTime] = useState<TimeOfDay>(() => {
-    const d = new Date(night.scheduledFor);
-    return { hour: d.getHours(), minute: d.getMinutes() };
-  });
-  const [showTimeEntry, setShowTimeEntry] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!isOpen) return;
-    const d = new Date(night.scheduledFor);
-    setSelectedDate(startOfDay(d));
-    setSelectedTime({ hour: d.getHours(), minute: d.getMinutes() });
-    setShowTimeEntry(false);
-    setSubmitting(false);
-    setError(null);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, night.id]);
-
-  const today = useMemo(() => startOfDay(new Date()), [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
-  const fridayTarget = useMemo(() => addDays(today, (5 - today.getDay() + 7) % 7), [today]);
-  const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
-
-  const scheduledFor = useMemo(() => combineDateAndTime(selectedDate, selectedTime), [selectedDate, selectedTime]);
-  const isPast = scheduledFor.getTime() <= Date.now();
-  const cta = describeNightCta(night.film, scheduledFor, 'reschedule');
-
-  async function submit(when: Date) {
-    if (submitting) return;
-    if (when.getTime() <= Date.now()) { setError("pick a night that hasn't happened yet"); return; }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const updated = await apiCall<MovieNightView>('PATCH', `/api/v1/movie-nights/${night.id}`, {
-        action: 'reschedule',
-        scheduledFor: when.toISOString(),
-      });
-      haptic('success');
-      onRescheduled(updated);
-      onClose();
-    } catch (err) {
-      haptic('error');
-      setError(err instanceof ApiClientError ? err.message : 'could not reschedule. try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <>
-      <DateTimeSheet
-        isOpen={isOpen}
-        film={night.film}
-        selectedDate={selectedDate}
-        selectedTime={selectedTime}
-        isPast={isPast}
-        cta={cta}
-        submitting={submitting}
-        error={error}
-        today={today}
-        fridayTarget={fridayTarget}
-        weekDays={weekDays}
-        onPickDate={(d) => { haptic('selection'); setSelectedDate(d); }}
-        onPickTime={(t) => { haptic('selection'); setSelectedTime(t); }}
-        onOpenFilmPicker={() => {}}
-        onOpenTimeEntry={() => setShowTimeEntry(true)}
-        onClose={onClose}
-        onPropose={() => submit(scheduledFor)}
-        hideFilmRow
-        ctaLabel="reschedule it"
-        ctaIcon={CalendarCheck}
-      />
-      <TimeEntrySheet
-        isOpen={isOpen && showTimeEntry}
-        film={night.film}
-        baseDate={selectedDate}
-        initial={selectedTime}
-        submitting={submitting}
-        error={error}
-        onDone={(t) => { setSelectedTime(t); setShowTimeEntry(false); }}
-        onClose={() => setShowTimeEntry(false)}
-        onSubmit={(when) => submit(when)}
-        ctaLabel="reschedule it"
-        ctaIcon={CalendarCheck}
-        ctaSubOverride="reschedule"
-      />
-    </>
-  );
-}
-
 // ── MN10 — the detail sheet (root) ────────────────────────────────────────
 
 function applyOptimisticRsvp(night: MovieNightView, viewerUid: string, answer: RsvpAnswer): MovieNightView {
@@ -649,6 +550,7 @@ export function NightDetailSheet({
       const updated = await apiCall<MovieNightView>('POST', `/api/v1/movie-nights/${night.id}/rsvp`, { answer });
       haptic('success');
       setNight(updated);
+      track(AnalyticsEvent.MovieNightRsvp, { answer, surface: 'detail' });
       onMutated?.();
     } catch (err) {
       haptic('error');
@@ -698,23 +600,44 @@ export function NightDetailSheet({
   const filmRemoved = night ? (night as unknown as { filmRemoved?: boolean }).filmRemoved === true : false;
 
   const isActive = night?.status === 'proposed';
+  const isCompleted = night?.status === 'completed';
+  const isDidntHappen = night?.status === 'didnt_happen';
+  // MN28 — still active, but the host moved it. RSVPs survive a reschedule
+  // ("same crew"), so an invitee who was already 'in' gets the friendly
+  // re-confirm bar instead of the plain settled bar.
+  const justRescheduled = isActive && !!night?.previousScheduledFor;
   const [timeMain, timeAmpm] = night ? timeSplit(formatNightTime(night.scheduledFor, night.tzOffsetMinutes)) : ['', ''];
 
   let footer: React.ReactNode = null;
   if (night && isActive) {
     if (night.viewer.isHost) {
       footer = <HostFooter onEdit={() => { haptic('light'); setShowReschedule(true); }} onCancel={() => { haptic('light'); setShowCancelConfirm(true); }} />;
+    } else if (justRescheduled && night.viewer.answer === 'in' && !forceShowButtons) {
+      footer = <RescheduledInBar submitting={submittingAnswer !== null} onConfirm={() => handleRsvp('in')} onChangeAnswer={() => setForceShowButtons(true)} />;
     } else if (night.viewer.answer && !forceShowButtons) {
       footer = <SettledBar answer={night.viewer.answer} onChangeAnswer={() => setForceShowButtons(true)} />;
     } else {
       footer = <RsvpButtons submittingAnswer={submittingAnswer} onPick={handleRsvp} />;
     }
-  } else if (night && !isActive) {
+  } else if (night && isCompleted) {
+    footer = <ShareNightRow />;
+  } else if (night && isDidntHappen) {
+    footer = night.viewer.isHost ? (
+      <NightHeroCTA
+        label="pick a new night"
+        icon={CalendarPlus}
+        onTap={() => { haptic('light'); setShowReschedule(true); }}
+      />
+    ) : (
+      <div className="rounded-2xl border border-hair bg-sunken px-4 py-3.5 text-center">
+        <p className="font-mono text-[11px] text-muted-foreground">waiting on {hostLabel} to pick a new night.</p>
+      </div>
+    );
+  } else if (night) {
+    // cancelled — the only status with no dedicated S4 lifecycle screen.
     footer = (
       <div className="rounded-2xl border border-hair bg-sunken px-4 py-3.5 text-center">
-        <p className="font-mono text-[11px] text-muted-foreground">
-          {night.status === 'cancelled' ? 'this movie night was cancelled.' : night.status === 'completed' ? 'you watched this one together.' : "this one didn't happen."}
-        </p>
+        <p className="font-mono text-[11px] text-muted-foreground">this movie night was cancelled.</p>
       </div>
     );
   }
@@ -753,19 +676,29 @@ export function NightDetailSheet({
                     </div>
                   )}
 
-                  {/* the big when — the biggest element on screen */}
-                  <div className="my-5 border-y border-hair py-5 text-center">
-                    <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-primary">
-                      {formatNightWeekdayFull(night.scheduledFor, night.tzOffsetMinutes)}
+                  {/* MN26 — watched together (completed) / MN27 — didn't happen record.
+                      Both REPLACE the big date/time hero (the block itself carries the
+                      date); MN28's rescheduled notice is additive and shown further
+                      down, since the night is still active and the hero above still
+                      shows the correct (new) date/time. */}
+                  {isCompleted ? (
+                    <CompletedBlock night={night} />
+                  ) : isDidntHappen ? (
+                    <DidntHappenBlock night={night} />
+                  ) : (
+                    <div className="my-5 border-y border-hair py-5 text-center">
+                      <div className="font-mono text-[10.5px] font-bold uppercase tracking-[0.22em] text-primary">
+                        {formatNightWeekdayFull(night.scheduledFor, night.tzOffsetMinutes)}
+                      </div>
+                      <div className="mt-2 flex items-baseline justify-center gap-2.5">
+                        <span className="font-headline text-[62px] font-bold leading-[0.9] tracking-[-0.04em] tabular-nums text-foreground">{timeMain}</span>
+                        <span className="font-mono text-[24px] font-bold text-muted-foreground">{timeAmpm}</span>
+                      </div>
+                      <div className="mt-1.5 font-mono text-[12.5px] font-bold tracking-[0.04em] tabular-nums text-muted-foreground">
+                        {formatNightDateShort(night.scheduledFor, night.tzOffsetMinutes)}
+                      </div>
                     </div>
-                    <div className="mt-2 flex items-baseline justify-center gap-2.5">
-                      <span className="font-headline text-[62px] font-bold leading-[0.9] tracking-[-0.04em] tabular-nums text-foreground">{timeMain}</span>
-                      <span className="font-mono text-[24px] font-bold text-muted-foreground">{timeAmpm}</span>
-                    </div>
-                    <div className="mt-1.5 font-mono text-[12.5px] font-bold tracking-[0.04em] tabular-nums text-muted-foreground">
-                      {formatNightDateShort(night.scheduledFor, night.tzOffsetMinutes)}
-                    </div>
-                  </div>
+                  )}
 
                   {/* host attribution */}
                   <div className="flex items-center justify-center gap-2.5">
@@ -775,14 +708,27 @@ export function NightDetailSheet({
                     </span>
                   </div>
 
-                  {/* who's in */}
-                  <div className="mb-3 mt-6 flex items-baseline justify-between px-0">
-                    <span className="cc-eyebrow text-muted-foreground">who&apos;s in</span>
-                    <span className="font-mono text-[9.5px] text-muted-foreground">{peopleCount} invited</span>
+                  {/* MN28 — the amber "rescheduled" notice, additive on an active night */}
+                  {justRescheduled && (
+                    <div className="mt-5"><RescheduledBlock night={night} /></div>
+                  )}
+
+                  {/* who's in / how you rated it / who was invited */}
+                  <div className={cn('mb-3 flex items-baseline justify-between px-0', justRescheduled ? 'mt-0' : 'mt-6')}>
+                    <span className="cc-eyebrow text-muted-foreground">
+                      {isCompleted ? 'how you rated it' : isDidntHappen ? 'who was invited' : "who's in"}
+                    </span>
+                    {!isCompleted && <span className="font-mono text-[9.5px] text-muted-foreground">{peopleCount} invited</span>}
                   </div>
-                  <div className="-mx-5"><InviteeRail people={railPeople} /></div>
-                  {tally && (
-                    <p className={cn('mt-3 text-center font-mono text-[10.5px]', tally.faint ? 'text-faint' : 'text-muted-foreground')}>{tally.text}</p>
+                  {isCompleted ? (
+                    <AttendeeRatingsRail night={night} viewerUid={user?.uid} />
+                  ) : (
+                    <>
+                      <div className="-mx-5"><InviteeRail people={railPeople} /></div>
+                      {tally && (
+                        <p className={cn('mt-3 text-center font-mono text-[10.5px]', tally.faint ? 'text-faint' : 'text-muted-foreground')}>{tally.text}</p>
+                      )}
+                    </>
                   )}
 
                   {/* add to calendar */}

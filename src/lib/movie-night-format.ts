@@ -88,6 +88,60 @@ export type NightPhase = 'upcoming' | 'today' | 'soon' | 'now' | 'past';
  *             S4 owns what renders here; S3b just stops calling it `now`).
  *   upcoming — everything else (a future day, more than an hour out).
  */
+// ── Morning-after snooze (S4 § MN25) ────────────────────────────────────
+//
+// "not now" on the morning-after prompt shouldn't nag again on the next app
+// open — a per-night localStorage flag remembers the dismissal. There's no
+// "un-snooze": once the night resolves (completed/didnt_happen/cancelled) it
+// drops out of `getUpcomingMovieNights` entirely, so the flag simply becomes
+// moot rather than needing cleanup.
+
+const SNOOZE_PREFIX = 'cc-mn-snooze:';
+
+/** Was this night's morning-after prompt already dismissed with "not now"? */
+export function isMorningAfterSnoozed(nightId: string): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.localStorage.getItem(SNOOZE_PREFIX + nightId) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Remember "not now" for this night so it doesn't auto-offer again. */
+export function snoozeMorningAfter(nightId: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(SNOOZE_PREFIX + nightId, '1');
+  } catch {
+    /* Safari private mode / quota — degrade silently, worst case it nags once more */
+  }
+}
+
+// ── First-run coach mark (S4 § MN30) ────────────────────────────────────
+
+const COACH_KEY = 'cc-mn-coach';
+
+/** Has the viewer already dismissed the "NEW · MOVIE NIGHT" spotlight
+ *  (either "skip" or "got it" — both dismiss forever, per the design). */
+export function hasSeenMovieNightCoach(): boolean {
+  if (typeof window === 'undefined') return true;
+  try {
+    return window.localStorage.getItem(COACH_KEY) === '1';
+  } catch {
+    return true;
+  }
+}
+
+export function markMovieNightCoachSeen(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.localStorage.setItem(COACH_KEY, '1');
+  } catch {
+    /* degrade silently */
+  }
+}
+
 export function nightPhase(scheduledForIso: string, now: Date = new Date()): NightPhase {
   const start = new Date(scheduledForIso).getTime();
   const t = now.getTime();

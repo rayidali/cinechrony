@@ -5,6 +5,7 @@ import { Check } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import { formatNightWeekdayFull } from '@/lib/movie-night-format';
 import { MovieNightCard } from './movie-night-card';
 import { useMovieNight } from './movie-night-provider';
@@ -35,6 +36,7 @@ export function MovieNightFeedCard({ night }: { night: MovieNightView }) {
       await apiCall('POST', `/api/v1/movie-nights/${night.id}/rsvp`, { answer: 'in' });
       haptic('success');
       setAnswered(true);
+      track(AnalyticsEvent.MovieNightRsvp, { answer: 'in', surface: 'feed' });
       refreshUpcoming();
     } catch (err) {
       haptic('error');

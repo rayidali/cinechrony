@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Drawer } from 'vaul';
 import { addDays, format, isSameDay, isToday, startOfDay } from 'date-fns';
 import {
-  Bell, Calendar, Check, ChevronDown, ClockAlert, Keyboard, Loader2, PartyPopper,
+  Bell, Calendar, Check, ChevronDown, ClockAlert, History, Keyboard, Loader2, PartyPopper,
   Plus, Send, Sunrise, UserRound, X, Play, Clock, type LucideIcon,
 } from 'lucide-react';
 
@@ -14,6 +14,7 @@ import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { FilmPickerSheet } from '@/components/v3/film-picker-sheet';
@@ -153,7 +154,7 @@ export function DateTimeSheet({
   isOpen, film, selectedDate, selectedTime, isPast, cta, submitting, error,
   today, fridayTarget, weekDays,
   onPickDate, onPickTime, onOpenFilmPicker, onOpenTimeEntry, onClose, onPropose,
-  hideFilmRow, ctaLabel, ctaIcon,
+  hideFilmRow, ctaLabel, ctaIcon, eyebrow = 'date night', title = 'movie night', movingFromLabel,
 }: {
   isOpen: boolean;
   film: MovieNightFilm | null;
@@ -178,6 +179,12 @@ export function DateTimeSheet({
   hideFilmRow?: boolean;
   ctaLabel?: string;
   ctaIcon?: LucideIcon;
+  /** MN34's "RESCHEDULING · new night" framing — overrides the header copy. */
+  eyebrow?: string;
+  title?: string;
+  /** MN34's struck-through "moving from thu 24.07 · 8pm" context row, pinned
+   *  above everything else in the sheet. Omit for the plain create flow. */
+  movingFromLabel?: string | null;
 }) {
   const height = useViewportHeight(92);
   const heightStyle = height > 0 ? `${height}px` : 'calc(92 * var(--dvh, 1vh))';
@@ -198,13 +205,20 @@ export function DateTimeSheet({
           <div className="flex items-center justify-between px-5 py-2.5">
             <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">cancel</button>
             <div className="text-center">
-              <div className="cc-eyebrow text-muted-foreground">date night</div>
-              <div className="mt-0.5 font-headline text-[19px] font-bold lowercase tracking-[-0.02em] text-foreground">movie night</div>
+              <div className="cc-eyebrow text-muted-foreground">{eyebrow}</div>
+              <div className="mt-0.5 font-headline text-[19px] font-bold lowercase tracking-[-0.02em] text-foreground">{title}</div>
             </div>
             <span className="w-[52px]" aria-hidden />
           </div>
 
           <div className="flex-1 overflow-y-auto px-5">
+            {movingFromLabel && (
+              <div className="mb-3.5 flex items-center gap-2.5 rounded-xl border border-hair bg-card px-3.5 py-2.5">
+                <History className="h-4 w-4 flex-shrink-0 text-muted-foreground" strokeWidth={2} />
+                <span className="font-ui text-[13.5px] font-semibold text-muted-foreground">moving from</span>
+                <span className="font-mono text-[12.5px] font-bold tabular-nums text-faint line-through">{movingFromLabel}</span>
+              </div>
+            )}
             {film && !hideFilmRow && (
               <button type="button" onClick={() => { haptic('light'); onOpenFilmPicker(); }} className="flex w-full items-center gap-3 pb-1 pt-0.5 text-left">
                 <div className="w-[38px] flex-shrink-0"><NightPoster film={film} rounded="rounded-[7px]" /></div>
@@ -949,6 +963,11 @@ export function CreateNightSheet({
       const night = await apiCall<MovieNightView>('POST', '/api/v1/movie-nights', body);
       haptic('success');
       setCreatedNight(night);
+      track(AnalyticsEvent.MovieNightCreated, {
+        hasList: !!list,
+        inviteeCount: invitees.length,
+        reminderPreset,
+      });
       onNightMutated?.();
       setShowDateTime(false);
       setShowTimeEntry(false);

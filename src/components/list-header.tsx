@@ -220,8 +220,9 @@ export function ListHeader({
         )}
       </div>
 
-      {/* MN02 — plan a movie night (film-first). Editable-list-only; S4 swaps
-          this for the MN29 one-liner once a night already exists. */}
+      {/* MN29 — the quiet "no movie night yet · plan one →" one-liner.
+          Editable-list-only; renders nothing once a night exists (the
+          MovieNightPin further down the page owns that display). */}
       {(isOwner || isCollaborator) && (
         <div className="mt-4">
           <PlanMovieNightRow
