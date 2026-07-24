@@ -125,19 +125,20 @@ export function AttendeeRatingsRail({ night, viewerUid }: { night: MovieNightVie
   );
 }
 
-/** MN26 footer — "share the night". No existing `story-card.ts` `kind`
- *  (review/watched/list/post) fits a movie-night payload, so this stays an
- *  honest, quiet disabled row rather than wiring a share that goes nowhere.
- *  TODO(S5): swap for a real share once `/n/[code]` ships its own card. */
-export function ShareNightRow() {
+/** MN26 footer — "share the night". Opens the OS share sheet with the
+ *  `/n/[code]` guest link (S5) via `handleShareNight` in the parent detail
+ *  sheet (shared with the MN10 header icon — one share text, one place it can
+ *  drift). */
+export function ShareNightRow({ onShare }: { onShare: () => void }) {
   return (
-    <div>
-      <div className="flex h-[50px] w-full items-center justify-center gap-2 rounded-2xl border border-hair bg-card text-center opacity-50">
-        <Share className="h-[17px] w-[17px] text-muted-foreground" strokeWidth={2} />
-        <span className="font-ui text-[15px] font-semibold text-muted-foreground">share the night</span>
-      </div>
-      <p className="mt-2 text-center font-mono text-[10px] text-muted-foreground">sharing comes with the web page</p>
-    </div>
+    <button
+      type="button"
+      onClick={onShare}
+      className="flex h-[50px] w-full items-center justify-center gap-2 rounded-2xl border border-hair bg-card text-center active:scale-[0.99]"
+    >
+      <Share className="h-[17px] w-[17px] text-muted-foreground" strokeWidth={2} />
+      <span className="font-ui text-[15px] font-semibold text-foreground">share the night</span>
+    </button>
   );
 }
 

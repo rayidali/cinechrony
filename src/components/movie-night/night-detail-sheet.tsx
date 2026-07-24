@@ -5,15 +5,16 @@ import { createPortal } from 'react-dom';
 import { Drawer } from 'vaul';
 import {
   AlertTriangle, Bell, Calendar, CalendarDays, CalendarPlus, CalendarX,
-  Check, ChevronRight, CircleHelp, Clock, Crown, Pencil, X, type LucideIcon,
+  Check, ChevronRight, CircleHelp, Clock, Crown, Pencil, Share, X, type LucideIcon,
 } from 'lucide-react';
 
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError, apiOrigin } from '@/lib/api-client';
-import { shareOrigin } from '@/lib/share';
+import { shareOrigin, shareLink } from '@/lib/share';
 import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { track, AnalyticsEvent } from '@/lib/analytics';
+import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { NightHeroCTA, NightPoster, nightFilmMeta } from './night-ui';
@@ -22,7 +23,7 @@ import {
   CompletedBlock, AttendeeRatingsRail, ShareNightRow, DidntHappenBlock, RescheduledBlock, RescheduledInBar,
 } from './night-past-blocks';
 import {
-  formatNightDate, formatNightDateShort, formatNightTime, formatNightWeekdayFull,
+  formatNightDate, formatNightDateShort, formatNightShareLine, formatNightTime, formatNightWeekdayFull,
 } from '@/lib/movie-night-format';
 import type { MovieNightInviteeView, MovieNightView, RsvpAnswer } from '@/lib/movie-night-types';
 
@@ -479,6 +480,7 @@ export function NightDetailSheet({
   nightId, onClose, onMutated,
 }: { nightId: string | null; onClose: () => void; onMutated?: () => void }) {
   const { user } = useUser();
+  const { toast } = useToast();
   const isOpen = !!nightId;
   const height = useViewportHeight(95);
   const heightStyle = height > 0 ? `${height}px` : 'calc(95 * var(--dvh, 1vh))';
@@ -580,6 +582,21 @@ export function NightDetailSheet({
     }
   }
 
+  // MN10's header share icon — the `/n/[code]` guest link (S5). Silent no-op
+  // without a shareCode (still loading, or a stranger somehow got this far).
+  async function handleShareNight() {
+    if (!night?.shareCode) return;
+    haptic('light');
+    const url = `${shareOrigin()}/n/${night.shareCode}`;
+    const text = formatNightShareLine(night.film.title, night.scheduledFor, night.tzOffsetMinutes);
+    try {
+      const result = await shareLink({ title: 'movie night', text, url });
+      if (result === 'copied') toast({ title: 'link copied.' });
+    } catch {
+      toast({ variant: 'destructive', title: "couldn't share this night." });
+    }
+  }
+
   const railPeople = useMemo(() => (night ? railPeopleFor(night, user?.uid) : []), [night, user?.uid]);
   const peopleCount = night ? night.invitees.length + night.guestRsvps.length : 0;
   const tally = night ? tallyText(night.counts, peopleCount) : null;
@@ -620,7 +637,7 @@ export function NightDetailSheet({
       footer = <RsvpButtons submittingAnswer={submittingAnswer} onPick={handleRsvp} />;
     }
   } else if (night && isCompleted) {
-    footer = <ShareNightRow />;
+    footer = <ShareNightRow onShare={handleShareNight} />;
   } else if (night && isDidntHappen) {
     footer = night.viewer.isHost ? (
       <NightHeroCTA
@@ -656,7 +673,18 @@ export function NightDetailSheet({
             <div className="flex items-center justify-between px-5 py-2.5">
               <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">close</button>
               <span className="font-headline text-[19px] font-bold lowercase tracking-[-0.02em] text-foreground">movie night</span>
-              <span className="w-[52px]" aria-hidden />
+              {night?.shareCode ? (
+                <button
+                  type="button"
+                  onClick={handleShareNight}
+                  aria-label="share this movie night"
+                  className="flex h-11 w-11 flex-shrink-0 items-center justify-center text-muted-foreground active:opacity-60"
+                >
+                  <Share className="h-[18px] w-[18px]" strokeWidth={2} />
+                </button>
+              ) : (
+                <span className="w-11" aria-hidden />
+              )}
             </div>
 
             <div className="flex-1 overflow-y-auto">

@@ -23,7 +23,7 @@ export function deployOrigin(): string {
 }
 
 type OgParams = {
-  t: 'post' | 'profile' | 'list' | 'movie';
+  t: 'post' | 'profile' | 'list' | 'movie' | 'night';
   ti: string; // title
   sub?: string; // subtitle line
   img?: string | null; // poster/avatar url

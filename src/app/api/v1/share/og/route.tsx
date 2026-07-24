@@ -28,6 +28,7 @@ const W = 1200;
 const H = 630;
 
 type Model = {
+  kind: string;
   eyebrow: string;
   title: string;
   subtitle: string;
@@ -44,10 +45,12 @@ function parse(q: URLSearchParams): Model {
     profile: 'on cinechrony',
     list: 'a list',
     movie: 'reviews',
+    night: 'movie night',
   };
   const ratingRaw = q.get('ra');
   const rating = ratingRaw ? Number(ratingRaw) : null;
   return {
+    kind: t,
     eyebrow: q.get('eb') || eyebrowMap[t] || 'cinechrony',
     title: (q.get('ti') || 'cinechrony').slice(0, 80),
     subtitle: (q.get('sub') || '').slice(0, 90),
@@ -108,11 +111,18 @@ export async function GET(req: Request): Promise<Response> {
             <div style={{ display: 'flex', fontFamily: DISPLAY, fontWeight: 800, fontSize: 72, lineHeight: 1.0, letterSpacing: -2.4, color: '#fff', marginTop: 16 }}>
               {m.title.toLowerCase()}
             </div>
+            {m.kind === 'night' ? (
+              <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 700, fontSize: 20, letterSpacing: 3, textTransform: 'uppercase', color: FILM_RED, marginTop: 22 }}>
+                you&apos;re invited
+              </div>
+            ) : null}
             {m.subtitle ? (
-              <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 400, fontSize: 24, color: 'rgba(255,255,255,0.62)', marginTop: 20 }}>{m.subtitle}</div>
+              <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 400, fontSize: 24, color: 'rgba(255,255,255,0.62)', marginTop: m.kind === 'night' ? 12 : 20 }}>{m.subtitle}</div>
             ) : null}
             {m.handle ? (
-              <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 700, fontSize: 22, color: 'rgba(255,255,255,0.45)', marginTop: 22 }}>{`@${m.handle}`}</div>
+              <div style={{ display: 'flex', fontFamily: MONO, fontWeight: 700, fontSize: 22, color: 'rgba(255,255,255,0.45)', marginTop: 22 }}>
+                {m.kind === 'night' ? `hosted by @${m.handle}` : `@${m.handle}`}
+              </div>
             ) : null}
           </div>
 

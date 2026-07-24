@@ -71,6 +71,14 @@ export function formatNightDateShort(iso: string, tzOffsetMinutes: number): stri
   return `${pad2(local.getUTCDate())}.${pad2(local.getUTCMonth() + 1)}.${yy}`;
 }
 
+/** 'movie night: interstellar, fri 24.07 at 8:00 pm' — the one share text
+ *  both share affordances use (S5): the MN10 detail-sheet header icon and the
+ *  MN26 "share the night" row (`src/lib/share.ts` `shareLink`). Kept here so
+ *  the two surfaces can't drift on the date/time format. */
+export function formatNightShareLine(filmTitle: string, iso: string, tzOffsetMinutes: number): string {
+  return `movie night: ${filmTitle}, ${formatNightDate(iso, tzOffsetMinutes)} at ${formatNightTime(iso, tzOffsetMinutes)}`;
+}
+
 export type NightPhase = 'upcoming' | 'today' | 'soon' | 'now' | 'past';
 
 /**
