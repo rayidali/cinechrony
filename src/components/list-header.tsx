@@ -6,6 +6,7 @@ import { Plus, Settings2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useStoryShare } from '@/components/story-share-provider';
+import { PlanMovieNightRow } from '@/components/movie-night/plan-night-row';
 import { haptic } from '@/lib/haptics';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
@@ -218,6 +219,21 @@ export function ListHeader({
           </Link>
         )}
       </div>
+
+      {/* MN02 — plan a movie night (film-first). Editable-list-only; S4 swaps
+          this for the MN29 one-liner once a night already exists. */}
+      {(isOwner || isCollaborator) && (
+        <div className="mt-4">
+          <PlanMovieNightRow
+            list={{
+              id: listId,
+              ownerId: listOwnerId,
+              name: listData?.name || 'this list',
+              memberUids: sortedMembers.map((m) => m.uid),
+            }}
+          />
+        </div>
+      )}
 
       {/* Like — read-only-ish for members; a stale like stays removable. */}
       {listData?.isPublic && (

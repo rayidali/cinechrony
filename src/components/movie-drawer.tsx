@@ -6,7 +6,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from '@/lib/native-nav';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
-  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award,
+  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award, CalendarPlus,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
@@ -38,6 +38,8 @@ import {
   type MediaDetails, getCachedDetails, getMovieOrTVDetails,
 } from '@/lib/tmdb-details-cache';
 import { rememberMovieForReturn } from '@/contexts/movie-modal-context';
+import { useMovieNight } from '@/components/movie-night/movie-night-provider';
+import type { MovieNightFilm } from '@/lib/movie-night-types';
 
 // next/image throws on an empty `src` — a list movie can have a blank poster.
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
@@ -101,6 +103,21 @@ function movieToSearchResult(movie: Movie): SearchResult {
   };
 }
 
+// MN01 — the drawer's film maps straight onto a movie-night film. `runtime`
+// rides `mediaDetails` (raw minutes) when it's loaded; freshly-picked films
+// (via the film picker, elsewhere) don't carry it and that's fine — it's
+// optional on `MovieNightFilm`.
+function movieToNightFilm(movie: Movie, tmdbId: number, runtimeMinutes: number | null): MovieNightFilm {
+  return {
+    tmdbId,
+    mediaType: movie.mediaType === 'tv' ? 'tv' : 'movie',
+    title: movie.title,
+    year: movie.year || '',
+    posterUrl: movie.posterUrl || null,
+    runtime: runtimeMinutes,
+  };
+}
+
 /**
  * The unified v3 movie drawer (Phase 0.7 Wave 2 — F01 standalone + F02 in-list).
  *
@@ -128,6 +145,7 @@ export function MovieDrawer({
   const { toast } = useToast();
   const { getMembers } = useListMembersCache();
   const { getRating, setRating } = useUserRatingsCache();
+  const { openCreate } = useMovieNight();
 
   const inList = context.kind === 'in-list';
   const canEdit = context.kind === 'in-list' && context.canEdit;
@@ -352,9 +370,11 @@ export function MovieDrawer({
       : [];
 
   let runtimeLabel: string | null = null;
+  let runtimeMinutes: number | null = null;
   if (mediaDetails) {
     if ('runtime' in mediaDetails && mediaDetails.runtime) {
       runtimeLabel = `${Math.floor(mediaDetails.runtime / 60)}h ${mediaDetails.runtime % 60}m`;
+      runtimeMinutes = mediaDetails.runtime;
     } else if ('number_of_seasons' in mediaDetails) {
       runtimeLabel = `${mediaDetails.number_of_seasons} season${mediaDetails.number_of_seasons !== 1 ? 's' : ''}`;
     }
@@ -694,6 +714,35 @@ export function MovieDrawer({
                     />
                   )}
                 </div>
+
+                {/* ── MN01 — plan a movie night ── */}
+                {tmdbId > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      haptic('light');
+                      openCreate({
+                        film: movieToNightFilm(movie, tmdbId, runtimeMinutes),
+                        list: inList && listId && listOwnerId
+                          ? { id: listId, ownerId: listOwnerId, name: listName || 'this list', memberUids: cachedMembers?.map((m) => m.uid) }
+                          : undefined,
+                      });
+                    }}
+                    className="mt-3 flex w-full items-center gap-3.5 rounded-2xl border border-hair bg-card px-4 py-3.5 text-left shadow-lift transition-transform active:scale-[0.98]"
+                  >
+                    <span className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-xl bg-primary">
+                      <CalendarPlus className="h-5 w-5 text-primary-foreground" strokeWidth={2.2} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="font-headline text-[16px] font-bold lowercase tracking-[-0.02em] text-foreground">plan a movie night</span>
+                        <span className="rounded-full border border-primary px-1.5 py-[1px] font-mono text-[8px] font-bold uppercase tracking-[0.1em] text-primary">new</span>
+                      </span>
+                      <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">a date, a time, your people</span>
+                    </span>
+                    <ChevronRight className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" strokeWidth={2} />
+                  </button>
+                )}
 
                 {/* ── your rating ── (clear sits in the header, top-right) */}
                 <Block
