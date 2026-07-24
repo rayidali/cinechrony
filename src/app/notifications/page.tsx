@@ -2,16 +2,41 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from '@/lib/native-nav';
-import { ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users, Loader2 } from 'lucide-react';
+import {
+  ArrowLeft, Bell, MessageSquare, AtSign, Check, UserPlus, Heart, Users, Loader2,
+  CalendarPlus, CalendarX, Clock, Popcorn, Sunrise, CircleHelp, X,
+} from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { invalidateCachedAction, setCachedAction, readCachedAction } from '@/lib/use-cached-action';
+import { haptic } from '@/lib/haptics';
 import { formatDistanceToNow } from 'date-fns';
 import type { Notification, NotificationType } from '@/lib/types';
+import type { RsvpAnswer } from '@/lib/movie-night-types';
+import { useMovieNight } from '@/components/movie-night/movie-night-provider';
 import { PushNotificationPrompt } from '@/components/push-notification-prompt';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { useToast } from '@/hooks/use-toast';
+
+const MOVIE_NIGHT_TYPES = new Set<NotificationType>([
+  'movie_night_invite', 'movie_night_rsvp', 'movie_night_reminder',
+  'movie_night_time_changed', 'movie_night_cancelled', 'movie_night_morning_after',
+]);
+function isMovieNightType(type: NotificationType): boolean {
+  return MOVIE_NIGHT_TYPES.has(type);
+}
+
+/** `movie_night_rsvp`'s previewText already encodes the answer in one of
+ *  three fixed verb phrases (`notifications-server.ts`'s `verb` — "is in
+ *  for" / "might make it to" / "can't make it to") — parsed here rather than
+ *  stored as a separate field on the notification doc. */
+function nightRsvpAnswerFromPreview(previewText: string | undefined): RsvpAnswer {
+  if (!previewText) return 'in';
+  if (previewText.includes("can't make it")) return 'out';
+  if (previewText.includes('might make it')) return 'maybe';
+  return 'in';
+}
 
 type NotifPage = { notifications: Notification[]; hasMore: boolean; nextCursor?: string };
 
@@ -36,9 +61,26 @@ function typeGlyph(type: NotificationType) {
       return <Users className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
     case 'invite_accepted':
       return <Users className="h-[18px] w-[18px] text-success" strokeWidth={2} aria-hidden />;
+    case 'movie_night_invite':
+      return <CalendarPlus className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
+    case 'movie_night_time_changed':
+      return <Clock className="h-[18px] w-[18px] text-warning" strokeWidth={2} aria-hidden />;
+    case 'movie_night_cancelled':
+      return <CalendarX className="h-[18px] w-[18px] text-muted-foreground" strokeWidth={2} aria-hidden />;
+    case 'movie_night_morning_after':
+      return <Sunrise className="h-[18px] w-[18px] text-primary" strokeWidth={2} aria-hidden />;
     default:
       return null;
   }
+}
+
+/** `movie_night_rsvp` — sage check / amber circle-help / marker x, derived
+ *  from the answer parsed out of `previewText` (see above). */
+function nightRsvpGlyph(previewText: string | undefined) {
+  const answer = nightRsvpAnswerFromPreview(previewText);
+  if (answer === 'out') return <X className="h-[18px] w-[18px] text-destructive" strokeWidth={2.4} aria-hidden />;
+  if (answer === 'maybe') return <CircleHelp className="h-[18px] w-[18px] text-warning" strokeWidth={2} aria-hidden />;
+  return <Check className="h-[18px] w-[18px] text-success" strokeWidth={2.4} aria-hidden />;
 }
 
 /** The notification's destination, or null if it can't be opened. */
@@ -91,6 +133,7 @@ export default function NotificationsPage() {
   const router = useRouter();
   const { user, isUserLoading } = useUser();
   const { toast } = useToast();
+  const { openNight, refreshUpcoming } = useMovieNight();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
@@ -98,6 +141,12 @@ export default function NotificationsPage() {
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [processingInvites, setProcessingInvites] = useState<Record<string, 'accepting' | 'declining'>>({});
+  // MN16 — inline "i'm in" / "can't" quick actions on a movie_night_invite
+  // row. Busy = mid-request; done = settled (the row swaps its buttons for a
+  // mono confirmation, mirroring the invite accept/decline pattern above but
+  // without removing the row — the notification itself still stands).
+  const [nightRsvpBusy, setNightRsvpBusy] = useState<Record<string, boolean>>({});
+  const [nightRsvpDone, setNightRsvpDone] = useState<Record<string, RsvpAnswer>>({});
 
   // Initial load / retry — a stable callback so the error "try again" button
   // re-runs the fetch instead of hard-reloading the WebView.
@@ -235,9 +284,35 @@ export default function NotificationsPage() {
     }
   };
 
+  const handleNightRsvp = async (n: Notification, answer: RsvpAnswer) => {
+    if (!n.nightId || nightRsvpBusy[n.id]) return;
+    haptic('light');
+    setNightRsvpBusy((p) => ({ ...p, [n.id]: true }));
+    try {
+      await apiCall('POST', `/api/v1/movie-nights/${n.nightId}/rsvp`, { answer });
+      haptic('success');
+      setNightRsvpDone((p) => ({ ...p, [n.id]: answer }));
+      refreshUpcoming();
+      if (!n.read) markOneRead(n.id);
+    } catch (err) {
+      haptic('error');
+      toast({
+        variant: 'destructive',
+        title: 'error',
+        description: err instanceof ApiClientError ? err.message : 'could not save your answer.',
+      });
+    } finally {
+      setNightRsvpBusy((p) => { const u = { ...p }; delete u[n.id]; return u; });
+    }
+  };
+
   const handleOpen = (n: Notification) => {
-    const target = notifTarget(n);
     if (!n.read) markOneRead(n.id);
+    if (isMovieNightType(n.type) && n.nightId) {
+      openNight(n.nightId);
+      return;
+    }
+    const target = notifTarget(n);
     if (target) router.push(target);
     else toast({ description: "this notification can't be opened." });
   };
@@ -253,6 +328,20 @@ export default function NotificationsPage() {
   const unreadCount = notifications.filter((n) => !n.read).length;
 
   const body = (n: Notification) => {
+    // movie_night_* previewText is already a complete, self-contained
+    // sentence (built server-side from `fromName(ctx)` — "@sam planned a
+    // movie night: …") — render it plainly instead of the bold-name-prefix
+    // pattern the other types use below (which would just repeat the name).
+    // The reminder is the one system-authored exception (no `who`): bold its
+    // leading "tonight:" / "fri 24.07:" clause, matching MN16's `<b>` treatment.
+    if (n.type === 'movie_night_reminder' && n.previewText) {
+      const colonAt = n.previewText.indexOf(':');
+      if (colonAt > 0) {
+        return <><span className="font-semibold">{n.previewText.slice(0, colonAt + 1)}</span>{n.previewText.slice(colonAt + 1)}</>;
+      }
+    }
+    if (isMovieNightType(n.type)) return <>{n.previewText}</>;
+
     const who = n.fromDisplayName || n.fromUsername || 'Someone';
     return (
       <>
@@ -331,6 +420,10 @@ export default function NotificationsPage() {
             <div className="divide-y divide-hair">
               {notifications.map((n) => {
                 const processing = processingInvites[n.id];
+                const isReminder = n.type === 'movie_night_reminder';
+                const isNight = isMovieNightType(n.type);
+                const nightBusy = nightRsvpBusy[n.id];
+                const nightDone = nightRsvpDone[n.id];
                 return (
                   <div
                     key={n.id}
@@ -341,19 +434,28 @@ export default function NotificationsPage() {
                       onClick={() => handleOpen(n)}
                       className="flex w-full items-start gap-3 rounded-[14px] px-2.5 py-3.5 text-left outline-none transition-colors hover:bg-foreground/[0.03] focus-visible:ring-2 focus-visible:ring-primary/60 active:bg-foreground/[0.05]"
                     >
-                      <ProfileAvatar
-                        photoURL={n.fromPhotoUrl}
-                        displayName={n.fromDisplayName}
-                        username={n.fromUsername}
-                        size="md"
-                        className="flex-shrink-0"
-                      />
+                      {/* movie_night_reminder is system-authored (the S2 ticker,
+                          not a person) — a film-red popcorn tile stands in for
+                          the usual from-user avatar. */}
+                      {isReminder ? (
+                        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-[12px] bg-primary">
+                          <Popcorn className="h-5 w-5 text-primary-foreground" strokeWidth={2} />
+                        </span>
+                      ) : (
+                        <ProfileAvatar
+                          photoURL={n.fromPhotoUrl}
+                          displayName={n.fromDisplayName}
+                          username={n.fromUsername}
+                          size="md"
+                          className="flex-shrink-0"
+                        />
+                      )}
                       <div className="min-w-0 flex-1">
                         <p className="font-ui text-[15px] leading-snug text-foreground">
                           {!n.read && <span className="sr-only">Unread. </span>}
                           {body(n)}
                         </p>
-                        {n.previewText && (
+                        {n.previewText && !isNight && (
                           <p className="mt-0.5 line-clamp-2 font-body text-[14px] italic text-muted-foreground">
                             &ldquo;{n.previewText}&rdquo;
                           </p>
@@ -363,7 +465,7 @@ export default function NotificationsPage() {
                         </p>
                       </div>
                       <span className="mt-0.5 flex flex-shrink-0 items-center gap-2">
-                        {typeGlyph(n.type)}
+                        {n.type === 'movie_night_rsvp' ? nightRsvpGlyph(n.previewText) : typeGlyph(n.type)}
                         {!n.read && <span className="h-2 w-2 rounded-full bg-primary" aria-hidden />}
                       </span>
                     </button>
@@ -386,6 +488,35 @@ export default function NotificationsPage() {
                           {processing === 'accepting' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'accept'}
                         </button>
                       </div>
+                    )}
+
+                    {/* MN16 — inline movie-night rsvp quick actions, settling
+                        to a mono confirmation once answered. */}
+                    {n.type === 'movie_night_invite' && n.nightId && (
+                      nightDone ? (
+                        <div className="pb-3.5 pl-[60px] pr-2.5">
+                          <span className="font-mono text-[11px] text-muted-foreground">
+                            {nightDone === 'in' ? "you're in" : "you're out"}
+                          </span>
+                        </div>
+                      ) : (
+                        <div className="flex gap-2 pb-3.5 pl-[60px] pr-2.5">
+                          <button
+                            onClick={() => handleNightRsvp(n, 'out')}
+                            disabled={!!nightBusy}
+                            className="inline-flex min-h-[40px] items-center justify-center rounded-full border border-hair bg-background px-4 font-ui text-[13px] font-semibold transition-colors hover:bg-secondary disabled:opacity-50"
+                          >
+                            can&apos;t
+                          </button>
+                          <button
+                            onClick={() => handleNightRsvp(n, 'in')}
+                            disabled={!!nightBusy}
+                            className="inline-flex min-h-[40px] items-center justify-center rounded-full bg-primary px-4 font-ui text-[13px] font-semibold text-primary-foreground transition-transform active:scale-95 disabled:opacity-50"
+                          >
+                            {nightBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : "i'm in"}
+                          </button>
+                        </div>
+                      )
                     )}
                   </div>
                 );

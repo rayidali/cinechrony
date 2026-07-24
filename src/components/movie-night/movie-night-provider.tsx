@@ -3,6 +3,7 @@
 import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from '@/lib/native-nav';
 import { CreateNightSheet } from './create-night-sheet';
+import { NightDetailSheet } from './night-detail-sheet';
 import type { MovieNightFilm } from '@/lib/movie-night-types';
 
 /**
@@ -12,11 +13,10 @@ import type { MovieNightFilm } from '@/lib/movie-night-types';
  * pattern — any screen calls `useMovieNight()` instead of importing the
  * sheet directly).
  *
- * `openCreate` mounts the MN03 create flow (this slice). `openNight` is a
- * STUB for S3b: it records which night id wants opening (so "see the night"
- * and the `/home?night=<id>` push deep link both have somewhere to land) but
- * renders nothing yet — S3b replaces the TODO below with the MN10 detail
- * sheet, keyed on `openNightId`.
+ * `openCreate` mounts the MN03 create flow. `openNight` (implemented in S3b)
+ * mounts the MN10 detail sheet keyed on the given id — the `/home?night=<id>`
+ * deep link, every "see the night" tap, and every compact `MovieNightCard`
+ * all funnel through it.
  */
 
 export type MovieNightListContext = {
@@ -38,8 +38,16 @@ type MovieNightContextValue = {
   /** Open the MN03 create sheet. Omit `film` for the film-first path (MN02) —
    *  the sheet opens with the film slot empty and prompts the picker. */
   openCreate: (args?: OpenCreateArgs) => void;
-  /** Open a night's detail. STUB in this slice (S3b implements the sheet). */
+  /** Open a night's detail (MN10). */
   openNight: (id: string) => void;
+  /** Bumps every time a night mutates (create/RSVP/reschedule/cancel) —
+   *  feed/pin surfaces (`movie-night-feed-card.tsx`, `movie-night-pin.tsx`)
+   *  fold this into their `useCachedAction` key so they revalidate instead of
+   *  waiting out their own cache TTL. Read-only; call `refreshUpcoming()` to
+   *  bump it (any consumer that just performed its OWN mutation may call it —
+   *  the detail/create sheets already do this internally). */
+  refreshToken: number;
+  refreshUpcoming: () => void;
 };
 
 const MovieNightContext = createContext<MovieNightContextValue | null>(null);
@@ -69,10 +77,8 @@ function NightParamWatcher({ onNightParam }: { onNightParam: (id: string) => voi
 
 export function MovieNightProvider({ children }: { children: ReactNode }) {
   const [createArgs, setCreateArgs] = useState<OpenCreateArgs | null>(null);
-  // TODO(S3b): render <NightDetailSheet nightId={openNightId} .../> here once
-  // it exists; for now this just remembers which night wants opening (the
-  // "see the night" tap + the /home?night=<id> push deep link both call in).
   const [openNightId, setOpenNightId] = useState<string | null>(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   const openCreate = useCallback((args: OpenCreateArgs = {}) => {
     setCreateArgs(args);
@@ -82,7 +88,14 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
     setOpenNightId(id);
   }, []);
 
-  const value = useMemo(() => ({ openCreate, openNight }), [openCreate, openNight]);
+  const refreshUpcoming = useCallback(() => {
+    setRefreshToken((n) => n + 1);
+  }, []);
+
+  const value = useMemo(
+    () => ({ openCreate, openNight, refreshToken, refreshUpcoming }),
+    [openCreate, openNight, refreshToken, refreshUpcoming],
+  );
 
   return (
     <MovieNightContext.Provider value={value}>
@@ -90,8 +103,17 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
         <NightParamWatcher onNightParam={openNight} />
       </Suspense>
       {children}
-      <CreateNightSheet args={createArgs} onClose={() => setCreateArgs(null)} onOpenNight={openNight} />
-      {/* TODO(S3b): night detail sheet, keyed on openNightId */}
+      <CreateNightSheet
+        args={createArgs}
+        onClose={() => setCreateArgs(null)}
+        onOpenNight={openNight}
+        onNightMutated={refreshUpcoming}
+      />
+      <NightDetailSheet
+        nightId={openNightId}
+        onClose={() => setOpenNightId(null)}
+        onMutated={refreshUpcoming}
+      />
     </MovieNightContext.Provider>
   );
 }

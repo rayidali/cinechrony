@@ -6,7 +6,7 @@ import { Drawer } from 'vaul';
 import { addDays, format, isSameDay, isToday, startOfDay } from 'date-fns';
 import {
   Bell, Calendar, Check, ChevronDown, ClockAlert, Keyboard, Loader2, PartyPopper,
-  Plus, Send, Sunrise, UserRound, X, Play, Clock,
+  Plus, Send, Sunrise, UserRound, X, Play, Clock, type LucideIcon,
 } from 'lucide-react';
 
 import { useUser } from '@/firebase';
@@ -88,15 +88,21 @@ function CtaFooter({
   submitting,
   error,
   onPropose,
+  ctaLabel = 'propose it',
+  ctaIcon: CtaIcon = PartyPopper,
 }: {
   cta: { disabled: boolean; sub: string };
   submitting: boolean;
   error: string | null;
   onPropose: () => void;
+  /** Overridden by the S3b reschedule reuse ("reschedule it" / CalendarCheck)
+   *  — defaults match the create flow exactly. */
+  ctaLabel?: string;
+  ctaIcon?: LucideIcon;
 }) {
   return (
     <div className="flex-shrink-0 border-t border-hair px-5 pt-2.5" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-      <NightHeroCTA label="propose it" icon={PartyPopper} disabled={cta.disabled} loading={submitting} sub={cta.sub} onTap={onPropose} />
+      <NightHeroCTA label={ctaLabel} icon={CtaIcon} disabled={cta.disabled} loading={submitting} sub={cta.sub} onTap={onPropose} />
       {error && <p className="mt-2 text-center font-mono text-[10px] text-destructive">{error}</p>}
     </div>
   );
@@ -143,10 +149,11 @@ function WhenRow({
 
 // ── MN03a — date & time expanded ────────────────────────────────────────────
 
-function DateTimeSheet({
+export function DateTimeSheet({
   isOpen, film, selectedDate, selectedTime, isPast, cta, submitting, error,
   today, fridayTarget, weekDays,
   onPickDate, onPickTime, onOpenFilmPicker, onOpenTimeEntry, onClose, onPropose,
+  hideFilmRow, ctaLabel, ctaIcon,
 }: {
   isOpen: boolean;
   film: MovieNightFilm | null;
@@ -165,6 +172,12 @@ function DateTimeSheet({
   onOpenTimeEntry: () => void;
   onClose: () => void;
   onPropose: () => void;
+  /** S3b's reschedule reuse: the film is fixed (reschedule only touches the
+   *  date/time), so the "change" row is hidden entirely rather than wired to
+   *  a no-op film picker. */
+  hideFilmRow?: boolean;
+  ctaLabel?: string;
+  ctaIcon?: LucideIcon;
 }) {
   const height = useViewportHeight(92);
   const heightStyle = height > 0 ? `${height}px` : 'calc(92 * var(--dvh, 1vh))';
@@ -192,7 +205,7 @@ function DateTimeSheet({
           </div>
 
           <div className="flex-1 overflow-y-auto px-5">
-            {film && (
+            {film && !hideFilmRow && (
               <button type="button" onClick={() => { haptic('light'); onOpenFilmPicker(); }} className="flex w-full items-center gap-3 pb-1 pt-0.5 text-left">
                 <div className="w-[38px] flex-shrink-0"><NightPoster film={film} rounded="rounded-[7px]" /></div>
                 <div className="min-w-0 flex-1">
@@ -312,7 +325,7 @@ function DateTimeSheet({
             <div className="h-6" />
           </div>
 
-          <CtaFooter cta={cta} submitting={submitting} error={error} onPropose={onPropose} />
+          <CtaFooter cta={cta} submitting={submitting} error={error} onPropose={onPropose} ctaLabel={ctaLabel} ctaIcon={ctaIcon} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
@@ -578,8 +591,9 @@ function ReminderSheet({
 
 // ── MN09 — custom time entry (real keyboard, kb-inset pattern) ─────────────
 
-function TimeEntrySheet({
+export function TimeEntrySheet({
   isOpen, film, baseDate, initial, submitting, error, onDone, onClose, onSubmit,
+  ctaLabel, ctaIcon, ctaSubOverride,
 }: {
   isOpen: boolean;
   film: MovieNightFilm | null;
@@ -590,6 +604,10 @@ function TimeEntrySheet({
   onDone: (t: TimeOfDay) => void;
   onClose: () => void;
   onSubmit: (when: Date) => void;
+  ctaLabel?: string;
+  ctaIcon?: LucideIcon;
+  /** S3b's reschedule reuse — swaps `describeNightCta`'s mode. */
+  ctaSubOverride?: 'reschedule';
 }) {
   const [hourStr, setHourStr] = useState('');
   const [minuteStr, setMinuteStr] = useState('');
@@ -639,7 +657,7 @@ function TimeEntrySheet({
   const valid = hourStr !== '' && hourNum >= 1 && hourNum <= 12 && minuteStr.length > 0;
   const time: TimeOfDay | null = valid ? { hour: (hourNum % 12) + (ampm === 'pm' ? 12 : 0), minute: minuteNum } : null;
   const when = time ? combineDateAndTime(baseDate, time) : null;
-  const cta = describeNightCta(film, when);
+  const cta = describeNightCta(film, when, ctaSubOverride);
 
   return createPortal(
     <div className="fixed inset-0 z-[94] flex flex-col bg-background" role="dialog" aria-label="set a time">
@@ -702,11 +720,11 @@ function TimeEntrySheet({
 
       <div className="flex-shrink-0 border-t border-hair px-5 pt-2.5" style={{ paddingBottom: Math.max(16, kbInset + 16) }}>
         <NightHeroCTA
-          label="propose it"
-          icon={PartyPopper}
+          label={ctaLabel ?? 'propose it'}
+          icon={ctaIcon ?? PartyPopper}
           disabled={cta.disabled}
           loading={submitting}
-          sub={valid ? cta.sub : 'finish typing a time to propose it'}
+          sub={valid ? cta.sub : `finish typing a time to ${ctaLabel ?? 'propose it'}`}
           onTap={() => {
             if (!time || !when) return;
             haptic('light');
@@ -785,10 +803,15 @@ export function CreateNightSheet({
   args,
   onClose,
   onOpenNight,
+  onNightMutated,
 }: {
   args: OpenCreateArgs | null;
   onClose: () => void;
   onOpenNight: (id: string) => void;
+  /** S3b — bumps the provider's `refreshToken` after a successful create, so
+   *  the list pin (MN14) and home feed card (MN15) pick up the new night
+   *  without waiting out their own cache TTL. */
+  onNightMutated?: () => void;
 }) {
   const isOpen = args !== null;
   const { user } = useUser();
@@ -926,6 +949,7 @@ export function CreateNightSheet({
       const night = await apiCall<MovieNightView>('POST', '/api/v1/movie-nights', body);
       haptic('success');
       setCreatedNight(night);
+      onNightMutated?.();
       setShowDateTime(false);
       setShowTimeEntry(false);
       setShowPeople(false);

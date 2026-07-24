@@ -102,13 +102,22 @@ export function formatTimeOfDay(t: { hour: number; minute: number }): string {
 
 /** The shared propose-it CTA state — same rule everywhere it's tappable
  *  (main sheet, date/time sheet, custom-time entry): no film → pick a film;
- *  no time → add a time; already past → rejected; else the calm default sub. */
+ *  no time → add a time; already past → rejected; else the calm default sub.
+ *  `mode: 'reschedule'` (S3b's host "edit time & details" flow, reusing this
+ *  same date/time sheet) swaps the copy to match — everything else about the
+ *  rule is identical. */
 export function describeNightCta(
   film: MovieNightFilm | null,
   when: Date | null,
+  mode: 'create' | 'reschedule' = 'create',
 ): { disabled: boolean; sub: string } {
-  if (!film) return { disabled: true, sub: 'pick a film to propose it' };
-  if (!when) return { disabled: true, sub: 'add a time to propose it' };
+  if (!film) return { disabled: true, sub: mode === 'reschedule' ? 'pick a film to reschedule it' : 'pick a film to propose it' };
+  if (!when) return { disabled: true, sub: mode === 'reschedule' ? 'add a time to reschedule it' : 'add a time to propose it' };
   if (when.getTime() <= Date.now()) return { disabled: true, sub: "pick a night that hasn't happened yet" };
-  return { disabled: false, sub: "your people get a ping. you'll get a reminder before showtime." };
+  return {
+    disabled: false,
+    sub: mode === 'reschedule'
+      ? 'everyone gets the new time.'
+      : "your people get a ping. you'll get a reminder before showtime.",
+  };
 }
