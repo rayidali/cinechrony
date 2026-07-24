@@ -18,7 +18,7 @@
 | Age rating questionnaire | filled honestly (UGC + social + movie artwork at infrequent/mild) → **12+** (Brazil 14, Korea 12) |
 | Pricing | free — appPriceSchedule created, base USA |
 | Availability | all 175 territories + `availableInNewTerritories: true` |
-| App Review details | contact Rayid / rayid@cinechrony.com / phone; demo account `demo@cinechrony.com` (`PopcornDemo2026!` — also in ASC); UGC-moderation note for guideline 1.2 |
+| App Review details | contact Rayid / rayid@cinechrony.com / phone; demo account `demo@cinechrony.com` (password lives in ASC review details + `.env.local` `DEMO_ACCOUNT_PASSWORD` — NEVER in committed files); UGC-moderation note for guideline 1.2 |
 | Content rights | `USES_THIRD_PARTY_CONTENT` (TMDB) |
 | Screenshots | 5 × 1320x2868 uploaded to the **APP_IPHONE_67** set, all COMPLETE. Order: scan-result · list detail · movie drawer · profile · lists |
 

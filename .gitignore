@@ -61,3 +61,14 @@ android/app/google-services.json
 
 # keep the env template tracked (no secrets in it)
 !.env.example
+
+# session scratch scripts (repo tmp convention) — these routinely hold
+# credentials (demo account password, admin probes) and must NEVER be
+# committed. the 2026-07-24 GitGuardian incident was a `git add -A`
+# sweeping these in; always stage explicit paths.
+scripts/*.tmp.ts
+scripts/*.tmp.mjs
+scripts/GoogleService-Info.fresh.plist
+
+# local editor workspace
+*.code-workspace
