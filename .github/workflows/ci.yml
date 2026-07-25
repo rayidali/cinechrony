@@ -56,3 +56,14 @@ jobs:
           # The build must succeed without real secrets; routes read env at call
           # time and degrade gracefully when unset.
           NEXT_TELEMETRY_DISABLED: '1'
+          # Public Firebase CLIENT identifiers (not secrets — the same values
+          # ship in every browser bundle). Prerendering static pages initializes
+          # the client SDK, which throws without a projectId; dummies satisfy it
+          # and nothing connects during a build. Main CI had been red since at
+          # least 07-11 because these were missing (2026-07-25 fix).
+          NEXT_PUBLIC_FIREBASE_API_KEY: ci-dummy
+          NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ci-dummy.firebaseapp.com
+          NEXT_PUBLIC_FIREBASE_PROJECT_ID: ci-dummy
+          NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ci-dummy.appspot.com
+          NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: '000000000000'
+          NEXT_PUBLIC_FIREBASE_APP_ID: '1:000000000000:web:ci'
