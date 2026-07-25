@@ -47,11 +47,17 @@ const clickText = async (re, { inDrawer = false } = {}) => {
     const nodes = [...document.querySelectorAll(`${scope}button, ${scope}[role="button"], ${scope}a, ${scope}div, ${scope}span, ${scope}p`)]
       .filter((n) => rx.test((n.textContent || '').trim()) && (n.textContent || '').trim().length < 60)
       .filter((n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < innerHeight; });
-    const t = nodes[nodes.length - 1];
-    if (!t) return null;
-    const el = t.closest('button, [role="button"], a') || t;
-    const r = el.getBoundingClientRect();
-    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+    // walk candidates from last to first, but ONLY accept one whose center
+    // would truly receive the tap (elementFromPoint hit-test) — occluded or
+    // offscreen-peeking matches (e.g. a closed drawer's header) are skipped.
+    for (let i = nodes.length - 1; i >= 0; i--) {
+      const el = nodes[i].closest('button, [role="button"], a') || nodes[i];
+      const r = el.getBoundingClientRect();
+      const x = r.x + r.width / 2; const y = r.y + r.height / 2;
+      const hit = document.elementFromPoint(x, y);
+      if (hit && (el.contains(hit) || hit.contains(el))) return { x, y };
+    }
+    return null;
   }, { src: re.source, inDrawer });
   if (!pt) return false;
   await page.mouse.click(pt.x, pt.y);
@@ -163,19 +169,36 @@ try {
 
   // THE regression: 'see the night' must work on the FIRST click
   await snap('confirm-overlay');
+  const nightGets = [];
+  page.on('response', async (r) => {
+    if (/\/api\/v1\/movie-nights\/[A-Za-z0-9]+$/.test(r.url()) && r.request().method() === 'GET') {
+      try { const j = await r.json(); nightGets.push({ id: r.url().split('/').pop(), status: j.data?.status, isHost: j.data?.viewer?.isHost }); } catch {}
+    }
+  });
   await clickText(/see the night/);
-  await sleep(2500);
+  const detailVisible = await page.waitForFunction(
+    () => /who.s in|add to calendar/i.test(document.body.innerText),
+    { timeout: 12000 },
+  ).then(() => true).catch(() => false);
   const overlayGone = !(await hasText(/your night.s\s+proposed/));
-  const detailVisible = await hasText(/who.s in|add to calendar/);
   step('single-click see-the-night: overlay gone', overlayGone);
   step('single-click see-the-night: detail visible', detailVisible);
+  const domReport = await page.evaluate(() => ({
+    hasEditBtn: document.body.innerText.includes('edit time & details'),
+    hasCalendar: document.body.innerText.includes('add to calendar'),
+    hasCancelledBox: document.body.innerText.includes('was cancelled'),
+    drawerCount: document.querySelectorAll('[data-vaul-drawer]').length,
+  }));
+  console.log('  night GETs:', JSON.stringify(nightGets), 'dom:', JSON.stringify(domReport));
   await bodyClean('see-the-night');
 
   // host cancel — first click opens confirm, first click on confirm acts
   await snap('detail-before-cancel');
   await clickText(/^cancel$/);
-  await sleep(1200);
-  const cancelModal = await hasText(/cancel movie night\?/);
+  const cancelModal = await page.waitForFunction(
+    () => /cancel movie night\?/i.test(document.body.innerText),
+    { timeout: 8000 },
+  ).then(() => true).catch(() => false);
   step('single-click cancel: confirm modal shown', cancelModal);
   await snap('cancel-modal');
   await clickText(/cancel the night/);
@@ -192,6 +215,37 @@ try {
     hasEmptyLiner: /no movie night yet/i.test(document.body.innerText),
   }));
   step('pin and empty-liner mutually exclusive', !(pinState.hasPin && pinState.hasEmptyLiner), JSON.stringify(pinState));
+
+  // SCENARIO B — owner-reported: entering from a MOVIE CARD must carry that
+  // film into the create sheet (no film picker, no 'pick a film' state).
+  const cellPt = await page.evaluate(() => {
+    const imgs = [...document.querySelectorAll('main img, img')].filter((i) => {
+      const r = i.getBoundingClientRect();
+      return /tmdb/.test(i.src) && r.top > 250 && r.width > 60;
+    });
+    if (!imgs.length) return null;
+    const r = imgs[imgs.length - 1].getBoundingClientRect(); // last poster = the grid, never the pin card
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  step('movie card found', !!cellPt);
+  if (cellPt) {
+    await page.mouse.click(cellPt.x, cellPt.y);
+    await sleep(3000); // drawer opens + details load
+    const rowTapped = await clickText(/plan a movie night/, { inDrawer: true });
+    step('drawer plan row tapped', rowTapped);
+    await sleep(1800);
+    await snap('drawer-entry-create-sheet');
+    const createVisible = await hasText(/date night/);
+    const pickerLeaked = await page.evaluate(() => {
+      const t = document.body.innerText;
+      const searchInput = [...document.querySelectorAll('[data-vaul-drawer] input')].some((i) => /search/i.test(i.placeholder || ''));
+      return /pick a film to propose it/i.test(t) || searchInput;
+    });
+    step('film carried from movie card (no picker)', createVisible && !pickerLeaked);
+    await clickText(/^cancel$/, { inDrawer: true }); // tidy up
+    await sleep(1000);
+    await bodyClean('drawer-entry cleanup');
+  }
 } catch (e) {
   step('harness crashed', false, e.message);
 } finally {
