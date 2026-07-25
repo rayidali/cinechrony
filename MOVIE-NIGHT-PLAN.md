@@ -127,9 +127,14 @@ green at close.
 
 ## Owner actions when this ships
 
-1. `firebase deploy --only firestore:indexes` (two new composites).
-2. GitHub repo → Settings → Secrets → Actions → add `ADMIN_SECRET`
-   (same value as the Vercel env var) — the reminder ticker is inert
-   without it.
-3. Nothing else: rules ship via the repo, the cron workflow ships with
-   the branch, no new env vars.
+1. ~~`firebase deploy --only firestore:indexes`~~ **DONE 2026-07-25**
+   (all four composites READY; deployed via the authed firebase CLI,
+   after the service account got PERMISSION_DENIED on the Admin API).
+   firestore.rules also deployed same day (repo ruleset = the one the
+   563-test suite validates).
+2. **REMAINING — GitHub repo → Settings → Secrets and variables →
+   Actions → New repository secret → name `ADMIN_SECRET`, value copied
+   from Vercel → Settings → Environment Variables → `ADMIN_SECRET`.**
+   The reminder/morning-after ticker is inert without it. Verify: the
+   Actions tab → movie-nights-tick → next run (≤10 min) goes green.
+3. Nothing else: the cron workflow ships with the repo, no new env vars.

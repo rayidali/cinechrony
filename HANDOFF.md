@@ -11,8 +11,9 @@
 >    Merged to main, live on web, **build 1.0 (2) VALID on TestFlight**
 >    (internal auto + friends attached, whatsNew set; also iPhone-only +
 >    scan-quota drawer state). 3-lens adversarial review, 13 findings
->    fixed, 563/563. OWNER GATES: firestore indexes deploy + ADMIN_SECRET
->    GH Actions secret. Tracker MOVIE-NIGHT-PLAN.md.
+>    fixed, 563/563. Indexes + rules DEPLOYED to prod 07-25 (firebase CLI
+>    authed on this Mac). ONE owner gate left: ADMIN_SECRET GH Actions
+>    secret (value only in Vercel env). Tracker MOVIE-NIGHT-PLAN.md.
 > -2. **Weekly scan quota (2026-07-23, prod).** 7 fresh scans/week free,
 >    claim-metered (cache hits free), users_private counter, 429
 >    QUOTA_EXCEEDED, plan-ready. Suite 52.

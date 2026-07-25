@@ -36,7 +36,14 @@ popcorn avatar, top-5 canon, three ratings.
 appPriceSchedule/appAvailability until you POST one. Privacy nutrition
 labels (`appDataUsages`) are NOT on the public API — ASC UI only.
 
-## Code changes riding build 2
+## Code changes riding build 2 — SHIPPED as 1.0 (2), VALID 2026-07-25
+
+Build 2 went up via the CLI pipeline on 07-25 carrying BOTH items below
+PLUS Movie Night v1.1 (see MOVIE-NIGHT-PLAN.md); internal group auto,
+friends group attached, whatsNew set. The App Store submission can
+attach THIS build once the owner gates (privacy labels, trader status)
+clear — the domain flip was NOT on it (DNS still pending) and can ride
+build 3 without blocking submission.
 
 - **iPhone-only** (`TARGETED_DEVICE_FAMILY = 1`, was `"1,2"`, all 6 configs)
   — the UI is phone-designed; claiming iPad would demand a 13" screenshot
