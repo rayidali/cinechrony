@@ -4,6 +4,17 @@
 
 ## Current state (2026-07-25)
 
+- **CI was silently RED on main since at least 07-11 — FIXED (2026-07-25,
+  `a7c7c12`).** The verify job's env-less `npm run build` broke when
+  prerender started initializing the Firebase client SDK (throws without
+  a projectId); Vercel/local always had env so nothing visible failed and
+  every "green" this stretch was the quick types+lint job only. Fix:
+  dummy PUBLIC Firebase client identifiers on the CI build step (not
+  secrets). First fully green main run since 07-11. The movie-night
+  ticker secret chain (Vercel ADMIN_SECRET + GH Actions secret) is wired;
+  note the old `ADMIN_SECRET_TOKEN` Vercel var was a dead leftover — the
+  code reads `ADMIN_SECRET` only, so every /api/v1/admin/* route had been
+  failing closed in prod until 07-25.
 - **MOVIE NIGHT v1.1 SHIPPED — merged to `main`, LIVE on web, build 2
   on TestFlight (2026-07-24→25).** The Rodeo-lesson feature: a film on a
   shared list becomes a plan (one film · one datetime · host + 9 ·
