@@ -4,6 +4,27 @@
 
 ## Current state (2026-07-25)
 
+- **Device-bug sweep FIXED + build 3 (2026-07-25 evening).** The owner's
+  first real device pass found the sheet interaction class: portal
+  modals over open Vaul drawers received NO taps (body
+  pointer-events:none — 'click around until it registers'), orphaned
+  expander sheets ate taps after propose, cancel left the list pin
+  stale, the pin could fetch with the WRONG owner id on collaborative
+  lists (pin + 'no movie night yet' rendered together), film-first
+  create dead-tapped, add-to-calendar landed in iOS's Subscribe flow,
+  and cold start flashed the logged-out landing with the nav overlaid.
+  ALL fixed (`2a1eba2`): pointer-events:auto on every portal dialog,
+  expander lifecycle + 350ms close sequencing, BodyStyleWatchdog now
+  sweeps on interval+touchend, provider patches the pin cache in place
+  on mutation, pin owns one fetch (pin XOR plan-liner), film-first
+  auto-opens the picker + inline nudge, native **CalendarBridge**
+  plugin (EKEventEditViewController, no prompt on 17+), nav requires
+  resolved auth, landing holds a splash while auth resolves. **NEW
+  STANDING GATE: `scripts/interaction-harness.mjs`** — real hit-tested
+  clicks through plan→propose→see-the-night→cancel with body-lock
+  audits (13/13); RUN IT BEFORE EVERY NATIVE BUILD (`npm run dev` +
+  `node scripts/interaction-harness.mjs`). Suite 565/565; build 1.0 (3)
+  uploaded same evening.
 - **CI was silently RED on main since at least 07-11 — FIXED (2026-07-25,
   `a7c7c12`).** The verify job's env-less `npm run build` broke when
   prerender started initializing the Firebase client SDK (throws without
