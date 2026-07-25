@@ -2,8 +2,48 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-23)
+## Current state (2026-07-25)
 
+- **MOVIE NIGHT v1.1 SHIPPED — merged to `main`, LIVE on web, build 2
+  on TestFlight (2026-07-24→25).** The Rodeo-lesson feature: a film on a
+  shared list becomes a plan (one film · one datetime · host + 9 ·
+  3-state RSVP · one reminder). Full stack in ~36h: `movie_nights`
+  server-only collection + `movie-nights-server.ts` (transactional
+  everything, TTL caches w/ write invalidation), 6 notification types,
+  reminder + morning-after ticker (GH Actions `*/10` →
+  `/api/v1/admin/movie-nights-tick`, transactional claims, tz-aware),
+  guest RSVP via capability links on **`/n/[code]`** (no account; .ics =
+  the guest reminder channel), 40 MN design screens implemented
+  (create flow · detail sheet w/ 62px datetime + where-to-watch ·
+  cards · morning-after completion that writes the north-star metric),
+  create idempotency (clientKey), PostHog events incl. the previously
+  missing `movie_marked_watched`. **3-lens adversarial review → 13
+  confirmed findings ALL fixed + regression-tested** (stuck confirm
+  overlay, list-pin RSVP roster leak → `MovieNightPinView`, duplicate
+  watch docs → watches carry `movieNightId`, reschedule/cancel status
+  guards, retroactive blocks, .ics CR injection, attendance consent,
+  morning-after routing/mutual exclusion). Suites 53 (21) + 54 (12);
+  full audit **563/563**. Build 2 (1.0 (2)) uploaded via the CLI
+  pipeline, VALID, internal auto + friends group attached, whatsNew
+  set; also carries **iPhone-only** + the scan-quota drawer state.
+  **Owner gates for full prod function:** `firebase deploy --only
+  firestore:indexes` (4 movie_nights composites — until then the feed
+  card/list pin/morning-after auto-prompt hide; service account got
+  PERMISSION_DENIED on index create) + **`ADMIN_SECRET` as a GH Actions
+  repo secret** (reminder/morning-after pushes inert without it).
+  Tracker: `MOVIE-NIGHT-PLAN.md`. Also 07-24: GitGuardian incident
+  (demo password swept into the public repo by a bulk `git add -A`) —
+  branch history rewritten, tracker scrubbed, `.gitignore` hardened,
+  password ROTATED across Firebase + both ASC review-detail records;
+  never bulk-stage in this repo.
+- **Weekly scan quota SHIPPED (2026-07-23, `2b0a61c`, live in prod).**
+  7 fresh scans/week free tier — only a cache CLAIM (a real
+  Apify+Gemini run) is metered; cache hits + followers free. Counted
+  atomically inside the claim transaction on server-only
+  `users_private/{uid}.scanUsage`; `QUOTA_EXCEEDED` 429; plan-ready
+  (`PLAN_LIMITS` + `users_private.plan`, `SCAN_WEEKLY_LIMIT` env
+  override); `GET /api/v1/me/scan-quota`; /extract counter + calm full
+  state; ShareExtension inline quota state (rides build 2). Suite 52.
 - **App Store listing FILLED via the ASC API (2026-07-23) — submission is
   now gated on 3 owner steps + build 2.** Version 1.0 record
   (`f784b7f8…`, PREPARE_FOR_SUBMISSION) got everything API-settable in one

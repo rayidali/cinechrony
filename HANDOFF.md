@@ -6,6 +6,20 @@
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -3. **MOVIE NIGHT v1.1 SHIPPED (2026-07-24→25).** Lists become plans:
+>    create/RSVP/reminders/morning-after + guest links on /n/[code].
+>    Merged to main, live on web, **build 1.0 (2) VALID on TestFlight**
+>    (internal auto + friends attached, whatsNew set; also iPhone-only +
+>    scan-quota drawer state). 3-lens adversarial review, 13 findings
+>    fixed, 563/563. OWNER GATES: firestore indexes deploy + ADMIN_SECRET
+>    GH Actions secret. Tracker MOVIE-NIGHT-PLAN.md.
+> -2. **Weekly scan quota (2026-07-23, prod).** 7 fresh scans/week free,
+>    claim-metered (cache hits free), users_private counter, 429
+>    QUOTA_EXCEEDED, plan-ready. Suite 52.
+> -2.5. **GitGuardian incident (2026-07-24) RESOLVED.** A bulk `git add -A`
+>    swept credential-bearing tmp scripts into the public repo → branch
+>    history rewritten, demo password ROTATED (Firebase + both ASC review
+>    records), .gitignore hardened. NEVER bulk-stage in this repo.
 > -1. **App Store listing FILLED via the ASC API (2026-07-23).** Everything
 >    API-settable on version 1.0 in one pass: brand-voice copy, subtitle,
 >    URLs, copyright, categories, the full age-rating questionnaire (→
