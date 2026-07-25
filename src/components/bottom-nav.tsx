@@ -41,6 +41,13 @@ const navItems: NavItem[] = [
  * because it matches on prefix. Settings screens under `/lists/*` are excluded
  * (they push over the tab, X-style), as are all detail pages (post, comments,
  * reel, notifications, extract, invite, onboarding, auth).
+ *
+ * This is an explicit ALLOWLIST (default `false`; a path must positively match
+ * a tab-root branch to render) — not a denylist of things to hide. `'/'` (the
+ * logged-out landing), every `(auth)` route (`/login`, `/signup`,
+ * `/forgot-password`, `/reset-password`), `/onboarding`, `/invite/*`, and
+ * `/n/*` (the movie-night guest page) all fall through to the final
+ * `return false` because none of them start with an allowed prefix.
  */
 function shouldShowNav(pathname: string): boolean {
   const p = pathname.replace(/\/+$/, '') || '/';
@@ -76,11 +83,12 @@ const tabScroll = new Map<string, number>();
  * visibly blink out on every tab switch; and because it sat inside the
  * transition wrapper's transform it slid/dimmed/dragged with the page during
  * push/pop/swipe. Hoisted out, it never unmounts and never transforms — it
- * stays put like a real UITabBar. Self-gates via `shouldShowNav`.
+ * stays put like a real UITabBar. Self-gates via `shouldShowNav` AND on auth
+ * having resolved to a signed-in user (see the render guard below).
  */
 export function BottomNav() {
   const pathname = usePathname();
-  const { user } = useUser();
+  const { user, isUserLoading } = useUser();
   const pathRef = useRef(pathname);
   pathRef.current = pathname;
 
@@ -152,7 +160,14 @@ export function BottomNav() {
       haptic('selection');
     };
 
-  if (!shouldShowNav(pathname)) return null;
+  // Gate on BOTH the route (a tab surface) AND auth having actually resolved
+  // to a signed-in user. Path-only gating let a cold start flash the nav over
+  // the logged-out `/` landing: auth resolves and `usePathname()` can settle
+  // on an allowed route a beat before the redirecting page has swapped its
+  // content, so a stale screen briefly rendered underneath an already-visible
+  // nav. Requiring `!isUserLoading && user` closes that window — the nav can
+  // never paint before we positively know someone is signed in.
+  if (!shouldShowNav(pathname) || isUserLoading || !user) return null;
 
   return (
     <>

@@ -1,26 +1,48 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Link } from '@/lib/native-nav';
 import { ArrowRight, Popcorn } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { ThemeToggle } from '@/components/theme-toggle';
 
+// Strand-proofing: if auth hasn't settled (or the redirect below hasn't
+// carried us away) within this window, something is wrong — offline, a
+// broken Firebase init, whatever. Fall through to the logged-out landing
+// rather than holding the door shut on a splash forever.
+const AUTH_SPLASH_TIMEOUT_MS = 6000;
+
 export default function LandingPage() {
   const { user, isUserLoading } = useUser();
   const router = useRouter();
+  const [timedOut, setTimedOut] = useState(false);
 
   useEffect(() => {
     if (!isUserLoading && user) {
-      router.push('/lists');
+      // replace (not push): a signed-in cold start should never leave the
+      // logged-out landing sitting in history behind /home.
+      router.replace('/home');
     }
   }, [user, isUserLoading, router]);
 
-  if (isUserLoading) {
+  // One-shot timer from mount — cleared automatically the moment this page
+  // unmounts (i.e. the redirect above actually landed us on /home).
+  useEffect(() => {
+    const t = setTimeout(() => setTimedOut(true), AUTH_SPLASH_TIMEOUT_MS);
+    return () => clearTimeout(t);
+  }, []);
+
+  // While auth is still resolving, OR it already resolved to a signed-in user
+  // who's mid-redirect to /home, show a minimal brand splash — never the
+  // logged-out marketing copy. Without the `user` half of this check, a
+  // returning signed-in user briefly saw the full "get started / i have an
+  // account" landing (real CTAs and all) for a frame before the redirect
+  // effect above fired.
+  if ((isUserLoading || user) && !timedOut) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <img src="/brand/cinechrony-icon.png" alt="Loading" className="h-12 w-12 animate-spin" />
+      <div className="flex items-center justify-center min-h-screen bg-background">
+        <img src="/brand/cinechrony-icon.png" alt="cinechrony" className="h-16 w-16 animate-spin" />
       </div>
     );
   }

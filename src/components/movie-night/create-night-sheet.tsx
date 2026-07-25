@@ -108,7 +108,7 @@ function CtaFooter({
   ctaLabel = 'propose it',
   ctaIcon: CtaIcon = PartyPopper,
 }: {
-  cta: { disabled: boolean; sub: string };
+  cta: { disabled: boolean; sub: string; reason?: 'no_film' | 'no_time' | 'past' | null };
   submitting: boolean;
   error: string | null;
   onPropose: () => void;
@@ -117,20 +117,38 @@ function CtaFooter({
   ctaLabel?: string;
   ctaIcon?: LucideIcon;
 }) {
+  // F7 — "no film yet" is a SOFT disable: the button still looks inert (dim),
+  // but keeps its real `disabled` attribute off so the tap still reaches
+  // `onPropose`, which the caller uses to nudge toward the film card instead
+  // of silently dead-tapping. Every other disable reason (no time / past)
+  // stays a genuine disabled button — unchanged.
+  const noFilmYet = cta.reason === 'no_film';
   return (
     <div className="flex-shrink-0 border-t border-hair px-5 pt-2.5" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-      <NightHeroCTA label={ctaLabel} icon={CtaIcon} disabled={cta.disabled} loading={submitting} sub={cta.sub} onTap={onPropose} />
+      <NightHeroCTA
+        label={ctaLabel}
+        icon={CtaIcon}
+        disabled={cta.disabled && !noFilmYet}
+        dim={cta.disabled}
+        loading={submitting}
+        sub={cta.sub}
+        onTap={onPropose}
+      />
       {error && <p className="mt-2 text-center font-mono text-[10px] text-destructive">{error}</p>}
     </div>
   );
 }
 
-function FilmCard({ film, onChange }: { film: MovieNightFilm | null; onChange: () => void }) {
+function FilmCard({
+  film, onChange, pulsing,
+}: { film: MovieNightFilm | null; onChange: () => void; pulsing?: boolean }) {
   return (
     <button
       type="button"
       onClick={onChange}
-      className="flex w-full items-center gap-3.5 rounded-2xl border border-hair bg-card p-3.5 text-left transition-transform active:scale-[0.99]"
+      className={`flex w-full items-center gap-3.5 rounded-2xl p-3.5 text-left transition-all active:scale-[0.99] ${
+        film ? 'border border-hair bg-card' : 'border-[1.5px] border-dashed border-primary/50 bg-primary/[0.05]'
+      } ${pulsing ? 'ring-2 ring-primary' : ''}`}
     >
       <div className="w-[46px] flex-shrink-0"><NightPoster film={film} rounded="rounded-[8px]" /></div>
       {film ? (
@@ -140,7 +158,7 @@ function FilmCard({ film, onChange }: { film: MovieNightFilm | null; onChange: (
         </div>
       ) : (
         <div className="min-w-0 flex-1">
-          <div className="font-headline text-[17px] font-bold lowercase tracking-[-0.025em] text-muted-foreground">pick a film</div>
+          <div className="font-headline text-[17px] font-bold lowercase tracking-[-0.025em] text-primary">pick a film</div>
           <div className="mt-0.5 font-mono text-[10.5px] text-muted-foreground">what are you watching?</div>
         </div>
       )}
@@ -177,7 +195,7 @@ export function DateTimeSheet({
   selectedDate: Date | null;
   selectedTime: TimeOfDay | null;
   isPast: boolean;
-  cta: { disabled: boolean; sub: string };
+  cta: { disabled: boolean; sub: string; reason?: 'no_film' | 'no_time' | 'past' | null };
   submitting: boolean;
   error: string | null;
   today: Date;
@@ -622,7 +640,7 @@ function ReminderSheet({
 // ── MN09 — custom time entry (real keyboard, kb-inset pattern) ─────────────
 
 export function TimeEntrySheet({
-  isOpen, film, baseDate, initial, submitting, error, onDone, onClose, onSubmit,
+  isOpen, film, baseDate, initial, submitting, error, onDone, onClose, onSubmit, onRequestFilm,
   ctaLabel, ctaIcon, ctaSubOverride,
 }: {
   isOpen: boolean;
@@ -634,6 +652,11 @@ export function TimeEntrySheet({
   onDone: (t: TimeOfDay) => void;
   onClose: () => void;
   onSubmit: (when: Date) => void;
+  /** F7 — no-film dead-tap fix: when the CTA is tapped with no film chosen
+   *  yet, this is called instead of submitting (opens the film picker rather
+   *  than silently doing nothing). Omit when `film` can never be null here
+   *  (the reschedule reuse always has one). */
+  onRequestFilm?: () => void;
   ctaLabel?: string;
   ctaIcon?: LucideIcon;
   /** S3b's reschedule reuse — swaps `describeNightCta`'s mode. */
@@ -690,7 +713,11 @@ export function TimeEntrySheet({
   const cta = describeNightCta(film, when, ctaSubOverride);
 
   return createPortal(
-    <div className="fixed inset-0 z-[94] flex flex-col bg-background" role="dialog" aria-label="set a time">
+    // F1 — Vaul's dismissable layer sets `body.style.pointerEvents = 'none'`
+    // while a modal Drawer.Root is open (the main create sheet + DateTimeSheet
+    // both are, whenever this fullscreen portal is up); an explicit `auto`
+    // here re-enables taps on this portal's own subtree regardless.
+    <div className="fixed inset-0 z-[94] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="set a time">
       <header className="flex flex-shrink-0 items-center justify-between border-b border-hair px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}>
         <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">cancel</button>
         <span className="font-headline text-[18px] font-bold lowercase tracking-[-0.02em]">set a time</span>
@@ -752,10 +779,14 @@ export function TimeEntrySheet({
         <NightHeroCTA
           label={ctaLabel ?? 'propose it'}
           icon={ctaIcon ?? PartyPopper}
-          disabled={cta.disabled}
+          disabled={cta.disabled && cta.reason !== 'no_film'}
+          dim={cta.disabled}
           loading={submitting}
           sub={valid ? cta.sub : `finish typing a time to ${ctaLabel ?? 'propose it'}`}
           onTap={() => {
+            // F7 — no film yet: never dead-tap. Send the viewer to the film
+            // picker instead of silently doing nothing.
+            if (!film) { haptic('light'); onRequestFilm?.(); return; }
             if (!time || !when) return;
             haptic('light');
             onDone(time);
@@ -783,7 +814,10 @@ function ConfirmOverlay({
   const timeLabel = format(when, 'h:mm a').toLowerCase();
 
   return createPortal(
-    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/55 px-6" role="dialog" aria-label="your night's proposed">
+    // F1 — same pointer-events fix as `TimeEntrySheet`: this overlay renders
+    // while the main create Drawer.Root (and possibly a nested expander) is
+    // still technically open, so `body.style.pointerEvents` may be 'none'.
+    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/55 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="your night's proposed">
       <div className="w-full max-w-[340px] rounded-[26px] border border-hair bg-background p-6 pb-5 shadow-lift">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
           <Check className="h-7 w-7 text-white" strokeWidth={2.6} />
@@ -838,10 +872,10 @@ export function CreateNightSheet({
   args: OpenCreateArgs | null;
   onClose: () => void;
   onOpenNight: (id: string) => void;
-  /** S3b — bumps the provider's `refreshToken` after a successful create, so
-   *  the list pin (MN14) and home feed card (MN15) pick up the new night
-   *  without waiting out their own cache TTL. */
-  onNightMutated?: () => void;
+  /** S3b — reports the freshly-created night so the provider can patch the
+   *  list-pin cache directly (instant, no refetch race) AND bump
+   *  `refreshToken` for every other consumer (home feed card, etc). */
+  onNightMutated?: (night: MovieNightView) => void;
 }) {
   const isOpen = args !== null;
   const { user } = useUser();
@@ -868,8 +902,14 @@ export function CreateNightSheet({
   // F4 — a fresh idempotency key per sheet-open; sent with the create POST.
   const [clientKey, setClientKey] = useState<string | null>(null);
 
+  // F7 — the "pick a film first" nudge (once per sheet-open) for a tap on a
+  // row/CTA while no film is chosen yet: a one-line inline hint near the film
+  // card + a brief pulse ring on it.
+  const [filmNudgeVisible, setFilmNudgeVisible] = useState(false);
+  const [filmCardPulsing, setFilmCardPulsing] = useState(false);
+  const hasNudgedFilmRef = useRef(false);
+
   const hasSeededInviteesRef = useRef(false);
-  const hasAutoOpenedPickerRef = useRef(false);
 
   const height = useViewportHeight(90);
   const heightStyle = height > 0 ? `${height}px` : 'calc(90 * var(--dvh, 1vh))';
@@ -882,6 +922,11 @@ export function CreateNightSheet({
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
 
   // Reset the whole flow every time the sheet opens (a fresh `args` object).
+  // MN02 film-first path: no film in `args` → open the film picker AS PART OF
+  // this same reset (not a separate ref-guarded effect keyed off the `film`
+  // STATE — that state hasn't been set by this effect yet when a later effect
+  // in the same pass would read it, a stale-closure trap that could skip the
+  // auto-open when a film lingered in state from a previous session).
   useEffect(() => {
     if (!isOpen) return;
     setFilm(args?.film ?? null);
@@ -891,7 +936,7 @@ export function CreateNightSheet({
     setReminderPreset('2h');
     setInvitees([]);
     setListMembers(args?.list ? getMembers(args.list.ownerId, args.list.id) ?? [] : []);
-    setShowFilmPicker(false);
+    setShowFilmPicker(!args?.film);
     setShowDateTime(false);
     setShowPeople(false);
     setShowReminder(false);
@@ -900,10 +945,27 @@ export function CreateNightSheet({
     setError(null);
     setCreatedNight(null);
     setClientKey(generateClientKey());
+    setFilmNudgeVisible(false);
+    setFilmCardPulsing(false);
     hasSeededInviteesRef.current = false;
-    hasAutoOpenedPickerRef.current = false;
+    hasNudgedFilmRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, args]);
+
+  // F2 — the redundancy net: whenever the MAIN sheet closes (`isOpen` goes
+  // false, whether via cancel/backdrop/programmatic close), force every
+  // nested expander's boolean closed too — even though `isOpen && showX`
+  // already computes to `false` visually the instant `isOpen` flips, this
+  // keeps the underlying state honest so no Drawer.Root can ever be left
+  // "logically open" behind its parent.
+  useEffect(() => {
+    if (isOpen) return;
+    setShowFilmPicker(false);
+    setShowDateTime(false);
+    setShowPeople(false);
+    setShowReminder(false);
+    setShowTimeEntry(false);
+  }, [isOpen]);
 
   // Fresh member list for the given list (cache is a fast first paint; this
   // keeps WHO'S COMING honest if someone joined/left since the cache warmed).
@@ -933,13 +995,6 @@ export function CreateNightSheet({
     hasSeededInviteesRef.current = true;
   }, [isOpen, list, listMembers, user?.uid]);
 
-  // MN02 film-first path: no film on open → prompt the picker immediately.
-  useEffect(() => {
-    if (!isOpen || hasAutoOpenedPickerRef.current) return;
-    hasAutoOpenedPickerRef.current = true;
-    if (!film) setShowFilmPicker(true);
-  }, [isOpen, film]);
-
   const scheduledFor = useMemo(
     () => (selectedDate && selectedTime ? combineDateAndTime(selectedDate, selectedTime) : null),
     [selectedDate, selectedTime],
@@ -957,6 +1012,18 @@ export function CreateNightSheet({
       if (prev.length >= 9) return prev;
       return [...prev, u];
     });
+  }
+
+  // F7 — call from every row/CTA that's tappable even with no film selected
+  // yet. The FIRST time it happens this open, shows the inline "pick a film
+  // first" hint + pulses the film card; every tap already carries its own
+  // `haptic('light')` from the caller, so this doesn't double-buzz.
+  function maybeNudgeFilmFirst() {
+    if (film || hasNudgedFilmRef.current) return;
+    hasNudgedFilmRef.current = true;
+    setFilmNudgeVisible(true);
+    setFilmCardPulsing(true);
+    setTimeout(() => setFilmCardPulsing(false), 650);
   }
 
   async function submitNight(when: Date) {
@@ -982,18 +1049,22 @@ export function CreateNightSheet({
       if (clientKey) body.clientKey = clientKey;
       const night = await apiCall<MovieNightView>('POST', '/api/v1/movie-nights', body);
       haptic('success');
+      // F2 — force-close every nested expander BEFORE the confirm overlay
+      // renders, so nothing is left "open" (even mid-close-animation) behind
+      // it — the confirm's own pointer-events fix (F1) is the redundancy net,
+      // this is the actual root-cause fix.
+      setShowDateTime(false);
+      setShowTimeEntry(false);
+      setShowPeople(false);
+      setShowReminder(false);
+      setShowFilmPicker(false);
       setCreatedNight(night);
       track(AnalyticsEvent.MovieNightCreated, {
         hasList: !!list,
         inviteeCount: invitees.length,
         reminderPreset,
       });
-      onNightMutated?.();
-      setShowDateTime(false);
-      setShowTimeEntry(false);
-      setShowPeople(false);
-      setShowReminder(false);
-      setShowFilmPicker(false);
+      onNightMutated?.(night);
     } catch (err) {
       haptic('error');
       setError(err instanceof ApiClientError ? err.message : 'could not propose the night. try again.');
@@ -1027,13 +1098,20 @@ export function CreateNightSheet({
             </div>
 
             <div className="flex-1 overflow-y-auto px-5">
-              <FilmCard film={film} onChange={() => { haptic('light'); setShowFilmPicker(true); }} />
+              <FilmCard
+                film={film}
+                pulsing={filmCardPulsing}
+                onChange={() => { haptic('light'); setShowFilmPicker(true); }}
+              />
+              {!film && filmNudgeVisible && (
+                <p className="mt-2 pl-1 font-mono text-[10.5px] font-bold text-primary">pick a film first</p>
+              )}
 
               <div className="mt-5"><span className="cc-eyebrow text-muted-foreground">when</span></div>
               <div className="mt-2.5 overflow-hidden rounded-2xl border border-hair bg-card">
-                <WhenRow icon={Calendar} label="date" value={dateLabel} onTap={() => { haptic('light'); setShowDateTime(true); }} />
+                <WhenRow icon={Calendar} label="date" value={dateLabel} onTap={() => { haptic('light'); maybeNudgeFilmFirst(); setShowDateTime(true); }} />
                 <div className="ml-[47px] h-px bg-rule" />
-                <WhenRow icon={Clock} label="time" value={timeLabel} faint={!timeLabel} onTap={() => { haptic('light'); setShowDateTime(true); }} />
+                <WhenRow icon={Clock} label="time" value={timeLabel} faint={!timeLabel} onTap={() => { haptic('light'); maybeNudgeFilmFirst(); setShowDateTime(true); }} />
               </div>
 
               <div className="mt-5 flex items-baseline justify-between">
@@ -1060,7 +1138,7 @@ export function CreateNightSheet({
                 ))}
                 <button
                   type="button"
-                  onClick={() => { haptic('light'); setShowPeople(true); }}
+                  onClick={() => { haptic('light'); maybeNudgeFilmFirst(); setShowPeople(true); }}
                   className="inline-flex h-11 items-center gap-1.5 rounded-full border border-dashed border-rule px-3 text-primary active:opacity-70"
                 >
                   <Plus className="h-[15px] w-[15px]" strokeWidth={2.4} />
@@ -1070,13 +1148,21 @@ export function CreateNightSheet({
 
               <div className="mt-5"><span className="cc-eyebrow text-muted-foreground">reminder</span></div>
               <div className="mt-2.5 overflow-hidden rounded-2xl border border-hair bg-card">
-                <WhenRow icon={Bell} label="remind everyone" value={REMINDER_SHORT[reminderPreset]} onTap={() => { haptic('light'); setShowReminder(true); }} />
+                <WhenRow icon={Bell} label="remind everyone" value={REMINDER_SHORT[reminderPreset]} onTap={() => { haptic('light'); maybeNudgeFilmFirst(); setShowReminder(true); }} />
               </div>
 
               <div className="h-6" />
             </div>
 
-            <CtaFooter cta={cta} submitting={submitting} error={error} onPropose={() => scheduledFor && submitNight(scheduledFor)} />
+            <CtaFooter
+              cta={cta}
+              submitting={submitting}
+              error={error}
+              onPropose={() => {
+                if (!film) { maybeNudgeFilmFirst(); return; }
+                if (scheduledFor) submitNight(scheduledFor);
+              }}
+            />
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>
@@ -1104,7 +1190,12 @@ export function CreateNightSheet({
         onOpenFilmPicker={() => setShowFilmPicker(true)}
         onOpenTimeEntry={() => setShowTimeEntry(true)}
         onClose={() => setShowDateTime(false)}
-        onPropose={() => scheduledFor && submitNight(scheduledFor)}
+        onPropose={() => {
+          // F7 — never dead-tap: no film yet → send the viewer to the
+          // picker (layers on top; DateTimeSheet stays open behind it).
+          if (!film) { haptic('light'); setShowFilmPicker(true); return; }
+          if (scheduledFor) submitNight(scheduledFor);
+        }}
       />
 
       <PeopleSheet
@@ -1134,14 +1225,41 @@ export function CreateNightSheet({
         onDone={(t) => { setSelectedTime(t); setShowTimeEntry(false); }}
         onClose={() => setShowTimeEntry(false)}
         onSubmit={(when) => submitNight(when)}
+        onRequestFilm={() => setShowFilmPicker(true)}
       />
 
       {createdNight && (
         <ConfirmOverlay
           night={createdNight}
           list={list}
-          onSeeNight={() => { const id = createdNight.id; setCreatedNight(null); onOpenNight(id); onClose(); }}
-          onDismiss={() => { setCreatedNight(null); onClose(); }}
+          onSeeNight={() => {
+            // F3 — close sequencing: fully close THIS sheet (+ force-close any
+            // lingering expander) FIRST, and only open the detail sheet after
+            // Vaul's own exit animation (~300ms) has had time to release the
+            // body scroll/pointer-events lock — opening it in the SAME tick
+            // stacks a new Drawer.Root's mount against this one's still-
+            // in-flight unmount, and the two dismissable layers can stomp each
+            // other's `body.style.pointerEvents` restore, leaving taps dead
+            // until the user "clicks around" to shake it loose.
+            const id = createdNight.id;
+            setCreatedNight(null);
+            setShowDateTime(false);
+            setShowTimeEntry(false);
+            setShowPeople(false);
+            setShowReminder(false);
+            setShowFilmPicker(false);
+            onClose();
+            setTimeout(() => onOpenNight(id), 350);
+          }}
+          onDismiss={() => {
+            setCreatedNight(null);
+            setShowDateTime(false);
+            setShowTimeEntry(false);
+            setShowPeople(false);
+            setShowReminder(false);
+            setShowFilmPicker(false);
+            onClose();
+          }}
         />
       )}
     </>

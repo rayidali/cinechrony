@@ -40,6 +40,15 @@ test('Info.plist: photo-library add + read usage descriptions present (story "Sa
   assert.match(plist, /<key>NSPhotoLibraryUsageDescription<\/key>\s*<string>.{10,}<\/string>/);
 });
 
+test('Info.plist: calendar usage descriptions present (native add-to-calendar bridge)', () => {
+  // The pre-17 EKEventStore.requestAccess/requestWriteOnlyAccessToEvents path
+  // needs both keys declared or iOS kills the process on first calendar touch
+  // (same TCC class as the 2026-07-18 camera crash).
+  const plist = read(INFO_PLIST);
+  assert.match(plist, /<key>NSCalendarsUsageDescription<\/key>\s*<string>.{10,}<\/string>/);
+  assert.match(plist, /<key>NSCalendarsWriteOnlyAccessUsageDescription<\/key>\s*<string>.{10,}<\/string>/);
+});
+
 test('Info.plist: export-compliance declared (skips the questionnaire on every upload)', () => {
   assert.match(read(INFO_PLIST), /<key>ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/);
 });
@@ -71,6 +80,7 @@ test('pbxproj: local plugins + relay are compiled into the App target', () => {
     'LiveActivityPlugin.swift',
     'LiveActivityTokenRelay.swift',
     'SharedAuthPlugin.swift',
+    'CalendarBridgePlugin.swift',
   ]) {
     assert.ok(
       pbx.includes(`${file} in Sources`),
@@ -103,6 +113,14 @@ test('AppDelegate: FirebaseApp.configure() runs unconditionally at launch', () =
 
 test('AppDelegate: LiveActivityTokenRelay starts from didFinishLaunching', () => {
   assert.ok(read(APP_DELEGATE).includes('LiveActivityTokenRelay.start()'));
+});
+
+test('AppViewController: CalendarBridgePlugin is registered (survives `npx cap sync`)', () => {
+  // Local plugins with no npm package aren't auto-discovered via
+  // capacitor.config.json's generated packageClassList — they must be
+  // registered as instances here, same as SharedAuthPlugin/LiveActivityPlugin.
+  const src = read('ios/App/App/AppViewController.swift');
+  assert.ok(src.includes('registerPluginInstance(CalendarBridgePlugin())'));
 });
 
 // ─── Capacitor + entitlements invariants ──────────────────────────────────

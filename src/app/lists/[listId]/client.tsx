@@ -359,11 +359,19 @@ export default function ListDetailPage() {
                 </div>
               )}
 
-              {/* MN14 — the pinned movie night, above the to watch/watched toolbar.
-                  Renders nothing (no DOM node at all) when there's no night, so
-                  it never leaves a stray margin behind. */}
-              {effectiveOwnerId && (
-                <MovieNightPin ownerId={effectiveOwnerId} listId={listId} viewerUid={user?.uid} className="mt-6" />
+              {/* MN14/MN29 — the pinned movie night OR (owner/collaborator only)
+                  the "no movie night yet · plan one" one-liner — ONE component,
+                  ONE fetch, so the two states can never show at once. Gated on
+                  `effectiveListData` (not just `effectiveOwnerId`) so it never
+                  mounts before the real list — and its real owner id, for a
+                  collaborative list — is known. */}
+              {effectiveOwnerId && effectiveListData && (
+                <MovieNightPin
+                  list={{ id: listId, ownerId: effectiveOwnerId, name: effectiveListData.name || 'this list' }}
+                  viewerUid={user?.uid}
+                  canPlan={isOwner || isCollaborator}
+                  className="mt-6"
+                />
               )}
 
               {/* Movie list — `MovieList` shows its own skeleton when isLoading. */}

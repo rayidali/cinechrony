@@ -20,6 +20,7 @@
 		ACB17E5C000000000000E001 /* ScanActivityWidget.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = ACB17E5C000000000000A001 /* ScanActivityWidget.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		ACB17E5C000000000000E002 /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB17E5C000000000000A002 /* LiveActivityPlugin.swift */; };
 		ACB17E5C000000000000E003 /* LiveActivityTokenRelay.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB17E5C000000000000A003 /* LiveActivityTokenRelay.swift */; };
+		ACB17E5C000000000000E004 /* CalendarBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACB17E5C000000000000A004 /* CalendarBridgePlugin.swift */; };
 		C7B2F64A2FF1BD2400EFA8E4 /* ShareExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = C7B2F6402FF1BD2400EFA8E4 /* ShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		EFE820901D841F54FE3CF462 /* AppViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2A0B20249E1C39B9DDE86B1 /* AppViewController.swift */; };
 /* End PBXBuildFile section */
@@ -73,6 +74,7 @@
 		ACB17E5C000000000000A001 /* ScanActivityWidget.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScanActivityWidget.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACB17E5C000000000000A002 /* LiveActivityPlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPlugin.swift; sourceTree = "<group>"; };
 		ACB17E5C000000000000A003 /* LiveActivityTokenRelay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityTokenRelay.swift; sourceTree = "<group>"; };
+		ACB17E5C000000000000A004 /* CalendarBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CalendarBridgePlugin.swift; sourceTree = "<group>"; };
 		C7B2F6402FF1BD2400EFA8E4 /* ShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		C7B2F6512FF1C01C00EFA8E4 /* App.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -158,6 +160,7 @@
 				4466925F823AB2EBE2D8362C /* SharedAuthPlugin.swift */,
 				ACB17E5C000000000000A002 /* LiveActivityPlugin.swift */,
 				ACB17E5C000000000000A003 /* LiveActivityTokenRelay.swift */,
+				ACB17E5C000000000000A004 /* CalendarBridgePlugin.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -330,6 +333,7 @@
 				11CD6EFF17C2EFC757224089 /* SharedAuthPlugin.swift in Sources */,
 				ACB17E5C000000000000E002 /* LiveActivityPlugin.swift in Sources */,
 				ACB17E5C000000000000E003 /* LiveActivityTokenRelay.swift in Sources */,
+				ACB17E5C000000000000E004 /* CalendarBridgePlugin.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

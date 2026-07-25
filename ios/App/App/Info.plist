@@ -53,6 +53,10 @@
 	     WKWebView file inputs (list cover, avatar, post media) offer
 	     "Take Photo" natively, and the share sheet offers "Save Image" on
 	     story cards — all four keys below are load-bearing. -->
+	<key>NSCalendarsUsageDescription</key>
+	<string>cinechrony adds your movie night to your calendar. nothing is read.</string>
+	<key>NSCalendarsWriteOnlyAccessUsageDescription</key>
+	<string>cinechrony adds your movie night to your calendar. nothing is read.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>cinechrony uses the camera when you take a photo for a list cover, your profile, or a post.</string>
 	<key>NSMicrophoneUsageDescription</key>

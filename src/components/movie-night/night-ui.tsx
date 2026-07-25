@@ -17,6 +17,7 @@ export function NightHeroCTA({
   label,
   icon: Icon,
   disabled,
+  dim,
   loading,
   sub,
   onTap,
@@ -24,11 +25,19 @@ export function NightHeroCTA({
   label: string;
   icon: LucideIcon;
   disabled?: boolean;
+  /** Cosmetic-only "looks disabled" (sunken/faint) WITHOUT the native
+   *  `disabled` attribute — a real `disabled` button never fires `onClick`,
+   *  which is exactly the "no film selected" dead-tap this exists to avoid:
+   *  the button LOOKS inert but a tap still reaches `onTap`, so the caller
+   *  can nudge the viewer toward the film card instead of silently doing
+   *  nothing. Implies the sunken/faint look even when `disabled` is false. */
+  dim?: boolean;
   loading?: boolean;
   sub?: string | null;
   onTap: () => void;
 }) {
   const isDisabled = !!disabled || !!loading;
+  const looksDisabled = isDisabled || !!dim;
   return (
     <div>
       <button
@@ -36,7 +45,7 @@ export function NightHeroCTA({
         disabled={isDisabled}
         onClick={onTap}
         className={`flex h-[52px] w-full items-center justify-center gap-2 rounded-[15px] font-headline text-[18px] font-bold lowercase tracking-[-0.02em] transition-transform active:scale-[0.98] disabled:active:scale-100 ${
-          disabled ? 'bg-sunken text-faint' : 'bg-primary text-primary-foreground shadow-fab'
+          looksDisabled ? 'bg-sunken text-faint' : 'bg-primary text-primary-foreground shadow-fab'
         }`}
       >
         {loading ? (
@@ -110,12 +119,13 @@ export function describeNightCta(
   film: MovieNightFilm | null,
   when: Date | null,
   mode: 'create' | 'reschedule' = 'create',
-): { disabled: boolean; sub: string } {
-  if (!film) return { disabled: true, sub: mode === 'reschedule' ? 'pick a film to reschedule it' : 'pick a film to propose it' };
-  if (!when) return { disabled: true, sub: mode === 'reschedule' ? 'add a time to reschedule it' : 'add a time to propose it' };
-  if (when.getTime() <= Date.now()) return { disabled: true, sub: "pick a night that hasn't happened yet" };
+): { disabled: boolean; sub: string; reason: 'no_film' | 'no_time' | 'past' | null } {
+  if (!film) return { disabled: true, reason: 'no_film', sub: mode === 'reschedule' ? 'pick a film to reschedule it' : 'pick a film to propose it' };
+  if (!when) return { disabled: true, reason: 'no_time', sub: mode === 'reschedule' ? 'add a time to reschedule it' : 'add a time to propose it' };
+  if (when.getTime() <= Date.now()) return { disabled: true, reason: 'past', sub: "pick a night that hasn't happened yet" };
   return {
     disabled: false,
+    reason: null,
     sub: mode === 'reschedule'
       ? 'everyone gets the new time.'
       : "your people get a ping. you'll get a reminder before showtime.",

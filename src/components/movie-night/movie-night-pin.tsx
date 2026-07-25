@@ -8,7 +8,8 @@ import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
 import { hasSeenMovieNightCoach, markMovieNightCoachSeen } from '@/lib/movie-night-format';
 import { MovieNightCard } from './movie-night-card';
-import { useMovieNight } from './movie-night-provider';
+import { PlanMovieNightRow } from './plan-night-row';
+import { useMovieNight, type MovieNightListContext } from './movie-night-provider';
 import type { MovieNightPinView, MovieNightView } from '@/lib/movie-night-types';
 
 /**
@@ -53,43 +54,56 @@ function CoachMark({ onDismiss }: { onDismiss: () => void }) {
 }
 
 /**
- * MN14 — the movie night pinned above a list's to-watch/watched toolbar
- * (MOVIE-NIGHT-PLAN.md § S3b). `GET /lists/[ownerId]/[listId]/movie-night`
- * is a `publicApiRoute` (a public list's pinned night is visible to anyone),
- * but this component only fetches once a viewer is signed in — an anonymous
- * visitor never sees an "add a movie night" affordance anyway, and it keeps
- * an anon page read-free. Renders nothing when there's no pinned night —
- * this is a decoration, not a banner.
+ * MN14/MN29 — the SINGLE data source for "does this list have a movie
+ * night." One fetch (`GET /lists/[ownerId]/[listId]/movie-night`, a
+ * `publicApiRoute` — a public list's pinned night is visible to anyone, but
+ * this component only fetches once a viewer is signed in, keeping an anon
+ * page read-free), one decision: a night → the pinned card (MN14); no night
+ * + the viewer can plan one (owner/collaborator) → the MN29 "no movie night
+ * yet · plan one" one-liner; no night + can't plan → nothing.
  *
- * F5 — the route returns the FULL `MovieNightView` only to the night's host
- * or an invitee; any other signed-in viewer (e.g. a collaborator on the list
- * who isn't on this particular night) gets the redacted `MovieNightPinView`.
- * `night` is typed as the union so `'viewer' in night` distinguishes them —
- * `MovieNightCard` itself only needs the common `MovieNightCardData` shape.
+ * These two states used to be TWO SEPARATE components (`PlanMovieNightRow` +
+ * this one) each running their OWN `useCachedAction` against the identical
+ * cache key, rendered at two different spots on the page (the plan row
+ * inside `ListHeader`, gated on the list doc having loaded; this one gated
+ * only on an owner id, so it could mount FIRST). On a cold cache — or just
+ * that mount-order gap — both could paint from `data:null` before either had
+ * an answer: the plan row said "no movie night yet" while the pin (still
+ * loading) said nothing, and once the fetch landed the two could still
+ * momentarily disagree. One component, one hook call, one render decision:
+ * that whole class of bug is now structurally impossible, and the previous
+ * ownerId-only gate (which could fire the fetch against the WRONG owner id
+ * for a collaborative list still mid-lookup) is gone too, since the caller
+ * now waits for the real list context before mounting this at all.
  */
 export function MovieNightPin({
-  ownerId,
-  listId,
+  list,
   viewerUid,
+  canPlan,
   className,
 }: {
-  ownerId: string;
-  listId: string;
+  list: MovieNightListContext;
   /** Pass `user?.uid` from the caller — gates the fetch to signed-in viewers. */
   viewerUid: string | null | undefined;
+  /** Owner/collaborator — may see (and tap into) the MN29 "plan one" row
+   *  when there's no night yet. Anyone else sees nothing until one exists. */
+  canPlan: boolean;
   className?: string;
 }) {
-  const { openNight, refreshToken } = useMovieNight();
-  const key = viewerUid ? `list-night:${ownerId}:${listId}` : null;
+  const { openNight, openCreate, refreshToken } = useMovieNight();
+  const key = viewerUid ? `list-night:${list.ownerId}:${list.id}` : null;
   const { data: night, refetch } = useCachedAction<MovieNightView | MovieNightPinView | null>(
     key,
-    () => apiCall<MovieNightView | MovieNightPinView | null>('GET', `/api/v1/lists/${ownerId}/${listId}/movie-night`),
+    () => apiCall<MovieNightView | MovieNightPinView | null>('GET', `/api/v1/lists/${list.ownerId}/${list.id}/movie-night`),
     { staleTime: 60_000 },
   );
 
   // A RSVP/reschedule/cancel/create elsewhere (e.g. the detail sheet opened
   // FROM this very card) bumps `refreshToken` — the cache key stays stable
-  // (so we don't leak an entry per bump), we just re-fire the fetch.
+  // (so we don't leak an entry per bump), we just re-fire the fetch. In the
+  // common case the mutating sheet ALREADY patched this exact cache entry
+  // synchronously (`reportNightChange`, see `movie-night-provider.tsx`), so
+  // this refetch is a confirmation, not the thing that makes the UI correct.
   const lastToken = useRef(refreshToken);
   useEffect(() => {
     if (lastToken.current === refreshToken) return;
@@ -110,7 +124,14 @@ export function MovieNightPin({
     setShowCoach(true);
   }, [night]);
 
-  if (!night) return null;
+  if (!night) {
+    if (!canPlan) return null;
+    return (
+      <div className={className}>
+        <PlanMovieNightRow onTap={() => openCreate({ list })} />
+      </div>
+    );
+  }
 
   return (
     <div className={cn('relative mb-5', className)}>

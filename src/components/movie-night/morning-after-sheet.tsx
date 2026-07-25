@@ -210,7 +210,10 @@ function WatchedMomentSheet({
   const dateLabel = formatNightDateShort(night.scheduledFor, night.tzOffsetMinutes);
 
   return createPortal(
-    <div className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="how was it?">
+    // F1 — same Vaul-body-lock pointer-events fix as the other movie-night
+    // portals: this fullscreen sheet replaces `PromptSheet` (a Vaul drawer)
+    // which may still be mid-close when this mounts.
+    <div className="fixed inset-0 z-[95] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="how was it?">
       <header className="flex flex-shrink-0 items-center justify-between border-b border-hair px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}>
         <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">skip</button>
         <span className="font-headline text-[18px] font-bold lowercase tracking-[-0.02em]">how was it?</span>
@@ -422,7 +425,10 @@ export function MorningAfterFlow({
   nightId: string | null;
   onClose: () => void;
   onOpenNight: (id: string) => void;
-  onMutated?: () => void;
+  /** F5 — pass the fresh `MovieNightView` (complete/didnt_happen/reschedule
+   *  all end with one) so the provider can patch the list-pin cache
+   *  directly instead of racing a background refetch. */
+  onMutated?: (view: MovieNightView) => void;
 }) {
   const { user } = useUser();
   const isOpen = !!nightId;
@@ -480,17 +486,22 @@ export function MorningAfterFlow({
     setSubmitting(true);
     setError(null);
     try {
-      await apiCall('POST', `/api/v1/movie-nights/${night.id}/complete`, {
+      const updated = await apiCall<MovieNightView>('POST', `/api/v1/movie-nights/${night.id}/complete`, {
         attendeeUids,
         rating: rating ?? undefined,
         note: note.trim() || undefined,
       });
       haptic('success');
       track(AnalyticsEvent.MovieNightCompleted, { attendees: attendeeUids.length });
-      onMutated?.();
+      onMutated?.(updated);
       const id = night.id;
       closeAll();
-      onOpenNight(id); // → MN26, the completed detail state
+      // F3 — same close-sequencing discipline as the create sheet's "see the
+      // night": fully close this flow FIRST, then open the (now completed)
+      // detail sheet only after Vaul's exit animation has had time to
+      // release the body lock, so the two Drawer.Roots never stack mid-
+      // transition.
+      setTimeout(() => onOpenNight(id), 350); // → MN26, the completed detail state
     } catch (err) {
       haptic('error');
       setError(err instanceof ApiClientError ? err.message : 'could not save. try again.');
@@ -504,11 +515,11 @@ export function MorningAfterFlow({
     setSubmitting(true);
     setError(null);
     try {
-      await apiCall('PATCH', `/api/v1/movie-nights/${night.id}`, { action: 'didnt_happen' });
+      const updated = await apiCall<MovieNightView>('PATCH', `/api/v1/movie-nights/${night.id}`, { action: 'didnt_happen' });
       haptic('light');
       track(AnalyticsEvent.MovieNightMissed, {});
       if (nightId) snoozeMorningAfter(nightId);
-      onMutated?.();
+      onMutated?.(updated);
       closeAll();
     } catch (err) {
       haptic('error');
@@ -567,12 +578,14 @@ export function MorningAfterFlow({
           isOpen={showReschedule}
           night={night}
           onClose={() => setShowReschedule(false)}
-          onRescheduled={() => {
-            onMutated?.();
+          onRescheduled={(updated) => {
+            onMutated?.(updated);
             const id = night.id;
             setShowReschedule(false);
             closeAll();
-            onOpenNight(id); // → the (now active again) detail sheet
+            // F3 — delay the new drawer open past Vaul's exit animation, same
+            // reasoning as `handleSave` above.
+            setTimeout(() => onOpenNight(id), 350); // → the (now active again) detail sheet
           }}
         />
       )}

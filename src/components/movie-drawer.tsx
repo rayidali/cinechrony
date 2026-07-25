@@ -737,10 +737,7 @@ export function MovieDrawer({
                       <CalendarPlus className="h-5 w-5 text-primary-foreground" strokeWidth={2.2} />
                     </span>
                     <span className="min-w-0 flex-1">
-                      <span className="flex items-center gap-2">
-                        <span className="font-headline text-[16px] font-bold lowercase tracking-[-0.02em] text-foreground">plan a movie night</span>
-                        <span className="rounded-full border border-primary px-1.5 py-[1px] font-mono text-[8px] font-bold uppercase tracking-[0.1em] text-primary">new</span>
-                      </span>
+                      <span className="font-headline text-[16px] font-bold lowercase tracking-[-0.02em] text-foreground">plan a movie night</span>
                       <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground">a date, a time, your people</span>
                     </span>
                     <ChevronRight className="h-[18px] w-[18px] flex-shrink-0 text-muted-foreground" strokeWidth={2} />

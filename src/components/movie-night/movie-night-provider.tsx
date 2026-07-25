@@ -4,6 +4,7 @@ import { Suspense, createContext, useCallback, useContext, useEffect, useMemo, u
 import { useSearchParams } from '@/lib/native-nav';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
+import { setCachedAction } from '@/lib/use-cached-action';
 import { nightPhase, isMorningAfterSnoozed } from '@/lib/movie-night-format';
 import { CreateNightSheet } from './create-night-sheet';
 import { NightDetailSheet } from './night-detail-sheet';
@@ -75,6 +76,16 @@ type MovieNightContextValue = {
    *  the detail/create sheets already do this internally). */
   refreshToken: number;
   refreshUpcoming: () => void;
+  /** F5 — the SAME thing `refreshUpcoming` does, PLUS a synchronous, zero-
+   *  network patch of the list-pin cache (`list-night:{ownerId}:{listId}`,
+   *  the exact key `MovieNightPin` reads) whenever the mutated night carries
+   *  a `listId`/`listOwnerId`: a night that's still `'proposed'` becomes the
+   *  new cached pin value, anything else (cancelled/completed/didnt_happen)
+   *  clears the pin to `null`. Call this whenever the caller has the fresh
+   *  full `MovieNightView` in hand (create/rsvp/reschedule/cancel/complete/
+   *  didnt_happen all do) — it's what makes a cancel/complete hide the pin on
+   *  the SAME visit instead of racing a background refetch. */
+  reportNightChange: (night: MovieNightView) => void;
 };
 
 const MovieNightContext = createContext<MovieNightContextValue | null>(null);
@@ -131,6 +142,15 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
     setRefreshToken((n) => n + 1);
   }, []);
 
+  // F5 — see the context type doc above.
+  const reportNightChange = useCallback((night: MovieNightView) => {
+    if (night.listId && night.listOwnerId) {
+      const key = `list-night:${night.listOwnerId}:${night.listId}`;
+      setCachedAction<MovieNightView | null>(key, night.status === 'proposed' ? night : null);
+    }
+    setRefreshToken((n) => n + 1);
+  }, []);
+
   // C2 — mutual exclusion for the boot-time morning-after auto-offer.
   // Latest-value refs (NOT the state itself) so the async boot check can
   // read what's open at RESOLVE time, not just at launch time — a create/
@@ -184,8 +204,8 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
   }, [user?.uid]);
 
   const value = useMemo(
-    () => ({ openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming }),
-    [openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming],
+    () => ({ openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming, reportNightChange }),
+    [openCreate, openNight, openMorningAfter, refreshToken, refreshUpcoming, reportNightChange],
   );
 
   return (
@@ -198,18 +218,18 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
         args={createArgs}
         onClose={() => setCreateArgs(null)}
         onOpenNight={openNight}
-        onNightMutated={refreshUpcoming}
+        onNightMutated={reportNightChange}
       />
       <NightDetailSheet
         nightId={openNightId}
         onClose={() => setOpenNightId(null)}
-        onMutated={refreshUpcoming}
+        onMutated={reportNightChange}
       />
       <MorningAfterFlow
         nightId={morningAfterNightId}
         onClose={() => setMorningAfterNightId(null)}
         onOpenNight={openNight}
-        onMutated={refreshUpcoming}
+        onMutated={reportNightChange}
       />
       <MovieNightReminderToastBridge onOpenNight={openNight} />
     </MovieNightContext.Provider>

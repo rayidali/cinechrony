@@ -331,7 +331,11 @@ function CancelConfirmModal({
   if (!isOpen || !mounted || !night) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[92] flex items-center justify-center bg-black/50 px-6" role="dialog" aria-label="cancel movie night?">
+    // F1 — this overlay renders while the detail sheet's own Drawer.Root (and
+    // possibly the reschedule flow's) is still open, so Vaul's dismissable
+    // layer may have set `body.style.pointerEvents = 'none'`; an explicit
+    // `auto` here keeps "cancel the night" / "keep it" tappable immediately.
+    <div className="fixed inset-0 z-[92] flex items-center justify-center bg-black/50 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="cancel movie night?">
       <div className="w-full max-w-[340px] rounded-[24px] border border-hair bg-background p-6 pb-5 shadow-lift">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
           <CalendarX className="h-[26px] w-[26px] text-destructive" strokeWidth={2} />
@@ -545,7 +549,14 @@ function applyOptimisticRsvp(night: MovieNightView, viewerUid: string, answer: R
 
 export function NightDetailSheet({
   nightId, onClose, onMutated,
-}: { nightId: string | null; onClose: () => void; onMutated?: () => void }) {
+}: {
+  nightId: string | null;
+  onClose: () => void;
+  /** F5 — pass the fresh `MovieNightView` from every mutation (rsvp/cancel/
+   *  reschedule) so the provider can patch the list-pin cache directly
+   *  (cancel hides the pin on the same visit with zero refetch race). */
+  onMutated?: (view: MovieNightView) => void;
+}) {
   const { user } = useUser();
   const { toast } = useToast();
   const isOpen = !!nightId;
@@ -620,7 +631,7 @@ export function NightDetailSheet({
       haptic('success');
       setNight(updated);
       track(AnalyticsEvent.MovieNightRsvp, { answer, surface: 'detail' });
-      onMutated?.();
+      onMutated?.(updated);
     } catch (err) {
       haptic('error');
       setNight(snapshot);
@@ -638,7 +649,7 @@ export function NightDetailSheet({
       const updated = await apiCall<MovieNightView>('PATCH', `/api/v1/movie-nights/${night.id}`, { action: 'cancel' });
       haptic('success');
       setNight(updated);
-      onMutated?.();
+      onMutated?.(updated);
       setShowCancelConfirm(false);
       onClose();
     } catch (err) {
@@ -866,7 +877,7 @@ export function NightDetailSheet({
               isOpen={showReschedule}
               night={night}
               onClose={() => setShowReschedule(false)}
-              onRescheduled={(updated) => { setNight(updated); onMutated?.(); }}
+              onRescheduled={(updated) => { setNight(updated); onMutated?.(updated); }}
             />
           )}
 
