@@ -19,6 +19,7 @@ import { PendingImportSync } from '@/components/pending-import-sync';
 import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
+import { MovieNightProvider } from '@/components/movie-night/movie-night-provider';
 import { BottomNav } from '@/components/bottom-nav';
 import { ProductTour } from '@/components/product-tour';
 import { PostHogProvider } from '@/components/posthog-provider';
@@ -136,7 +137,9 @@ export default function RootLayout({
                         <PendingImportSync />
                         <ImportProgressPill />
                         <StoryShareProvider>
-                          <NativeTransitions>{children}</NativeTransitions>
+                          <MovieNightProvider>
+                            <NativeTransitions>{children}</NativeTransitions>
+                          </MovieNightProvider>
                         </StoryShareProvider>
                         {/* Persistent tab bar — a SIBLING of the transition
                             wrapper so it never unmounts (no backdrop-filter

@@ -6,6 +6,7 @@ import { Plus, Settings2, Share } from 'lucide-react';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { ListLikeButton } from '@/components/list-like-button';
 import { useStoryShare } from '@/components/story-share-provider';
+import { PlanMovieNightRow } from '@/components/movie-night/plan-night-row';
 import { haptic } from '@/lib/haptics';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
@@ -218,6 +219,22 @@ export function ListHeader({
           </Link>
         )}
       </div>
+
+      {/* MN29 — the quiet "no movie night yet · plan one →" one-liner.
+          Editable-list-only; renders nothing once a night exists (the
+          MovieNightPin further down the page owns that display). */}
+      {(isOwner || isCollaborator) && (
+        <div className="mt-4">
+          <PlanMovieNightRow
+            list={{
+              id: listId,
+              ownerId: listOwnerId,
+              name: listData?.name || 'this list',
+              memberUids: sortedMembers.map((m) => m.uid),
+            }}
+          />
+        </div>
+      )}
 
       {/* Like — read-only-ish for members; a stale like stays removable. */}
       {listData?.isPublic && (

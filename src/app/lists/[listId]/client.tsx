@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button';
 import { MovieList } from '@/components/movie-list';
 import { DetailSkeleton } from '@/components/page-skeletons';
 import { ListHeader } from '@/components/list-header';
+import { MovieNightPin } from '@/components/movie-night/movie-night-pin';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
@@ -356,6 +357,13 @@ export default function ListDetailPage() {
                   <div className="h-4 w-1/2 rounded bg-muted animate-pulse" />
                   <div className="h-8 w-1/3 rounded-full bg-muted animate-pulse" />
                 </div>
+              )}
+
+              {/* MN14 — the pinned movie night, above the to watch/watched toolbar.
+                  Renders nothing (no DOM node at all) when there's no night, so
+                  it never leaves a stray margin behind. */}
+              {effectiveOwnerId && (
+                <MovieNightPin ownerId={effectiveOwnerId} listId={listId} viewerUid={user?.uid} className="mt-6" />
               )}
 
               {/* Movie list — `MovieList` shows its own skeleton when isLoading. */}

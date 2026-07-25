@@ -365,6 +365,12 @@ service cloud.firestore {
     match /extraction_cache/{urlHash} {
       allow read, write: if false;
     }
+    // MOVIE-NIGHT-PLAN.md — movie nights are read/written entirely through
+    // /api/v1/movie-nights* (Admin SDK). The share-code guest page (S2) is a
+    // separate public route, not direct client access to this collection.
+    match /movie_nights/{id} {
+      allow read, write: if false;
+    }
     // Precomputed home-rail snapshot (leaderboard + friends-watching). Built +
     // read server-side only; clients reach it via the cached API rails.
     match /snapshots/{snapshotId} {

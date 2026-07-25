@@ -27,8 +27,9 @@
  *   v2 → real cinechrony popcorn logo
  *   v3 → "post" card variant
  *   v4 → post card shows real media hero (was a lone play button)
+ *   v5 → /share/og gained the "night" variant (movie-night invite card)
  */
-export const CARD_VERSION = '4';
+export const CARD_VERSION = '5';
 
 export type StoryCardKind = 'review' | 'watched' | 'list' | 'post';
 

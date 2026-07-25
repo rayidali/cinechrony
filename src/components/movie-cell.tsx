@@ -14,6 +14,7 @@ import { useUserProfile } from '@/contexts/user-profile-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
+import { track, AnalyticsEvent } from '@/lib/analytics';
 import { Button } from '@/components/ui/button';
 import { TiktokIcon } from './icons';
 import { getRatingStyle } from '@/lib/utils';
@@ -258,6 +259,7 @@ export const MovieCellRow = memo(function MovieCellRow({
     const newStatus = effectiveStatus === 'To Watch' ? 'Watched' : 'To Watch';
     setStatusOverride(newStatus); // optimistic — instant icon + pill flip
     haptic('light');
+    if (newStatus === 'Watched') track(AnalyticsEvent.MovieMarkedWatched);
     startTransition(() => {
       void apiCall(
         'PATCH',

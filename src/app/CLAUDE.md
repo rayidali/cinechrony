@@ -449,6 +449,15 @@ Branch `feat/phase-c-extraction`. The AI "share a video → extract films" featu
 - **`POST /api/v1/extractions/[jobId]/save`** `{ createLists?, items[] }` →
   per-item results — create caller-owned lists + `addMovieToList` per film with
   the source video as `socialLink`. Per-item `canEditList`, idempotent, integrity.
+- **Movie Night (v1.1, `feat/movie-nights`)** — `/api/v1/movie-nights`
+  (POST create · GET upcoming · GET/PATCH [id] · POST [id]/rsvp ·
+  POST [id]/complete), `GET /api/v1/lists/[o]/[l]/movie-night` (pin),
+  PUBLIC `shared/[code]` (view · guest rsvp · calendar.ics),
+  `POST /api/v1/admin/movie-nights-tick` (GH Actions 10-min cron).
+  Client: `src/components/movie-night/*` (create sheet, detail sheet,
+  cards, morning-after, provider with `?night=<id>` deep link) + the
+  guest web page **`/n/[code]`** (SSR, `_` shell on static export).
+  Plan/tracker: `MOVIE-NIGHT-PLAN.md`.
 - **`GET /api/v1/me/scan-quota`** → `{ limit, used, remaining, week, resetsAt }`
   — the free tier's weekly scan quota (7/week, Monday 00:00 UTC reset; only a
   CLAIM counts, cache hits/followers are free). A quota-exhausted claim 429s

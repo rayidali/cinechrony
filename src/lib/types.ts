@@ -369,7 +369,14 @@ export type NotificationType =
   | 'list_like' // Someone liked one of your public lists
   | 'post_tag' // Someone tagged you in a post
   | 'post_like' // Someone liked your post
-  | 'post_comment'; // Someone commented on your post
+  | 'post_comment' // Someone commented on your post
+  // Movie Night (MOVIE-NIGHT-PLAN.md)
+  | 'movie_night_invite' // Someone planned a movie night with you
+  | 'movie_night_rsvp' // An invitee RSVP'd (host only)
+  | 'movie_night_reminder' // The ticker's pre-showtime nudge (S2)
+  | 'movie_night_time_changed' // The host rescheduled
+  | 'movie_night_cancelled' // The host cancelled
+  | 'movie_night_morning_after'; // Nudge to rate after another attendee completed it
 
 // Notification
 export type Notification = {
@@ -394,6 +401,10 @@ export type Notification = {
   inviteId?: string; // For accepting/declining invites from notification
   // Post context (for post_tag / post_like / post_comment)
   postId?: string;
+  // Movie Night context (for movie_night_*)
+  nightId?: string;
+  nightDateLabel?: string; // 'fri 24.07'
+  nightTimeLabel?: string; // '8:00 pm'
   // State
   read: boolean;
   createdAt: Date;

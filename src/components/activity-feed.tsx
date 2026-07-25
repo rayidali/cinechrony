@@ -7,6 +7,7 @@ import type { FriendsWatchingCard as FWCard } from '@/lib/friends-watching-serve
 import type { RecommendationSet } from '@/lib/tmdb-server';
 import type { FeedItem } from '@/lib/posts-server';
 import type { HotTake } from '@/lib/reviews-server';
+import type { MovieNightView } from '@/lib/movie-night-types';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useAuth } from '@/firebase';
 import {
@@ -29,6 +30,8 @@ import { PostCard } from './post-card';
 import { RecommendationCard } from './recommendation-card';
 import { FriendsWatchingCard } from './friends-watching-card';
 import { HotTakeCard } from './hot-take-card';
+import { MovieNightFeedCard } from './movie-night/movie-night-feed-card';
+import { useMovieNight } from './movie-night/movie-night-provider';
 import { useMovieModal } from '@/contexts/movie-modal-context';
 
 type ActivityFeedProps = {
@@ -159,17 +162,20 @@ export function ActivityFeed({
   const recKey = currentUserId ? `home-recs:${currentUserId}` : null;
   const fwKey = currentUserId ? `home-fw:${currentUserId}` : null;
   const htKey = currentUserId ? `home-hot-takes:${currentUserId}` : null;
+  const mnKey = currentUserId ? `home-mn-upcoming:${currentUserId}` : null;
 
   type FeedSnapshot = { items: FeedItem[]; hasMore: boolean; cursor: string | null };
   const cachedFeed = feedKey ? readCachedAction<FeedSnapshot>(feedKey) : undefined;
   const cachedRecs = recKey ? readCachedAction<RecommendationSet[]>(recKey) : undefined;
   const cachedFw = fwKey ? readCachedAction<FWCard[]>(fwKey) : undefined;
   const cachedHt = htKey ? readCachedAction<HotTake[]>(htKey) : undefined;
+  const cachedMn = mnKey ? readCachedAction<MovieNightView[]>(mnKey) : undefined;
 
   const [items, setItems] = useState<FeedItem[]>(cachedFeed?.items ?? []);
   const [recSets, setRecSets] = useState<RecommendationSet[]>(cachedRecs ?? []);
   const [fwCards, setFwCards] = useState<FWCard[]>(cachedFw ?? []);
   const [hotTakes, setHotTakes] = useState<HotTake[]>(cachedHt ?? []);
+  const [upcomingNights, setUpcomingNights] = useState<MovieNightView[]>(cachedMn ?? []);
   const [isLoading, setIsLoading] = useState(cachedFeed === undefined);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(cachedFeed?.hasMore ?? false);
@@ -177,12 +183,15 @@ export function ActivityFeed({
   const [error, setError] = useState<string | null>(null);
 
   const { openMovie } = useMovieModal();
+  const { refreshToken: mnRefreshToken } = useMovieNight();
 
   const sentinelRef = useRef<HTMLDivElement>(null);
   // Track refreshKey per-effect so a pull-to-refresh forces a refetch but a
   // plain remount respects the freshness window.
   const lastFeedRefreshRef = useRef(refreshKey);
   const lastRailsRefreshRef = useRef(refreshKey);
+  const lastMnRefreshRef = useRef(refreshKey);
+  const lastMnTokenRef = useRef(mnRefreshToken);
 
   // Fetch one page — `saved` reads the bookmarks feed, everything else the
   // merged home feed (activities + posts).
@@ -326,6 +335,36 @@ export function ActivityFeed({
     };
   }, [auth, refreshKey, recKey, fwKey, htKey]);
 
+  // MN15 — the soonest upcoming movie night, once. Own effect (not folded
+  // into the rails fetch above) so a movie-night-only mutation elsewhere
+  // (RSVP from the detail sheet, a fresh `propose it`) can force JUST this
+  // refetch via `mnRefreshToken` without re-firing recs/friends-watching/
+  // hot-takes too.
+  useEffect(() => {
+    let cancelled = false;
+    const forced = lastMnRefreshRef.current !== refreshKey || lastMnTokenRef.current !== mnRefreshToken;
+    lastMnRefreshRef.current = refreshKey;
+    lastMnTokenRef.current = mnRefreshToken;
+    if (!forced && mnKey && isCachedActionFresh(mnKey, RAILS_STALE_MS) && readCachedAction(mnKey) !== undefined) {
+      return;
+    }
+    (async () => {
+      try {
+        const idToken = (await auth.currentUser?.getIdToken()) ?? '';
+        if (!idToken) return;
+        const nights = await apiCall<MovieNightView[]>('GET', '/api/v1/movie-nights/upcoming').catch(() => [] as MovieNightView[]);
+        if (cancelled) return;
+        setUpcomingNights(nights);
+        if (mnKey) setCachedAction(mnKey, nights);
+      } catch {
+        /* non-critical */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [auth, refreshKey, mnKey, mnRefreshToken]);
+
   const loadMore = useCallback(async () => {
     if (!hasMore || isLoadingMore || !cursor) return;
     try {
@@ -413,6 +452,12 @@ export function ActivityFeed({
     [hotTakes, currentUserId, isBlocked, isMuted],
   );
 
+  // MN15 — the soonest upcoming movie night. `getUpcomingMovieNights` already
+  // scopes to nights the viewer hosts or is invited to (a private pool, not a
+  // public one like hot-takes), so no block/mute filter is needed — just take
+  // the soonest.
+  const soonestNight = upcomingNights[0] ?? null;
+
   // Interleave recommendations + friends-watching (only in the `all` view).
   // The first recommendation lands within the first scroll — by card 3, or at
   // the end of a short feed so sparse feeds still surface discovery; then
@@ -423,6 +468,7 @@ export function ActivityFeed({
     let recIdx = 0;
     let fwIdx = 0;
     let htIdx = 0;
+    let mnInserted = false;
     const total = visibleItems.length;
     const firstRecAt = Math.min(3, total);
     const firstFwAt = Math.min(6, total);
@@ -455,6 +501,13 @@ export function ActivityFeed({
           />,
         );
       }
+      // MN15 — right after the first feed item (matches how HotTakeCard
+      // interleaves, but trailing rather than leading — the design shows it
+      // as a diary entry among others, not a headline).
+      if (feedFilter === 'all' && !mnInserted && soonestNight && i === 0) {
+        nodes.push(<MovieNightFeedCard key={`mn_${soonestNight.id}`} night={soonestNight} />);
+        mnInserted = true;
+      }
       if (feedFilter !== 'all') return;
       const pos = i + 1;
       if (
@@ -479,7 +532,7 @@ export function ActivityFeed({
       }
     });
     return nodes;
-  }, [visibleItems, recSets, fwCards, visibleHotTakes, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
+  }, [visibleItems, recSets, fwCards, visibleHotTakes, soonestNight, feedFilter, currentUserId, handleMovieClick, handlePostDeleted]);
 
   return (
     <section>

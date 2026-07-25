@@ -32,3 +32,53 @@ export function shareOrigin(): string {
 export function profileShareUrl(username: string): string {
   return `${shareOrigin()}/profile/${username}`;
 }
+
+export type ShareLinkResult = 'shared' | 'copied' | 'dismissed';
+
+const isCancelledShare = (err: unknown) =>
+  err instanceof Error && (/cancel|dismiss/i.test(err.message) || err.name === 'AbortError');
+
+/**
+ * Share a plain text+link (no rendered image) via the OS share sheet — e.g. a
+ * movie-night invite (`night-detail-sheet.tsx` header icon, `ShareNightRow` on
+ * a completed night). Mirrors `story-share.ts`'s `sendToFriend` native path
+ * (`@capacitor/share`) but skips the PNG render since there's nothing to
+ * render here; falls back to `navigator.share`, then the clipboard, on web —
+ * same fallback chain as `card-overflow-menu.tsx` / `profile/page.tsx`.
+ */
+export async function shareLink(opts: { title: string; text: string; url: string }): Promise<ShareLinkResult> {
+  let isNative = false;
+  try {
+    const { Capacitor } = await import('@capacitor/core');
+    isNative = Capacitor.isNativePlatform();
+  } catch {
+    isNative = false;
+  }
+
+  if (isNative) {
+    const { Share } = await import('@capacitor/share');
+    try {
+      await Share.share({ title: opts.title, text: opts.text, url: opts.url, dialogTitle: opts.title });
+      return 'shared';
+    } catch (err) {
+      if (isCancelledShare(err)) return 'dismissed';
+      throw err;
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.share) {
+    try {
+      await navigator.share({ title: opts.title, text: opts.text, url: opts.url });
+      return 'shared';
+    } catch (err) {
+      if (isCancelledShare(err)) return 'dismissed';
+      // fall through to the clipboard
+    }
+  }
+
+  if (typeof navigator !== 'undefined' && navigator.clipboard) {
+    await navigator.clipboard.writeText(`${opts.text} ${opts.url}`);
+    return 'copied';
+  }
+  return 'dismissed';
+}

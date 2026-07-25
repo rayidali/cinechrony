@@ -27,6 +27,11 @@ export const AnalyticsEvent = {
   ExtractionStarted: 'extraction_started',
   ExtractionSucceeded: 'extraction_succeeded',
   ExtractionSaved: 'extraction_saved',
+  MovieNightCreated: 'movie_night_created',
+  MovieNightRsvp: 'movie_night_rsvp',
+  MovieNightCompleted: 'movie_night_completed',
+  MovieNightMissed: 'movie_night_missed',
+  MovieMarkedWatched: 'movie_marked_watched',
 } as const;
 
 export type AnalyticsEventName = (typeof AnalyticsEvent)[keyof typeof AnalyticsEvent];
