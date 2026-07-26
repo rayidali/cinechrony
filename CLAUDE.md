@@ -24,7 +24,12 @@
   clicks through plan→propose→see-the-night→cancel with body-lock
   audits (13/13); RUN IT BEFORE EVERY NATIVE BUILD (`npm run dev` +
   `node scripts/interaction-harness.mjs`). Suite 565/565; build 1.0 (3)
-  uploaded same evening.
+  uploaded same evening. POSTSCRIPT: build 3 shipped the CalendarBridge
+  plugin compiled but UNWIRED (the apple-calendar row still opened the
+  .ics -> Subscribe flow; owner caught it) — the two-line JS wiring was
+  the seam between two agent workstreams that nobody owned. Wired in
+  `020357e`; **build 1.0 (4)** carries it. Lesson: when work is split
+  across agents, the INTEGRATION SEAM is a deliverable with an owner.
 - **CI was silently RED on main since at least 07-11 — FIXED (2026-07-25,
   `a7c7c12`).** The verify job's env-less `npm run build` broke when
   prerender started initializing the Firebase client SDK (throws without
