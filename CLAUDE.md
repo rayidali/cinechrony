@@ -30,6 +30,17 @@
   the seam between two agent workstreams that nobody owned. Wired in
   `020357e`; **build 1.0 (4)** carries it. Lesson: when work is split
   across agents, the INTEGRATION SEAM is a deliverable with an owner.
+  THEN build 4's wired sheet CRASHED in the field (TestFlight crash
+  report pulled via the API: EKEventEditViewController constructed on
+  Capacitor's background plugin queue, swift:123 thread 6, + a
+  no-access calendar READ removed) — fixed in `009a6cf`, and PROVEN
+  headlessly before upload via the new **`-smokeCalendar` launch-arg
+  smoke hook** (simctl launch + screenshot shows the rendered New Event
+  sheet — the native gate that was missing; suite 51 guards the hook).
+  **Build 1.0 (5)** carries it. RULES: Capacitor plugin methods run
+  OFF-MAIN (hop before ANY UIKit touch); every native UI plugin gets a
+  smoke hook; run the browser harness AND the native smoke before
+  every upload.
 - **CI was silently RED on main since at least 07-11 — FIXED (2026-07-25,
   `a7c7c12`).** The verify job's env-less `npm run build` broke when
   prerender started initializing the Firebase client SDK (throws without
