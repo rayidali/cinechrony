@@ -80,6 +80,7 @@ class ShareViewController: UIViewController {
         let model = ShareFlowModel(sharedURL: url)
         model.onFinish = { [weak self] in self?.finish() }
         model.onOpenApp = { [weak self] url in self?.openHostApp(url) }
+        model.onPlanNight = { [weak self] deepLink in self?.openDeepLink(deepLink) }
 
         let hosting = UIHostingController(rootView: ShareFlowView(model: model))
         hosting.view.backgroundColor = .clear
@@ -167,17 +168,25 @@ class ShareViewController: UIViewController {
         }
     }
 
-    // MARK: - Fallback hand-off — the ONLY app-open path (signed-out / error "open cinechrony")
+    // MARK: - Fallback hand-off — the ONLY app-open paths (signed-out / error
+    // "open cinechrony", and the done state's "plan a movie night")
 
     private func openHostApp(_ url: URL) {
         guard let deepLink = makeDeepLink(for: url) else { finish(); return }
-        // Apple restricts opening the host app from a share extension. Two
-        // best-effort attempts, in order of reliability:
-        //   1) The sanctioned NSExtensionContext.open (works on some iOS versions
-        //      for a custom-scheme URL that points at the containing app).
-        //   2) Responder-chain open using the MODERN selector. iOS 17/18+ FORCE
-        //      return false for the deprecated single-arg `openURL:`, so we must
-        //      call `openURL:options:completionHandler:` on a real UIApplication.
+        openDeepLink(deepLink)
+    }
+
+    /// Opens an ALREADY-BUILT deep link (either `makeDeepLink`'s `cinechrony://
+    /// extract?url=…`, or the done state's `cinechrony://plan-night?…` from
+    /// ShareFlowModel.planNightDeepLink) and finishes the extension afterward.
+    /// Apple restricts opening the host app from a share extension — two
+    /// best-effort attempts, in order of reliability:
+    ///   1) The sanctioned NSExtensionContext.open (works on some iOS versions
+    ///      for a custom-scheme URL that points at the containing app).
+    ///   2) Responder-chain open using the MODERN selector. iOS 17/18+ FORCE
+    ///      return false for the deprecated single-arg `openURL:`, so we must
+    ///      call `openURL:options:completionHandler:` on a real UIApplication.
+    private func openDeepLink(_ deepLink: URL) {
         extensionContext?.open(deepLink) { [weak self] opened in
             guard let self = self else { return }
             if opened {

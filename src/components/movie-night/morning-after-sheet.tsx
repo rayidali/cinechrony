@@ -7,6 +7,7 @@ import { AlertTriangle, CalendarX, Check, ChevronRight, Moon, Pencil } from 'luc
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { modalGuardProps, guardInteractOutside } from '@/lib/modal-guard';
 import { track, AnalyticsEvent } from '@/lib/analytics';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { DragToRate } from '@/components/v3/drag-to-rate';
@@ -73,7 +74,11 @@ function PromptSheet({
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onNotNow()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[90] bg-black/55" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[90] flex max-h-[80vh] flex-col rounded-t-[22px] bg-background outline-none">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[90] flex max-h-[80vh] flex-col rounded-t-[22px] bg-background outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">last night</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
           <div className="flex items-center justify-between px-5 py-2.5">
@@ -213,7 +218,7 @@ function WatchedMomentSheet({
     // F1 — same Vaul-body-lock pointer-events fix as the other movie-night
     // portals: this fullscreen sheet replaces `PromptSheet` (a Vaul drawer)
     // which may still be mid-close when this mounts.
-    <div className="fixed inset-0 z-[95] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="how was it?">
+    <div {...modalGuardProps} className="fixed inset-0 z-[95] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="how was it?">
       <header className="flex flex-shrink-0 items-center justify-between border-b border-hair px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}>
         <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">skip</button>
         <span className="font-headline text-[18px] font-bold lowercase tracking-[-0.02em]">how was it?</span>
@@ -363,7 +368,11 @@ function DidntHappenSheet({
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[90] bg-black/55" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[90] flex max-h-[64vh] flex-col rounded-t-[22px] bg-background outline-none">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[90] flex max-h-[64vh] flex-col rounded-t-[22px] bg-background outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">that&apos;s okay</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
           <div className="flex items-center justify-between px-5 py-2.5">

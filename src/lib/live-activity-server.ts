@@ -268,17 +268,26 @@ export function sendLiveActivityUpdate(
 }
 
 /** Terminal update. The card stays on the lock screen (dismissal-date; iOS
- *  caps the linger at ~4h) so the result survives the moment of delivery. */
+ *  caps the linger at ~4h) so the result survives the moment of delivery.
+ *  Optional `alert` makes this an ActivityKit ALERTING terminal update —
+ *  Apple's "order delivered" pattern: the card still morphs in place, but a
+ *  banner + sound also fire, so a resolved scan is a moment the user notices
+ *  instead of a silent lock-screen edit. Omit it for a quiet resolve — the
+ *  one case that needs it: a late-arriving token resolving a job whose
+ *  outcome was already announced (see extraction-server's `pushResult`
+ *  gate), where a second alert would just be a duplicate ding. */
 export function sendLiveActivityEnd(
   updateToken: string,
   envHint: LaEnv | null,
   contentState: LaContentState,
+  alert?: { title: string; body: string },
 ): Promise<LaSendResult> {
   return apnsSend('end', updateToken, {
     timestamp: nowSec(),
     event: 'end',
     'content-state': contentState,
     'dismissal-date': nowSec() + 4 * 60 * 60,
+    ...(alert ? { alert: { title: alert.title, body: alert.body, sound: 'default' } } : {}),
   }, envHint);
 }
 

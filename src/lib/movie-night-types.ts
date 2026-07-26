@@ -12,6 +12,16 @@ export type MovieNightStatus = 'proposed' | 'cancelled' | 'completed' | 'didnt_h
 
 export type RsvpAnswer = 'in' | 'maybe' | 'out';
 
+/** Host-controlled visibility of a movie night pinned to a list. `'public'`
+ *  is the same behavior every night had before this field existed — visible
+ *  (redacted, via `MovieNightPinView`) to anyone who can see the list,
+ *  including anonymous visitors of a public list. `'private'` restricts
+ *  `getListMovieNight` to the host + invitees only — a non-invited caller
+ *  gets `null`, same as no night existing at all. A legacy doc (written
+ *  before this field existed) has no `visibility` at all; that absence is
+ *  read as `'public'` at read time — never backfilled. */
+export type MovieNightVisibility = 'public' | 'private';
+
 export type ReminderPreset = '2h' | 'morning' | 'showtime';
 
 /** The one film a movie night is about. */
@@ -62,6 +72,11 @@ export type MovieNightView = {
   tzOffsetMinutes: number;
   reminderPreset: ReminderPreset;
   status: MovieNightStatus;
+  /** Host-set; hosts/invitees need it to render the current state + edit it.
+   *  Never present on `MovieNightPinView` — the redacted pin only ever
+   *  renders for a public night in the first place, so a pin-view reader has
+   *  no use for this field. */
+  visibility: MovieNightVisibility;
   invitees: MovieNightInviteeView[];
   guestRsvps: MovieNightGuestRsvpView[];
   /** Only present for the host or an invitee — never leaked to a stranger. */

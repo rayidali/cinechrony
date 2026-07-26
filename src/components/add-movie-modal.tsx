@@ -16,6 +16,7 @@ import { FullscreenTextInput } from '@/components/fullscreen-text-input';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 const TMDB_API_BASE_URL = 'https://api.themoviedb.org/3';
 
@@ -366,7 +367,12 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       >
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-50" />
-          <Drawer.Content className={`${SHEET} z-50`} style={{ height: '85vh', maxHeight: '85vh' }}>
+          <Drawer.Content
+            className={`${SHEET} z-50`}
+            style={{ height: '85vh', maxHeight: '85vh' }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <div className={HANDLE} />
             <div className="flex items-center justify-between px-5 py-2.5">
               <button onClick={handleBackToSearch} className="-ml-1 p-1 text-foreground active:opacity-60" aria-label="Back">
@@ -438,7 +444,12 @@ export function AddMovieModal({ isOpen, onClose, listId, listOwnerId, listName }
       <Drawer.Root open={step === 'select-list'} onOpenChange={(open) => !open && handleBackToPreview()}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className={`${SHEET} z-[60]`} style={{ height: '85vh', maxHeight: '85vh' }}>
+          <Drawer.Content
+            className={`${SHEET} z-[60]`}
+            style={{ height: '85vh', maxHeight: '85vh' }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <div className={HANDLE} />
             <div className="flex items-center justify-between px-5 py-2.5">
               <button onClick={handleBackToPreview} className="-ml-1 p-1 text-foreground active:opacity-60" aria-label="Back">

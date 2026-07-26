@@ -55,6 +55,7 @@ import type {
   MovieNightPinView,
   MovieNightPublicView,
   MovieNightView,
+  MovieNightVisibility,
   ReminderPreset,
   RsvpAnswer,
 } from '@/lib/movie-night-types';
@@ -85,6 +86,11 @@ type NightDoc = {
   tzOffsetMinutes: number;
   reminderPreset: ReminderPreset;
   status: 'proposed' | 'cancelled' | 'completed' | 'didnt_happen';
+  /** Optional because every doc written before this field existed has none —
+   *  read as `'public'` (see `MovieNightVisibility`'s doc comment). Every
+   *  NEW doc always writes one explicitly (`createMovieNight` never leaves
+   *  it undefined). */
+  visibility?: MovieNightVisibility;
   inviteeUids: string[];
   invitees: Record<string, InviteeProfile>;
   rsvps: Record<string, RsvpEntry>;
@@ -139,6 +145,14 @@ function isReminderPreset(v: unknown): v is ReminderPreset {
 
 function isRsvpAnswer(v: unknown): v is RsvpAnswer {
   return v === 'in' || v === 'maybe' || v === 'out';
+}
+
+/** Strict visibility validation, shared by create + the update patch:
+ *  `'private'` stores `'private'`, ANYTHING else (missing, `'public'`
+ *  explicitly, garbage like `'friends'` or `123`) stores `'public'` —
+ *  public is always the safe fallback, never a rejected request. */
+function validateVisibility(v: unknown): MovieNightVisibility {
+  return v === 'private' ? 'private' : 'public';
 }
 
 function generateShareCode(): string {
@@ -259,6 +273,9 @@ function nightToView(id: string, d: NightDoc, callerUid: string, viewerBlockSet?
     tzOffsetMinutes: d.tzOffsetMinutes ?? 0,
     reminderPreset: d.reminderPreset ?? '2h',
     status: d.status,
+    // A legacy doc (written before this field existed) has no `visibility`
+    // at all — read as 'public', never backfilled.
+    visibility: d.visibility === 'private' ? 'private' : 'public',
     invitees,
     guestRsvps,
     shareCode: isHost || isInvitee ? d.shareCode : null,
@@ -366,6 +383,10 @@ export type CreateMovieNightInput = {
    *  create request. A retry carrying the SAME key returns the already-
    *  created night instead of planning a second one. */
   clientKey?: unknown;
+  /** Host-controlled privacy — strictly validated (see `validateVisibility`).
+   *  Missing/garbage always falls back to `'public'`, matching every night
+   *  created before this field existed. */
+  visibility?: unknown;
 };
 
 /**
@@ -410,6 +431,7 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
 
   const tzOffsetMinutes = clampTzOffset(input.tzOffsetMinutes);
   const reminderPreset: ReminderPreset = isReminderPreset(input.reminderPreset) ? input.reminderPreset : '2h';
+  const visibility = validateVisibility(input.visibility);
 
   let listName: string | null = null;
   let listCollaboratorIds: string[] = [];
@@ -472,6 +494,7 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
     tzOffsetMinutes,
     reminderPreset,
     status: 'proposed',
+    visibility,
     inviteeUids,
     invitees,
     // The host is automatically in.
@@ -599,7 +622,21 @@ export async function getListMovieNight(
 
   const isHost = callerUid != null && raw.data.hostUid === callerUid;
   const isInvitee = callerUid != null && raw.data.inviteeUids.includes(callerUid);
-  if (!isHost && !isInvitee) return nightToPinView(raw.id, raw.data);
+  if (!isHost && !isInvitee) {
+    // Host-set privacy: a PRIVATE night is invisible to anyone who isn't the
+    // host or an invitee — same `null` as no night existing at all (no
+    // existence oracle), which also covers an anonymous caller on a public
+    // list. Only a PUBLIC night reaches the redacted pin view below.
+    //
+    // Deliberate tradeoff: `listNightCache` (above) holds only the SOONEST
+    // 'proposed' night per list. If that soonest night is private, a LATER
+    // public night on the same list is hidden from non-invitees too — this
+    // function only ever looks at the one soonest doc. Acceptable: in
+    // practice a list has one active night at a time, and this never hides
+    // anything from the host/invitees of either night.
+    if (raw.data.visibility === 'private') return null;
+    return nightToPinView(raw.id, raw.data);
+  }
   return nightToView(raw.id, raw.data, callerUid ?? '', blockSet);
 }
 
@@ -680,6 +717,15 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     }
     const scheduledForTs = Timestamp.fromDate(scheduledForDate);
 
+    // Host-controlled privacy rides the same "edit" action as a reschedule
+    // rather than a new endpoint — `reschedule` is the only host-editable
+    // action, so any other mutable field (this one included) flows through
+    // it. Only touched when the caller actually SENT the key: a plain
+    // reschedule body (no `visibility`) must never silently flip an existing
+    // private night back to public. Same strict validation as create.
+    const visibility: MovieNightVisibility | undefined =
+      patch.visibility !== undefined ? validateVisibility(patch.visibility) : undefined;
+
     type TxOk = { kind: 'ok'; data: NightDoc };
     type TxErr = { kind: 'err'; error: Error };
     const result: TxOk | TxErr = await db.runTransaction(async (tx) => {
@@ -693,18 +739,32 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
       if (data.status !== 'proposed') {
         return { kind: 'err' as const, error: new BadRequestError('This movie night cannot be rescheduled.') };
       }
-      tx.update(ref, {
+      const nightUpdate: {
+        previousScheduledFor: FirebaseFirestore.Timestamp;
+        scheduledFor: FirebaseFirestore.Timestamp;
+        status: 'proposed';
+        reminderSentAt: null;
+        morningAfterSentAt: null;
+        updatedAt: FirebaseFirestore.FieldValue;
+        visibility?: MovieNightVisibility;
+      } = {
         previousScheduledFor: data.scheduledFor,
         scheduledFor: scheduledForTs,
         status: 'proposed',
         reminderSentAt: null,
         morningAfterSentAt: null,
         updatedAt: FieldValue.serverTimestamp(),
-      });
+      };
+      if (visibility !== undefined) nightUpdate.visibility = visibility;
+      tx.update(ref, nightUpdate);
       return { kind: 'ok' as const, data };
     });
     if (result.kind === 'err') throw result.error;
 
+    // Same cache invalidation as every other mutation in this function —
+    // a visibility flip changes what `getListMovieNight` returns to a
+    // non-invitee just as much as a status/time change does, so the pin
+    // cache (keyed per list) must be dropped here too, not just on reschedule.
     invalidateUpcoming(result.data.inviteeUids);
     invalidateListNight(result.data.listOwnerId, result.data.listId);
     await fanOutToOtherInvitees(
@@ -1275,7 +1335,11 @@ function nightToPublicView(data: NightDoc): MovieNightPublicView {
 }
 
 /** The public, no-auth view of a night by its share code. Never leaks a uid,
- *  list contents, or the code itself. */
+ *  list contents, or the code itself.
+ *  `visibility` is deliberately NOT checked here — holding the share code IS
+ *  the invitation, regardless of the list-pin's `'public'`/`'private'` state;
+ *  a private night is just as reachable by its link as a public one always
+ *  was. */
 export async function getMovieNightByCode(code: unknown): Promise<MovieNightPublicView> {
   const shareCode = assertShareCodeShape(code);
   const db = getDb();

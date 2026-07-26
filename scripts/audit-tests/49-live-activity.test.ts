@@ -10,6 +10,11 @@
  *   - the terminal claim ends the card once and suppresses the FCM ding
  *     ('skipped_live_activity'), and the drawer's live-watcher suppression
  *     still resolves the card
+ *   - the terminal end push is an ALERTING update (banner + sound) so a
+ *     resolved card is a moment the user notices, not a silent lock-screen
+ *     edit; a mid-scan stage update carries no alert at all
+ *   - a late-arriving token that resolves an already-notified job ('sent')
+ *     stays quiet — no second ding stacked on the one that already fired
  * APNs is swapped for a recording transport — these assert the STATE
  * MACHINE, not Apple.
  */
@@ -31,6 +36,7 @@ import {
 import {
   __setLiveActivityTransportForTests,
   getLiveActivityStartToken,
+  sendLiveActivityEnd,
 } from '@/lib/live-activity-server';
 import { Timestamp } from 'firebase-admin/firestore';
 
@@ -182,9 +188,23 @@ test('attach route: 401 unauthenticated, 403 for a non-owner', async () => {
   assert.equal(wrongUser.status, 403, 'someone else\'s activity token cannot attach to my job');
 });
 
+// ── Alerting: the terminal update bangs, mid-scan updates stay quiet ─────
+
+test('sendLiveActivityEnd: alert (+ sound) rides the end push when given, omitted when not', async () => {
+  await sendLiveActivityEnd(UPDATE_TOKEN, 'production', { stage: 4, label: '1 film found', detail: null, state: 'done' }, {
+    title: 'cinechrony', body: 'found it. Heat (1995).',
+  });
+  const withAlert = sent.at(-1)!;
+  assert.deepEqual(withAlert.aps.alert, { title: 'cinechrony', body: 'found it. Heat (1995).', sound: 'default' });
+
+  await sendLiveActivityEnd(UPDATE_TOKEN, 'production', { stage: 4, label: '1 film found', detail: null, state: 'done' });
+  const withoutAlert = sent.at(-1)!;
+  assert.equal(withoutAlert.aps.alert, undefined, 'a caller that omits alert gets a quiet resolve');
+});
+
 // ── Terminal: the card resolves once, and it replaces the ding ───────────
 
-test('a confirmed activity carries the result: end push sent, FCM ding suppressed', async () => {
+test('a confirmed activity carries the result: alerting end push sent, FCM ding suppressed', async () => {
   const startToken = await registerStartToken();
   const { jobId, ref } = await seedJob('la-terminal');
   await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
@@ -202,9 +222,17 @@ test('a confirmed activity carries the result: end push sent, FCM ding suppresse
   assert.equal(cs.label, '1 film found');
   assert.match(cs.detail, /Party \(1984\) · imdb 7\.4/);
 
+  // The card resolving is now a LOUD moment: an ActivityKit alerting update
+  // (banner + sound), same brand-voice copy the FCM fallback would have used.
+  const alert = ends[0].aps.alert as { title: string; body: string; sound: string };
+  assert.equal(alert.title, 'cinechrony');
+  assert.match(alert.body, /Party/, 'the alert names the film, same as the FCM copy would');
+  assert.equal(alert.sound, 'default');
+
   const data = (await ref.get()).data();
   assert.ok(data?.pushSentAt, 'the one terminal-notify claim is taken');
   assert.ok(data?.liveActivity?.endedAt, 'the end claim is taken');
+  assert.equal(data?.pushResult, 'skipped_live_activity', 'the branch is stamped for observability');
 
   const again = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, {
     kind: 'films', films: [{ title: 'Party', year: '1984', imdbRating: '7.4' }],
@@ -213,7 +241,7 @@ test('a confirmed activity carries the result: end push sent, FCM ding suppresse
   assert.equal(sent.filter((s) => s.aps.event === 'end').length, 1, 're-entry can never end twice');
 });
 
-test('a live watcher still gets the card resolved, just no ding', async () => {
+test('a live watcher: FCM stays suppressed, but the card still alerts once', async () => {
   const startToken = await registerStartToken();
   const { jobId, ref } = await seedJob('la-watched');
   await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
@@ -222,13 +250,18 @@ test('a live watcher still gets the card resolved, just no ding', async () => {
 
   const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'zero' });
   assert.equal(result, 'skipped_watched');
-  assert.equal(sent.filter((s) => s.aps.event === 'end').length, 1,
+  const ends = sent.filter((s) => s.aps.event === 'end');
+  assert.equal(ends.length, 1,
     'the lock-screen card must resolve even while the drawer is open');
+  // The Live Activity is a distinct surface (lock screen / Dynamic Island)
+  // from whatever's polling — it still gets its one alert, only the
+  // redundant in-app-adjacent FCM ding is what "watched" suppresses.
+  assert.ok(ends[0].aps.alert, 'the card alerts regardless of the watched-FCM suppression');
 });
 
 // ── Read-repair: the token arrives after the job already finished ────────
 
-test('a late update token resolves an already-finished card, exactly once', async () => {
+test('a late update token resolves an already-notified card quietly (no second ding)', async () => {
   const startToken = await registerStartToken();
   const { jobId, ref } = await seedJob('la-late-token');
   await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
@@ -243,14 +276,46 @@ test('a late update token resolves an already-finished card, exactly once', asyn
     kind: 'films', films: [{ title: 'Heat', year: '1995', imdbRating: '8.3' }],
   });
   assert.equal(push, 'sent', 'no confirmed activity → the outcome push is the fallback');
+  assert.equal((await ref.get()).data()?.pushResult, 'sent', 'the branch is stamped');
 
-  // …then the token finally lands: the dangling card resolves NOW.
+  // …then the token finally lands: the dangling card resolves NOW, but the
+  // user already got the FCM ding for this job — a second alert here would
+  // be a duplicate notification for one completed scan.
   await attachExtractionLiveActivityToken(me_.uid, jobId, 'activity-1', UPDATE_TOKEN);
   const ends = sent.filter((s) => s.aps.event === 'end');
   assert.equal(ends.length, 1, 'attach on a terminal job ends the card');
   assert.equal((ends[0].aps['content-state'] as { state: string }).state, 'done');
+  assert.equal(ends[0].aps.alert, undefined, 'pushResult was already "sent" — the card resolves quietly');
 
   // A repeated attach (token rotation) must not re-end.
   await attachExtractionLiveActivityToken(me_.uid, jobId, 'activity-1', UPDATE_TOKEN);
   assert.equal(sent.filter((s) => s.aps.event === 'end').length, 1, 'endedAt claim holds');
+});
+
+test('a late update token DOES announce when nobody was told yet (watched → drawer closed → token lands)', async () => {
+  const startToken = await registerStartToken();
+  const { jobId, ref } = await seedJob('la-late-token-watched');
+  await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
+  // No update token attached yet, but the drawer WAS polling when the job
+  // finished — the completion push claims pushSentAt and skips the FCM ding
+  // ('skipped_watched'), and there's no card to resolve yet either.
+  await ref.update({
+    status: 'done', stage: 'done', lastPolledAt: Timestamp.now(),
+    films: [{ tmdbId: 1, title: 'Ran', year: '1985', mediaType: 'movie', imdbRating: '8.3' }],
+  });
+  const push = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, {
+    kind: 'films', films: [{ title: 'Ran', year: '1985', imdbRating: '8.3' }],
+  });
+  assert.equal(push, 'skipped_watched');
+  assert.equal((await ref.get()).data()?.pushResult, 'skipped_watched');
+
+  // The token lands after the drawer's long gone — nobody has ever been told
+  // this scan finished, so the late card resolve is the user's one notice.
+  await attachExtractionLiveActivityToken(me_.uid, jobId, 'activity-1', UPDATE_TOKEN);
+  const ends = sent.filter((s) => s.aps.event === 'end');
+  assert.equal(ends.length, 1);
+  const alert = ends[0].aps.alert as { title: string; body: string; sound: string } | undefined;
+  assert.ok(alert, 'skipped_watched never actually notified anyone — this is the one alert');
+  assert.match(alert!.body, /Ran/);
+  assert.equal(alert!.sound, 'default');
 });

@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { Loader2, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { modalGuardProps } from '@/lib/modal-guard';
 import { RatingSlider } from './rating-slider';
 
 interface RateOnWatchModalProps {
@@ -56,6 +57,7 @@ export function RateOnWatchModal({
 
   const modalContent = (
     <div
+      {...modalGuardProps}
       className="fixed inset-0 flex items-center justify-center p-4"
       style={{ zIndex: 9999 }}
     >

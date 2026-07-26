@@ -10,6 +10,7 @@ import type { ListForMovie } from '@/lib/lists-server';
 import { useToast } from '@/hooks/use-toast';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { track, AnalyticsEvent } from '@/lib/analytics';
 import type { SearchResult } from '@/lib/types';
 
@@ -90,7 +91,11 @@ export function AddToListSheet({ movie, isOpen, onClose }: AddToListSheetProps) 
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[90]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[90] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[82vh]">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[90] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[82vh]"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">Add {movie?.title ?? 'movie'} to a list</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 

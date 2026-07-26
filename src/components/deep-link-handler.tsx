@@ -156,6 +156,29 @@ function routeFromUrl(rawUrl: string, router: ReturnType<typeof useRouter>): voi
     return;
   }
 
+  // Share Extension's post-save "plan a movie night" CTA
+  // (`cinechrony://plan-night?listOwnerId=…&listId=…&tmdbId=…&mediaType=…` —
+  // custom scheme makes "plan-night" the HOST, same as "extract" above).
+  // Routes to the list page carrying the SAME `?owner=` convention the invite
+  // flow already uses (see lists/page.tsx + invite/[code]/client.tsx), plus a
+  // `planNight=1` one-shot flag its own effect (lists/[listId]/client.tsx)
+  // watches to auto-open the create-night sheet, optionally film-prefilled.
+  if (url.host === 'plan-night') {
+    const listOwnerId = url.searchParams.get('listOwnerId');
+    const listId = url.searchParams.get('listId');
+    if (!listOwnerId || !listId) {
+      router.push('/lists');
+      return;
+    }
+    const params = new URLSearchParams({ owner: listOwnerId, planNight: '1' });
+    const tmdbId = url.searchParams.get('tmdbId');
+    const mediaType = url.searchParams.get('mediaType');
+    if (tmdbId && /^\d+$/.test(tmdbId)) params.set('tmdbId', tmdbId);
+    if (mediaType === 'movie' || mediaType === 'tv') params.set('mediaType', mediaType);
+    router.push(`/lists/${encodeURIComponent(listId)}?${params.toString()}`);
+    return;
+  }
+
   const supportedPrefixes = ['/invite/', '/post/', '/movie/', '/profile/', '/lists/'];
   const path = url.pathname + url.search;
   if (supportedPrefixes.some((p) => path.startsWith(p))) {

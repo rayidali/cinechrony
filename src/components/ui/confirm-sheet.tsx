@@ -5,6 +5,7 @@ import { Drawer } from 'vaul';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 /**
  * v3 confirmation sheet (Vaul) — the brand-consistent, native-reliable
@@ -36,7 +37,11 @@ export function ConfirmSheet({
     <Drawer.Root open={open} onOpenChange={(o) => { if (!loading) onOpenChange(o); }}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/45" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[70] rounded-t-[24px] border-t border-hair bg-card outline-none">
+        <Drawer.Content
+          className="fixed inset-x-0 bottom-0 z-[70] rounded-t-[24px] border-t border-hair bg-card outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <div className="mx-auto mt-3 h-1 w-9 rounded-full bg-foreground/15" />
           <div className="px-5 pt-4 pb-[calc(1.25rem+env(safe-area-inset-bottom,0px))]">
             <Drawer.Title className="font-headline text-[20px] font-bold lowercase tracking-[-0.02em]">

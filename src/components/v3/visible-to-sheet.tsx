@@ -3,6 +3,7 @@
 import { Drawer } from 'vaul';
 import { Globe, Users, Star, Lock, Check } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import type { PostVisibility } from '@/lib/types';
 
 /**
@@ -53,7 +54,11 @@ export function VisibleToSheet({
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[95]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[88vh]">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[88vh]"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">Visible to</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 

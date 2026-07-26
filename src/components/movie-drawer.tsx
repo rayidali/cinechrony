@@ -34,6 +34,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { getRatingStyle } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { track, AnalyticsEvent } from '@/lib/analytics';
 import {
   type MediaDetails, getCachedDetails, getMovieOrTVDetails,
@@ -608,6 +609,8 @@ export function MovieDrawer({
           <Drawer.Content
             className={`fixed bottom-0 left-0 right-0 ${stackClassName} flex flex-col rounded-t-[22px] bg-card outline-none overflow-hidden`}
             style={{ height: heightStyle, maxHeight: heightStyle }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
           >
             <Drawer.Description className="sr-only">Details for {movie.title}</Drawer.Description>
 

@@ -9,6 +9,7 @@ import { apiCall, ApiClientError } from '@/lib/api-client';
 import { useUserBlocksCache } from '@/contexts/user-blocks-cache';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 type ProfileOverflowMenuProps = {
   targetUserId: string;
@@ -110,7 +111,11 @@ export function ProfileOverflowMenu({ targetUserId, targetUsername, variant = 'd
       <Drawer.Root open={open} onOpenChange={setOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-2xl bg-card outline-none"
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <Drawer.Title className="sr-only">Profile actions</Drawer.Title>
             <div className="mx-auto mt-3 mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
             <div className="px-3 pb-[calc(1rem+env(safe-area-inset-bottom))]">

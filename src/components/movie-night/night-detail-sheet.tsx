@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { Drawer } from 'vaul';
 import {
   AlertTriangle, Bell, Calendar, CalendarDays, CalendarPlus, CalendarX,
-  Check, ChevronRight, CircleHelp, Clock, Crown, Pencil, Share, X, type LucideIcon,
+  Check, ChevronRight, CircleHelp, Clock, Crown, Lock, Pencil, Share, X, type LucideIcon,
 } from 'lucide-react';
 
 import { useUser } from '@/firebase';
@@ -14,6 +14,7 @@ import { shareOrigin, shareLink } from '@/lib/share';
 import { addEventNative, canAddEventNative } from '@/lib/native-calendar';
 import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
+import { modalGuardProps, guardInteractOutside } from '@/lib/modal-guard';
 import { track, AnalyticsEvent } from '@/lib/analytics';
 import { useToast } from '@/hooks/use-toast';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
@@ -336,7 +337,7 @@ function CancelConfirmModal({
     // possibly the reschedule flow's) is still open, so Vaul's dismissable
     // layer may have set `body.style.pointerEvents = 'none'`; an explicit
     // `auto` here keeps "cancel the night" / "keep it" tappable immediately.
-    <div className="fixed inset-0 z-[92] flex items-center justify-center bg-black/50 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="cancel movie night?">
+    <div {...modalGuardProps} className="fixed inset-0 z-[92] flex items-center justify-center bg-black/50 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="cancel movie night?">
       <div className="w-full max-w-[340px] rounded-[24px] border border-hair bg-background p-6 pb-5 shadow-lift">
         <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-destructive/10">
           <CalendarX className="h-[26px] w-[26px] text-destructive" strokeWidth={2} />
@@ -454,7 +455,11 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[92] bg-black/60" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[92] flex max-h-[56vh] flex-col rounded-t-[22px] bg-background outline-none">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[92] flex max-h-[56vh] flex-col rounded-t-[22px] bg-background outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">add to calendar</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
           <div className="flex items-center justify-between px-5 py-2.5">
@@ -607,6 +612,12 @@ export function NightDetailSheet({
   useEffect(() => {
     if (!nightId) {
       lastFetchedId.current = null;
+      // F2 — the sheet can close by any path (backdrop, `onClose`, the swipe-
+      // back gesture); no child modal should be able to survive that. Same
+      // redundancy net as `create-night-sheet.tsx`'s expander reset.
+      setShowCancelConfirm(false);
+      setShowAddCalendar(false);
+      setShowReschedule(false);
       return;
     }
     if (lastFetchedId.current === nightId && night) return;
@@ -768,6 +779,8 @@ export function NightDetailSheet({
           <Drawer.Content
             className="fixed bottom-0 left-0 right-0 z-[90] flex flex-col rounded-t-[22px] bg-background outline-none"
             style={{ height: heightStyle, maxHeight: heightStyle }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
           >
             <Drawer.Title className="sr-only">movie night</Drawer.Title>
             <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
@@ -836,6 +849,18 @@ export function NightDetailSheet({
                       hosted by <b className="font-bold text-foreground">{hostLabel}</b>{listSuffix}
                     </span>
                   </div>
+
+                  {/* F9 — host-set privacy. Public is the unremarkable default
+                      (every night before this field existed behaved this way)
+                      and gets no badge; only 'private' is called out, calm and
+                      legible, right where the host/invitee looks for who's
+                      involved. */}
+                  {night.visibility === 'private' && (
+                    <p className="mt-1.5 flex items-center justify-center gap-1 font-mono text-[10px] text-muted-foreground">
+                      <Lock className="h-3 w-3" strokeWidth={2.2} />
+                      private · only the people invited
+                    </p>
+                  )}
 
                   {/* MN28 — the amber "rescheduled" notice, additive on an active night */}
                   {justRescheduled && (

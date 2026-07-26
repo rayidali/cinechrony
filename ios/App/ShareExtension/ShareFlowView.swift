@@ -188,7 +188,7 @@ struct ShareFlowView: View {
         case .ready:
             ResultStateView(model: model)
         case .done(let listName):
-            DoneStateView(listName: listName)
+            DoneStateView(listName: listName, canPlanNight: model.canPlanNight, onPlanNight: { model.planMovieNight() })
         }
     }
 }
@@ -795,6 +795,8 @@ private struct ListPickerView: View {
 
 private struct DoneStateView: View {
     let listName: String
+    var canPlanNight: Bool = false
+    var onPlanNight: () -> Void = {}
     @State private var popped = false
 
     var body: some View {
@@ -816,6 +818,15 @@ private struct DoneStateView: View {
                 .foregroundColor(Brand.ink)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+
+            // MN01 — Rodeo-style continuity: scan → save → plan, one arc.
+            // Secondary placement (the checkmark moment stays primary) —
+            // opens the host app deep-linked into the create-night flow with
+            // this save's list (+ film, when exactly one was saved) prefilled.
+            if canPlanNight {
+                SecondaryButton(title: "plan a movie night", action: onPlanNight)
+                    .padding(.top, 2)
+            }
         }
         .padding(.vertical, 40)
         .frame(maxWidth: .infinity)

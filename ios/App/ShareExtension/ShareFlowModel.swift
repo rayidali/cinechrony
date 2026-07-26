@@ -56,6 +56,13 @@ final class ShareFlowModel: ObservableObject {
     @Published var showPicker = false
     @Published var lists: [PickerListItem] = []
     @Published var isLoadingLists = false
+    /// MN01 — Rodeo-style scan → save → plan continuity: whether the "plan a
+    /// movie night" secondary action can render on the done state. Flips true
+    /// only once `saveSucceeded` has captured a REAL destination list id —
+    /// never invented client-side, so a save that somehow reported no real
+    /// listId (shouldn't happen; `save()` already bails on zero successes)
+    /// just leaves the button off.
+    @Published private(set) var canPlanNight = false
 
     /// Same labels as the web client's STAGE_LABEL (src/app/extract/client.tsx)
     /// so the copy matches whichever surface the user happens to see.
@@ -72,6 +79,10 @@ final class ShareFlowModel: ObservableObject {
     var onFinish: (() -> Void)?
     /// Set by ShareViewController: the ONLY app-open path (signed-out / error states).
     var onOpenApp: ((URL) -> Void)?
+    /// Set by ShareViewController: opens an ALREADY-BUILT deep link (the
+    /// `cinechrony://plan-night?…` URL from `planNightDeepLink()`) via the
+    /// same responder-chain mechanism as `onOpenApp` — see `planMovieNight()`.
+    var onPlanNight: ((URL) -> Void)?
 
     // MARK: - Private
 
@@ -82,6 +93,15 @@ final class ShareFlowModel: ObservableObject {
     private var submittedAt = Date()
     private var runTask: Task<Void, Never>?
     private var revealTask: Task<Void, Never>?
+    private var autoCloseTask: Task<Void, Never>?
+    /// The REAL destination list identity, captured off the save response —
+    /// `savedListId` only becomes non-nil once the server actually created
+    /// (or confirmed) the list; a brand-new list has no id before that.
+    /// `savedFilm` is set only when exactly one film was saved (mirrors the
+    /// web client's SavedState prefill rule in src/app/extract/client.tsx).
+    private var savedListId: String?
+    private var savedListOwnerId: String?
+    private var savedFilm: ExtractionFilmDTO?
 
     init(sharedURL: URL) {
         self.sharedURL = sharedURL
@@ -115,6 +135,7 @@ final class ShareFlowModel: ObservableObject {
     func close() {
         runTask?.cancel()
         revealTask?.cancel()
+        autoCloseTask?.cancel()
         if let jobId, case .working = phase {
             let api = self.api
             Task { [onFinish] in
@@ -344,7 +365,7 @@ final class ShareFlowModel: ObservableObject {
                     await self.saveFailed(message: "couldn't save. try again.")
                     return
                 }
-                await self.saveSucceeded()
+                await self.saveSucceeded(response: response, selectedFilms: selected)
             } catch {
                 await self.saveFailed(message: "couldn't save. try again.")
             }
@@ -357,7 +378,7 @@ final class ShareFlowModel: ObservableObject {
         return trimmed.isEmpty ? "new list" : trimmed
     }
 
-    private func saveSucceeded() {
+    private func saveSucceeded(response: SaveResponseDTO, selectedFilms: [ExtractionFilmDTO]) async {
         isSaving = false
         // The done state names the ACTUAL destination (destinationLabel says
         // "a new list" for the dropdown — here we want the real list name).
@@ -369,6 +390,22 @@ final class ShareFlowModel: ObservableObject {
         case .existing(_, _, let existingName):
             name = existingName
         }
+
+        // MN01 — capture the REAL destination list identity. `results` is in
+        // the same order as `selectedFilms` (the server appends one result
+        // per input item, in order), so zipping them tells us exactly which
+        // films landed — a single-film success prefills `savedFilm`.
+        let succeeded = zip(selectedFilms, response.results).filter { $0.1.ok }.map { $0.0 }
+        savedFilm = succeeded.count == 1 ? succeeded[0] : nil
+        savedListId = response.results.first(where: { $0.ok })?.listId
+        switch destination {
+        case .newList:
+            savedListOwnerId = await api.credentialUid()
+        case .existing(_, let ownerId, _):
+            savedListOwnerId = ownerId
+        }
+        canPlanNight = savedListId != nil && savedListOwnerId != nil
+
         phase = .done(listName: name)
         scheduleAutoClose()
     }
@@ -379,8 +416,13 @@ final class ShareFlowModel: ObservableObject {
     }
 
     private func scheduleAutoClose() {
-        Task { [weak self] in
-            try? await Task.sleep(nanoseconds: 1_200_000_000)
+        autoCloseTask?.cancel()
+        // The "plan a movie night" button needs real time to be noticed and
+        // tapped — the header X is always available for an earlier close
+        // either way, so a longer wait here costs nothing.
+        let delayNanoseconds: UInt64 = canPlanNight ? 5_000_000_000 : 1_200_000_000
+        autoCloseTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: delayNanoseconds)
             guard let self, !Task.isCancelled else { return }
             self.onFinish?()
         }
@@ -390,5 +432,37 @@ final class ShareFlowModel: ObservableObject {
 
     func openApp() {
         onOpenApp?(sharedURL)
+    }
+
+    // MARK: - MN01 — plan a movie night (secondary action on the done state)
+
+    /// Builds `cinechrony://plan-night?listOwnerId=…&listId=…[&tmdbId=…&mediaType=…]`.
+    /// `nil` whenever the real destination identity wasn't captured — the
+    /// button isn't shown in that case (`canPlanNight`), but this stays
+    /// defensive regardless.
+    private func planNightDeepLink() -> URL? {
+        guard let listOwnerId = savedListOwnerId, let listId = savedListId else { return nil }
+        var components = URLComponents()
+        components.scheme = "cinechrony"
+        components.host = "plan-night"
+        var items = [
+            URLQueryItem(name: "listOwnerId", value: listOwnerId),
+            URLQueryItem(name: "listId", value: listId),
+        ]
+        if let film = savedFilm {
+            items.append(URLQueryItem(name: "tmdbId", value: String(film.tmdbId)))
+            items.append(URLQueryItem(name: "mediaType", value: film.mediaType))
+        }
+        components.queryItems = items
+        return components.url
+    }
+
+    /// The done state's secondary button action — opens the host app
+    /// deep-linked straight into the create-night flow, prefilled with the
+    /// list this save just landed in (+ the film, when exactly one was saved).
+    func planMovieNight() {
+        guard let url = planNightDeepLink() else { return }
+        autoCloseTask?.cancel()
+        onPlanNight?(url)
     }
 }

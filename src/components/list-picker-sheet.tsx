@@ -4,6 +4,7 @@ import { Drawer } from 'vaul';
 import { Check, ListPlus, Film } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { seededGradient } from '@/lib/seeded-gradient';
 
 /** Where a film should go: an existing list, or a new list to be created on save. */
@@ -50,7 +51,11 @@ export function ListPickerSheet({
     <Drawer.Root open={open} onOpenChange={onOpenChange}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[70] bg-black/45" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[80vh] flex-col rounded-t-[24px] border-t border-hair bg-card outline-none">
+        <Drawer.Content
+          className="fixed inset-x-0 bottom-0 z-[70] flex max-h-[80vh] flex-col rounded-t-[24px] border-t border-hair bg-card outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <div className="mx-auto mt-3 h-1 w-9 shrink-0 rounded-full bg-foreground/15" />
           <Drawer.Title className="shrink-0 px-5 pt-4 pb-2 font-headline text-[20px] font-bold lowercase tracking-[-0.02em]">
             {title}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useRouter, useParams, useSearchParams } from '@/lib/native-nav';
 import { Link } from '@/lib/native-nav';
 import { ArrowLeft, AlertTriangle, Plus } from 'lucide-react';
@@ -12,15 +12,39 @@ import { MovieList } from '@/components/movie-list';
 import { DetailSkeleton } from '@/components/page-skeletons';
 import { ListHeader } from '@/components/list-header';
 import { MovieNightPin } from '@/components/movie-night/movie-night-pin';
+import { useMovieNight } from '@/components/movie-night/movie-night-provider';
 import { AddMovieModal } from '@/components/add-movie-modal';
 import { Hero } from '@/components/v3/hero';
 import { GlassBtn } from '@/components/v3/glass-button';
 import { Fab } from '@/components/fab';
 import { apiCall } from '@/lib/api-client';
 import { readCachedAction, setCachedAction, isCachedActionFresh } from '@/lib/use-cached-action';
+import { getMovieOrTVDetails, type MediaDetails } from '@/lib/tmdb-details-cache';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { Movie, MovieList as MovieListType } from '@/lib/types';
+import type { MovieNightFilm } from '@/lib/movie-night-types';
 import { recallListSeed } from '@/lib/list-detail-seed';
+
+/** MN-scan-to-plan (ShareExtension deep link) — the link only carries a
+ *  tmdbId/mediaType, so the film needs a details fetch once the app is open;
+ *  reuses the same module-cached TMDB helper every movie card/drawer already
+ *  warms (`getMovieOrTVDetails`), never a bespoke fetch. Mirrors the
+ *  `movieToNightFilm` mapping in movie-drawer.tsx (that one isn't exported,
+ *  and this file may not import from src/components/movie-night/*). */
+function detailsToNightFilm(details: MediaDetails, tmdbId: number, mediaType: 'movie' | 'tv'): MovieNightFilm {
+  let runtime: number | null = null;
+  if ('runtime' in details && details.runtime) runtime = details.runtime;
+  const title = 'title' in details ? details.title : details.name;
+  const yearSource = 'release_date' in details ? details.release_date : details.first_air_date;
+  return {
+    tmdbId,
+    mediaType,
+    title,
+    year: yearSource ? yearSource.split('-')[0] : '',
+    posterUrl: details.poster_path ? `https://image.tmdb.org/t/p/w500${details.poster_path}` : null,
+    runtime,
+  };
+}
 
 export default function ListDetailPage() {
   const { user, isUserLoading } = useUser();
@@ -240,6 +264,45 @@ export default function ListDetailPage() {
     // Small delay for visual feedback since movies are already real-time
     await new Promise(resolve => setTimeout(resolve, 300));
   }, [user, ownListData, collaborativeListOwner, listId]);
+
+  // MN-scan-to-plan (Rodeo-style continuity) — a `?planNight=1[&tmdbId=&mediaType=]`
+  // query arrives from the ShareExtension's post-save "plan a movie night" deep
+  // link (`cinechrony://plan-night?...`, routed here by deep-link-handler.tsx
+  // over the SAME `?owner=` convention the invite flow already uses). One-shot,
+  // mirroring the `?invite=1` pattern in lists/[listId]/settings/client.tsx: wait
+  // for REAL list + permission data (not just the optimistic seed — `isOwner`/
+  // `isCollaborator` only flip true off real Firestore reads) so `openCreate`
+  // never fires with a stale name or against a list this account can't actually
+  // plan on, then strip the params so back-nav can't re-trigger it.
+  const { openCreate } = useMovieNight();
+  const planNightHandled = useRef(false);
+  useEffect(() => {
+    if (planNightHandled.current) return;
+    if (searchParams.get('planNight') !== '1') return;
+    if (!effectiveOwnerId || !effectiveListData || !(isOwner || isCollaborator)) return;
+    planNightHandled.current = true;
+
+    const stripped = new URLSearchParams(searchParams.toString());
+    stripped.delete('planNight');
+    stripped.delete('tmdbId');
+    stripped.delete('mediaType');
+    const qs = stripped.toString();
+    router.replace(`/lists/${listId}${qs ? `?${qs}` : ''}`);
+
+    const list = { id: listId, ownerId: effectiveOwnerId, name: effectiveListData.name || 'this list' };
+    const tmdbIdRaw = searchParams.get('tmdbId');
+    const mediaTypeRaw = searchParams.get('mediaType');
+    const tmdbId = tmdbIdRaw && /^\d+$/.test(tmdbIdRaw) ? Number(tmdbIdRaw) : null;
+    const mediaType = mediaTypeRaw === 'tv' ? 'tv' : mediaTypeRaw === 'movie' ? 'movie' : null;
+
+    if (tmdbId && mediaType) {
+      getMovieOrTVDetails(mediaType, tmdbId)
+        .then((details) => openCreate({ list, film: details ? detailsToNightFilm(details, tmdbId, mediaType) : undefined }))
+        .catch(() => openCreate({ list }));
+    } else {
+      openCreate({ list });
+    }
+  }, [searchParams, effectiveOwnerId, effectiveListData, isOwner, isCollaborator, listId, router, openCreate]);
 
   if (isUserLoading || !user) {
     return <DetailSkeleton />;

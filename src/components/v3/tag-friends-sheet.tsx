@@ -8,6 +8,7 @@ import { apiCall } from '@/lib/api-client';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import type { UserProfile, TaggedUser } from '@/lib/types';
 
 /**
@@ -102,6 +103,8 @@ export function TagFriendsSheet({
         <Drawer.Content
           className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none overflow-hidden"
           style={{ height: heightStyle, maxHeight: heightStyle }}
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
         >
           <Drawer.Title className="sr-only">{title}</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />

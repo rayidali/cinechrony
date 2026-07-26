@@ -247,6 +247,13 @@ type JobDoc = {
    *  check-and-set guard `sendExtractionCompletionPush` claims transactionally
    *  so re-entry can never fire it twice. Absent for stub/no-key jobs. */
   pushSentAt?: FirebaseFirestore.Timestamp;
+  /** Best-effort breadcrumb: which branch `sendExtractionCompletionPush` took
+   *  last time it ran (see `ExtractionPushResult`). Lets a late-arriving
+   *  Live Activity token (`attachExtractionLiveActivityToken`'s read-repair)
+   *  know whether the user was already notified — 'sent' means the FCM ding
+   *  already landed, so that path resolves the card quietly instead of
+   *  alerting a second time. */
+  pushResult?: string;
   /** Best-effort, throttled stamp written by `getExtraction` on every
    *  successful OWNER read (~once per `POLL_STAMP_THROTTLE_MS`). Lets
    *  `sendExtractionCompletionPush` detect a live poller (the share-extension
@@ -627,7 +634,7 @@ export async function attachExtractionLiveActivityToken(
 
   type Flush =
     | { kind: 'none' }
-    | { kind: 'end'; env: LaEnv | null; state: LaContentState }
+    | { kind: 'end'; env: LaEnv | null; state: LaContentState; alert: { title: string; body: string } | null }
     | { kind: 'update'; env: LaEnv | null; state: LaContentState };
 
   const flush = await db.runTransaction<Flush>(async (tx) => {
@@ -644,7 +651,15 @@ export async function attachExtractionLiveActivityToken(
     if (terminal && !la.endedAt) {
       updates['liveActivity.endedAt'] = FieldValue.serverTimestamp();
       tx.update(ref, updates);
-      return { kind: 'end', env, state: laEndStateFor(outcomeFromJob(d)) };
+      const outcome = outcomeFromJob(d);
+      // Late handshake: the token missed the whole pipeline and only shows up
+      // after the job already finished. If `sendExtractionCompletionPush` ran
+      // in the meantime it already dinged via FCM ('sent') — resolve the card
+      // quietly. Otherwise (still 'skipped_watched', or the completion push
+      // hasn't landed in this exact instant) nobody has been told yet, so
+      // THIS is the user's one alert.
+      const alert = d.pushResult === 'sent' ? null : { title: 'cinechrony', body: pushBodyFor(outcome, jobId) };
+      return { kind: 'end', env, state: laEndStateFor(outcome), alert };
     }
     const ordinal = stageOrdinal(d.stage);
     if (!terminal && ordinal > (la.lastStageSent ?? 0)) {
@@ -657,7 +672,7 @@ export async function attachExtractionLiveActivityToken(
   });
 
   if (isLiveActivityConfigured()) {
-    if (flush.kind === 'end') await sendLiveActivityEnd(token, flush.env, flush.state);
+    if (flush.kind === 'end') await sendLiveActivityEnd(token, flush.env, flush.state, flush.alert ?? undefined);
     else if (flush.kind === 'update') await sendLiveActivityUpdate(token, flush.env, flush.state);
   }
   return { attached: true };
@@ -987,13 +1002,20 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  *
  * Returns a result string (rather than void) so the idempotency guard and the
  * watched-suppression are directly testable without mocking `sendPushToUser`:
- *   - 'sent'              — claimed, and a delivery attempt was made.
- *   - 'skipped_watched'   — claimed (blocks any later re-entry), but no send:
- *                           the owner is actively polling a live surface.
- *   - 'skipped_duplicate' — `pushSentAt` was already set, so nothing was
- *                           (re-)claimed; also the defensive fallback if the
- *                           claim transaction itself errors.
- * The caller in `runRealPipeline` ignores the return value.
+ *   - 'sent'                 — claimed, and a delivery attempt was made.
+ *   - 'skipped_watched'      — claimed (blocks any later re-entry), but no
+ *                              send: the owner is actively polling a live
+ *                              surface.
+ *   - 'skipped_live_activity'— a confirmed Live Activity resolved instead —
+ *                              its alerting end push (see `sendLiveActivityEnd`)
+ *                              IS the notification, so the FCM ding is skipped.
+ *   - 'skipped_duplicate'    — `pushSentAt` was already set, so nothing was
+ *                              (re-)claimed; also the defensive fallback if
+ *                              the claim transaction itself errors.
+ * The caller in `runRealPipeline` ignores the return value; it's also stamped
+ * onto the job doc's `pushResult` (best-effort) so a silent lock screen is
+ * diagnosable from the doc alone, and so `attachExtractionLiveActivityToken`'s
+ * late-token read-repair knows whether the user was already told.
  *
  * Exported for direct testing of the idempotency + watched-suppression guards
  * (see `44-extractions-auth.test.ts`).
@@ -1055,13 +1077,26 @@ function pushBodyFor(outcome: ExtractionPushOutcome, seed: string): string {
   ]);
 }
 
+export type ExtractionPushResult = 'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_live_activity';
+
 export async function sendExtractionCompletionPush(
   db: FirebaseFirestore.Firestore,
   ref: FirebaseFirestore.DocumentReference,
   jobId: string,
   uid: string,
   outcome: ExtractionPushOutcome,
-): Promise<'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_live_activity'> {
+): Promise<ExtractionPushResult> {
+  // Single exit so every branch (incl. the defensive catch) stamps the same
+  // breadcrumb — `attachExtractionLiveActivityToken`'s read-repair reads it
+  // back to decide whether a late card resolve still needs to announce itself.
+  // Awaited (like the rest of this function — see the doc comment above: no
+  // latency to protect here), so the stamp is durable before this resolves,
+  // never thrown (a failed write just leaves the breadcrumb missing).
+  const finish = async (result: ExtractionPushResult): Promise<ExtractionPushResult> => {
+    await ref.update({ pushResult: result }).catch(() => {});
+    return result;
+  };
+
   let claim: 'duplicate' | 'watched' | 'claimed';
   let laToken: string | null = null;
   let laEnv: LaEnv | null = null;
@@ -1093,18 +1128,22 @@ export async function sendExtractionCompletionPush(
     laRequested = 'requested' in result ? Boolean(result.requested) : false;
   } catch (err) {
     console.error('[extraction] completion push claim failed for', jobId, err);
-    return 'skipped_duplicate'; // defensive — this function must never throw
+    return finish('skipped_duplicate'); // defensive — this function must never throw
   }
-  if (claim === 'duplicate') return 'skipped_duplicate'; // already sent — re-entry, never fire twice
+  if (claim === 'duplicate') return finish('skipped_duplicate'); // already sent — re-entry, never fire twice
 
   // Resolve the lock-screen card regardless of watched state — a card left
-  // saying "scanning" forever would be a lie. If the end push lands, it IS
-  // the notification: the result sits on the lock screen, so the FCM ding
-  // on top of it would be noise.
+  // saying "scanning" forever would be a lie. The end push carries the SAME
+  // alert (Apple's ActivityKit "alerting terminal update") as the FCM ding
+  // would have, so a confirmed card IS the notification: banner + sound +
+  // the result, right there on the lock screen — no second ping stacked on top.
   let cardResolved = false;
   if (laToken && isLiveActivityConfigured()) {
     try {
-      const endResult = await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome));
+      const endResult = await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome), {
+        title: 'cinechrony',
+        body: pushBodyFor(outcome, jobId),
+      });
       cardResolved = endResult.ok;
       laTrace(ref, endResult.ok ? 'end:ok' : `end:fail:${endResult.reason ?? 'send'}`);
     } catch (err) {
@@ -1116,8 +1155,8 @@ export async function sendExtractionCompletionPush(
     laTrace(ref, 'end:no_update_token');
   }
 
-  if (claim === 'watched') return 'skipped_watched'; // live surface is polling — a ding here is noise
-  if (cardResolved) return 'skipped_live_activity'; // the card carries the result
+  if (claim === 'watched') return finish('skipped_watched'); // live surface is polling — the FCM ding would be noise (the card, if any, already alerted above)
+  if (cardResolved) return finish('skipped_live_activity'); // the card carries the result
 
   try {
     await sendPushToUser(uid, {
@@ -1132,7 +1171,7 @@ export async function sendExtractionCompletionPush(
   } catch (err) {
     console.error('[extraction] completion push send failed for', jobId, err);
   }
-  return 'sent';
+  return finish('sent');
 }
 
 /** REAL pipeline: Apify acquire → Gemini watch → TMDB ground (match-or-drop). */

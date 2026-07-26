@@ -13,7 +13,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useRouter, useSearchParams } from '@/lib/native-nav';
-import { ChevronLeft, ChevronDown, Link2, Loader2, X, Check, ListPlus, Sparkles, ScanLine } from 'lucide-react';
+import { ChevronLeft, ChevronDown, Link2, Loader2, X, Check, ListPlus, Sparkles, ScanLine, CalendarPlus } from 'lucide-react';
 import Image from 'next/image';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { collection, query, orderBy } from 'firebase/firestore';
@@ -23,9 +23,11 @@ import { track, AnalyticsEvent } from '@/lib/analytics';
 import { parseVideoUrl } from '@/lib/video-utils';
 import { ListPickerSheet, type ListDestination, type PickableList } from '@/components/list-picker-sheet';
 import { useToast } from '@/hooks/use-toast';
+import { useMovieNight } from '@/components/movie-night/movie-night-provider';
 import type { MovieList } from '@/lib/types';
 import type { CollaborativeListSummary } from '@/lib/lists-server';
 import type { ExtractionJobView, ExtractionFilm } from '@/lib/extraction-types';
+import type { MovieNightFilm } from '@/lib/movie-night-types';
 
 type Phase = 'input' | 'processing' | 'result' | 'failed' | 'not-found' | 'quota';
 
@@ -41,12 +43,29 @@ const POSTER_FALLBACK = 'https://picsum.photos/seed/cc-extract/300/450';
 
 type ScanQuota = { limit: number; used: number; remaining: number };
 
+/** MN01 scan→save→plan continuity — an `ExtractionFilm` already carries
+ *  everything `MovieNightFilm` needs (title/year/poster/mediaType), so the
+ *  post-save "plan a movie night" CTA never needs an extra TMDB round-trip
+ *  here (contrast the ShareExtension's deep link, which only carries a
+ *  tmdbId and fetches details client-side once the app opens). */
+function extractionFilmToNightFilm(f: ExtractionFilm): MovieNightFilm {
+  return {
+    tmdbId: f.tmdbId,
+    mediaType: f.mediaType,
+    title: f.title,
+    year: f.year || '',
+    posterUrl: f.posterUrl,
+    runtime: null,
+  };
+}
+
 export default function ExtractClient() {
   const router = useRouter();
   const search = useSearchParams();
   const { user, isUserLoading } = useUser();
   const firestore = useFirestore();
   const { toast } = useToast();
+  const { openCreate } = useMovieNight();
 
   const [url, setUrl] = useState(search.get('url') || '');
   const [phase, setPhase] = useState<Phase>('input');
@@ -57,7 +76,17 @@ export default function ExtractClient() {
   const [newListName, setNewListName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState<{ count: number } | null>(null);
+  const [saved, setSaved] = useState<{
+    count: number;
+    /** The one list every saved film landed in (a save always targets a
+     *  single list — see `save()` below). Absent only if every item failed,
+     *  which naturally hides the "plan a movie night" CTA. */
+    listOwnerId?: string;
+    listId?: string;
+    /** Set only when exactly one film was saved — mirrors the create flow's
+     *  own film-first prefill rule; multiple films leave its picker in charge. */
+    film?: MovieNightFilm;
+  } | null>(null);
   const [quota, setQuota] = useState<ScanQuota | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -251,9 +280,20 @@ export default function ExtractClient() {
           target: isNew ? { tempId: 'new' } : { ownerId: destination.ownerId, listId: destination.listId },
         })),
       };
-      const res = await apiCall<{ results: { ok: boolean }[] }>('POST', `/api/v1/extractions/${job.jobId}/save`, body);
+      const res = await apiCall<{ results: { ok: boolean; listId?: string }[] }>('POST', `/api/v1/extractions/${job.jobId}/save`, body);
       const ok = res.results.filter((r) => r.ok).length;
-      setSaved({ count: ok });
+      // Every save targets exactly ONE list (see `body` above) — its real id
+      // rides back on each result (a brand-new list only becomes real here;
+      // the MN prefill never invents one client-side). Prefill a film only
+      // when exactly one save succeeded.
+      const savedListId = res.results.find((r) => r.ok)?.listId;
+      const succeededFilms = toSave.filter((_, i) => res.results[i]?.ok);
+      setSaved({
+        count: ok,
+        listOwnerId: savedListId ? (isNew ? user.uid : destination.ownerId) : undefined,
+        listId: savedListId,
+        film: succeededFilms.length === 1 ? extractionFilmToNightFilm(succeededFilms[0]) : undefined,
+      });
       haptic('success');
       track(AnalyticsEvent.ExtractionSaved, { savedCount: ok });
     } catch (err) {
@@ -261,6 +301,21 @@ export default function ExtractClient() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // MN01 — "plan a movie night" from the save-success state. Only ever
+  // callable when `saved.listOwnerId`/`listId` are present (see `save()`);
+  // `destLabel` is still valid here because nothing in this screen can
+  // change `destination`/`newListName` once `saved` is set (the result UI is
+  // fully replaced by `SavedState`).
+  const handlePlanNight = () => {
+    if (!saved?.listOwnerId || !saved?.listId) return;
+    haptic('light');
+    track(AnalyticsEvent.MovieNightPlanFromScan, { filmCount: saved.count, hasFilm: !!saved.film });
+    openCreate({
+      list: { id: saved.listId, ownerId: saved.listOwnerId, name: destLabel },
+      film: saved.film,
+    });
   };
 
   // ── render ──────────────────────────────────────────────────────────────────
@@ -282,7 +337,13 @@ export default function ExtractClient() {
 
       <div className="mx-auto max-w-2xl px-[18px] pb-32 pt-4">
         {saved ? (
-          <SavedState count={saved.count} dest={destLabel} onAgain={resetToInput} onLists={() => router.push('/lists')} />
+          <SavedState
+            count={saved.count}
+            dest={destLabel}
+            onAgain={resetToInput}
+            onLists={() => router.push('/lists')}
+            onPlanNight={saved.listOwnerId && saved.listId ? handlePlanNight : undefined}
+          />
         ) : phase === 'input' ? (
           <InputState url={url} setUrl={setUrl} onScan={() => start()} quota={quota} />
         ) : phase === 'processing' ? (
@@ -573,7 +634,18 @@ function FailedState({
   );
 }
 
-function SavedState({ count, dest, onAgain, onLists }: { count: number; dest: string; onAgain: () => void; onLists: () => void }) {
+function SavedState({
+  count, dest, onAgain, onLists, onPlanNight,
+}: {
+  count: number;
+  dest: string;
+  onAgain: () => void;
+  onLists: () => void;
+  /** MN01 — omitted (not just disabled) whenever the save didn't land in a
+   *  single known list, so the button degrades away silently instead of
+   *  ever rendering broken. */
+  onPlanNight?: () => void;
+}) {
   return (
     <div className="flex flex-col items-center pt-20 text-center">
       <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-primary">
@@ -593,6 +665,15 @@ function SavedState({ count, dest, onAgain, onLists }: { count: number; dest: st
           scan another
         </button>
       </div>
+      {onPlanNight && (
+        <button
+          onClick={onPlanNight}
+          className="mt-3 flex h-11 items-center gap-2 rounded-full border border-hair px-6 font-headline text-[15px] font-semibold lowercase text-foreground active:scale-[0.97]"
+        >
+          <CalendarPlus className="h-[18px] w-[18px]" strokeWidth={2} />
+          plan a movie night
+        </button>
+      )}
     </div>
   );
 }

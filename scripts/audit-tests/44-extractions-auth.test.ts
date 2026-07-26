@@ -159,8 +159,10 @@ test('completion push fires at most once per job (pushSentAt guards re-entry)', 
   const TWO_FILMS = { kind: 'films' as const, films: [{ title: 'Party', year: '1984' }, { title: 'Heat', year: '1995' }] };
   const firstResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, TWO_FILMS);
   assert.equal(firstResult, 'sent');
-  const first = (await ref.get()).data()?.pushSentAt;
-  assert.ok(first, 'first call claims pushSentAt');
+  const firstDoc = (await ref.get()).data();
+  assert.ok(firstDoc?.pushSentAt, 'first call claims pushSentAt');
+  assert.equal(firstDoc?.pushResult, 'sent', 'the branch decision is stamped for observability');
+  const first = firstDoc?.pushSentAt;
 
   const secondResult = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, TWO_FILMS);
   assert.equal(secondResult, 'skipped_duplicate');

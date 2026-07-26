@@ -36,6 +36,19 @@ popcorn avatar, top-5 canon, three ratings.
 appPriceSchedule/appAvailability until you POST one. Privacy nutrition
 labels (`appDataUsages`) are NOT on the public API — ASC UI only.
 
+**Screenshot redesign — tracked idea, not started (2026-07-26).** Owner
+asked to learn from the app **Rodeo** (see `HANDOFF.md`'s 2026-07-26
+research section for the full punch list); item 2 of that list is a
+screenshot direction worth a future pass here: Rodeo's App Store
+screenshots are statement-style — real UI in a black frame, giant display
+type, one italic word, a 3D emoji finger pointing at the money moment —
+and they literally teach their share-extension flow inside the store
+listing itself. We already have the current 5 live screenshots + the
+capture pipeline above (`appstore-screenshots.tmp.mjs` +
+`asc-upload-screenshots.tmp.mjs`); a redesign in this direction is a
+compositing/copy pass over the existing captures, not new infrastructure.
+Not scheduled against any of the numbered gates below.
+
 ## Code changes riding build 2 — SHIPPED as 1.0 (2), VALID 2026-07-25
 
 Build 2 went up via the CLI pipeline on 07-25 carrying BOTH items below

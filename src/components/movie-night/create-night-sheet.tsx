@@ -14,13 +14,15 @@ import { useUserProfile } from '@/contexts/user-profile-cache';
 import { useListMembersCache } from '@/contexts/list-members-cache';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
+import { modalGuardProps, guardInteractOutside } from '@/lib/modal-guard';
 import { track, AnalyticsEvent } from '@/lib/analytics';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { FilmPickerSheet } from '@/components/v3/film-picker-sheet';
+import { Segmented, type SegmentedOption } from '@/components/v3/segmented';
 import { NightHeroCTA, NightPoster, describeNightCta, formatTimeOfDay, nightFilmMeta } from './night-ui';
 import type { MovieNightListContext, OpenCreateArgs } from './movie-night-provider';
-import type { MovieNightFilm, MovieNightView, ReminderPreset } from '@/lib/movie-night-types';
+import type { MovieNightFilm, MovieNightView, MovieNightVisibility, ReminderPreset } from '@/lib/movie-night-types';
 import type { ListMember, SearchResult, TaggedUser, UserProfile } from '@/lib/types';
 
 /**
@@ -60,6 +62,25 @@ const REMINDER_SHORT: Record<ReminderPreset, string> = {
   morning: 'the morning of',
   showtime: 'at showtime',
 };
+
+/** F9 — private vs public movie nights. Two clear choices, reused by both
+ *  the create sheet's main body and the reschedule flow's `DateTimeSheet`
+ *  (the host's only other edit surface for it) — a single shared control +
+ *  caption so the two never drift apart. */
+const VISIBILITY_OPTIONS: SegmentedOption[] = [
+  { id: 'public', label: 'public' },
+  { id: 'private', label: 'private' },
+];
+
+function visibilityCaption(v: MovieNightVisibility): string {
+  return v === 'private'
+    ? 'only the people invited can see it.'
+    : 'anyone who can see the list sees the night.';
+}
+
+function toVisibility(id: string): MovieNightVisibility {
+  return id === 'private' ? 'private' : 'public';
+}
 
 function searchResultToNightFilm(r: SearchResult): MovieNightFilm {
   return {
@@ -189,6 +210,7 @@ export function DateTimeSheet({
   today, fridayTarget, weekDays,
   onPickDate, onPickTime, onOpenFilmPicker, onOpenTimeEntry, onClose, onPropose,
   hideFilmRow, ctaLabel, ctaIcon, eyebrow = 'date night', title = 'movie night', movingFromLabel,
+  visibility, onVisibilityChange,
 }: {
   isOpen: boolean;
   film: MovieNightFilm | null;
@@ -219,6 +241,13 @@ export function DateTimeSheet({
   /** MN34's struck-through "moving from thu 24.07 · 8pm" context row, pinned
    *  above everything else in the sheet. Omit for the plain create flow. */
   movingFromLabel?: string | null;
+  /** F9 — the reschedule flow's ONLY edit surface, so it's the one place
+   *  `DateTimeSheet` itself renders the visibility control. The plain create
+   *  flow already exposes it in `CreateNightSheet`'s main body, so it omits
+   *  both props here — the section below is opt-in on `onVisibilityChange`
+   *  being defined, never shown twice for the same flow. */
+  visibility?: MovieNightVisibility;
+  onVisibilityChange?: (v: MovieNightVisibility) => void;
 }) {
   const height = useViewportHeight(92);
   const heightStyle = height > 0 ? `${height}px` : 'calc(92 * var(--dvh, 1vh))';
@@ -233,6 +262,8 @@ export function DateTimeSheet({
         <Drawer.Content
           className="fixed bottom-0 left-0 right-0 z-[93] flex flex-col rounded-t-[22px] bg-background outline-none"
           style={{ height: heightStyle, maxHeight: heightStyle }}
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
         >
           <Drawer.Title className="sr-only">date &amp; time</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
@@ -370,6 +401,23 @@ export function DateTimeSheet({
                 <span className="font-ui text-[13px] font-semibold text-muted-foreground">type it</span>
               </button>
             </div>
+
+            {/* F9 — reschedule-only: who can see this night. Opt-in on
+                `onVisibilityChange` so the plain create flow (which already
+                shows this in the main sheet) never renders it twice. */}
+            {onVisibilityChange && (
+              <>
+                <div className="mt-5"><span className="cc-eyebrow text-muted-foreground">who can see it</span></div>
+                <div className="mt-2.5">
+                  <Segmented
+                    options={VISIBILITY_OPTIONS}
+                    value={visibility ?? 'public'}
+                    onChange={(id) => onVisibilityChange(toVisibility(id))}
+                  />
+                  <p className="mt-2 px-0.5 font-mono text-[10px] text-muted-foreground">{visibilityCaption(visibility ?? 'public')}</p>
+                </div>
+              </>
+            )}
             <div className="h-6" />
           </div>
 
@@ -446,6 +494,8 @@ function PeopleSheet({
         <Drawer.Content
           className="fixed bottom-0 left-0 right-0 z-[93] flex flex-col rounded-t-[22px] bg-background outline-none"
           style={{ height: heightStyle, maxHeight: heightStyle }}
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
         >
           <Drawer.Title className="sr-only">who&apos;s coming</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
@@ -595,7 +645,11 @@ function ReminderSheet({
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-[93] bg-black/60" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[93] flex max-h-[64vh] flex-col rounded-t-[22px] bg-background outline-none">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[93] flex max-h-[64vh] flex-col rounded-t-[22px] bg-background outline-none"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">remind me</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
           <div className="flex items-center justify-between px-5 py-2.5">
@@ -717,7 +771,7 @@ export function TimeEntrySheet({
     // while a modal Drawer.Root is open (the main create sheet + DateTimeSheet
     // both are, whenever this fullscreen portal is up); an explicit `auto`
     // here re-enables taps on this portal's own subtree regardless.
-    <div className="fixed inset-0 z-[94] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="set a time">
+    <div {...modalGuardProps} className="fixed inset-0 z-[94] flex flex-col bg-background" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="set a time">
       <header className="flex flex-shrink-0 items-center justify-between border-b border-hair px-5 pb-3" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 0.625rem)' }}>
         <button onClick={() => { haptic('light'); onClose(); }} className="font-ui text-[15px] font-semibold text-muted-foreground active:opacity-60">cancel</button>
         <span className="font-headline text-[18px] font-bold lowercase tracking-[-0.02em]">set a time</span>
@@ -817,7 +871,7 @@ function ConfirmOverlay({
     // F1 — same pointer-events fix as `TimeEntrySheet`: this overlay renders
     // while the main create Drawer.Root (and possibly a nested expander) is
     // still technically open, so `body.style.pointerEvents` may be 'none'.
-    <div className="fixed inset-0 z-[96] flex items-center justify-center bg-black/55 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="your night's proposed">
+    <div {...modalGuardProps} className="fixed inset-0 z-[96] flex items-center justify-center bg-black/55 px-6" style={{ pointerEvents: 'auto' }} role="dialog" aria-label="your night's proposed">
       <div className="w-full max-w-[340px] rounded-[26px] border border-hair bg-background p-6 pb-5 shadow-lift">
         <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-success" style={{ boxShadow: '0 8px 24px rgba(0,0,0,0.2)' }}>
           <Check className="h-7 w-7 text-white" strokeWidth={2.6} />
@@ -887,6 +941,9 @@ export function CreateNightSheet({
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<TimeOfDay | null>(null);
   const [reminderPreset, setReminderPreset] = useState<ReminderPreset>('2h');
+  // F9 — defaults to 'public', preserving every night's behavior before this
+  // field existed.
+  const [visibility, setVisibility] = useState<MovieNightVisibility>('public');
   const [invitees, setInvitees] = useState<TaggedUser[]>([]);
   const [listMembers, setListMembers] = useState<ListMember[]>([]);
 
@@ -934,6 +991,7 @@ export function CreateNightSheet({
     setSelectedDate(startOfDay(new Date()));
     setSelectedTime(null);
     setReminderPreset('2h');
+    setVisibility('public');
     setInvitees([]);
     setListMembers(args?.list ? getMembers(args.list.ownerId, args.list.id) ?? [] : []);
     setShowFilmPicker(!args?.film);
@@ -1041,6 +1099,7 @@ export function CreateNightSheet({
         tzOffsetMinutes: -new Date().getTimezoneOffset(),
         reminderPreset,
         inviteeUids: invitees.map((u) => u.uid),
+        visibility,
       };
       if (list) {
         body.listId = list.id;
@@ -1085,6 +1144,8 @@ export function CreateNightSheet({
           <Drawer.Content
             className="fixed bottom-0 left-0 right-0 z-[91] flex flex-col rounded-t-[22px] bg-background outline-none"
             style={{ height: heightStyle, maxHeight: heightStyle }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
           >
             <Drawer.Title className="sr-only">movie night</Drawer.Title>
             <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
@@ -1144,6 +1205,16 @@ export function CreateNightSheet({
                   <Plus className="h-[15px] w-[15px]" strokeWidth={2.4} />
                   <span className="font-ui text-[13px] font-semibold">add</span>
                 </button>
+              </div>
+
+              <div className="mt-5"><span className="cc-eyebrow text-muted-foreground">who can see it</span></div>
+              <div className="mt-2.5">
+                <Segmented
+                  options={VISIBILITY_OPTIONS}
+                  value={visibility}
+                  onChange={(id) => setVisibility(toVisibility(id))}
+                />
+                <p className="mt-2 px-0.5 font-mono text-[10px] text-muted-foreground">{visibilityCaption(visibility)}</p>
               </div>
 
               <div className="mt-5"><span className="cc-eyebrow text-muted-foreground">reminder</span></div>

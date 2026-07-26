@@ -2,8 +2,152 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-25)
+## Current state (2026-07-26)
 
+- **Modal tap-through bug class CLOSED (2026-07-26, `src/lib/modal-guard.ts`
+  — UNCOMMITTED).** Owner's device report: pressing the dim BEHIND the
+  "cancel movie night?" confirm registered the press and dismissed the
+  sheet underneath, leaving the confirm orphaned over a bare list page.
+  ROOT CAUSE: every Vaul `Drawer.Root` is built on Radix's
+  `DismissableLayer`, which listens for `pointerdown` at the DOCUMENT
+  level — a `createPortal(..., document.body)` overlay sits structurally
+  OUTSIDE the drawer's own content tree, so every press on the confirm
+  (its dim included) reads as an "outside" press and dismisses the parent
+  drawer. Verified against real Radix source, not just types:
+  `handleAndDispatchCustomEvent` dispatches the outside event on the
+  ORIGINAL DOM target, so `e.target` in a handler is the true click
+  target. **THE LESSON:** the 2026-07-25 `pointerEvents:'auto'` fix (see
+  below) closed only HALF this class — "my own buttons don't respond."
+  The other half — "taps LEAK THROUGH and dismiss the sheet underneath" —
+  shipped untouched, which is why the same portal-over-drawer architecture
+  produced a NEW symptom one build later. When fixing an interaction
+  class, enumerate BOTH directions: can the overlay RECEIVE input, and can
+  input LEAK PAST it. Fix: `modal-guard.ts` exports `MODAL_GUARD_ATTR`
+  (`data-cc-modal-guard`), `modalGuardProps` (spread on every portal
+  overlay root), `guardInteractOutside(e)` (wired onto
+  `onPointerDownOutside` + `onInteractOutside` on `Drawer.Content`;
+  preventDefaults when the real target is inside a guarded root). Guard
+  wired on ALL 26 `Drawer.Content` sites repo-wide + the 6 body-portaled
+  overlays (`night-detail-sheet.tsx`'s CancelConfirmModal,
+  `create-night-sheet.tsx`'s TimeEntrySheet + ConfirmOverlay,
+  `morning-after-sheet.tsx`'s WatchedMomentSheet, `rate-on-watch-modal.tsx`,
+  `v3/how-was-it-sheet.tsx`, `v3/note-sheet.tsx`); `v3/review-react-overlay.tsx`
+  + `fullscreen-text-input.tsx` render inline (not portaled) so they're
+  deliberately unmarked. Orphan-proofing: `night-detail-sheet.tsx`'s
+  fetch-on-open effect now resets every child-modal flag
+  (`showCancelConfirm`/`showAddCalendar`/`showReschedule`) in its
+  `if (!nightId)` branch, so no child modal survives the sheet closing by
+  ANY path (backdrop, `onClose`, swipe-back). `scripts/interaction-
+  harness.mjs` grew a tap-through audit (17 → 30 steps): real-clicks 3
+  background points behind an open confirm and asserts the confirm
+  survives, the drawer stays `data-state="open"`, and `elementFromPoint`
+  resolves inside the guarded root. **NEW STANDING RULE, enforced by
+  `scripts/audit-tests/55-modal-guard.test.ts`** (static source scan, no
+  fixed file list — a new drawer added tomorrow is covered automatically):
+  any body-portaled overlay MUST carry `modalGuardProps`; any
+  `Drawer.Content` MUST carry `guardInteractOutside` on BOTH hooks. RUN
+  THE HARNESS BEFORE EVERY NATIVE BUILD, same as always — this class is
+  exactly why.
+- **Silent scan-result push bug FIXED (2026-07-26, `src/lib/
+  live-activity-server.ts` + `extraction-server.ts` — UNCOMMITTED,
+  server-only).** Owner: "I get the notification for getting the video
+  but not once it's been identified." ROOT CAUSE (verified against PROD
+  Firestore — recent jobs all show `trace=end:ok`): `sendLiveActivityEnd`
+  carried NO `alert`, while `sendExtractionCompletionPush` deliberately
+  suppresses the FCM ding whenever a Live Activity card resolves
+  (`'skipped_live_activity'`) — the card morphed silently on the lock
+  screen and nothing else fired. The START push always carried an alert,
+  which is exactly why "getting the video" arrived and the result never
+  did. Fix: `sendLiveActivityEnd` gained an optional 4th param
+  `alert?: {title, body}` → an ActivityKit ALERTING terminal update
+  (`sound:'default'`, Apple's "order delivered" pattern); the completion
+  path passes the same deterministic brand-voice copy the FCM path uses.
+  DELIBERATE: the alert fires regardless of the `'watched'` (live-poller)
+  state — only the redundant FCM ding stays suppressed while watched,
+  since the Live Activity is a different surface from the in-app drawer
+  (flip candidate if it reads as noisy in practice). The late-token
+  read-repair in `attachExtractionLiveActivityToken` also carries the
+  alert, gated on a new `pushResult?: string` field on `JobDoc` (stamped
+  on every return path via a single-exit `finish()` helper, awaited so
+  it's durable before the promise resolves): `'sent'` stays quiet (already
+  dinged), anything else becomes the user's one alert. Double-buzz is
+  closed by TWO independent guards (`terminal && !la.endedAt` at claim
+  time + the `pushResult === 'sent'` gate at read-repair time).
+  `push-server.ts` needed no change (already sets `sound:'default'`).
+  Suite 49 9→11, suite 44 gained a `pushResult` assertion. This is a
+  SERVER fix — live on the next web deploy, no native build required.
+- **Movie Night — private nights + scan-to-plan continuity (2026-07-26 —
+  UNCOMMITTED).** Two Rodeo-inspired continuity fixes on top of v1.1.
+  **(1) Visibility.** Owner wanted an option where only invited people can
+  see a night. Correction worth recording: the home-feed card was ALREADY
+  invitee-only (`getUpcomingMovieNights` is an `inviteeUids`
+  array-contains) — the only surface exposed to non-invitees was the LIST
+  PIN (already redacted to film/date/counts by the 2026-07-24 adversarial
+  review's roster-leak fix), so privacy targets only that pin. New `NightDoc.visibility?:
+  'public'|'private'` (absent = public, NEVER backfilled);
+  `createMovieNight` validates strictly (anything but `'private'` stores
+  `'public'`); `updateMovieNight`'s `reschedule` action takes visibility
+  as an OPTIONAL patch key, applied only when actually sent, so a plain
+  reschedule can't silently reset a private night back to public;
+  `getListMovieNight` returns `null` (not a 403) for a private night to a
+  non-host/invitee — same as non-existence, no existence oracle. Tradeoff
+  documented in code: the list-night cache holds only the SOONEST proposed
+  night per list, so a private soonest night hides a later public one from
+  non-invitees (acceptable — a list has one active night in practice).
+  Guest capability links (`/n/[code]`) UNCHANGED: holding the share code
+  IS the invitation. Host UI: a "who can see it" segmented control
+  (public/private) in both the create sheet and the reschedule flow's
+  `DateTimeSheet` (opt-in on a shared prop so it never renders twice), a
+  calm mono "private · only the people invited" lock indicator on the
+  detail sheet. Suite 53 20→28. **(2) Scan → save → plan.** Web
+  `/extract`'s SavedState gained a secondary "plan a movie night" button
+  (list always prefilled, film prefilled only when exactly one film was
+  saved; OMITTED, not disabled, when the destination isn't known) →
+  `useMovieNight().openCreate()`, via a new `extractionFilmToNightFilm`
+  helper (no extra TMDB fetch). The native ShareExtension's done state
+  gained the same button (`ShareFlowModel.saveSucceeded` zips the save
+  response against the selected films to capture
+  `savedListId`/`savedListOwnerId`/`savedFilm`; auto-close 1.2s → 5s when
+  the button shows, cancellable; `openDeepLink(_:)` extracted from
+  `openHostApp` for reuse). Deep link contract:
+  `cinechrony://plan-night?listOwnerId=<uid>&listId=<id>[&tmdbId=<n>
+  &mediaType=movie|tv]` → `deep-link-handler.tsx` → `/lists/<listId>
+  ?owner=<uid>&planNight=1[&tmdbId&mediaType]`, reusing the `?owner=`
+  convention invite acceptance already established;
+  `lists/[listId]/client.tsx` auto-opens the create sheet once REAL list +
+  permission data has loaded (mirrors the `settings?invite=1` pattern),
+  strips the params via `router.replace` so back-nav can't retrigger, and
+  falls back to list-only prefill on any TMDB-fetch failure. New analytics
+  event `movie_night_plan_from_scan`. **Ticker verified live (2026-07-26):**
+  the `movie-nights-tick` GH Actions cron confirmed firing on schedule and
+  succeeding repeatedly through today (checked via the GitHub API) — the
+  `ADMIN_SECRET` chain (Vercel env + GH Actions secret) works end to end;
+  `MOVIE-NIGHT-PLAN.md`'s owner-gate item is closed.
+- **Rodeo competitive research — punch list drafted (2026-07-26, see
+  `HANDOFF.md`).** Owner asked to learn from **Rodeo** ("Save it. Do it.",
+  App Store id `6753013160`, ex-Hinge founders Sam Levy + Tim MacGougan,
+  $8.5M seed, #1 on Apple's "Best New Apps" while still in private beta,
+  ~20k beta users). KEY REFRAME: it is NOT an RSVP app — "share a
+  reel/screenshot in → an LLM extracts the details → shared lists +
+  reminders + a map → go do it with friends" is structurally the SAME hero
+  loop as cinechrony's reel scanner, aimed at places instead of films,
+  which makes its patterns unusually transplantable. Their wow is total
+  brand-voice commitment + the two-tap share loop, not animation; their
+  reported weakness is reminder delivery — the same bug class as our own
+  scan-result push fix above. Full 14-item punch list (ranked
+  wow-per-effort, each mapped to a cinechrony surface — founder welcome
+  texts, statement-style App Store screenshots, one signature verb, the
+  "you both want to watch it" overlap push, reactions-as-decision-engine,
+  etc.) lives in `HANDOFF.md`; item 2 (screenshot direction) is also
+  tracked in `APP-STORE-SUBMISSION.md`.
+- **State as of this writing:** all four items above are UNCOMMITTED on
+  disk (~41 files). The two bug fixes (modal-guard, the scan-alert fix)
+  are server/client code that goes live on the next web deploy regardless
+  of the native build; the visibility UI + scan-to-plan native
+  ShareExtension pieces need a new native build (build 6) to reach the
+  iOS app, same as always. Gates before that build: typecheck, full audit
+  suite, the 30-step interaction harness, and the native `-smokeCalendar`
+  simulator smoke.
 - **Device-bug sweep FIXED + build 3 (2026-07-25 evening).** The owner's
   first real device pass found the sheet interaction class: portal
   modals over open Vaul drawers received NO taps (body
@@ -76,11 +220,13 @@
   set; also carries **iPhone-only** + the scan-quota drawer state.
   **Prod switches (2026-07-25):** the 4 movie_nights composite
   indexes + the current firestore.rules are DEPLOYED (firebase CLI was
-  authed on this Mac — feed card/list pin/morning-after all live). The
-  ONE remaining owner gate: **`ADMIN_SECRET` as a GH Actions repo
-  secret** (value = the Vercel env var; reminder/morning-after pushes
+  authed on this Mac — feed card/list pin/morning-after all live). ~~The
+  ONE remaining owner gate: `ADMIN_SECRET` as a GH Actions repo
+  secret~~ (value = the Vercel env var; reminder/morning-after pushes
   inert without it — the value exists only in Vercel, and pulling the
-  keychain GitHub token to set it via API was classifier-blocked).
+  keychain GitHub token to set it via API was classifier-blocked) — **set
+  + VERIFIED FIRING repeatedly on schedule as of 2026-07-26** (checked via
+  the GitHub API).
   Tracker: `MOVIE-NIGHT-PLAN.md`. Also 07-24: GitGuardian incident
   (demo password swept into the public repo by a bulk `git add -A`) —
   branch history rewritten, tracker scrubbed, `.gitignore` hardened,
@@ -1126,20 +1272,35 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-23 — App Store listing filled end-to-end via the ASC
-API (copy, 12+ age rating, pricing, 175 territories, review details, 5 live
-screenshots via headless-Chrome captures of prod); iPhone-only device
-family queued for build 2; tracker `APP-STORE-SUBMISSION.md`. Before that
-(07-21): TestFlight LIVE: build 1.0 (1) uploaded from the
-terminal, beta review APPROVED in ~7h, public link live (capped 150); ASC
-API automation via `scripts/asc-api.tmp.mjs`; ShareExtension TRUEPREDICATE
-→ dictionary activation rule (`e680559`, ITMS-90362). Before that: the
-2026-07-10→18 native launch stretch (share extension · Live Activity ·
-extraction excellence · theatre sweep · TestFlight prep — see `HANDOFF.md`).
-Earlier: analytics/observability live (07-07), Phase C web-first
-(`34bd93e`), extraction precision (`5fa8472`). The "Current state" section
-at the top of this file is the authoritative status; the dated sections
-below are a historical changelog.*
+*Last updated: 2026-07-26 — modal tap-through bug class closed
+(`src/lib/modal-guard.ts`, all 26 `Drawer.Content` sites + 6 body-portaled
+overlays guarded, `scripts/audit-tests/55-modal-guard.test.ts` enforces it
+repo-wide going forward), the silent-scan-result push bug fixed (Live
+Activity terminal updates now carry an alert), Movie Night gained
+public/private visibility + scan-to-plan continuity (web `/extract` +
+native ShareExtension), the reminder/morning-after ticker verified firing
+live via the GitHub API, and Rodeo competitive research landed a 14-item
+punch list in `HANDOFF.md` — all UNCOMMITTED pending the usual gates
+(typecheck, full audit suite, interaction harness, native calendar smoke)
+and build 6. Before that (07-25): the device-bug sweep (portal-tap
+pointer-events class, stale pins, dead-tapped create, the CalendarBridge
+wiring + crash) fixed through build 1.0 (5); a silently-red CI job fixed
+(`a7c7c12`); Movie Night v1.1 shipped to `main` + TestFlight build 1.0 (2).
+Before that (07-23): the weekly scan quota shipped to prod, and the App
+Store listing was filled end-to-end via the ASC API (copy, 12+ age rating,
+pricing, 175 territories, review details, 5 live screenshots via
+headless-Chrome captures of prod); iPhone-only device family queued for
+build 2; tracker `APP-STORE-SUBMISSION.md`. Before that (07-21):
+TestFlight LIVE: build 1.0 (1) uploaded from the terminal, beta review
+APPROVED in ~7h, public link live (capped 150); ASC API automation via
+`scripts/asc-api.tmp.mjs`; ShareExtension TRUEPREDICATE → dictionary
+activation rule (`e680559`, ITMS-90362). Before that: the 2026-07-10→18
+native launch stretch (share extension · Live Activity · extraction
+excellence · theatre sweep · TestFlight prep — see `HANDOFF.md`). Earlier:
+analytics/observability live (07-07), Phase C web-first (`34bd93e`),
+extraction precision (`5fa8472`). The "Current state" section at the top
+of this file is the authoritative status; the dated sections below are a
+historical changelog.*
 
 ## Recent Changes (January 2025)
 

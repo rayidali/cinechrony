@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { ChevronLeft } from 'lucide-react';
 import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
+import { modalGuardProps } from '@/lib/modal-guard';
 
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
 
@@ -80,7 +81,7 @@ export function HowWasItSheet({
   if (!isOpen || !mounted) return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="how was it?">
+    <div {...modalGuardProps} className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="how was it?">
       {/* header — cancel · title · save */}
       <header
         className="flex flex-shrink-0 items-center justify-between border-b border-hair px-4 pb-3"

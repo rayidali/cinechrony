@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { useUser } from '@/firebase';
 import { apiCall } from '@/lib/api-client';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { useUserBookmarksCache } from '@/contexts/user-bookmarks-cache';
 import { useUserMutesCache } from '@/contexts/user-mutes-cache';
 import { useToast } from '@/hooks/use-toast';
@@ -174,7 +175,11 @@ export function CardOverflowMenu({
       <Drawer.Root open={open} onOpenChange={setOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[60]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-[22px] bg-card outline-none">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-[60] flex flex-col rounded-t-[22px] bg-card outline-none"
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <Drawer.Title className="sr-only">Card actions</Drawer.Title>
             <div className="mx-auto mt-2.5 mb-2 h-1 w-10 rounded-full bg-muted-foreground/30" />
             <div className="px-2 pb-[calc(1rem+env(safe-area-inset-bottom))]">

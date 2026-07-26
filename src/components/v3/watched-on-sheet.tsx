@@ -8,6 +8,7 @@ import {
   isSameMonth, subDays,
 } from 'date-fns';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 /**
  * F04 "watched on" — a bottom sheet over the composer. Quick chips
@@ -87,7 +88,11 @@ export function WatchedOnSheet({
     <Drawer.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[95]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[88vh]">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[88vh]"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">Watched on</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 

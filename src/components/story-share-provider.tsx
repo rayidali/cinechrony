@@ -5,6 +5,7 @@ import { Drawer } from 'vaul';
 import { Instagram, Loader2, Copy, Check, Send } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
 import { useToast } from '@/hooks/use-toast';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { storyImageUrl, storyDeepLink, shareStory, sendToFriend, type StorySharePayload } from '@/lib/story-share';
 
 /**
@@ -113,7 +114,11 @@ function StoryShareSheet({
     >
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 bg-black/70 z-[96]" />
-        <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[96] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[94vh]">
+        <Drawer.Content
+          className="fixed bottom-0 left-0 right-0 z-[96] flex flex-col rounded-t-[22px] bg-card outline-none max-h-[94vh]"
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
+        >
           <Drawer.Title className="sr-only">Share to your story</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
 

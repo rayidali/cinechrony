@@ -6,6 +6,7 @@ import { Trash2 } from 'lucide-react';
 import { format } from 'date-fns';
 import { DragToRate, ClearRatingButton } from '@/components/v3/drag-to-rate';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import { useViewportHeight } from '@/hooks/use-viewport-height';
 import type { Watch } from '@/lib/types';
 
@@ -57,6 +58,8 @@ export function WatchEditSheet({
         <Drawer.Content
           className="fixed bottom-0 left-0 right-0 z-[88] flex flex-col rounded-t-[22px] bg-card outline-none overflow-hidden"
           style={{ height: heightStyle, maxHeight: heightStyle }}
+          onPointerDownOutside={guardInteractOutside}
+          onInteractOutside={guardInteractOutside}
         >
           <Drawer.Title className="sr-only">edit watch</Drawer.Title>
           <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />

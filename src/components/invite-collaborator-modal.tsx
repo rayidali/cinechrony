@@ -18,6 +18,7 @@ import { useToast } from '@/hooks/use-toast';
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { shareOrigin } from '@/lib/share';
+import { guardInteractOutside } from '@/lib/modal-guard';
 import type { ListMember, ListInvite, UserProfile } from '@/lib/types';
 
 interface InviteCollaboratorModalProps {
@@ -214,6 +215,8 @@ export function InviteCollaboratorModal({
           <Drawer.Content
             className="fixed bottom-0 left-0 right-0 z-50 flex flex-col rounded-t-2xl bg-background border-t border-border outline-none"
             style={{ height: '75vh', maxHeight: '75vh' }}
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
           >
             {/* Drag handle */}
             <div className="mx-auto mt-4 h-1.5 w-12 flex-shrink-0 rounded-full bg-muted-foreground/40" />

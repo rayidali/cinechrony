@@ -8,7 +8,7 @@ import { haptic } from '@/lib/haptics';
 import { describeNightCta } from './night-ui';
 import { DateTimeSheet, TimeEntrySheet } from './create-night-sheet';
 import { formatNightDate, formatNightTime } from '@/lib/movie-night-format';
-import type { MovieNightView } from '@/lib/movie-night-types';
+import type { MovieNightView, MovieNightVisibility } from '@/lib/movie-night-types';
 
 /**
  * MN34 — "the reschedule picker": the create flow's `DateTimeSheet`/
@@ -42,6 +42,14 @@ export function RescheduleFlow({
     return { hour: d.getHours(), minute: d.getMinutes() };
   });
   const [showTimeEntry, setShowTimeEntry] = useState(false);
+  // F9 — host-only edit surface for visibility (the create sheet's only
+  // other one). Initialized from the night's CURRENT value every time the
+  // flow opens, same as date/time below — so a host who never touches this
+  // control still sends back exactly the value they see, and an unrelated
+  // live update to `night` while the sheet is mid-edit (e.g. someone else's
+  // RSVP) can't silently stomp an in-progress choice (deps intentionally
+  // narrowed to `[isOpen, night.id]`, mirroring the date/time reset below).
+  const [visibility, setVisibility] = useState<MovieNightVisibility>(night.visibility);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +58,7 @@ export function RescheduleFlow({
     const d = new Date(night.scheduledFor);
     setSelectedDate(startOfDay(d));
     setSelectedTime({ hour: d.getHours(), minute: d.getMinutes() });
+    setVisibility(night.visibility);
     setShowTimeEntry(false);
     setSubmitting(false);
     setError(null);
@@ -77,6 +86,11 @@ export function RescheduleFlow({
       const updated = await apiCall<MovieNightView>('PATCH', `/api/v1/movie-nights/${night.id}`, {
         action: 'reschedule',
         scheduledFor: when.toISOString(),
+        // Always sent, always the value currently shown in this sheet — never
+        // omitted — so a host who only touched the date/time still reports
+        // their unchanged visibility back rather than leaving the key out
+        // and hoping the server's "omitted = untouched" default carries it.
+        visibility,
       });
       haptic('success');
       onRescheduled(updated);
@@ -115,6 +129,8 @@ export function RescheduleFlow({
         eyebrow="rescheduling"
         title="new night"
         movingFromLabel={movingFromLabel}
+        visibility={visibility}
+        onVisibilityChange={setVisibility}
       />
       <TimeEntrySheet
         isOpen={isOpen && showTimeEntry}

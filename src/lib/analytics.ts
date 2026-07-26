@@ -27,6 +27,7 @@ export const AnalyticsEvent = {
   ExtractionStarted: 'extraction_started',
   ExtractionSucceeded: 'extraction_succeeded',
   ExtractionSaved: 'extraction_saved',
+  MovieNightPlanFromScan: 'movie_night_plan_from_scan',
   MovieNightCreated: 'movie_night_created',
   MovieNightRsvp: 'movie_night_rsvp',
   MovieNightCompleted: 'movie_night_completed',

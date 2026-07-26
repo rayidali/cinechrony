@@ -608,6 +608,251 @@ test('list-pin route: stranger + unauthenticated caller get the redacted pin; in
   }
 });
 
+// ─── private vs public movie nights ─────────────────────────────────────────
+//
+// Host-controlled `visibility`. A missing field (every legacy doc) reads as
+// 'public'; a private night is invisible via `getListMovieNight` to anyone
+// but its host/invitees (same `null` as no night existing — no existence
+// oracle), including an anonymous caller on a public list. Guest capability
+// links (`shared/[code]`, covered in 54-movie-nights-guest.test.ts) are
+// UNCHANGED by any of this — holding the share code IS the invitation.
+
+/** A list doc with an explicit collaborator set — the "list member who is
+ *  NOT invited to the night" fixture the pin-view gating tests need. */
+async function seedListWithCollaborator(
+  ownerId: string,
+  listId: string,
+  collaboratorUid: string,
+  isPublic: boolean,
+): Promise<void> {
+  await adminDb().doc(`users/${ownerId}/lists/${listId}`).set({
+    id: listId, name: 'movie night list', ownerId, isPublic, collaboratorIds: [collaboratorUid], movieCount: 0,
+    createdAt: new Date(), updatedAt: new Date(),
+  });
+}
+
+test('create: visibility defaults to public when omitted', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.visibility, 'public');
+});
+
+test('create: visibility "private" is stored and returned', async () => {
+  const { night } = await createNight(hostTok, { visibility: 'private' });
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.visibility, 'private');
+});
+
+test('create: garbage visibility values (a wrong string, a number, null, an object) fall back to public', async () => {
+  for (const bad of ['friends', 123, null, {}, ['private']]) {
+    const { night } = await createNight(hostTok, { visibility: bad });
+    assert.ok(night, `a night was still created for visibility=${JSON.stringify(bad)}`);
+    if (!night) continue;
+    assert.equal(night.visibility, 'public', `visibility=${JSON.stringify(bad)} must fall back to public, never reject`);
+  }
+});
+
+test('getListMovieNight: a PRIVATE night — host and invitee get the full view; a non-invited collaborator and an anonymous caller both get null', async () => {
+  const collaborator = await createTestUser('collabnotinv');
+  const collaboratorTok = await collaborator.getIdToken();
+  await adminDb().collection('users').doc(collaborator.uid).set({
+    uid: collaborator.uid, username: collaborator.uid.slice(0, 8), usernameLower: collaborator.uid.slice(0, 8),
+  });
+  await seedListWithCollaborator(host.uid, 'private-pin-list', collaborator.uid, true);
+
+  const { night } = await createNight(hostTok, {
+    listId: 'private-pin-list', listOwnerId: host.uid, visibility: 'private',
+  });
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.visibility, 'private');
+
+  const hostRes = await callRoute<MovieNightView>(listMovieNightRoute, 'GET', {
+    token: hostTok, params: { ownerId: host.uid, listId: 'private-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/private-pin-list/movie-night`,
+  });
+  assert.equal(hostRes.status, 200);
+  assert.ok(hostRes.body.ok);
+  if (hostRes.body.ok) assert.ok(hostRes.body.data && 'invitees' in (hostRes.body.data as object), 'the host gets the full view');
+
+  const inviteeRes = await callRoute<MovieNightView>(listMovieNightRoute, 'GET', {
+    token: invitee1Tok, params: { ownerId: host.uid, listId: 'private-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/private-pin-list/movie-night`,
+  });
+  assert.equal(inviteeRes.status, 200);
+  assert.ok(inviteeRes.body.ok);
+  if (inviteeRes.body.ok) assert.ok(inviteeRes.body.data && 'invitees' in (inviteeRes.body.data as object), 'the invitee gets the full view');
+
+  const collabRes = await callRoute<MovieNightPinView | null>(listMovieNightRoute, 'GET', {
+    token: collaboratorTok, params: { ownerId: host.uid, listId: 'private-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/private-pin-list/movie-night`,
+  });
+  assert.equal(collabRes.status, 200);
+  assert.ok(collabRes.body.ok);
+  if (collabRes.body.ok) {
+    assert.equal(collabRes.body.data, null, 'a list member who was NOT invited gets null, not the redacted pin — no existence oracle');
+  }
+
+  const anonRes = await callRoute<MovieNightPinView | null>(listMovieNightRoute, 'GET', {
+    params: { ownerId: host.uid, listId: 'private-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/private-pin-list/movie-night`,
+  });
+  assert.equal(anonRes.status, 200);
+  assert.ok(anonRes.body.ok);
+  if (anonRes.body.ok) {
+    assert.equal(anonRes.body.data, null, 'an anonymous caller on a PUBLIC list still gets null for a PRIVATE night');
+  }
+});
+
+test('getListMovieNight: a PUBLIC night still shows the redacted pin to a non-invited collaborator (existing behavior intact)', async () => {
+  const collaborator = await createTestUser('collabpublic');
+  const collaboratorTok = await collaborator.getIdToken();
+  await adminDb().collection('users').doc(collaborator.uid).set({
+    uid: collaborator.uid, username: collaborator.uid.slice(0, 8), usernameLower: collaborator.uid.slice(0, 8),
+  });
+  await seedListWithCollaborator(host.uid, 'public-pin-list', collaborator.uid, true);
+
+  const { night } = await createNight(hostTok, {
+    listId: 'public-pin-list', listOwnerId: host.uid, visibility: 'public',
+  });
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: collaboratorTok, params: { ownerId: host.uid, listId: 'public-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/public-pin-list/movie-night`,
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (res.body.ok) {
+    assert.ok(res.body.data, 'a public night is not hidden from a non-invited collaborator');
+    assert.ok(!('invitees' in (res.body.data as object)), 'still the redacted pin shape, not the full view');
+  }
+});
+
+test('legacy doc with no visibility field behaves as public (never backfilled)', async () => {
+  await seedPublicList(host.uid, 'legacy-pin-list');
+
+  const legacyRef = adminDb().collection('movie_nights').doc();
+  await legacyRef.set({
+    hostUid: host.uid,
+    listId: 'legacy-pin-list',
+    listOwnerId: host.uid,
+    listName: 'movie night list',
+    film: FILM,
+    scheduledFor: Timestamp.fromDate(new Date(Date.now() + 24 * 3600_000)),
+    previousScheduledFor: null,
+    tzOffsetMinutes: 0,
+    reminderPreset: '2h',
+    status: 'proposed',
+    inviteeUids: [host.uid],
+    invitees: { [host.uid]: { username: host.uid.slice(0, 8), displayName: null, photoURL: null } },
+    rsvps: { [host.uid]: { answer: 'in', respondedAt: Timestamp.now() } },
+    guestRsvps: {},
+    shareCode: 'x'.repeat(20),
+    clientKey: null,
+    reminderSentAt: null,
+    morningAfterSentAt: null,
+    completion: null,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    // Deliberately NO `visibility` field — mirrors every doc written before
+    // this field existed.
+  });
+
+  const hostView = await callRoute<MovieNightView>(getRoute, 'GET', {
+    token: hostTok, params: { id: legacyRef.id }, url: `http://test/api/v1/movie-nights/${legacyRef.id}`,
+  });
+  assert.equal(hostView.status, 200);
+  assert.ok(hostView.body.ok);
+  if (hostView.body.ok) assert.equal(hostView.body.data.visibility, 'public', 'an absent field reads as public, not undefined/crash');
+
+  const strangerRes = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: strangerTok, params: { ownerId: host.uid, listId: 'legacy-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/legacy-pin-list/movie-night`,
+  });
+  assert.equal(strangerRes.status, 200);
+  assert.ok(strangerRes.body.ok);
+  if (strangerRes.body.ok) {
+    assert.ok(strangerRes.body.data, 'a legacy doc with no visibility field is visible on a public list, exactly like an explicit public night');
+  }
+});
+
+test('updateMovieNight: the host flips visibility; a non-invitee flips between pin/null accordingly (proves cache invalidation); a non-host is rejected', async () => {
+  await seedPublicList(host.uid, 'flip-pin-list');
+  const { night } = await createNight(hostTok, { listId: 'flip-pin-list', listOwnerId: host.uid });
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.visibility, 'public', 'created public by default');
+
+  const beforeRes = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: strangerTok, params: { ownerId: host.uid, listId: 'flip-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/flip-pin-list/movie-night`,
+  });
+  assert.ok(beforeRes.body.ok);
+  if (beforeRes.body.ok) assert.ok(beforeRes.body.data, 'a stranger sees the pin before the flip');
+
+  // A non-host may not touch visibility either — same authz guard as reschedule.
+  const rejectRes = await callRoute(patchRoute, 'PATCH', {
+    token: invitee1Tok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: night.scheduledFor, visibility: 'private' },
+  });
+  assert.equal(rejectRes.status, 403, 'a non-host cannot change visibility');
+
+  const flipRes = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: night.scheduledFor, visibility: 'private' },
+  });
+  assert.equal(flipRes.status, 200);
+  assert.ok(flipRes.body.ok);
+  if (flipRes.body.ok) assert.equal(flipRes.body.data.visibility, 'private', 'the host successfully flipped it to private');
+
+  // The pin cache is keyed per list and must be dropped on this mutation —
+  // the SAME stranger, same list, now gets null instead of a stale pin.
+  const afterRes = await callRoute<MovieNightPinView | null>(listMovieNightRoute, 'GET', {
+    token: strangerTok, params: { ownerId: host.uid, listId: 'flip-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/flip-pin-list/movie-night`,
+  });
+  assert.ok(afterRes.body.ok);
+  if (afterRes.body.ok) assert.equal(afterRes.body.data, null, 'the stranger gets null right after the flip — cache correctly invalidated');
+
+  const flipBackRes = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: night.scheduledFor, visibility: 'public' },
+  });
+  assert.equal(flipBackRes.status, 200);
+  assert.ok(flipBackRes.body.ok);
+  if (flipBackRes.body.ok) assert.equal(flipBackRes.body.data.visibility, 'public');
+
+  const finalRes = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: strangerTok, params: { ownerId: host.uid, listId: 'flip-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/flip-pin-list/movie-night`,
+  });
+  assert.ok(finalRes.body.ok);
+  if (finalRes.body.ok) assert.ok(finalRes.body.data, 'flipping back to public makes the stranger see the pin again');
+});
+
+test('updateMovieNight: a plain reschedule (no visibility key sent) never resets an existing private night back to public', async () => {
+  await seedPublicList(host.uid, 'no-touch-pin-list');
+  const { night } = await createNight(hostTok, {
+    listId: 'no-touch-pin-list', listOwnerId: host.uid, visibility: 'private',
+  });
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: futureIso(96) }, // no `visibility` key at all
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (res.body.ok) {
+    assert.equal(res.body.data.visibility, 'private', 'omitting the key leaves the existing private setting untouched');
+  }
+});
+
 // ─── getUpcomingMovieNights ──────────────────────────────────────────────────
 
 test('upcoming: returns the night for an invitee, not for a stranger', async () => {

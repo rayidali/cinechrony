@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { ChevronLeft, Search } from 'lucide-react';
 import type { Movie } from '@/lib/types';
 import { haptic } from '@/lib/haptics';
+import { modalGuardProps } from '@/lib/modal-guard';
 
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cinechrony/500/750';
 
@@ -101,7 +102,7 @@ export function NoteSheet({
     : films;
 
   return createPortal(
-    <div className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="note on this film">
+    <div {...modalGuardProps} className="fixed inset-0 z-[95] flex flex-col bg-background" role="dialog" aria-label="note on this film">
       {/* header — cancel/back · title · save */}
       <header
         className="flex flex-shrink-0 items-center justify-between border-b border-hair px-4 pb-3"

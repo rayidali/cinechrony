@@ -53,6 +53,10 @@ scheduledFor (Timestamp) · previousScheduledFor|null · tzOffsetMinutes
 reminderPreset '2h'|'morning'|'showtime'
 status 'proposed'|'cancelled'|'completed'|'didnt_happen'
   (today/soon/now/awaiting-morning-after are DERIVED from scheduledFor)
+visibility?: 'public'|'private' (v1.2, 2026-07-26 — optional; a doc with the
+  field absent reads as 'public' and is NEVER backfilled; host-set, gates
+  ONLY getListMovieNight's redacted pin — the home feed's `upcoming` query
+  was already inviteeUids-scoped and unaffected)
 inviteeUids[] (incl host, ≤10) · invitees{uid→{username,displayName,photoURL}}
 rsvps{uid→{answer:'in'|'maybe'|'out', respondedAt}}
 guestRsvps{guestId→{name, answer, respondedAt}} (≤20, name ≤30 chars)
@@ -125,6 +129,71 @@ retroactive block filtering; .ics CR injection; attendance consent
 routing. Full suite 563/563 · typecheck · build · build:static all
 green at close.
 
+## v1.2 — private nights + scan-to-plan continuity (2026-07-26, UNCOMMITTED)
+
+Two more Rodeo-lesson features on top of v1.1, plus a bug fix the v1.1
+sheet architecture exposed. Not yet committed — gated behind the usual
+typecheck/audit-suite/harness/native-smoke pass and a native build (build
+6) before the two client-facing pieces below reach the iOS app; the
+server-side visibility logic ships on the next web deploy regardless.
+
+**Visibility.** Owner wanted an option where only invited people can see a
+night. Correction to the initial framing, worth keeping: the home-feed
+card was ALREADY invitee-only (`getUpcomingMovieNights` is an
+`inviteeUids` array-contains query) — the only leak was the collaborative
+LIST PIN, and that pin was already redacted to film/date/counts by this
+tracker's own "Adversarial review pass" roster-leak fix above. So
+"private" only ever needed to gate `getListMovieNight`'s pin path. New `NightDoc.visibility?:
+'public'|'private'` (see the data model above); `createMovieNight`
+validates strictly (anything but the literal `'private'` stores
+`'public'`); `updateMovieNight`'s `reschedule` action takes `visibility`
+as an OPTIONAL patch key, applied only when the caller actually sends it,
+so a plain reschedule can never silently reset an existing private night
+back to public; `getListMovieNight` returns `null` (not a 403) to a
+non-host/non-invitee on a private night — the same shape as no night
+existing, no existence oracle. Documented tradeoff: the list-night cache
+holds only the SOONEST proposed night per list, so a private soonest
+night can hide a later public one from non-invitees (accepted — a list
+has one active night in practice). Guest links (`/n/[code]`) are
+UNCHANGED: holding the share code is still the invitation, independent of
+the pin's public/private state. Host UI: a `who can see it`
+public/private segmented control in the create sheet and in the
+reschedule flow's date/time sheet (shown once, never duplicated between
+the two entry points), and a calm "private · only the people invited"
+lock indicator on the detail sheet when applicable. Suite 53 grew from 20
+to 28 tests.
+
+**Scan → save → plan.** Web `/extract`'s post-save screen and the iOS
+ShareExtension's done screen both gained a "plan a movie night" button:
+the destination list is always prefilled (a save always targets exactly
+one list), the film is prefilled only when exactly one film was saved,
+and the button is omitted entirely (not disabled) when the destination
+isn't known. The ShareExtension route is a new
+`cinechrony://plan-night?listOwnerId=&listId=[&tmdbId=&mediaType=]` deep
+link, handled by the same `?owner=` convention the invite-acceptance flow
+already uses, auto-opening the create-night sheet once the list page has
+loaded real (non-optimistic) permission data. New PostHog event
+`movie_night_plan_from_scan`. No new movie-night API routes — this rides
+the existing create/save endpoints.
+
+**The tap-through bug this sheet architecture exposed.** Device report:
+pressing the dim behind the "cancel movie night?" confirm registered the
+press THROUGH the confirm and dismissed the detail sheet underneath,
+orphaning the confirm over a bare list page. This was a repo-wide Vaul/
+Radix `DismissableLayer` class (every body-portaled confirm/expander
+sitting over an open drawer was affected, not just this one) — full root
+cause and the `src/lib/modal-guard.ts` fix are in `CLAUDE.md` and
+`HANDOFF.md`. The movie-night-specific fallout: `CancelConfirmModal`
+(`night-detail-sheet.tsx`) and the create sheet's `TimeEntrySheet` /
+`ConfirmOverlay` / `PeopleSheet` / `ReminderSheet` all needed the guard
+wired; `night-detail-sheet.tsx`'s fetch-on-open effect also now resets
+every child-modal flag (`showCancelConfirm`/`showAddCalendar`/
+`showReschedule`) whenever `nightId` clears, so no child modal can survive
+the parent sheet closing by any path. `scripts/interaction-harness.mjs`
+grew a dedicated tap-through audit (3 real background clicks behind an
+open confirm, each asserting the confirm survives and the click landed
+inside the guard) — 17 → 30 steps total.
+
 ## Owner actions when this ships
 
 1. ~~`firebase deploy --only firestore:indexes`~~ **DONE 2026-07-25**
@@ -132,9 +201,10 @@ green at close.
    after the service account got PERMISSION_DENIED on the Admin API).
    firestore.rules also deployed same day (repo ruleset = the one the
    563-test suite validates).
-2. **REMAINING — GitHub repo → Settings → Secrets and variables →
-   Actions → New repository secret → name `ADMIN_SECRET`, value copied
-   from Vercel → Settings → Environment Variables → `ADMIN_SECRET`.**
-   The reminder/morning-after ticker is inert without it. Verify: the
-   Actions tab → movie-nights-tick → next run (≤10 min) goes green.
+2. ~~GitHub repo → Settings → Secrets and variables → Actions → New
+   repository secret → name `ADMIN_SECRET`, value copied from Vercel →
+   Settings → Environment Variables → `ADMIN_SECRET`.~~ **DONE, VERIFIED
+   2026-07-26** — checked via the GitHub API: `movie-nights-tick` has been
+   firing on its 10-minute schedule and succeeding repeatedly. The
+   reminder/morning-after ticker is live end to end.
 3. Nothing else: the cron workflow ships with the repo, no new env vars.

@@ -6,6 +6,7 @@ import { Drawer } from 'vaul';
 import { Moon, Sun, Monitor, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { haptic } from '@/lib/haptics';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 const OPTIONS = [
   { value: 'light', label: 'light', icon: Sun },
@@ -77,7 +78,11 @@ export function ThemeToggle({ variant = 'default' }: { variant?: 'default' | 'gl
       <Drawer.Root open={open} onOpenChange={setOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 z-[95] bg-black/40" />
-          <Drawer.Content className="fixed inset-x-0 bottom-0 z-[96] rounded-t-[22px] border-t border-border bg-card pb-[max(env(safe-area-inset-bottom),16px)] outline-none">
+          <Drawer.Content
+            className="fixed inset-x-0 bottom-0 z-[96] rounded-t-[22px] border-t border-border bg-card pb-[max(env(safe-area-inset-bottom),16px)] outline-none"
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted" />
             <div className="px-5 pb-1 pt-3">
               <Drawer.Title className="font-headline text-[19px] font-bold lowercase tracking-[-0.02em]">

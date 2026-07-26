@@ -7,6 +7,7 @@ import { PencilLine, Plus, Download, FileText, type LucideIcon } from 'lucide-re
 import { Fab } from '@/components/fab';
 import { PostComposer } from '@/components/post-composer';
 import { cn } from '@/lib/utils';
+import { guardInteractOutside } from '@/lib/modal-guard';
 
 const DRAFT_KEY = 'cinechrony-post-draft';
 
@@ -39,7 +40,11 @@ export function PostFab({ onPosted }: { onPosted?: () => void }) {
       <Drawer.Root open={sheetOpen} onOpenChange={setSheetOpen}>
         <Drawer.Portal>
           <Drawer.Overlay className="fixed inset-0 bg-black/60 z-[95]" />
-          <Drawer.Content className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none">
+          <Drawer.Content
+            className="fixed bottom-0 left-0 right-0 z-[95] flex flex-col rounded-t-[22px] bg-card outline-none"
+            onPointerDownOutside={guardInteractOutside}
+            onInteractOutside={guardInteractOutside}
+          >
             <div className="mx-auto mt-2.5 h-1 w-10 rounded-full bg-muted-foreground/30" />
             <Drawer.Title className="px-5 pt-3 pb-1 font-headline font-bold text-[18px] lowercase tracking-[-0.02em]">
               create
