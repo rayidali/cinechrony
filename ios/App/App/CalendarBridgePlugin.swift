@@ -14,12 +14,21 @@
 //  from `AppViewController.capacitorDidLoad()` exactly like SharedAuthPlugin /
 //  LiveActivityPlugin — `npx cap sync` can't drop it.
 //
+//  HARD-LEARNED RULES (build 4 crashed in the field on both counts —
+//  TestFlight crash ALqx3DuQ…, iOS 18.1.1, SIGABRT on thread 6):
+//   1. Capacitor invokes plugin methods on a BACKGROUND queue. EVERYTHING
+//      UIKit here — constructing EKEventEditViewController included, not
+//      just presenting it — must run on the main thread.
+//   2. NEVER touch `store.defaultCalendarForNewEvents` (or any other
+//      calendar READ) on the no-authorization iOS 17+ path. Reads require
+//      full access; without it they are nil-or-worse. The edit sheet picks
+//      the user's default calendar by itself when `event.calendar` is unset.
+//
 //  iOS 17+: Apple's edit view controller can be presented WITHOUT the app
 //  first holding calendar authorization — a fresh `EKEventStore` is handed
 //  straight to the edit VC and the system handles access itself. Pre-17: the
-//  app must hold access before presenting, so we request it (write-only
-//  where the API exists, else full) first; a denial rejects the call rather
-//  than presenting a sheet that can't save.
+//  app must hold access before presenting, so we request it first; a denial
+//  rejects the call rather than presenting a sheet that can't save.
 //
 
 import Foundation
@@ -52,50 +61,48 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
             call.reject("startMs and endMs are required")
             return
         }
-        guard pendingCall == nil else {
-            call.reject("a calendar sheet is already open")
-            return
-        }
         let notes = call.getString("notes")
         let urlString = call.getString("url")
 
-        // A fresh store per invocation — no shared authorization state to
-        // get stale across calls.
-        let store = EKEventStore()
+        // Rule 1: hop to main IMMEDIATELY — every EventKitUI/UIKit touch
+        // below (including view-controller construction) is main-thread-only.
+        DispatchQueue.main.async { [weak self] in
+            guard let self else {
+                call.reject("plugin deallocated")
+                return
+            }
+            guard self.pendingCall == nil else {
+                call.reject("a calendar sheet is already open")
+                return
+            }
 
-        if #available(iOS 17.0, *) {
-            // The edit VC manages its own access on 17+ — present directly,
-            // no authorization round trip needed.
-            presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
-            return
-        }
+            // A fresh store per invocation — no shared authorization state
+            // to get stale across calls.
+            let store = EKEventStore()
 
-        requestLegacyAccess(store: store) { [weak self] granted in
-            DispatchQueue.main.async {
-                guard granted else {
-                    call.reject("denied")
-                    return
+            if #available(iOS 17.0, *) {
+                // The edit VC manages its own access on 17+ — present
+                // directly, no authorization round trip needed.
+                self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
+                return
+            }
+
+            store.requestAccess(to: .event) { granted, _ in
+                DispatchQueue.main.async {
+                    guard granted else {
+                        call.reject("denied")
+                        return
+                    }
+                    self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
                 }
-                self?.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
             }
         }
     }
 
-    /// Pre-17 only: request calendar access before presenting. Write-only
-    /// access (`requestWriteOnlyAccessToEvents`) is preferred where the API
-    /// exists — this app only ever needs to CREATE events, never read the
-    /// user's existing calendar — falling back to the legacy full-access
-    /// request on OS versions that don't have it.
-    private func requestLegacyAccess(store: EKEventStore, completion: @escaping (Bool) -> Void) {
-        if #available(iOS 17.0, *) {
-            store.requestWriteOnlyAccessToEvents { granted, _ in completion(granted) }
-        } else {
-            store.requestAccess(to: .event) { granted, _ in completion(granted) }
-        }
-    }
-
+    /// Main-thread only. Builds the event + edit sheet and presents it.
+    /// `call` is nil on the smoke path (no JS caller to resolve).
     private func presentEditor(
-        call: CAPPluginCall,
+        call: CAPPluginCall?,
         store: EKEventStore,
         title: String,
         startMs: Double,
@@ -103,8 +110,9 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         notes: String?,
         urlString: String?
     ) {
+        dispatchPrecondition(condition: .onQueue(.main))
         guard let viewController = bridge?.viewController else {
-            call.reject("no view controller to present from")
+            call?.reject("no view controller to present from")
             return
         }
 
@@ -116,9 +124,8 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         if let urlString, let url = URL(string: urlString) {
             event.url = url
         }
-        if let defaultCalendar = store.defaultCalendarForNewEvents {
-            event.calendar = defaultCalendar
-        }
+        // Rule 2: event.calendar stays UNSET — the sheet applies the user's
+        // default itself, and reading it here would need full access.
 
         let editVC = EKEventEditViewController()
         editVC.event = event
@@ -128,8 +135,29 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         pendingCall = call
         pendingStore = store
 
-        DispatchQueue.main.async {
-            viewController.present(editVC, animated: true)
+        viewController.present(editVC, animated: true)
+    }
+
+    // MARK: - headless smoke hook (simulator verification only)
+
+    /// Presents the sheet with a dummy event, exactly through the production
+    /// code path minus the JS call plumbing. Driven by the `-smokeCalendar`
+    /// launch argument (see AppViewController) so a simulator run +
+    /// screenshot can prove this path alive before any build ships. Inert in
+    /// normal launches — nothing calls it without the argument.
+    @objc public func smokePresent() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let now = Date().timeIntervalSince1970 * 1000
+            self.presentEditor(
+                call: nil,
+                store: EKEventStore(),
+                title: "movie night: smoke test",
+                startMs: now + 3_600_000,
+                endMs: now + 10_800_000,
+                notes: "cinechrony native smoke",
+                urlString: nil
+            )
         }
     }
 

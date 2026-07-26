@@ -120,7 +120,13 @@ test('AppViewController: CalendarBridgePlugin is registered (survives `npx cap s
   // capacitor.config.json's generated packageClassList — they must be
   // registered as instances here, same as SharedAuthPlugin/LiveActivityPlugin.
   const src = read('ios/App/App/AppViewController.swift');
-  assert.ok(src.includes('registerPluginInstance(CalendarBridgePlugin())'));
+  // Registered via a stored instance (not inline) so the -smokeCalendar
+  // launch-arg hook can drive the same plugin object headlessly on a
+  // simulator — the gate that would have caught the build-4 field crash
+  // (EventKitUI constructed off-main, TestFlight crash ALqx3DuQ…).
+  assert.ok(src.includes('CalendarBridgePlugin()'));
+  assert.ok(src.includes('registerPluginInstance(calendarBridge)'));
+  assert.ok(src.includes('-smokeCalendar'));
 });
 
 // ─── Capacitor + entitlements invariants ──────────────────────────────────

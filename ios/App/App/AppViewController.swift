@@ -20,6 +20,17 @@ class AppViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(SharedAuthPlugin())
         bridge?.registerPluginInstance(LiveActivityPlugin())
-        bridge?.registerPluginInstance(CalendarBridgePlugin())
+        let calendarBridge = CalendarBridgePlugin()
+        bridge?.registerPluginInstance(calendarBridge)
+        // Headless native smoke (simulator gate): `simctl launch … -smokeCalendar`
+        // auto-presents the calendar sheet through the production path so a
+        // screenshot proves it alive before a build ships. Inert otherwise —
+        // the build-4 field crash (EventKitUI init off-main) shipped because
+        // no gate ever EXECUTED this Swift, only compiled it.
+        if ProcessInfo.processInfo.arguments.contains("-smokeCalendar") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                calendarBridge.smokePresent()
+            }
+        }
     }
 }
