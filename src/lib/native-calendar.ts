@@ -46,6 +46,14 @@ function isIOSNative(): boolean {
   );
 }
 
+/** Whether the native add-event sheet is available (iOS native runtime).
+ *  Callers branch on this BEFORE calling `addEventNative`, because that
+ *  function returns `false` for both "not available" and "user cancelled" —
+ *  and only the first should fall back to the `.ics` path. */
+export function canAddEventNative(): boolean {
+  return isIOSNative();
+}
+
 /**
  * Present the native "add to calendar" sheet prefilled with the given event.
  * Resolves `true` only if the user actually saved the event (cancel, or a

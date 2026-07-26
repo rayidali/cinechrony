@@ -11,6 +11,7 @@ import {
 import { useUser } from '@/firebase';
 import { apiCall, ApiClientError, apiOrigin } from '@/lib/api-client';
 import { shareOrigin, shareLink } from '@/lib/share';
+import { addEventNative, canAddEventNative } from '@/lib/native-calendar';
 import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { track, AnalyticsEvent } from '@/lib/analytics';
@@ -405,9 +406,31 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
       })()
     : null;
 
-  function handleApple() {
-    if (!night?.shareCode) return;
+  async function handleApple() {
+    if (!night) return;
     haptic('light');
+    if (canAddEventNative()) {
+      // native iOS: the real EKEventEditViewController add-event sheet —
+      // NOT the .ics URL, which iOS misreads as a subscription-feed request.
+      const start = new Date(night.scheduledFor);
+      const durationMinutes = night.film.runtime ? night.film.runtime + 30 : 180;
+      const shareUrl = night.shareCode ? `${shareOrigin()}/n/${night.shareCode}` : undefined;
+      const saved = await addEventNative({
+        title: `movie night: ${night.film.title}`,
+        startMs: start.getTime(),
+        endMs: start.getTime() + durationMinutes * 60_000,
+        notes: 'hosted on cinechrony',
+        url: shareUrl,
+      });
+      if (saved) {
+        haptic('medium');
+        onClose();
+      }
+      // user cancelled the native sheet → stay here, nothing to do
+      return;
+    }
+    // web / PWA: a real browser handles the .ics download correctly
+    if (!night.shareCode) return;
     window.open(`${apiOrigin()}/api/v1/movie-nights/shared/${night.shareCode}/calendar.ics`, '_blank');
   }
 
