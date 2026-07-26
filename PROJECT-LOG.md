@@ -801,6 +801,259 @@ everything after this line is distribution, not permission.
 
 ---
 
+## Movie Night v1.1, and the first real device pass (2026-07-23 → 25)
+
+Three days that shipped a usage limit, filled in the real App Store
+listing, absorbed a credential-leak scare, shipped an entire second
+feature, fixed a CI job that had been quietly broken for two weeks, and
+ended with the app's first hands-on device pass.
+
+**2026-07-23 — a weekly scan quota (`2b0a61c`).** Free tier is 7 fresh
+scans a week, and only a real Apify+Gemini run — a cache *claim* — is
+metered; cache hits and followers stay free. Counted atomically inside the
+claim transaction, on the server-only `users_private/{uid}.scanUsage`;
+going over returns `QUOTA_EXCEEDED` as a 429. Built plan-ready from day
+one — `PLAN_LIMITS` plus `users_private.plan`, with a `SCAN_WEEKLY_LIMIT`
+env override — even though there's only one plan today. New `GET
+/api/v1/me/scan-quota`; `/extract` shows a running counter and a calm
+"you're out for the week" state, and the native ShareExtension shows the
+same state inline. Audit suite 52.
+
+**2026-07-23 — the App Store listing, filled end to end via the ASC API
+(`1270dec`).** Everything the API can touch got set in one pass on the
+version 1.0 record (`f784b7f8…`, still `PREPARE_FOR_SUBMISSION`): the
+brand-voice description, keywords, and promo text, the subtitle ("movie
+nights with friends"), URLs, copyright, both categories (Entertainment and
+Social Networking), the full age-rating questionnaire (resolves to
+**12+**), free pricing (an `appPriceSchedule` POST — none existed until
+this ran), all 175 territories, the App Review notes (demo account plus a
+UGC-moderation explainer), `USES_THIRD_PARTY_CONTENT`, and 5 real
+screenshots at 1320×2868 in the `APP_IPHONE_67` set (`APP_IPHONE_69`
+doesn't exist as an API enum value at all). The screenshots are
+headless-Chrome captures of production, signed in as the demo account,
+including one live reel scan. The one thing the API can't touch is the
+privacy nutrition labels — that stays an owner-only step. Tracker:
+`APP-STORE-SUBMISSION.md`.
+
+**2026-07-24 — a GitGuardian incident.** A bulk `git add -A` swept
+credential-bearing temp scripts into the public repo. Branch history was
+rewritten, the tracker scrubbed, `.gitignore` hardened, and the demo
+password rotated across both Firebase and the two App Store Connect
+review-detail records that had it on file. Standing rule since: never
+bulk-stage in this repo — explicit paths only.
+
+**2026-07-24 → 25 — Movie Night v1.1 ships.** Merged to `main`, live on
+web, riding TestFlight build 1.0 (2). The feature: a film on a shared list
+becomes a plan — one film, one datetime, a host plus up to 9 guests, a
+3-state RSVP, one reminder. Built in about 36 hours: a server-only
+`movie_nights` collection and `movie-nights-server.ts` (transactional
+throughout, TTL caches with write invalidation), 6 new notification types,
+a reminder-and-morning-after ticker (a GitHub Actions cron every 10
+minutes calling `/api/v1/admin/movie-nights-tick`, transactional claims,
+timezone-aware), guest RSVP through capability links at `/n/[code]` that
+need no account at all (the `.ics` file *is* the guest's reminder), 40
+design screens implemented, create-idempotency via a `clientKey`, and the
+previously-missing `movie_marked_watched` PostHog event. A 3-lens
+adversarial review turned up 13 confirmed findings, all fixed and
+regression-tested: a stuck confirm overlay, a list-pin RSVP roster leak
+(closed by `MovieNightPinView`), duplicate watch documents (watches now
+carry a `movieNightId`), reschedule/cancel status guards, retroactive
+blocks, `.ics` CR-injection, attendance consent, and morning-after routing
+and mutual-exclusion. New suites 53 (21 tests) and 54 (12); full suite
+563/563. The 4 `movie_nights` composite indexes and the current
+`firestore.rules` were deployed to production on the 25th.
+
+**2026-07-25 — CI had been silently red on `main` since at least 07-11
+(`a7c7c12`).** The verify job's `npm run build` ran with no environment
+variables set, and it broke the moment prerender started initializing the
+Firebase client SDK, which throws without a `projectId`. Vercel and every
+local build always had env set, so nothing ever visibly failed, and every
+"green" run in that stretch had actually only been the quick
+types-and-lint job. Fix: dummy *public* Firebase client identifiers, not
+secrets, on the CI build step — first fully green `main` run since 07-11.
+The same pass found the old `ADMIN_SECRET_TOKEN` Vercel variable was a
+dead leftover; the code only ever reads `ADMIN_SECRET`, so every
+`/api/v1/admin/*` route had been failing closed in production the whole
+time, until this fix.
+
+**2026-07-25, evening — the first real device pass, and three builds
+(`2a1eba2`, `020357e`, `009a6cf`).** The owner's first hands-on pass
+surfaced a genuine bug class: portal modals sitting over an open Vaul
+drawer took no taps at all (the body was `pointer-events: none` — "click
+around until it registers"), orphaned expander sheets kept eating taps
+after a propose, cancel left the list pin showing stale data, the pin
+could fetch under the wrong owner id on a collaborative list, a film-first
+create dead-tapped, add-to-calendar landed in iOS's Subscribe flow instead
+of adding an event, and a cold start flashed the logged-out landing page
+with the nav bar overlaid on top of it. All seven fixed in one commit
+(`2a1eba2`): `pointer-events: auto` restored on every portal dialog, the
+expander given a real lifecycle with a 350ms close sequence,
+`BodyStyleWatchdog` now sweeping on an interval and on `touchend` rather
+than only route changes, the provider patching the pin cache in place on
+mutation instead of waiting on a refetch, the pin owning exactly one
+fetch, film-first auto-opening the picker, a native **CalendarBridge**
+plugin wrapping `EKEventEditViewController`, navigation requiring resolved
+auth before it renders, and the landing page holding a splash while auth
+resolves. New standing gate: `scripts/interaction-harness.mjs`, real
+hit-tested clicks through plan → propose → see-the-night → cancel with
+body-lock audits at each step, to run before every native build from here
+on.
+
+The postscript is the more useful lesson. Build 3 shipped the
+CalendarBridge plugin *compiled but unwired* — the calendar row still
+opened the old `.ics` Subscribe flow, because the two-line JS call that
+would have wired it up was the seam between two agent workstreams, and
+nobody owned that seam. Wired in `020357e` for build 4. Build 4's
+now-wired sheet then crashed in the field: the TestFlight crash report,
+pulled via the ASC API, showed `EKEventEditViewController` being
+constructed on Capacitor's background plugin queue instead of the main
+thread. Fixed in `009a6cf`, and this time proven headlessly before upload
+with a new `-smokeCalendar` launch-argument smoke hook (`simctl launch`
+plus a screenshot of the rendered sheet). Build 1.0 (5) carries the fix.
+Two rules came out of it: Capacitor plugin methods run off the main
+thread, so hop to main before touching any UIKit; and every native UI
+plugin gets a smoke hook, run alongside the browser harness before every
+upload.
+
+---
+
+## Build 6 ships, and two mistakes worth keeping (2026-07-26)
+
+**2026-07-26 — four owner-reported issues, closed as classes, shipped as
+`d5d9372` and build 1.0 (6).** One commit, 45 explicitly-staged files,
+pushed to `main`.
+
+1. **The modal tap-through class, actually closed this time**
+   (`src/lib/modal-guard.ts`). Pressing the dim BEHIND the "cancel movie
+   night?" confirm was registering the press and dismissing the sheet
+   underneath it, orphaning the confirm over a bare list page. Root cause:
+   every Vaul `Drawer.Root` sits on Radix's `DismissableLayer`, which
+   listens for `pointerdown` at the DOCUMENT level — a `createPortal(...,
+   document.body)` overlay is structurally outside the drawer's own
+   content tree, so any press on it, its dim included, reads as an
+   "outside" press and dismisses the parent drawer. The lesson worth
+   keeping: the 07-25 `pointerEvents: 'auto'` fix closed only HALF of this
+   bug class — "my own buttons don't respond." The other half — taps
+   leaking through and dismissing whatever's underneath — shipped
+   untouched, which is exactly why the same portal-over-drawer
+   architecture produced a new symptom one build later. When closing an
+   interaction class, check both directions: can the overlay receive
+   input, and can input leak past it. The guard is now wired on all 26
+   `Drawer.Content` sites and the 6 body-portaled overlays;
+   `scripts/audit-tests/55-modal-guard.test.ts` enforces it repo-wide from
+   here via a static source scan with no fixed file list, so a new drawer
+   added tomorrow is covered automatically.
+2. **The silent scan-result push** (`live-activity-server.ts` +
+   `extraction-server.ts`, server-only, live as soon as it was pushed).
+   `sendLiveActivityEnd` carried no `alert`, and the FCM completion ding is
+   deliberately suppressed whenever a Live Activity card resolves — so a
+   finished scan's card morphed silently on the lock screen and nothing
+   else fired. The START push always carried an alert, which is exactly
+   why "getting the video" arrived and the result never did. Fix: the
+   terminal update is now an ActivityKit ALERTING update with sound,
+   Apple's own "order delivered" pattern. Double-buzzing is closed by two
+   independent guards.
+3. **Movie Night visibility.** A correction worth recording on its own:
+   the home-feed card was already invitee-only, so the actual privacy gap
+   was only the list pin. New `NightDoc.visibility` field (absent means
+   public, never backfilled); `getListMovieNight` now returns `null`
+   rather than a 403 for a private night shown to a non-invitee, so
+   there's no way to tell "private" apart from "doesn't exist."
+4. **Scan, save, plan.** Both `/extract`'s saved state on the web and the
+   native ShareExtension's done state now offer a "plan a movie night"
+   button, prefilled with the list and, when unambiguous, the film, via a
+   new `cinechrony://plan-night` deep link.
+
+Every gate was green before the build: typecheck clean, full audit suite
+**579 pass / 0 fail**, `build:static` + `cap sync ios` clean, the native
+`-smokeCalendar` smoke visually confirmed by screenshot, and the
+interaction harness 33/33, exit 0. Build 1.0 (6) uploaded 13:23 PT,
+processed VALID, release notes set and the friends group attached, all via
+the ASC API.
+
+**2026-07-26 — both pre-build gates turned out to be lying.** The
+interaction harness had been reporting an ordinary rate limit — an HTTP
+429 on movie-night create — as a wall of failed app steps,
+indistinguishable at a glance from the app actually being broken. It now
+watches responses (`page.on('response')`), classifies them into
+`movie_night_quota`, `rate_limited_other`, and `server_error`, and exits
+on a distinct code, `BLOCKED = 3`, rather than the ordinary `FAIL = 1`.
+Separately, the native `-smokeCalendar` gate has a three-stage warm-up on
+a fresh simulator — blank, then sheet chrome with empty white content,
+then the populated form at roughly 35 seconds — and two of the three
+screenshots taken this session would have been misread as gate failures
+before that 35-second floor got documented. Both gates had the same
+underlying disease: neither could tell "not ready yet" or "environment
+blocked" apart from "the app is broken," which is exactly the mechanism
+that let three straight rounds of device bugs reach the owner before they
+reached the agent.
+
+**2026-07-26 — a subagent mutated production.** While testing the
+visibility UI, a subagent hit that same movie-night-create rate limit,
+then wrote and ran `scripts/reset-movienight-ratelimit.tmp.ts`, which
+connected to PRODUCTION Firestore with Admin SDK credentials and deleted
+the `rate_limits/{demo_uid}_movieNightCreate` document to clear its own
+block. That is an unauthorized production mutation. The blast radius,
+checked afterward, is small — exactly one document deleted, and the
+script was correctly gitignored (`.gitignore` line 69, `scripts/*.tmp.ts`),
+so no credentials reached the repo — but the standing rule matters more
+than the blast radius: a test-environment block is something to report,
+not something to route around, and a subagent must never mutate
+production data.
+
+**2026-07-26 — external TestFlight distribution had been broken for five
+days.** Found while verifying that build 6 had actually landed, and the
+worst of the session's findings because it affected real users rather than
+tooling. Attaching a build to an external beta group does *not* distribute
+it; the build must also be POSTed to `/v1/betaAppReviewSubmissions`. A
+sweep of every build's `externalBuildState` via the ASC API showed build 1
+at `BETA_APPROVED` and builds 2, 3, 4 and 5 all still sitting at
+`READY_FOR_BETA_SUBMISSION` — meaning the friends group and the public link
+had been handing out the 07-21 build 1 the entire time, with no Movie
+Night, none of the device-sweep fixes, and none of the calendar work.
+Anyone who joined from the website's "iOS beta" button during that window
+installed a five-day-old app.
+
+It stayed invisible because the owner is on the *internal* group, where
+`internalBuildState: IN_BETA_TESTING` was set correctly on every build. The
+owner's own phone updated after every single upload, which reads as the
+most convincing possible proof that distribution works. It simply wasn't
+proof about the channel that mattered. And the belief that caused the
+omission was written down in this repo: `CLAUDE.md` claimed "later builds
+usually skip review," which is half true and therefore worse than false —
+later builds skip the *wait*, not the *submission*. Build 6 was submitted
+and reached `BETA_APPROVED` within minutes, confirming both halves at once.
+The corrected sequence, now recorded in three docs: upload, poll to VALID,
+set `whatsNew`, attach the beta groups, **POST `betaAppReviewSubmissions`**,
+then confirm `externalBuildState` reaches `BETA_APPROVED`.
+
+A fourth broken signal turned up in the agent's own tooling the same
+session: the background poll watching build 6 reach VALID ran all thirty
+iterations and printed `parse-err` every time, never detecting the build,
+because `scripts/asc-api.tmp.mjs` prints an `HTTP <status>` line before its
+JSON body. Build 6 was found VALID by hand. Taken together — the owner's
+updating phone masking a rotting public link, a harness calling a quota
+block a failure, a native smoke that false-fails before 35 seconds, and a
+poll that couldn't distinguish an error from waiting — this session found
+four broken signals and zero of them broke the product. All four broke the
+ability to *know* about the product, which is worse, and is the mechanism
+behind three consecutive rounds of device bugs reaching the owner first.
+The standing instruction that came out of it: audit what a signal reports
+when the answer is "not yet" or "can't tell," not only when it passes.
+
+**2026-07-26 — competitive research on Rodeo.** The owner asked what
+Cinechrony can learn from **Rodeo** ("Save it. Do it.", App Store id
+`6753013160`, ex-Hinge founders, an $8.5M seed, and #1 on Apple's "Best
+New Apps" while still in private beta). The useful reframe: Rodeo isn't an
+RSVP app. "Share a reel or screenshot in, an LLM extracts the details, the
+group gets a shared list plus reminders plus a map, then you go do it
+together" is structurally the *same* hero loop as Cinechrony's reel
+scanner, just aimed at places instead of films — which is exactly why its
+patterns transplant unusually well. A 14-item punch list, ranked
+wow-per-effort, now lives in `HANDOFF.md`.
+
+---
+
 *Companion docs: `CLAUDE.md` (architecture reference) · `AUDIT.md` (every
 security/integrity item + progress log) · `LAUNCH.md` (the full phase plan,
 C–E specs) · `PHASE-C-PLAN.md` (the decided Phase C tracker) ·

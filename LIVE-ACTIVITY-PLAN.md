@@ -9,7 +9,25 @@
 Status: **LIVE IN PROD** (2026-07-14 night → 18). The APNs env is SET in
 Vercel and the full chain is prod-proven: card starts in ~½s, stages tick,
 `liveActivity.trace=end:ok`, FCM ding suppressed; the late-token
-attach-flush self-heal also observed working. The frozen-card bug was the
+attach-flush self-heal also observed working.
+
+⚠ **CORRECTION (2026-07-26, `d5d9372`, live on web).** "FCM ding
+suppressed" above was correct but incomplete, and it produced a real bug:
+`sendLiveActivityEnd` carried NO `alert`, so when a card resolved, the FCM
+ding was suppressed AND the terminal update was silent. Net effect for the
+user: the START push ("getting the video") dinged, and the RESULT ("N films
+found") never did. Owner reported it as "I get the notification for getting
+the video but not once it's been identified." Fix: `sendLiveActivityEnd`
+gained an optional 4th param `alert?: {title, body}` → an ActivityKit
+**ALERTING terminal update** (`sound:'default'`, Apple's "order delivered"
+pattern). The alert fires regardless of the `'watched'` live-poller state —
+only the redundant FCM ding stays suppressed while watched, since the Live
+Activity is a different surface from the in-app drawer. Double-buzz is
+closed by two independent guards: `terminal && !la.endedAt` at claim time,
+plus a new `JobDoc.pushResult` field gating the late-token read-repair in
+`attachExtractionLiveActivityToken` (`'sent'` stays quiet; anything else
+becomes the user's one alert). Suite 49 grew 9 → 11. **Lesson: a
+suppression rule is only safe if something else is guaranteed to fire.** The frozen-card bug was the
 **subscribe/enumerate race** (enumerating `Activity.activities` before
 subscribing `activityUpdates` loses the push-started activity) — fixed
 subscribe-first + delayed sweeps + `@MainActor` dedup in BOTH observers,

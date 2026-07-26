@@ -35,6 +35,27 @@ popcorn avatar, top-5 canon, three ratings.
 6.9-inch (1320x2868) uploads go in **`APP_IPHONE_67`**. A new app has NO
 appPriceSchedule/appAvailability until you POST one. Privacy nutrition
 labels (`appDataUsages`) are NOT on the public API — ASC UI only.
+Attaching a build to an EXTERNAL beta group does not distribute it on its
+own — see the 2026-07-26 finding below.
+
+**TestFlight external-distribution gap — found + fixed (2026-07-26).**
+Attaching a build to an EXTERNAL beta group does NOT distribute it: the
+build must also be POSTed to `/v1/betaAppReviewSubmissions`. Checked via
+the API while confirming build 6's rollout: build 1 was `BETA_APPROVED`,
+but builds 2, 3, 4, and 5 had all sat at `READY_FOR_BETA_SUBMISSION` since
+upload — external testers (the friends group and the public link
+https://testflight.apple.com/join/CRPFhKen) had been stuck on build 1
+since 2026-07-21 this entire time. Internal testers were unaffected
+(`internalBuildState: IN_BETA_TESTING` throughout — internal groups skip
+beta review), which is why it went unnoticed across four builds. Build 6
+has now been POSTed to `betaAppReviewSubmissions` and reached
+**`BETA_APPROVED` within minutes** — confirming that later builds do skip
+the review WAIT, which is the grain of truth the old "later builds usually
+skip review" note was built on. The SUBMISSION is what was never optional.
+**Corrected sequence for every future build:**
+upload → set `whatsNew` on `betaBuildLocalizations` → attach beta groups →
+POST `betaAppReviewSubmissions` → confirm `externalBuildState` reaches
+`BETA_APPROVED`.
 
 **Screenshot redesign — tracked idea, not started (2026-07-26).** Owner
 asked to learn from the app **Rodeo** (see `HANDOFF.md`'s 2026-07-26
@@ -73,6 +94,18 @@ build 3 without blocking submission.
   copy). Tier-ready: `PLAN_LIMITS` map + `users_private.plan`. Tests:
   `52-scan-quota` (7); suite 531/531.
 
+## Build 6 — SHIPPED as 1.0 (6), VALID 2026-07-26
+
+Build id `b39c1488-cbe9-4d72-ba26-71246af936fd`, uploaded 2026-07-26 and
+processed VALID. Carries Movie Night v1.2 — the visibility control, the
+lock indicator, and the ShareExtension "plan a movie night" button (see
+MOVIE-NIGHT-PLAN.md) — plus the modal-guard tap-through fix and the
+silent-scan-result push fix (see `CLAUDE.md`). `whatsNew` set, friends
+group attached. POSTed to `betaAppReviewSubmissions` (see the
+distribution-gap finding above) and **`BETA_APPROVED`**, so the friends
+group and the public link serve build 6. Now the newest VALID build — the
+candidate to attach to the App Store version record (item 4 below).
+
 ## Remaining before submission
 
 1. **Owner — privacy nutrition labels** (ASC → App → App Privacy; ~5 min,
@@ -90,11 +123,16 @@ build 3 without blocking submission.
    contact details publicly on the EU App Store. Owner's call.
 3. **Owner — `app.cinechrony.com`** in Vercel + DNS → then Claude flips the
    three pinned URLs (`package.json` build default, `ExtensionAPI.swift`,
-   `LiveActivityTokenRelay.swift`) and archives **build 2** (which also
-   carries iPhone-only).
-4. **Claude — attach build 2 + submit** (both via API) once 1–3 land.
-   `releaseType` is AFTER_APPROVAL (goes live on approval); flip to MANUAL
-   if the owner wants to control launch day.
+   `LiveActivityTokenRelay.swift`) and archives **the next build after
+   that** (build 7 or later). This line used to say "build 2, which also
+   carries iPhone-only" — stale: iPhone-only shipped in build 2 back on
+   07-25 WITHOUT the domain flip, because the DNS never landed. The flip
+   has slipped past builds 3, 4, 5 and 6 for the same reason. It rides
+   whichever build is next once DNS is live; nothing else is waiting on it.
+4. **Claude — attach build 6 + submit** (both via API) once 1–3 land.
+   Build 6 supersedes build 2 as the attach candidate (see "Build 6"
+   above — newest VALID build). `releaseType` is AFTER_APPROVAL (goes live
+   on approval); flip to MANUAL if the owner wants to control launch day.
 
 Blaze before any cohort past ~150 and the Firestore console TTL policies
 remain from the TestFlight tracker.

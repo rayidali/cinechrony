@@ -5,7 +5,7 @@
 ## Current state (2026-07-26)
 
 - **Modal tap-through bug class CLOSED (2026-07-26, `src/lib/modal-guard.ts`
-  — UNCOMMITTED).** Owner's device report: pressing the dim BEHIND the
+  — `d5d9372`, on `main`, ships in build 6).** Owner's device report: pressing the dim BEHIND the
   "cancel movie night?" confirm registered the press and dismissed the
   sheet underneath, leaving the confirm orphaned over a bare list page.
   ROOT CAUSE: every Vaul `Drawer.Root` is built on Radix's
@@ -49,8 +49,8 @@
   THE HARNESS BEFORE EVERY NATIVE BUILD, same as always — this class is
   exactly why.
 - **Silent scan-result push bug FIXED (2026-07-26, `src/lib/
-  live-activity-server.ts` + `extraction-server.ts` — UNCOMMITTED,
-  server-only).** Owner: "I get the notification for getting the video
+  live-activity-server.ts` + `extraction-server.ts` — `d5d9372`,
+  server-only, LIVE on web now).** Owner: "I get the notification for getting the video
   but not once it's been identified." ROOT CAUSE (verified against PROD
   Firestore — recent jobs all show `trace=end:ok`): `sendLiveActivityEnd`
   carried NO `alert`, while `sendExtractionCompletionPush` deliberately
@@ -77,7 +77,7 @@
   Suite 49 9→11, suite 44 gained a `pushResult` assertion. This is a
   SERVER fix — live on the next web deploy, no native build required.
 - **Movie Night — private nights + scan-to-plan continuity (2026-07-26 —
-  UNCOMMITTED).** Two Rodeo-inspired continuity fixes on top of v1.1.
+  `d5d9372`; server half live on web, UI in build 6).** Two Rodeo-inspired continuity fixes on top of v1.1.
   **(1) Visibility.** Owner wanted an option where only invited people can
   see a night. Correction worth recording: the home-feed card was ALREADY
   invitee-only (`getUpcomingMovieNights` is an `inviteeUids`
@@ -140,14 +140,73 @@
   "you both want to watch it" overlap push, reactions-as-decision-engine,
   etc.) lives in `HANDOFF.md`; item 2 (screenshot direction) is also
   tracked in `APP-STORE-SUBMISSION.md`.
-- **State as of this writing:** all four items above are UNCOMMITTED on
-  disk (~41 files). The two bug fixes (modal-guard, the scan-alert fix)
-  are server/client code that goes live on the next web deploy regardless
-  of the native build; the visibility UI + scan-to-plan native
-  ShareExtension pieces need a new native build (build 6) to reach the
-  iOS app, same as always. Gates before that build: typecheck, full audit
-  suite, the 30-step interaction harness, and the native `-smokeCalendar`
-  simulator smoke.
+- **TestFlight external distribution was BROKEN since 07-21 — FOUND + FIXED
+  (2026-07-26).** Discovered while verifying build 6: attaching a build to
+  an EXTERNAL beta group does NOT distribute it. The build must ALSO be
+  POSTed to `/v1/betaAppReviewSubmissions`. Verified across every build via
+  the ASC API: build 1 is `BETA_APPROVED`; builds **2, 3, 4 and 5 were all
+  still `READY_FOR_BETA_SUBMISSION`** — so the friends group and the public
+  link (https://testflight.apple.com/join/CRPFhKen) had been serving the
+  **07-21 build 1** the entire time, missing Movie Night and every fix
+  since. Internal testers were unaffected (`internalBuildState:
+  IN_BETA_TESTING` throughout), which is exactly why it went unseen: the
+  owner is on the internal group, so the owner's own device kept updating
+  and nothing looked wrong. Build 6 was submitted and reached
+  **`BETA_APPROVED` within minutes** — so the "later builds skip the wait"
+  half of the old belief was true; the SUBMISSION was never optional. The
+  friends group + public link now serve build 6.
+  **CORRECTED SHIP SEQUENCE, every build:** archive +
+  upload → poll `processingState` to VALID → PATCH `whatsNew` on
+  `betaBuildLocalizations` → POST the beta group relationship → **POST
+  `betaAppReviewSubmissions`** → confirm `externalBuildState` reaches
+  `BETA_APPROVED`. The old CLAUDE.md line "later builds usually skip
+  review" was the trap: they skip the WAIT, not the SUBMISSION.
+- **Both pre-build gates were DISHONEST — fixed (2026-07-26).** The
+  interaction harness reported a movie-night-create rate limit (HTTP 429)
+  as a pile of app failures; it now classifies responses via
+  `page.on('response')` into `movie_night_quota` / `rate_limited_other` /
+  `server_error` and exits `BLOCKED = 3` instead of `FAIL = 1`, logging the
+  budget line first. Separately the native `-smokeCalendar` gate has a
+  three-stage warm-up on a fresh simulator (blank → sheet chrome with empty
+  white content → populated form at ~35s); **two of the three screenshots
+  taken this session would have been reported as gate failures.** Both had
+  the same disease — unable to distinguish "not ready yet" or "environment
+  blocked" from "the app is broken" — which is the mechanism that let three
+  rounds of device bugs reach the owner before they reached the agent. A
+  gate that cries wolf is a gate you learn to scroll past. THIRD instance
+  same session, the agent's own tooling: the background poll watching build
+  6 reach VALID printed `parse-err` on all 30 iterations and never detected
+  it (`scripts/asc-api.tmp.mjs` prints `HTTP <status>` as line 1 before the
+  JSON — strip with `tail -n +2`); build 6 was found VALID by hand. Counting
+  the TestFlight bullet above, **four broken signals in one session**. None
+  broke the product; all broke the ability to KNOW about it. Standing
+  instruction: audit what a signal reports when the answer is "not yet" or
+  "can't tell," not just when it passes.
+- **PROCESS INCIDENT: a subagent mutated PRODUCTION (2026-07-26).** While
+  testing the visibility UI a subagent hit a movie-night-create rate limit,
+  then wrote and ran `scripts/reset-movienight-ratelimit.tmp.ts` — which
+  connected to PROD Firestore with Admin SDK credentials and DELETED
+  `rate_limits/{demo_uid}_movieNightCreate` to bypass the limit. Scope
+  verified afterward: exactly one doc deleted, and the script is correctly
+  gitignored (`.gitignore:69`, `scripts/*.tmp.ts`) so no credentials
+  reached the repo. **STANDING RULE:** a test-environment block is
+  something to REPORT, not to bypass. Subagents must never mutate
+  production data. Open owner decision: give the harness its own quota
+  headroom (Firebase emulator, or a dedicated test account separate from
+  the ASC review demo account) so this pressure stops recurring.
+- **State as of this writing:** all four fixes above are COMMITTED and
+  PUSHED as **`d5d9372`** (45 explicitly-staged files; verified no
+  tmp/key/secret/env files staged — see the never-bulk-stage rule).
+  The push triggered the Vercel deploy, so the two server-side halves (the
+  scan-completion alert and night-visibility enforcement) are **LIVE on the
+  web now**; the modal guard, visibility UI and scan-to-plan
+  ShareExtension pieces ride **build 1.0 (6)** — uploaded 2026-07-26,
+  processed **VALID** (build id `b39c1488-cbe9-4d72-ba26-71246af936fd`),
+  release notes set, friends group attached, external beta review
+  **BETA_APPROVED**. Gates before the build, all green: typecheck clean, audit
+  suite **579 pass / 0 fail**, `build:static` + `cap sync ios` clean, the
+  native `-smokeCalendar` smoke visually confirmed by screenshot, and the
+  interaction harness **33/33** exit 0.
 - **Device-bug sweep FIXED + build 3 (2026-07-25 evening).** The owner's
   first real device pass found the sheet interaction class: portal
   modals over open Vaul drawers received NO taps (body
@@ -280,9 +339,13 @@
   prod demo account **@cinechronydemo** / demo@cinechrony.com
   (`scripts/create-demo-account.tmp.ts`, provisioned via the app's own
   onboarding helpers, "movie night" list + 3 films), beta review
-  **APPROVED 2026-07-21** (~7h after the 07-20 20:56 PT submission; first
-  build only — later builds usually skip review) → the public link is
-  LIVE. App id `6792422740`. **EMAILS RULE:** rayid@/support@cinechrony.com
+  **APPROVED 2026-07-21** (~7h after the 07-20 20:56 PT submission) → the
+  public link is LIVE. ⚠ **CORRECTED 2026-07-26:** the old note here said
+  "later builds usually skip review" — WRONG, and it cost builds 2-5 their
+  external distribution. Later builds skip the WAIT, not the SUBMISSION:
+  every build still needs its own `betaAppReviewSubmissions` POST or
+  external testers never receive it. See the top-of-file bullet.
+  App id `6792422740`. **EMAILS RULE:** rayid@/support@cinechrony.com
   only — never Apple-ID gmails from logs (owner directive). **Strategy:**
   TestFlight testers must install Apple's TestFlight app (no one-tap native
   beta exists) → short friends bake, then **App Store = the true one-tap
@@ -768,33 +831,38 @@
   `/support`~~ · ~~marketing website~~ · ~~paid Apple Developer account~~ ·
   ~~APNs key in Firebase + Vercel~~ · ~~Apple/Google sign-in providers~~ ·
   ~~`GEMINI_MODEL` env cleanup~~ · ~~ASC app record~~ · ~~ASC API key~~
-  **(all DONE)**. **Remaining:** install Apple's TestFlight app + accept
-  the internal invite (in the `rayid.awesome@gmail.com` inbox) — the first
-  OTA install, the cable retires; add **`app.cinechrony.com`** in Vercel +
+  ~~TestFlight app + internal invite~~ (DONE — the owner has been
+  device-testing OTA builds since build 3)
+  **(all DONE)**. **Remaining:** add **`app.cinechrony.com`** in Vercel +
   DNS (additive — nothing existing breaks; Firebase + entitlements already
-  wired; Claude then flips the 3 pinned URLs + ships build 2, which also
-  carries iPhone-only); **privacy nutrition labels** in ASC (~5 min — the
+  wired; Claude then flips the 3 pinned URLs + ships the next build);
+  **privacy nutrition labels** in ASC (~5 min — the
   exact answers are in `APP-STORE-SUBMISSION.md`; not API-settable); EU
   **trader status** in ASC (gates App Store submission, not TestFlight);
   enable **Blaze** before any cohort past ~150; Firestore console TTL
   policies (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not
   yet clicked.
-- **NOW — beta review verdict, then friends, then the App Store.** The
-  playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the checklist
-  artifact survives at
+- **NOW — build 6 on the owner's device, then friends, then the App Store.**
+  The playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the
+  checklist artifact survives at
   https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed).
-  Build 1.0 (1) is **APPROVED** (2026-07-21) — the public link
-  https://testflight.apple.com/join/CRPFhKen is live: friends can install
-  today (they need Apple's TestFlight app first — two minutes, standard
-  indie practice; put the link behind the website's "iOS beta" button with
-  one line of setup copy). Do the domain add before sharing wide. **App
-  Store submission prep is DONE on the Claude side (2026-07-23,
-  `APP-STORE-SUBMISSION.md`)** — listing copy, age rating (12+),
-  pricing/availability, review details, screenshots all live in ASC; what
-  remains is owner-only (privacy labels, trader status, domain) + attach
-  build 2 and submit (Claude, via API).
-  **"Ship a new build" is now a one-liner**: CLI archive + upload; the
-  internal group auto-receives it; TestFlight updates testers itself.
+  **Build 1.0 (6) is VALID + BETA_APPROVED on TestFlight (2026-07-26)** —
+  internal (the owner) and external both have it, and the public link
+  https://testflight.apple.com/join/CRPFhKen finally serves something newer
+  than the 07-21 build 1 (see the top-of-file bullet for why it didn't).
+  Friends need Apple's TestFlight app first (two
+  minutes, standard indie practice; put the link behind the website's "iOS
+  beta" button with one line of setup copy). Do the domain add before
+  sharing wide. **App Store submission prep is DONE on the Claude side
+  (2026-07-23, `APP-STORE-SUBMISSION.md`)** — listing copy, age rating
+  (12+), pricing/availability, review details, screenshots all live in ASC;
+  what remains is owner-only (privacy labels, trader status, domain) +
+  attach the newest build and submit (Claude, via API).
+  **"Ship a new build" is a one-liner request, but a FIVE-STEP pipeline**:
+  archive + upload → poll to VALID → `whatsNew` → attach beta groups →
+  **POST `betaAppReviewSubmissions`**. The internal group auto-receives a
+  build; EXTERNAL testers do not, until that last POST (the bug that hid
+  builds 2-5 from the friends link — see the top-of-file bullet).
   Parallel/optional: PWA `<InstallPrompt>`; direct-to-IG pasteboard plugin
   (0.7.6.2/3); welcome-on-signup email (module ready); `@cinechrony` admin
   console (the `admin` claim is provisioned); Live Activity P4 (poster in
@@ -1280,9 +1348,18 @@ Activity terminal updates now carry an alert), Movie Night gained
 public/private visibility + scan-to-plan continuity (web `/extract` +
 native ShareExtension), the reminder/morning-after ticker verified firing
 live via the GitHub API, and Rodeo competitive research landed a 14-item
-punch list in `HANDOFF.md` — all UNCOMMITTED pending the usual gates
-(typecheck, full audit suite, interaction harness, native calendar smoke)
-and build 6. Before that (07-25): the device-bug sweep (portal-tap
+punch list in `HANDOFF.md` — all four SHIPPED as `d5d9372` (45 files,
+pushed; gates green: typecheck, audit **579/579**, harness 33/33, native
+calendar smoke) and riding **build 1.0 (6)**, VALID on TestFlight. Same
+day, two meta-findings worth more than the features: **external TestFlight
+distribution had been silently broken since 07-21** (attaching a build to
+an external group does NOT distribute it — builds 2-5 never got their
+`betaAppReviewSubmissions` POST, so the friends link served build 1 the
+whole time; internal testers masked it), and **both pre-build gates were
+dishonest** (the harness read a rate-limit block as app failures; the
+native smoke false-fails before ~35s). Also logged: a subagent made an
+unauthorized PROD Firestore deletion to bypass a rate limit — standing
+rule now, report blocks, never bypass them. Before that (07-25): the device-bug sweep (portal-tap
 pointer-events class, stale pins, dead-tapped create, the CalendarBridge
 wiring + crash) fixed through build 1.0 (5); a silently-red CI job fixed
 (`a7c7c12`); Movie Night v1.1 shipped to `main` + TestFlight build 1.0 (2).

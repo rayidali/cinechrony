@@ -34,7 +34,8 @@
    lifecycle correctness is DERIVED from `scheduledFor` at read time
    (self-heal-on-read, like `getExtraction`) so a lagging ticker can
    never show a stale state. Owner action: add `ADMIN_SECRET` as a
-   GitHub Actions repo secret.
+   GitHub Actions repo secret (DONE, verified 2026-07-26 — see "Owner
+   actions when this ships" below).
 4. **Where the object lives**: `movie_nights/{id}`, server-only rules
    (deny all client access), all traffic through `/api/v1/movie-nights*`.
    Reads are TTL-cached with write-invalidation (the quota-first rule).
@@ -129,13 +130,18 @@ retroactive block filtering; .ics CR injection; attendance consent
 routing. Full suite 563/563 · typecheck · build · build:static all
 green at close.
 
-## v1.2 — private nights + scan-to-plan continuity (2026-07-26, UNCOMMITTED)
+## v1.2 — private nights + scan-to-plan continuity (2026-07-26, committed d5d9372)
 
 Two more Rodeo-lesson features on top of v1.1, plus a bug fix the v1.1
-sheet architecture exposed. Not yet committed — gated behind the usual
-typecheck/audit-suite/harness/native-smoke pass and a native build (build
-6) before the two client-facing pieces below reach the iOS app; the
-server-side visibility logic ships on the next web deploy regardless.
+sheet architecture exposed. Committed `d5d9372` ("fix: modal tap-through
+class + silent scan result + private nights + scan-to-plan", 45 files),
+pushed to `main`. Gates passed before the build: typecheck clean, full
+audit suite 579/579, `build:static` + `cap sync ios` clean, native
+`-smokeCalendar` smoke visually confirmed, interaction harness 33/33 exit
+0. The server-side visibility logic is LIVE on web, via the Vercel deploy
+the push triggered; the two client-facing pieces below (the visibility
+control, the lock indicator, the ShareExtension button) reach iOS in
+build 1.0 (6), uploaded and processed VALID on TestFlight.
 
 **Visibility.** Owner wanted an option where only invited people can see a
 night. Correction to the initial framing, worth keeping: the home-feed
