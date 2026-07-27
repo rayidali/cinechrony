@@ -106,6 +106,30 @@ distribution-gap finding above) and **`BETA_APPROVED`**, so the friends
 group and the public link serve build 6. Now the newest VALID build — the
 candidate to attach to the App Store version record (item 4 below).
 
+## Build 7 — SHIPPED as 1.0 (7), BETA_APPROVED 2026-07-27
+
+Build id `eda19d3a-e5c9-471e-98cf-7aad9f43abe1`, uploaded 2026-07-27 and
+processed VALID. Carries Movie Night **"time tbd"** (the "decide later"
+showtime chip and every surface that renders it, plus the CalendarBridge
+`allDay` -> `event.isAllDay` change) — see `CLAUDE.md`. The rate-limit work in
+the same commit was server-side and had already gone live with the push.
+
+Full pipeline run, all five steps: archive (`CURRENT_PROJECT_VERSION=7`) +
+upload -> polled `processingState` to VALID -> PATCHed `whatsNew` -> POSTed the
+friends `betaGroups` relationship -> **POSTed `betaAppReviewSubmissions`** ->
+confirmed **APPROVED**. Both groups list build 7. Now the newest VALID build
+and the candidate to attach to the version record (item 4 below), superseding
+build 6.
+
+**API note learned this run:** `GET /v1/builds/{id}/betaGroups` returns **403
+FORBIDDEN**, and `externalBuildState`/`internalBuildState` come back as `null`
+from the plain builds list unless requested. Verify distribution from the GROUP
+side instead (`GET /v1/betaGroups/{id}/builds`), and read the review outcome
+from `GET /v1/builds/{id}/betaAppReviewSubmission` (`betaReviewState`), which
+is the authoritative record. Querying the wrong way looks exactly like "not
+approved yet" — the same ask-wrong-vs-answer-no trap as the `head_sha` and
+`parse-err` polls.
+
 ## Remaining before submission
 
 1. **Owner — privacy nutrition labels** (ASC → App → App Privacy; ~5 min,

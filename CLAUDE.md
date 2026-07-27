@@ -4,8 +4,27 @@
 
 ## Current state (2026-07-26)
 
-- **Movie Night "time tbd" + honest rate-limit copy (2026-07-26, UNCOMMITTED
-  on `main` at time of writing).** Owner device report was a screenshot of the
+- **BUILD 1.0 (7) SHIPPED + BETA_APPROVED (2026-07-27).** Carries "time tbd"
+  and the CalendarBridge `allDay` change; `a3eede7` + `bd8b641` on `main`.
+  Owner asked "why don't I see the changes on TestFlight" after the push —
+  **because a git push never updates the native app.** The binary carries a
+  FROZEN `out/` bundle baked in at archive time; only the Vercel/server half
+  deploys on push. That is the same lesson as
+  `project_native_frozen_snapshot`, and it needs saying in the same breath as
+  every future "pushed!" report: server half live now, client half rides the
+  next build. Full five-step pipeline run (archive
+  `CURRENT_PROJECT_VERSION=7` → VALID → `whatsNew` → betaGroups →
+  **`betaAppReviewSubmissions`** → APPROVED); both groups list build 7.
+  **New ASC API gotchas:** `GET /v1/builds/{id}/betaGroups` is **403**, and
+  `externalBuildState` is `null` from the plain builds list unless requested —
+  verify distribution from the GROUP side (`/v1/betaGroups/{id}/builds`) and
+  read the outcome from `/v1/builds/{id}/betaAppReviewSubmission`. Also
+  **`-smokeCalendarAllDay`** was added: the all-day path is now visually
+  proven on the simulator (toggle green, time rows collapsed), because a flag
+  that failed to cross the Capacitor bridge would have silently written a
+  timed 8pm block — the exact thing tbd exists to prevent.
+- **Movie Night "time tbd" + honest rate-limit copy (2026-07-26 → 27, SHIPPED
+  as `a3eede7`, live on web + build 7).** Owner device report was a screenshot of the
   create sheet showing the red line *"You're doing that too fast. Please slow
   down and try again shortly."* Two separate things came out of it.
   **(1) The refusal was a rate limit, not a bug** — `movieNightCreate`
