@@ -157,16 +157,23 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
     /// launch argument (see AppViewController) so a simulator run +
     /// screenshot can prove this path alive before any build ships. Inert in
     /// normal launches — nothing calls it without the argument.
-    @objc public func smokePresent() {
+    ///
+    /// `allDay` exists so the "time tbd" movie-night path gets its own
+    /// screenshot too (`-smokeCalendarAllDay`). It is not decoration: if the
+    /// flag failed to survive the Capacitor bridge, a tbd night would quietly
+    /// create a timed 8pm block — the precise outcome the feature exists to
+    /// prevent, and one that no amount of compiling proves anything about.
+    @objc public func smokePresent(allDay: Bool = false) {
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             let now = Date().timeIntervalSince1970 * 1000
             self.presentEditor(
                 call: nil,
                 store: EKEventStore(),
-                title: "movie night: smoke test",
+                title: allDay ? "movie night: smoke test (tbd)" : "movie night: smoke test",
                 startMs: now + 3_600_000,
                 endMs: now + 10_800_000,
+                allDay: allDay,
                 notes: "cinechrony native smoke",
                 urlString: nil
             )

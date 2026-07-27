@@ -27,7 +27,14 @@ class AppViewController: CAPBridgeViewController {
         // screenshot proves it alive before a build ships. Inert otherwise —
         // the build-4 field crash (EventKitUI init off-main) shipped because
         // no gate ever EXECUTED this Swift, only compiled it.
-        if ProcessInfo.processInfo.arguments.contains("-smokeCalendar") {
+        // `-smokeCalendarAllDay` covers the "time tbd" movie-night path, whose
+        // whole point is that it must NOT write a timed block. Checked first:
+        // it is the more specific flag, and both are inert otherwise.
+        if ProcessInfo.processInfo.arguments.contains("-smokeCalendarAllDay") {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
+                calendarBridge.smokePresent(allDay: true)
+            }
+        } else if ProcessInfo.processInfo.arguments.contains("-smokeCalendar") {
             DispatchQueue.main.asyncAfter(deadline: .now() + 6) {
                 calendarBridge.smokePresent()
             }
