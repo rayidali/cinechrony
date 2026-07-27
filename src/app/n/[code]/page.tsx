@@ -2,7 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import ClientPage from './client';
 import { deployOrigin, ogImageUrl, pageMetadata, defaultShareMetadata } from '@/lib/share-meta';
-import { formatNightDate, formatNightTime } from '@/lib/movie-night-format';
+import { formatNightDate, formatNightTimeLabel } from '@/lib/movie-night-format';
 import type { MovieNightPublicView } from '@/lib/movie-night-types';
 
 // Phase A PR #17: SPA-shell wrapper. See `/lists/[listId]/page.tsx`.
@@ -37,7 +37,7 @@ export async function generateMetadata({ params }: { params: Promise<{ code: str
     if (night.status === 'cancelled') return defaultShareMetadata();
 
     const dateLabel = formatNightDate(night.scheduledFor, night.tzOffsetMinutes);
-    const timeLabel = formatNightTime(night.scheduledFor, night.tzOffsetMinutes);
+    const timeLabel = formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd);
     const title = `movie night: ${night.film.title} · ${dateLabel}`;
     const description = `${night.hostName} wants to watch ${night.film.title} with you. rsvp on cinechrony — no account needed.`;
     const image = ogImageUrl({

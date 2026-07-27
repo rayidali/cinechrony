@@ -210,9 +210,12 @@ function Eyebrow({ children, tone = 'primary' }: { children: React.ReactNode; to
   );
 }
 
-function BigDateTime({ iso, tzOffsetMinutes }: { iso: string; tzOffsetMinutes: number }) {
-  const time = formatNightTime(iso, tzOffsetMinutes);
-  const [timeMain, timeAmpm] = time.split(' ');
+function BigDateTime({ iso, tzOffsetMinutes, timeTbd }: { iso: string; tzOffsetMinutes: number; timeTbd?: boolean }) {
+  // Same rule as the in-app detail sheet's hero: a tbd night puts the word in
+  // the big slot rather than the 8pm storage anchor. A guest arriving from a
+  // share link has the LEAST context of anyone, so this is the surface where
+  // showing an invented time would mislead hardest.
+  const [timeMain, timeAmpm] = timeTbd ? ['tbd', ''] : formatNightTime(iso, tzOffsetMinutes).split(' ');
   return (
     <div className="mt-3.5">
       <div className="flex items-baseline justify-center gap-2.5">
@@ -222,6 +225,9 @@ function BigDateTime({ iso, tzOffsetMinutes }: { iso: string; tzOffsetMinutes: n
       <div className="mt-1.5 font-mono text-[12.5px] font-bold tracking-[0.04em] tabular-nums text-muted-foreground">
         {formatNightDateShort(iso, tzOffsetMinutes)}
       </div>
+      {timeTbd && (
+        <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">showtime not set yet</p>
+      )}
     </div>
   );
 }
@@ -395,7 +401,7 @@ export default function ClientPage() {
         ) : (
           <Eyebrow tone="muted">movie night</Eyebrow>
         )}
-        <BigDateTime iso={night.scheduledFor} tzOffsetMinutes={night.tzOffsetMinutes} />
+        <BigDateTime iso={night.scheduledFor} tzOffsetMinutes={night.tzOffsetMinutes} timeTbd={night.timeTbd} />
 
         <div className="mt-5 flex items-center justify-center gap-2.5">
           {night.going.length > 0 && (

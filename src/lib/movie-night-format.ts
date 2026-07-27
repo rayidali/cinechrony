@@ -36,6 +36,24 @@ export function formatNightDate(iso: string, tzOffsetMinutes: number): string {
   return `${weekday} ${pad2(local.getUTCDate())}.${pad2(local.getUTCMonth() + 1)}`;
 }
 
+// ── "time tbd" (a night with a locked day and an undecided showtime) ───────
+//
+// See `MovieNightTimeTbd` in movie-night-types.ts for the model. These three
+// constants + the two label helpers below are the ONLY place the tbd wording
+// and the anchor hour are defined; every surface (create sheet, detail sheet,
+// cards, guest page, push copy) goes through them so they can't drift into
+// three slightly different phrasings.
+
+/** The local hour a tbd night's `scheduledFor` is anchored to. 8pm is a
+ *  plausible movie-night hour, sorts the night correctly within its own day,
+ *  and leaves the completion + morning-after windows behaving exactly as they
+ *  do for a real 8pm night. Never shown to anyone. */
+export const TBD_ANCHOR_HOUR = 20;
+export const TBD_ANCHOR_MINUTE = 0;
+
+/** What a tbd night shows wherever a real night shows its showtime. */
+export const TBD_TIME_LABEL = 'time tbd';
+
 /** '8:00 pm' (12h, lowercase), in the night's local time. */
 export function formatNightTime(iso: string, tzOffsetMinutes: number): string {
   const local = localFromIso(iso, tzOffsetMinutes);
@@ -71,12 +89,30 @@ export function formatNightDateShort(iso: string, tzOffsetMinutes: number): stri
   return `${pad2(local.getUTCDate())}.${pad2(local.getUTCMonth() + 1)}.${yy}`;
 }
 
+/** The showtime to RENDER: the real one, or the tbd placeholder. Prefer this
+ *  over `formatNightTime` on any surface that has a night in hand — passing
+ *  the raw `formatNightTime` would print the 8pm anchor as though the host
+ *  had chosen it. */
+export function formatNightTimeLabel(iso: string, tzOffsetMinutes: number, timeTbd?: boolean): string {
+  return timeTbd ? TBD_TIME_LABEL : formatNightTime(iso, tzOffsetMinutes);
+}
+
+/** 'fri 24.07 at 8:00 pm' / 'fri 24.07, time tbd' — the one when-phrase for
+ *  prose (share text, push copy). Note the preposition swap: "at time tbd"
+ *  reads like a typo, so tbd takes a comma instead. */
+export function formatNightWhen(iso: string, tzOffsetMinutes: number, timeTbd?: boolean): string {
+  const date = formatNightDate(iso, tzOffsetMinutes);
+  return timeTbd ? `${date}, ${TBD_TIME_LABEL}` : `${date} at ${formatNightTime(iso, tzOffsetMinutes)}`;
+}
+
 /** 'movie night: interstellar, fri 24.07 at 8:00 pm' — the one share text
  *  both share affordances use (S5): the MN10 detail-sheet header icon and the
  *  MN26 "share the night" row (`src/lib/share.ts` `shareLink`). Kept here so
  *  the two surfaces can't drift on the date/time format. */
-export function formatNightShareLine(filmTitle: string, iso: string, tzOffsetMinutes: number): string {
-  return `movie night: ${filmTitle}, ${formatNightDate(iso, tzOffsetMinutes)} at ${formatNightTime(iso, tzOffsetMinutes)}`;
+export function formatNightShareLine(
+  filmTitle: string, iso: string, tzOffsetMinutes: number, timeTbd?: boolean,
+): string {
+  return `movie night: ${filmTitle}, ${formatNightWhen(iso, tzOffsetMinutes, timeTbd)}`;
 }
 
 export type NightPhase = 'upcoming' | 'today' | 'soon' | 'now' | 'past';
@@ -150,21 +186,36 @@ export function markMovieNightCoachSeen(): void {
   }
 }
 
-export function nightPhase(scheduledForIso: string, now: Date = new Date()): NightPhase {
+export function nightPhase(
+  scheduledForIso: string,
+  now: Date = new Date(),
+  timeTbd?: boolean,
+): NightPhase {
   const start = new Date(scheduledForIso).getTime();
   const t = now.getTime();
   const THREE_HOURS_MS = 3 * 60 * 60 * 1000;
   const SIXTY_MIN_MS = 60 * 60 * 1000;
-
-  if (t >= start && t < start + THREE_HOURS_MS) return 'now';
-  if (t >= start + THREE_HOURS_MS) return 'past';
-  if (t >= start - SIXTY_MIN_MS && t < start) return 'soon';
 
   const startLocal = new Date(start);
   const sameDay =
     startLocal.getFullYear() === now.getFullYear() &&
     startLocal.getMonth() === now.getMonth() &&
     startLocal.getDate() === now.getDate();
+
+  // A tbd night has no showtime, so `soon` and `now` have nothing to be
+  // relative TO — both would be claims derived from the 8pm anchor, i.e.
+  // a countdown to a decision nobody has made. It reads as `today` for the
+  // whole day and only becomes `past` once that day is over, which is also
+  // what keeps the morning-after prompt (gated on `past`) from firing at
+  // 11pm on the night itself.
+  if (timeTbd) {
+    if (sameDay) return 'today';
+    return t > start ? 'past' : 'upcoming';
+  }
+
+  if (t >= start && t < start + THREE_HOURS_MS) return 'now';
+  if (t >= start + THREE_HOURS_MS) return 'past';
+  if (t >= start - SIXTY_MIN_MS && t < start) return 'soon';
   if (sameDay) return 'today';
 
   return 'upcoming';

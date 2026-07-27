@@ -63,6 +63,13 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         }
         let notes = call.getString("notes")
         let urlString = call.getString("url")
+        // A movie night whose showtime is still "tbd" is stored against an
+        // 8pm anchor nobody chose (see MovieNightTimeTbd on the web side).
+        // Writing that anchor into someone's calendar as a timed block would
+        // turn a placeholder into an appointment they plan their evening
+        // around, so those go in as all-day instead. Defaults false, which is
+        // every event this plugin has ever created.
+        let allDay = call.getBool("allDay") ?? false
 
         // Rule 1: hop to main IMMEDIATELY — every EventKitUI/UIKit touch
         // below (including view-controller construction) is main-thread-only.
@@ -83,7 +90,7 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
             if #available(iOS 17.0, *) {
                 // The edit VC manages its own access on 17+ — present
                 // directly, no authorization round trip needed.
-                self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
+                self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, allDay: allDay, notes: notes, urlString: urlString)
                 return
             }
 
@@ -93,7 +100,7 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
                         call.reject("denied")
                         return
                     }
-                    self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, notes: notes, urlString: urlString)
+                    self.presentEditor(call: call, store: store, title: title, startMs: startMs, endMs: endMs, allDay: allDay, notes: notes, urlString: urlString)
                 }
             }
         }
@@ -107,6 +114,7 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         title: String,
         startMs: Double,
         endMs: Double,
+        allDay: Bool = false,
         notes: String?,
         urlString: String?
     ) {
@@ -120,6 +128,10 @@ public class CalendarBridgePlugin: CAPPlugin, CAPBridgedPlugin, EKEventEditViewD
         event.title = title
         event.startDate = Date(timeIntervalSince1970: startMs / 1000)
         event.endDate = Date(timeIntervalSince1970: endMs / 1000)
+        // EventKit derives an all-day event's span from the CALENDAR DAYS the
+        // start/end dates fall on, so the anchor times above are simply
+        // ignored once this is set — no separate date normalization needed.
+        event.isAllDay = allDay
         event.notes = notes
         if let urlString, let url = URL(string: urlString) {
             event.url = url

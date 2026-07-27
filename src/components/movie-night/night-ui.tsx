@@ -109,6 +109,16 @@ export function formatTimeOfDay(t: { hour: number; minute: number }): string {
   return `${h}:${String(t.minute).padStart(2, '0')} ${ampm}`;
 }
 
+/** Whether `d` lands on a calendar day earlier than today's, in the device's
+ *  own timezone — the same resolution the day strip offers, and the only
+ *  resolution a tbd night has actually decided anything at. Mirrors
+ *  `isLocalDayBeforeToday` in `movie-nights-server.ts`, which is what will
+ *  ultimately accept or reject the request. */
+function isDayBeforeToday(d: Date, now: Date = new Date()): boolean {
+  const startOfDay = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return startOfDay(d) < startOfDay(now);
+}
+
 /** The shared propose-it CTA state — same rule everywhere it's tappable
  *  (main sheet, date/time sheet, custom-time entry): no film → pick a film;
  *  no time → add a time; already past → rejected; else the calm default sub.
@@ -119,15 +129,26 @@ export function describeNightCta(
   film: MovieNightFilm | null,
   when: Date | null,
   mode: 'create' | 'reschedule' = 'create',
+  /** The host chose "tbd" instead of a showtime. `when` still carries the 8pm
+   *  anchor (a night always needs a real instant), so the past-check drops to
+   *  DAY resolution — otherwise "tonight, tbd" would go dead at 8pm, which is
+   *  precisely when someone is most likely to plan one. Kept in step with the
+   *  server, which applies the same rule before accepting the write. */
+  timeTbd?: boolean,
 ): { disabled: boolean; sub: string; reason: 'no_film' | 'no_time' | 'past' | null } {
   if (!film) return { disabled: true, reason: 'no_film', sub: mode === 'reschedule' ? 'pick a film to reschedule it' : 'pick a film to propose it' };
   if (!when) return { disabled: true, reason: 'no_time', sub: mode === 'reschedule' ? 'add a time to reschedule it' : 'add a time to propose it' };
-  if (when.getTime() <= Date.now()) return { disabled: true, reason: 'past', sub: "pick a night that hasn't happened yet" };
+  const isPast = timeTbd ? isDayBeforeToday(when) : when.getTime() <= Date.now();
+  if (isPast) return { disabled: true, reason: 'past', sub: "pick a night that hasn't happened yet" };
   return {
     disabled: false,
     reason: null,
     sub: mode === 'reschedule'
       ? 'everyone gets the new time.'
-      : "your people get a ping. you'll get a reminder before showtime.",
+      : timeTbd
+        // The default sub promises "a reminder before showtime", which is a
+        // promise a tbd night can't keep — its reminder is morning-of.
+        ? "your people get a ping. you'll all get a nudge on the day."
+        : "your people get a ping. you'll get a reminder before showtime.",
   };
 }

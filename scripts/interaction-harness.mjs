@@ -9,12 +9,16 @@
 // Needs puppeteer-core (npm i --no-save puppeteer-core) + system Chrome.
 // 2026-07-25: born from the owner's device-bug sweep — the class it guards
 // shipped to TestFlight because nothing clicked through the flows first.
-// 2026-07-26: the demo account's movieNightCreate quota (10/day, production
+// 2026-07-26: the demo account's movie-night create quota (production
 // Firestore) can exhaust mid-run since every propose click here is a real
 // create. A 429 on that call now halts as a distinct BLOCKED outcome (exit
 // code 3, see EXIT below), instead of cascading into what would otherwise
 // look like ordinary step FAILUREs. Never "fix" a BLOCKED run by touching
-// rate_limits/* in production; the counter resets itself.
+// rate_limits/* in production; the counter resets itself. (Confirmed working
+// in the wild the same day — a run that ran out mid-session exited 3, not 1.)
+// 2026-07-27: that cap went 10/day -> 6/min + 40/day, so repeated local runs
+// are no longer the standing hazard they were; a BLOCKED exit now much more
+// likely means back-to-back runs than a spent day.
 import puppeteer from 'puppeteer-core';
 import { readFileSync } from 'node:fs';
 
@@ -39,7 +43,7 @@ if (!PASSWORD) { console.error('no DEMO_ACCOUNT_PASSWORD in .env.local'); proces
 // (unlike scan extraction's GET /api/v1/me/scan-quota); adding one would
 // mean a new admin/credentialed call, which this harness deliberately does
 // not do. So the cost below is a stated constant, not a live reading.
-const MOVIE_NIGHT_DAILY_LIMIT = 10; // mirrors RATE_LIMITS.movieNightCreate.limit
+const MOVIE_NIGHT_DAILY_LIMIT = 40; // mirrors RATE_LIMITS.movieNightCreateDaily.limit
 const MOVIE_NIGHT_CREATES_THIS_RUN = 1; // the one 'propose it' click, below.
   // Scenario B (movie-card entry, further down) deliberately stops at
   // 'cancel' in the create sheet and never proposes, so it re-tests the
@@ -170,8 +174,8 @@ const sleep = async (ms) => { await rawSleep(ms); if (blocked) throw new Blocked
 // class this harness exists to catch.
 let shotN = 0;
 const snap = async (tag) => page.screenshot({ path: `/tmp/harness/${String(++shotN).padStart(2, '0')}-${tag}.png` }).catch(() => {});
-const clickText = async (re, { inDrawer = false } = {}) => {
-  const pt = await page.evaluate(({ src, inDrawer }) => {
+const findClickPoint = async (re, { inDrawer = false } = {}) => {
+  return page.evaluate(({ src, inDrawer }) => {
     const rx = new RegExp(src, 'i');
     const scope = inDrawer ? '[data-vaul-drawer] ' : '';
     const nodes = [...document.querySelectorAll(`${scope}button, ${scope}[role="button"], ${scope}a, ${scope}div, ${scope}span, ${scope}p`)]
@@ -189,13 +193,69 @@ const clickText = async (re, { inDrawer = false } = {}) => {
     }
     return null;
   }, { src: re.source, inDrawer });
+};
+
+const clickText = async (re, opts = {}) => {
+  const pt = await findClickPoint(re, opts);
   if (!pt) return false;
   await page.mouse.click(pt.x, pt.y);
   return true;
 };
 
+/**
+ * Polls until `re` is actually CLICKABLE (present, on screen, and passing the
+ * same elementFromPoint hit-test a real tap would), then clicks it.
+ *
+ * Why this exists: a Vaul sheet animates in from the bottom, so for a few
+ * hundred ms after it opens its footer sits BELOW the viewport — present in
+ * the DOM, invisible to a hit-test. `clickText` correctly refuses to click a
+ * point that wouldn't receive the tap and returns false; a caller that treats
+ * that as "the button is broken" turns a timing condition into a bug report.
+ * That is exactly how the tap-through audit came to claim the modal guard had
+ * failed when the sheet was simply still sliding up.
+ *
+ * Returns false only if the affordance never became clickable within the
+ * window — a genuinely reportable fact, and a different one from "clicking it
+ * did nothing".
+ */
+const clickTextWhenReady = async (re, opts = {}, timeoutMs = 6000) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const pt = await findClickPoint(re, opts);
+    if (pt) { await page.mouse.click(pt.x, pt.y); return true; }
+    if (Date.now() >= deadline) return false;
+    await rawSleep(150);
+  }
+};
+
 const hasText = (re) =>
   page.evaluate((src) => new RegExp(src, 'i').test(document.body.innerText), re.source);
+
+/**
+ * Waits until at most ONE Vaul drawer is mounted.
+ *
+ * Why this exists: the create flow force-closes its expanders on propose, but
+ * Vaul keeps a closing drawer in the DOM through its exit animation. For a few
+ * hundred ms after "see the night" there are TWO `[data-vaul-drawer]` nodes,
+ * and the DateTimeSheet's header has a button reading exactly "cancel" — the
+ * same text the detail sheet's cancel-the-night affordance has. A text click
+ * in that window can land on the wrong sheet, after which the confirm never
+ * opens and the tap-through audit reports the modal guard as BROKEN.
+ *
+ * That is the gate lying about a timing condition, which is the failure mode
+ * this whole file exists to stop doing (see the 07-26 "blocked vs broken"
+ * findings). So: wait for the settled state. Returns false on timeout so the
+ * caller can report "sheets never settled" as its own distinct fact rather
+ * than silently proceeding into an ambiguous click.
+ */
+const waitForSettledDrawers = async (timeoutMs = 5000) => {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    if (await page.evaluate(() => document.querySelectorAll('[data-vaul-drawer]').length <= 1)) return true;
+    if (Date.now() >= deadline) return false;
+    await rawSleep(150);
+  }
+};
 
 // Polls for `re` in the page text, the same contract as page.waitForFunction
 // (resolves false on a plain timeout), but bails the instant the response
@@ -309,8 +369,25 @@ try {
   // date + time (open the when expander if needed, then pick)
   await clickText(/pick a time|^time$|^8:00\s*pm$/, { inDrawer: true });
   await sleep(800);
+
+  // "decide later" (timeTbd) — the day is set, the showtime isn't. The
+  // invariant worth guarding is MUTUAL EXCLUSION: tbd and a real showtime are
+  // two ways of settling the same thing, and a stale one left live behind the
+  // other is how a night ends up storing an 8pm anchor while showing "time
+  // tbd" (or the reverse). So: tap tbd, confirm it takes and explains itself,
+  // then tap a real time and confirm tbd releases — which also leaves the
+  // rest of this run on the normal timed path it has always tested.
+  const tbdTapped = await clickText(/^decide later$/, { inDrawer: true });
+  step('tbd: "decide later" chip tapped', tbdTapped);
+  await sleep(400);
+  step('tbd: caption explains what invitees will see', await hasText(/everyone sees time tbd/i));
+
   await clickText(/^8:00\s*pm$/, { inDrawer: true });
   await sleep(500);
+  step(
+    'tbd: picking a real showtime releases "decide later"',
+    !(await hasText(/everyone sees time tbd/i)),
+  );
   // confirm/done the expander if it has one, else it closes on select
   await clickText(/^done$|^set$|^confirm$/, { inDrawer: true });
   await sleep(800);
@@ -360,6 +437,10 @@ try {
     hasCalendar: document.body.innerText.includes('add to calendar'),
     hasCancelledBox: document.body.innerText.includes('was cancelled'),
     drawerCount: document.querySelectorAll('[data-vaul-drawer]').length,
+    drawers: [...document.querySelectorAll('[data-vaul-drawer]')].map((d) => ({
+      state: d.getAttribute('data-state'),
+      text: (d.innerText || '').replace(/\s+/g, ' ').slice(0, 70),
+    })),
   }));
   console.log('  night GETs:', JSON.stringify(nightGets), 'dom:', JSON.stringify(domReport));
   // visibility round-trip: the night was set PRIVATE during create — the
@@ -376,8 +457,16 @@ try {
   // clicks, hit-tested via elementFromPoint exactly like the rest of this
   // harness — never a synthetic dispatchEvent.
   await snap('tap-through-before');
-  await clickText(/^cancel$/);
-  const tapThroughShown = await page.waitForFunction(
+  // Two separate readiness conditions, each reported as itself rather than
+  // being allowed to masquerade as a guard failure: (1) a still-closing
+  // create-flow sheet also has a button reading exactly "cancel", so wait for
+  // the sheets to settle before a text click can be ambiguous; (2) the detail
+  // sheet's footer is below the viewport while it slides up, so wait for the
+  // cancel affordance to actually be hit-testable.
+  step('tap-through: create sheets settled before opening the confirm', await waitForSettledDrawers());
+  const cancelReady = await clickTextWhenReady(/^cancel$/);
+  step('tap-through: cancel affordance reachable on the detail sheet', cancelReady);
+  const tapThroughShown = cancelReady && await page.waitForFunction(
     () => /cancel movie night\?/i.test(document.body.innerText),
     { timeout: 8000 },
   ).then(() => true).catch(() => false);
@@ -445,8 +534,11 @@ try {
   // exercised: it clicked "keep it", not "cancel the night", so the night is
   // still open and this existing block cancels it for real.)
   await snap('detail-before-cancel');
-  await clickText(/^cancel$/);
-  const cancelModal = await page.waitForFunction(
+  // Same readiness rule as the tap-through opener above — this click has
+  // simply had more elapsed time on its side historically, not more safety.
+  const realCancelReady = await clickTextWhenReady(/^cancel$/);
+  step('cancel affordance reachable on the detail sheet', realCancelReady);
+  const cancelModal = realCancelReady && await page.waitForFunction(
     () => /cancel movie night\?/i.test(document.body.innerText),
     { timeout: 8000 },
   ).then(() => true).catch(() => false);

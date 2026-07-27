@@ -4,6 +4,82 @@
 
 ## Current state (2026-07-26)
 
+- **Movie Night "time tbd" + honest rate-limit copy (2026-07-26, UNCOMMITTED
+  on `main` at time of writing).** Owner device report was a screenshot of the
+  create sheet showing the red line *"You're doing that too fast. Please slow
+  down and try again shortly."* Two separate things came out of it.
+  **(1) The refusal was a rate limit, not a bug** — `movieNightCreate`
+  (`rate-limit.ts:55`) is **10 per 24h**, spent by device testing. The BUG was
+  the copy: one message (`rate-limit.ts`) served every bucket, shaped for a
+  60-second window, so a 24-hour cap said "try again shortly" when the honest
+  answer was "in twenty hours". Same class as the 07-26 gate findings — a
+  signal that misdescribes itself. Now window-aware: burst buckets (<1h) say
+  "you're going a bit fast, give it a minute"; long buckets name what was spent
+  and the REAL wait ("that's 10 movie nights in a day. try again in 6 hours."),
+  built from a new `retryAfterMs` the limiter's transaction now returns, with
+  an optional `noun` per bucket. Suite 15 4→9, including a brand-voice
+  assertion (lowercase, no dashes, no emoji) and a check that every
+  long-window bucket ships a noun.
+  **(1b) THE LIMIT WAS ALSO WRONG (2026-07-27) — owner pushed back, correctly.**
+  The first answer here was "10/day is generous, don't raise a prod abuse cap
+  because the developer hit it." Wrong on the facts: **10/day was sized to how
+  OFTEN people plan nights, not to the abuse surface it exists to bound.** A
+  create writes a night doc + one notification/push per invitee (max 9) — the
+  same surface as `invite` (**20/min**) and `post` (**15/min**), and unlike
+  `extraction` it costs no Apify/Gemini money. It had a cost-tier limit for a
+  notification-tier risk. The SHAPE was backwards too: with no burst bucket, a
+  script could spend all ten in ten seconds and then a real host was locked out
+  for 24 hours — it permitted the abuse and punished the use. And it was
+  effectively lower than 10, because `checkRateLimit` ran in the route wrapper
+  BEFORE the `clientKey` dedup and before all validation, so a rejected date, a
+  double-tap landing as an idempotent retry, and a 500 each burned a unit and
+  created nothing. Now: **`movieNightCreate` 6/min + `movieNightCreateDaily`
+  40/day**, and the check MOVED into `createMovieNight` immediately after the
+  idempotency dedup (the one endpoint whose limiting isn't in the route
+  wrapper — documented at both ends), so a retry that returns an existing night
+  costs nothing while a malformed body still costs. Suite 53 +3: the retry
+  spends nothing (asserted on the real counter doc), the SHAPE is burst+daily
+  with the burst biting first (so a future edit can't collapse it back to one
+  flat number), and a spent burst 429s while writing no night. Harness's
+  mirrored constant updated 10 → 40.
+  **(2) "time tbd"** — the owner also asked for a "decide later" option on the
+  showtime. New `NightDoc.timeTbd?: boolean` (absent = false, NEVER backfilled
+  — same contract as `visibility`). `scheduledFor` stays a real Timestamp
+  always, anchored to **8pm local** (`TBD_ANCHOR_HOUR`, `movie-night-format.ts`)
+  on the chosen day, so every index, ordering, query and ticker window is
+  untouched; the flag governs what gets RENDERED and how "past" is judged.
+  **The anchor is never shown anywhere** — that invariant is the whole feature:
+  detail-sheet hero and guest-page hero print `tbd` in the 62px/52px slot,
+  cards + pins + reschedule "moving from" use `formatNightTimeLabel`, push copy
+  uses `nightTimeLabel` + a shared `nightWhen()` so it reads "mon 27.07, time
+  tbd" not "at time tbd", and the `.ics` + Google Calendar + the native
+  CalendarBridge (new `allDay` param, `event.isAllDay`) all emit an **all-day**
+  entry rather than an 8pm block. **Past-checks drop to DAY resolution when
+  tbd** (`isLocalDayBeforeToday` server-side, mirrored in `describeNightCta` +
+  both sheets) — otherwise "tonight, tbd" dies at 8pm, exactly when someone
+  plans one. **Reminders override to morning-of at FIRE time** regardless of
+  preset ("2h before" is meaningless with no showtime); the stored preset is
+  deliberately not rewritten, so it returns intact when the host pins a real
+  hour. `nightPhase` gains a tbd branch with no `soon`/`now` (claims about a
+  time nobody picked) — which also stops the morning-after prompt firing at
+  11pm on the night itself. UI: a "decide later" chip in the showtime row,
+  mutually exclusive with a real pick (both create + reschedule route through
+  `pickTime`/`pickTbd`); picking a real time through the EXISTING reschedule
+  flow is how a tbd night becomes a real one, so there's no new edit surface.
+  Suites 53 +11, 54 +6; audit **600/600**.
+  **THIRD gate-honesty finding, same class as the other four:** the interaction
+  harness's tap-through audit called `clickText(/^cancel$/)` on a detail sheet
+  that was still ANIMATING IN — its footer sits below the viewport for a few
+  hundred ms — and reported the miss as **"the modal guard is broken."** A
+  Vaul sheet mid-close also has a button reading exactly "cancel", so the same
+  click could hit the wrong sheet. Fixed with two explicit readiness steps that
+  report themselves (`waitForSettledDrawers`, `clickTextWhenReady` — polls the
+  same `elementFromPoint` hit-test a real tap uses), plus a per-drawer
+  state+text diagnostic that made this diagnosable in one run. Harness 33 → 39
+  steps (3 of them the new tbd chip's selection + mutual exclusion). **Also
+  verified in the wild for the first time: the harness spent the demo account's
+  10/day budget mid-session and correctly exited `BLOCKED` (3), not `FAIL` (1)
+  — the 07-26 fix works.** The prod rate-limit doc was NOT touched.
 - **Modal tap-through bug class CLOSED (2026-07-26, `src/lib/modal-guard.ts`
   — `d5d9372`, on `main`, ships in build 6).** Owner's device report: pressing the dim BEHIND the
   "cancel movie night?" confirm registered the press and dismissed the

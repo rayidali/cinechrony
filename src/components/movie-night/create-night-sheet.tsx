@@ -20,6 +20,7 @@ import { useViewportHeight } from '@/hooks/use-viewport-height';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { FilmPickerSheet } from '@/components/v3/film-picker-sheet';
 import { Segmented, type SegmentedOption } from '@/components/v3/segmented';
+import { TBD_ANCHOR_HOUR, TBD_ANCHOR_MINUTE, TBD_TIME_LABEL } from '@/lib/movie-night-format';
 import { NightHeroCTA, NightPoster, describeNightCta, formatTimeOfDay, nightFilmMeta } from './night-ui';
 import type { MovieNightListContext, OpenCreateArgs } from './movie-night-provider';
 import type { MovieNightFilm, MovieNightView, MovieNightVisibility, ReminderPreset } from '@/lib/movie-night-types';
@@ -93,10 +94,26 @@ function searchResultToNightFilm(r: SearchResult): MovieNightFilm {
   };
 }
 
+/** The instant a "time tbd" night is stored at. Never rendered — it exists so
+ *  `scheduledFor` is a real Timestamp like every other night's. See
+ *  `MovieNightTimeTbd` in movie-night-types.ts. */
+const TBD_ANCHOR: TimeOfDay = { hour: TBD_ANCHOR_HOUR, minute: TBD_ANCHOR_MINUTE };
+
 function combineDateAndTime(day: Date, t: TimeOfDay): Date {
   const d = new Date(day);
   d.setHours(t.hour, t.minute, 0, 0);
   return d;
+}
+
+/** The night's instant given the two mutually-exclusive ways a showtime can be
+ *  settled: a real pick, or "tbd" (which resolves to the anchor). `null` until
+ *  the host has settled it one way or the other — which is what keeps the
+ *  CTA's existing `no_time` state working untouched. */
+export function resolveScheduledFor(day: Date | null, time: TimeOfDay | null, timeTbd: boolean): Date | null {
+  if (!day) return null;
+  if (time) return combineDateAndTime(day, time);
+  if (timeTbd) return combineDateAndTime(day, TBD_ANCHOR);
+  return null;
 }
 
 function dateLabelFor(d: Date): string {
@@ -206,9 +223,9 @@ function WhenRow({
 // ── MN03a — date & time expanded ────────────────────────────────────────────
 
 export function DateTimeSheet({
-  isOpen, film, selectedDate, selectedTime, isPast, cta, submitting, error,
+  isOpen, film, selectedDate, selectedTime, timeTbd, isPast, cta, submitting, error,
   today, fridayTarget, weekDays,
-  onPickDate, onPickTime, onOpenFilmPicker, onOpenTimeEntry, onClose, onPropose,
+  onPickDate, onPickTime, onPickTbd, onOpenFilmPicker, onOpenTimeEntry, onClose, onPropose,
   hideFilmRow, ctaLabel, ctaIcon, eyebrow = 'date night', title = 'movie night', movingFromLabel,
   visibility, onVisibilityChange,
 }: {
@@ -216,6 +233,10 @@ export function DateTimeSheet({
   film: MovieNightFilm | null;
   selectedDate: Date | null;
   selectedTime: TimeOfDay | null;
+  /** "the day is set, the showtime isn't" — mutually exclusive with
+   *  `selectedTime`, which the owning component enforces (each setter clears
+   *  the other) so the chip row can never show two selections at once. */
+  timeTbd: boolean;
   isPast: boolean;
   cta: { disabled: boolean; sub: string; reason?: 'no_film' | 'no_time' | 'past' | null };
   submitting: boolean;
@@ -225,6 +246,7 @@ export function DateTimeSheet({
   weekDays: Date[];
   onPickDate: (d: Date) => void;
   onPickTime: (t: TimeOfDay) => void;
+  onPickTbd: () => void;
   onOpenFilmPicker: () => void;
   onOpenTimeEntry: () => void;
   onClose: () => void;
@@ -400,7 +422,28 @@ export function DateTimeSheet({
                 <Keyboard className="h-[15px] w-[15px] text-muted-foreground" strokeWidth={2} />
                 <span className="font-ui text-[13px] font-semibold text-muted-foreground">type it</span>
               </button>
+              {/* "the day's set, the hour isn't" — a real choice, not an escape
+                  hatch, so it sits in the chip row and selects like any preset
+                  rather than hiding behind "type it". */}
+              <button
+                type="button"
+                onClick={() => { haptic('light'); onPickTbd(); }}
+                className={`inline-flex h-11 items-center gap-1.5 rounded-[11px] px-4 transition-colors ${
+                  timeTbd ? 'bg-primary' : 'border border-border'
+                }`}
+                aria-pressed={timeTbd}
+              >
+                <Clock className={`h-[15px] w-[15px] ${timeTbd ? 'text-primary-foreground' : 'text-muted-foreground'}`} strokeWidth={2} />
+                <span className={`font-ui text-[13px] font-semibold ${timeTbd ? 'text-primary-foreground' : 'text-muted-foreground'}`}>
+                  decide later
+                </span>
+              </button>
             </div>
+            {timeTbd && (
+              <p className="mt-2 px-0.5 font-mono text-[10px] text-muted-foreground">
+                everyone sees {TBD_TIME_LABEL}. you can set the hour any time before the night.
+              </p>
+            )}
 
             {/* F9 — reschedule-only: who can see this night. Opt-in on
                 `onVisibilityChange` so the plain create flow (which already
@@ -940,6 +983,9 @@ export function CreateNightSheet({
   const [list, setList] = useState<MovieNightListContext | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [selectedTime, setSelectedTime] = useState<TimeOfDay | null>(null);
+  // Mutually exclusive with `selectedTime` — always set through the two
+  // helpers below so neither can be left stale behind the other.
+  const [timeTbd, setTimeTbd] = useState(false);
   const [reminderPreset, setReminderPreset] = useState<ReminderPreset>('2h');
   // F9 — defaults to 'public', preserving every night's behavior before this
   // field existed.
@@ -990,6 +1036,7 @@ export function CreateNightSheet({
     setList(args?.list ?? null);
     setSelectedDate(startOfDay(new Date()));
     setSelectedTime(null);
+    setTimeTbd(false);
     setReminderPreset('2h');
     setVisibility('public');
     setInvitees([]);
@@ -1053,15 +1100,34 @@ export function CreateNightSheet({
     hasSeededInviteesRef.current = true;
   }, [isOpen, list, listMembers, user?.uid]);
 
+  // The two ways to settle a showtime, each clearing the other. Every caller
+  // goes through these rather than the raw setters, so "tbd" and a real pick
+  // can never both be live.
+  function pickTime(t: TimeOfDay) {
+    setSelectedTime(t);
+    setTimeTbd(false);
+  }
+  function pickTbd() {
+    setTimeTbd(true);
+    setSelectedTime(null);
+  }
+
   const scheduledFor = useMemo(
-    () => (selectedDate && selectedTime ? combineDateAndTime(selectedDate, selectedTime) : null),
-    [selectedDate, selectedTime],
+    () => resolveScheduledFor(selectedDate, selectedTime, timeTbd),
+    [selectedDate, selectedTime, timeTbd],
   );
-  const isPast = !!scheduledFor && scheduledFor.getTime() <= Date.now();
-  const cta = describeNightCta(film, scheduledFor);
+  // A tbd night is "past" only once its DAY is — the 8pm anchor isn't a
+  // decision, so it isn't a deadline. Matches `describeNightCta` and the
+  // server's own check.
+  const isPast = !!scheduledFor && (
+    timeTbd
+      ? startOfDay(scheduledFor).getTime() < startOfDay(new Date()).getTime()
+      : scheduledFor.getTime() <= Date.now()
+  );
+  const cta = describeNightCta(film, scheduledFor, 'create', timeTbd);
 
   const dateLabel = selectedDate ? dateLabelFor(selectedDate) : null;
-  const timeLabel = selectedTime ? formatTimeOfDay(selectedTime) : null;
+  const timeLabel = timeTbd ? TBD_TIME_LABEL : selectedTime ? formatTimeOfDay(selectedTime) : null;
 
   function toggleInvitee(u: TaggedUser) {
     setInvitees((prev) => {
@@ -1086,7 +1152,12 @@ export function CreateNightSheet({
 
   async function submitNight(when: Date) {
     if (!film || submitting) return;
-    if (when.getTime() <= Date.now()) {
+    // Day resolution for tbd, instant resolution otherwise — the same rule the
+    // CTA and the server apply, so all three agree on what "past" means.
+    const rejectAsPast = timeTbd
+      ? startOfDay(when).getTime() < startOfDay(new Date()).getTime()
+      : when.getTime() <= Date.now();
+    if (rejectAsPast) {
       setError("pick a night that hasn't happened yet");
       return;
     }
@@ -1098,6 +1169,7 @@ export function CreateNightSheet({
         scheduledFor: when.toISOString(),
         tzOffsetMinutes: -new Date().getTimezoneOffset(),
         reminderPreset,
+        timeTbd,
         inviteeUids: invitees.map((u) => u.uid),
         visibility,
       };
@@ -1249,6 +1321,7 @@ export function CreateNightSheet({
         film={film}
         selectedDate={selectedDate}
         selectedTime={selectedTime}
+        timeTbd={timeTbd}
         isPast={isPast}
         cta={cta}
         submitting={submitting}
@@ -1257,7 +1330,8 @@ export function CreateNightSheet({
         fridayTarget={fridayTarget}
         weekDays={weekDays}
         onPickDate={(d) => { haptic('selection'); setSelectedDate(d); }}
-        onPickTime={(t) => { haptic('selection'); setSelectedTime(t); }}
+        onPickTime={(t) => { haptic('selection'); pickTime(t); }}
+        onPickTbd={() => { haptic('selection'); pickTbd(); }}
         onOpenFilmPicker={() => setShowFilmPicker(true)}
         onOpenTimeEntry={() => setShowTimeEntry(true)}
         onClose={() => setShowDateTime(false)}
@@ -1293,7 +1367,7 @@ export function CreateNightSheet({
         initial={selectedTime}
         submitting={submitting}
         error={error}
-        onDone={(t) => { setSelectedTime(t); setShowTimeEntry(false); }}
+        onDone={(t) => { pickTime(t); setShowTimeEntry(false); }}
         onClose={() => setShowTimeEntry(false)}
         onSubmit={(when) => submitNight(when)}
         onRequestFilm={() => setShowFilmPicker(true)}

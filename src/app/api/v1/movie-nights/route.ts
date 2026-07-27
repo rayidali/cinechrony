@@ -11,16 +11,17 @@
  *   → `MovieNightView`
  */
 
-import { apiRoute, optionsHandler, RateLimitedError } from '@/lib/api-handler';
+import { apiRoute, optionsHandler } from '@/lib/api-handler';
 import { createMovieNight } from '@/lib/movie-nights-server';
-import { checkRateLimit } from '@/lib/rate-limit';
 
 export const dynamic = 'force-dynamic';
 
+// Rate limiting lives INSIDE `createMovieNight` for this one endpoint, not
+// here in the wrapper like everywhere else. Reason: the budget has to be
+// spent AFTER the `clientKey` idempotency check, otherwise a retry that
+// creates nothing (a double-tap, a resend after a dropped response) still
+// costs the host a night. See the note at the check itself.
 export const POST = apiRoute(async (req, { auth }) => {
-  const rl = await checkRateLimit(auth.uid, 'movieNightCreate');
-  if (!rl.ok) throw new RateLimitedError(rl.error);
-
   const body = await req.json().catch(() => ({}));
   return createMovieNight(auth.uid, body);
 });

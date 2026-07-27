@@ -23,7 +23,7 @@
 
 import { test, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { Timestamp } from 'firebase-admin/firestore';
+import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import {
   setupTestEnv, createTestUser, adminDb, clearFirestore, clearAuth, type TestUser,
 } from './harness.ts';
@@ -851,6 +851,247 @@ test('updateMovieNight: a plain reschedule (no visibility key sent) never resets
   if (res.body.ok) {
     assert.equal(res.body.data.visibility, 'private', 'omitting the key leaves the existing private setting untouched');
   }
+});
+
+// ─── the create budget ──────────────────────────────────────────────────────
+//
+// Two properties, both learned the hard way from an owner who hit the cap in
+// a day of device testing: the budget is spent AFTER the idempotency check
+// (so a retry that creates nothing costs nothing), and it is shaped as burst
+// + daily rather than one flat daily number (so a script can't spend the
+// whole thing in ten seconds while a real host waits 24 hours).
+
+test('an idempotent retry does not spend a create from the budget', async () => {
+  const key = 'idempotent-budget-key-1';
+  const first = await createNight(hostTok, { clientKey: key });
+  assert.equal(first.status, 200);
+  assert.ok(first.night);
+  if (!first.night) return;
+
+  const counterRef = adminDb().doc(`rate_limits/${host.uid}_movieNightCreateDaily`);
+  const afterFirst = (await counterRef.get()).data()?.count;
+  assert.equal(afterFirst, 1, 'the real create spent one');
+
+  // Same key: a double-tap, or a resend after a dropped response. It returns
+  // the SAME night and must not be charged for it — the check sits after the
+  // dedup in createMovieNight precisely so this holds.
+  const retry = await createNight(hostTok, { clientKey: key });
+  assert.equal(retry.status, 200);
+  assert.equal(retry.night?.id, first.night.id, 'same night returned');
+
+  const afterRetry = (await counterRef.get()).data()?.count;
+  assert.equal(afterRetry, 1, 'the retry created nothing and cost nothing');
+});
+
+test('the create budget is burst + daily, not one flat daily number', async () => {
+  // A flat daily cap lets an abuser spend everything at once and then locks a
+  // real host out until tomorrow — the worst of both. Asserting the SHAPE
+  // (not just the numbers) is what stops a future edit collapsing it back.
+  const { RATE_LIMITS } = await import('@/lib/rate-limit');
+  const burst = RATE_LIMITS.movieNightCreate;
+  const daily = RATE_LIMITS.movieNightCreateDaily;
+
+  assert.ok(burst, 'burst bucket exists');
+  assert.ok(daily, 'daily bucket exists');
+  assert.ok(burst.windowMs <= 60_000, `burst window is per-minute, got ${burst.windowMs}ms`);
+  assert.equal(daily.windowMs, 24 * 60 * 60_000, 'daily window is a day');
+  assert.ok(
+    burst.limit < daily.limit,
+    `the burst cap must bite first (${burst.limit} vs ${daily.limit})`,
+  );
+  assert.ok(
+    daily.limit >= 20,
+    `a day's worth of real planning must not be a handful, got ${daily.limit}`,
+  );
+});
+
+test('a spent burst budget 429s the create and writes no night', async () => {
+  const before = (await adminDb().collection('movie_nights').get()).size;
+
+  // Exhaust the per-minute bucket directly, then prove the route refuses.
+  const { RATE_LIMITS, checkRateLimit } = await import('@/lib/rate-limit');
+  for (let i = 0; i < RATE_LIMITS.movieNightCreate.limit; i++) {
+    await checkRateLimit(host.uid, 'movieNightCreate');
+  }
+
+  const res = await callRoute(createRoute, 'POST', {
+    token: hostTok, body: { film: FILM, scheduledFor: futureIso(), inviteeUids: [invitee1.uid] },
+  });
+  assert.equal(res.status, 429);
+
+  const after = (await adminDb().collection('movie_nights').get()).size;
+  assert.equal(after, before, 'a refused create writes nothing');
+});
+
+// ─── timeTbd — "the day is set, the showtime isn't" ─────────────────────────
+//
+// A tbd night still carries a real `scheduledFor` (anchored to 8pm local), so
+// every query/index/ordering behaves exactly as before; the flag governs what
+// gets RENDERED and how the past-check is applied. The tests that matter most
+// are the two asymmetries: an absent/garbage flag must never invent a tbd
+// night, and the past-check must drop to DAY resolution for one — otherwise
+// "tonight, tbd" dies at 8pm, which is exactly when someone plans one.
+
+/** UTC midnight of the day `at` falls on. With `tzOffsetMinutes: 0` this is
+ *  both "already past" (it is <= now for every instant of the day) and "today"
+ *  in the night's own local time — the precise pair the day-resolution rule
+ *  distinguishes. Deliberately exact-midnight rather than midnight+1min: at
+ *  the one ambiguous instant of the day the `<=` past-check still refuses it,
+ *  so this construction has no flaky window. */
+function startOfUtcDayIso(at: Date = new Date()): string {
+  return new Date(Date.UTC(at.getUTCFullYear(), at.getUTCMonth(), at.getUTCDate())).toISOString();
+}
+
+test('create: timeTbd defaults to false when omitted', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.timeTbd, false);
+
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.timeTbd, false, 'stored explicitly on every new doc');
+});
+
+test('create: timeTbd true is stored and returned', async () => {
+  const { night } = await createNight(hostTok, { timeTbd: true });
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.timeTbd, true);
+
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.timeTbd, true);
+});
+
+test('create: anything other than boolean true falls back to a real showtime', async () => {
+  // Strict on purpose, and asymmetric: a night wrongly marked tbd HIDES a
+  // showtime the host actually picked, so the safe direction is "not tbd".
+  for (const bad of ['true', 1, 'tbd', {}, null] as unknown[]) {
+    const { night } = await createNight(hostTok, { timeTbd: bad, clientKey: undefined });
+    assert.ok(night, `create succeeded for ${JSON.stringify(bad)}`);
+    if (night) assert.equal(night.timeTbd, false, `${JSON.stringify(bad)} is not tbd`);
+  }
+});
+
+test('create: a tbd night lands TODAY even past the anchor hour; the same instant without tbd is refused', async () => {
+  const todayStart = startOfUtcDayIso();
+
+  // The control: an instant already gone, judged at instant resolution.
+  const timed = await callRoute(createRoute, 'POST', {
+    token: hostTok,
+    body: { film: FILM, scheduledFor: todayStart, tzOffsetMinutes: 0, inviteeUids: [invitee1.uid] },
+  });
+  assert.equal(timed.status, 400, 'a real showtime that has passed is still refused');
+
+  // The same instant, judged at day resolution because nobody picked an hour.
+  const tbd = await callRoute<MovieNightView>(createRoute, 'POST', {
+    token: hostTok,
+    body: { film: FILM, scheduledFor: todayStart, tzOffsetMinutes: 0, timeTbd: true, inviteeUids: [invitee1.uid] },
+  });
+  assert.equal(tbd.status, 200, 'a tbd night on today is fine — the day has not passed');
+  assert.ok(tbd.body.ok && tbd.body.data.timeTbd);
+});
+
+test('create: a tbd night on a day that has already passed is still refused', async () => {
+  const yesterday = startOfUtcDayIso(new Date(Date.now() - 24 * 3600_000));
+  const res = await callRoute(createRoute, 'POST', {
+    token: hostTok,
+    body: { film: FILM, scheduledFor: yesterday, tzOffsetMinutes: 0, timeTbd: true, inviteeUids: [invitee1.uid] },
+  });
+  assert.equal(res.status, 400, 'day resolution is a relaxation, not a removal');
+});
+
+test('a legacy doc with no timeTbd field reads as a real showtime (never backfilled)', async () => {
+  const { night } = await createNight(hostTok);
+  assert.ok(night);
+  if (!night) return;
+
+  await adminDb().doc(`movie_nights/${night.id}`).update({ timeTbd: FieldValue.delete() });
+
+  const res = await callRoute<MovieNightView>(getRoute, 'GET', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+  });
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data.timeTbd, false);
+
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.timeTbd, undefined, 'reading it never writes it back');
+});
+
+test('reschedule: picking a real time on a tbd night clears the flag', async () => {
+  const { night } = await createNight(hostTok, { timeTbd: true });
+  assert.ok(night);
+  if (!night) return;
+  assert.equal(night.timeTbd, true);
+
+  // This is THE path by which a tbd night becomes a real one — the host has
+  // no separate "set the time" surface, so an omitted flag on a reschedule
+  // must mean "this is a real showtime" rather than "leave it alone".
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: futureIso(48) },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data.timeTbd, false);
+});
+
+test('reschedule: a tbd night moved to another day stays tbd when the flag is sent', async () => {
+  const { night } = await createNight(hostTok, { timeTbd: true });
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    body: { action: 'reschedule', scheduledFor: futureIso(96), timeTbd: true },
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data.timeTbd, true);
+});
+
+test('reschedule: a real night can be turned tbd, and today stays legal once it is', async () => {
+  const { night } = await createNight(hostTok, { tzOffsetMinutes: 0 });
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightView>(patchRoute, 'PATCH', {
+    token: hostTok, params: { id: night.id }, url: `http://test/api/v1/movie-nights/${night.id}`,
+    // The stored tzOffsetMinutes (0) is what the day-check uses — a reschedule
+    // body never carries one, which is why that check runs inside the txn.
+    body: { action: 'reschedule', scheduledFor: startOfUtcDayIso(), timeTbd: true },
+  });
+  assert.equal(res.status, 200, 'today at day resolution');
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data.timeTbd, true);
+});
+
+test('the list pin carries timeTbd so a stranger never sees the 8pm anchor as a showtime', async () => {
+  await seedPublicList(host.uid, 'tbd-pin-list');
+  const { night } = await createNight(hostTok, {
+    listId: 'tbd-pin-list', listOwnerId: host.uid, timeTbd: true,
+  });
+  assert.ok(night);
+  if (!night) return;
+
+  const res = await callRoute<MovieNightPinView>(listMovieNightRoute, 'GET', {
+    token: strangerTok,
+    params: { ownerId: host.uid, listId: 'tbd-pin-list' },
+    url: `http://test/api/v1/lists/${host.uid}/tbd-pin-list/movie-night`,
+  });
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data?.timeTbd, true);
+});
+
+test('the invite push phrases a tbd night with a comma, never "at time tbd"', async () => {
+  const { night } = await createNight(hostTok, { timeTbd: true });
+  assert.ok(night);
+  if (!night) return;
+
+  const [notif] = await notificationsFor(invitee1.uid, 'movie_night_invite');
+  assert.ok(notif, 'invitee notified');
+  assert.equal(notif.nightTimeLabel, 'time tbd', 'the stored label never carries the anchor hour');
+  assert.match(notif.previewText, /, time tbd$/, 'reads as prose');
+  assert.doesNotMatch(notif.previewText, /at time tbd/, '"at time tbd" reads like a bug');
 });
 
 // ─── getUpcomingMovieNights ──────────────────────────────────────────────────

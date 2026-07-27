@@ -6,8 +6,8 @@ import { CalendarCheck } from 'lucide-react';
 import { apiCall, ApiClientError } from '@/lib/api-client';
 import { haptic } from '@/lib/haptics';
 import { describeNightCta } from './night-ui';
-import { DateTimeSheet, TimeEntrySheet } from './create-night-sheet';
-import { formatNightDate, formatNightTime } from '@/lib/movie-night-format';
+import { DateTimeSheet, TimeEntrySheet, resolveScheduledFor } from './create-night-sheet';
+import { formatNightDate, formatNightTimeLabel } from '@/lib/movie-night-format';
 import type { MovieNightView, MovieNightVisibility } from '@/lib/movie-night-types';
 
 /**
@@ -27,20 +27,21 @@ import type { MovieNightView, MovieNightVisibility } from '@/lib/movie-night-typ
 
 type TimeOfDay = { hour: number; minute: number };
 
-function combineDateAndTime(day: Date, t: TimeOfDay): Date {
-  const d = new Date(day);
-  d.setHours(t.hour, t.minute, 0, 0);
-  return d;
-}
-
 export function RescheduleFlow({
   isOpen, night, onClose, onRescheduled,
 }: { isOpen: boolean; night: MovieNightView; onClose: () => void; onRescheduled: (n: MovieNightView) => void }) {
   const [selectedDate, setSelectedDate] = useState<Date>(() => startOfDay(new Date(night.scheduledFor)));
-  const [selectedTime, setSelectedTime] = useState<TimeOfDay>(() => {
+  // A tbd night has no showtime to seed, and seeding the 8pm anchor would
+  // quietly turn "decide later" into a decision the moment the host opened
+  // this sheet to change the DATE. So tbd carries over as tbd, and the host
+  // pins the hour down by picking one here — which is the whole way a tbd
+  // night becomes a real one.
+  const [selectedTime, setSelectedTime] = useState<TimeOfDay | null>(() => {
+    if (night.timeTbd) return null;
     const d = new Date(night.scheduledFor);
     return { hour: d.getHours(), minute: d.getMinutes() };
   });
+  const [timeTbd, setTimeTbd] = useState<boolean>(night.timeTbd);
   const [showTimeEntry, setShowTimeEntry] = useState(false);
   // F9 — host-only edit surface for visibility (the create sheet's only
   // other one). Initialized from the night's CURRENT value every time the
@@ -57,7 +58,8 @@ export function RescheduleFlow({
     if (!isOpen) return;
     const d = new Date(night.scheduledFor);
     setSelectedDate(startOfDay(d));
-    setSelectedTime({ hour: d.getHours(), minute: d.getMinutes() });
+    setSelectedTime(night.timeTbd ? null : { hour: d.getHours(), minute: d.getMinutes() });
+    setTimeTbd(night.timeTbd);
     setVisibility(night.visibility);
     setShowTimeEntry(false);
     setSubmitting(false);
@@ -69,23 +71,50 @@ export function RescheduleFlow({
   const fridayTarget = useMemo(() => addDays(today, (5 - today.getDay() + 7) % 7), [today]);
   const weekDays = useMemo(() => Array.from({ length: 7 }, (_, i) => addDays(today, i)), [today]);
 
-  const scheduledFor = useMemo(() => combineDateAndTime(selectedDate, selectedTime), [selectedDate, selectedTime]);
-  const isPast = scheduledFor.getTime() <= Date.now();
-  const cta = describeNightCta(night.film, scheduledFor, 'reschedule');
+  function pickTime(t: TimeOfDay) {
+    setSelectedTime(t);
+    setTimeTbd(false);
+  }
+  function pickTbd() {
+    setTimeTbd(true);
+    setSelectedTime(null);
+  }
+
+  const scheduledFor = useMemo(
+    () => resolveScheduledFor(selectedDate, selectedTime, timeTbd),
+    [selectedDate, selectedTime, timeTbd],
+  );
+  const isPast = !!scheduledFor && (
+    timeTbd
+      ? startOfDay(scheduledFor).getTime() < startOfDay(new Date()).getTime()
+      : scheduledFor.getTime() <= Date.now()
+  );
+  const cta = describeNightCta(night.film, scheduledFor, 'reschedule', timeTbd);
 
   // "moving from thu 24.07 · 8pm" — the night's CURRENT scheduledFor (about
   // to become `previousScheduledFor`), formatted with its own tz convention.
-  const movingFromLabel = `${formatNightDate(night.scheduledFor, night.tzOffsetMinutes)} · ${formatNightTime(night.scheduledFor, night.tzOffsetMinutes)}`;
+  // A tbd night reads "moving from thu 24.07 · time tbd", which is also the
+  // clearest possible framing of what this edit is about to settle.
+  const movingFromLabel = `${formatNightDate(night.scheduledFor, night.tzOffsetMinutes)} · ${formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd)}`;
 
   async function submit(when: Date) {
     if (submitting) return;
-    if (when.getTime() <= Date.now()) { setError("pick a night that hasn't happened yet"); return; }
+    const rejectAsPast = timeTbd
+      ? startOfDay(when).getTime() < startOfDay(new Date()).getTime()
+      : when.getTime() <= Date.now();
+    if (rejectAsPast) { setError("pick a night that hasn't happened yet"); return; }
     setSubmitting(true);
     setError(null);
     try {
       const updated = await apiCall<MovieNightView>('PATCH', `/api/v1/movie-nights/${night.id}`, {
         action: 'reschedule',
         scheduledFor: when.toISOString(),
+        // Unlike `visibility`, the server treats an absent `timeTbd` as false
+        // rather than "untouched" (a reschedule always replaces the timing),
+        // so sending it explicitly isn't just tidiness — it's what keeps a
+        // date-only edit of a tbd night from silently promoting the anchor
+        // into a real showtime.
+        timeTbd,
         // Always sent, always the value currently shown in this sheet — never
         // omitted — so a host who only touched the date/time still reports
         // their unchanged visibility back rather than leaving the key out
@@ -110,6 +139,7 @@ export function RescheduleFlow({
         film={night.film}
         selectedDate={selectedDate}
         selectedTime={selectedTime}
+        timeTbd={timeTbd}
         isPast={isPast}
         cta={cta}
         submitting={submitting}
@@ -118,11 +148,12 @@ export function RescheduleFlow({
         fridayTarget={fridayTarget}
         weekDays={weekDays}
         onPickDate={(d) => { haptic('selection'); setSelectedDate(d); }}
-        onPickTime={(t) => { haptic('selection'); setSelectedTime(t); }}
+        onPickTime={(t) => { haptic('selection'); pickTime(t); }}
+        onPickTbd={() => { haptic('selection'); pickTbd(); }}
         onOpenFilmPicker={() => {}}
         onOpenTimeEntry={() => setShowTimeEntry(true)}
         onClose={onClose}
-        onPropose={() => submit(scheduledFor)}
+        onPropose={() => { if (scheduledFor) submit(scheduledFor); }}
         hideFilmRow
         ctaLabel="reschedule it"
         ctaIcon={CalendarCheck}
@@ -139,7 +170,7 @@ export function RescheduleFlow({
         initial={selectedTime}
         submitting={submitting}
         error={error}
-        onDone={(t) => { setSelectedTime(t); setShowTimeEntry(false); }}
+        onDone={(t) => { pickTime(t); setShowTimeEntry(false); }}
         onClose={() => setShowTimeEntry(false)}
         onSubmit={(when) => submit(when)}
         ctaLabel="reschedule it"

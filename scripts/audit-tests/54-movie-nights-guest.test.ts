@@ -405,3 +405,111 @@ test('create sanitizes a \\r-laced 300-char title; calendar.ics has no bare CR',
   const text = await res.text();
   assert.ok(!/\r(?!\n)/.test(text), 'every \\r in the .ics is immediately followed by \\n — no bare CR anywhere');
 });
+
+// ─── timeTbd — the ticker + the calendar export ─────────────────────────────
+//
+// A tbd night's `scheduledFor` is an 8pm ANCHOR nobody chose. These two
+// surfaces are where publishing that anchor as a real time does the most
+// damage: a reminder that claims a start, and a calendar block someone plans
+// their evening around. Both must degrade to what is actually known.
+
+test('a tbd night reminds morning-of even on the "2h" preset', async () => {
+  const { night } = await createNight(hostTok, {
+    inviteeUids: [invitee1.uid], reminderPreset: '2h', tzOffsetMinutes: 0, timeTbd: true,
+  });
+  assert.ok(night);
+  if (!night) return;
+
+  // Pin the anchor to a known UTC clock time (tzOffsetMinutes: 0 → local ==
+  // UTC), days out, exactly as the 'morning' preset test above does.
+  const day = new Date(night.scheduledFor);
+  day.setUTCHours(20, 0, 0, 0);
+  await adminDb().doc(`movie_nights/${night.id}`).update({ scheduledFor: Timestamp.fromDate(day) });
+
+  const before9 = new Date(day); before9.setUTCHours(8, 59, 0, 0);
+  assert.equal((await tickMovieNights(before9)).remindersSent, 0, 'not yet 9am local');
+
+  // The '2h' preset would have fired at 6pm; a tbd night is overridden to
+  // morning-of, so 9:01am is the send and 6pm is far too late to be the first
+  // one. Asserting the 9am send happens is what proves the override.
+  const after9 = new Date(day); after9.setUTCHours(9, 1, 0, 0);
+  assert.equal((await tickMovieNights(after9)).remindersSent, 1, 'morning-of override fires');
+
+  const [notif] = (await notificationsByType('movie_night_reminder')).filter((n) => n.nightId === night.id);
+  assert.ok(notif, 'reminder written');
+  assert.equal(notif.nightTimeLabel, 'time tbd', 'never announces the anchor hour');
+  assert.doesNotMatch(String(notif.previewText), /at time tbd/, 'reads as prose, not a template seam');
+  assert.doesNotMatch(String(notif.previewText), /grab your snacks/, 'no "starts soon" framing without a start');
+});
+
+test('the stored reminderPreset survives a tbd night (the override is read-time only)', async () => {
+  const { night } = await createNight(hostTok, {
+    inviteeUids: [invitee1.uid], reminderPreset: 'showtime', timeTbd: true,
+  });
+  assert.ok(night);
+  if (!night) return;
+
+  // A host who pins a real time later must get the preset they actually chose,
+  // so the tbd override must never have rewritten it on the doc.
+  assert.equal(night.reminderPreset, 'showtime');
+  const raw = await adminDb().doc(`movie_nights/${night.id}`).get();
+  assert.equal(raw.data()?.reminderPreset, 'showtime');
+});
+
+test('ics: a tbd night is an ALL-DAY event, never a block at the anchor hour', async () => {
+  const { night } = await createNight(hostTok, {
+    inviteeUids: [], tzOffsetMinutes: 0, timeTbd: true,
+  });
+  assert.ok(night?.shareCode);
+  if (!night?.shareCode) return;
+
+  const res = await callRawGet(icsRoute, `http://test/api/v1/movie-nights/shared/${night.shareCode}/calendar.ics`, night.shareCode);
+  assert.equal(res.status, 200);
+  const text = await res.text();
+
+  const start = new Date(night.scheduledFor);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const dayStamp = (d: Date) => `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+  const nextDay = new Date(start.getTime() + 24 * 3600_000);
+
+  assert.ok(text.includes(`DTSTART;VALUE=DATE:${dayStamp(start)}`), 'bare DATE start (RFC 5545 all-day)');
+  assert.ok(text.includes(`DTEND;VALUE=DATE:${dayStamp(nextDay)}`), 'exclusive next-day end');
+  assert.ok(!/DTSTART:\d{8}T/.test(text), 'no timed DTSTART — the anchor never reaches a calendar');
+  assert.ok(text.includes('showtime still tbd'), 'the description says what is actually known');
+});
+
+test('ics: a normal night is unaffected (still a timed block)', async () => {
+  const { night } = await createNight(hostTok, { inviteeUids: [] });
+  assert.ok(night?.shareCode);
+  if (!night?.shareCode) return;
+
+  const res = await callRawGet(icsRoute, `http://test/api/v1/movie-nights/shared/${night.shareCode}/calendar.ics`, night.shareCode);
+  const text = await res.text();
+  assert.ok(/DTSTART:\d{8}T\d{6}Z/.test(text), 'timed DTSTART');
+  assert.ok(!text.includes('VALUE=DATE'), 'no all-day form');
+  assert.ok(!text.includes('showtime still tbd'));
+});
+
+test('the public guest view carries timeTbd', async () => {
+  const { night } = await createNight(hostTok, { inviteeUids: [], timeTbd: true });
+  assert.ok(night?.shareCode);
+  if (!night?.shareCode) return;
+
+  const res = await callRoute<MovieNightPublicView>(sharedRoute, 'GET', {
+    params: { code: night.shareCode },
+    url: `http://test/api/v1/movie-nights/shared/${night.shareCode}`,
+  });
+  assert.ok(res.body.ok);
+  if (res.body.ok) assert.equal(res.body.data.timeTbd, true);
+});
+
+test('the tbd label is in lockstep between the server and client format modules', async () => {
+  // `movie-nights-server.ts` deliberately re-declares its formatters instead
+  // of importing the client-safe module (the static export can't reach
+  // firebase/admin), which means the wording exists twice. If these ever
+  // drift, a push says one thing and the screen says another.
+  const server = await import('@/lib/movie-nights-server');
+  const client = await import('@/lib/movie-night-format');
+  assert.equal(server.TBD_TIME_LABEL, client.TBD_TIME_LABEL);
+  assert.equal(server.nightTimeLabel(new Date().toISOString(), 0, true), client.TBD_TIME_LABEL);
+});

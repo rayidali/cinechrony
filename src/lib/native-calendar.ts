@@ -26,6 +26,12 @@ export interface AddEventNativeOptions {
   title: string;
   startMs: number;
   endMs: number;
+  /** Create an all-day entry instead of a timed block — used for a movie
+   *  night whose showtime is still "tbd", where `startMs` is only a storage
+   *  anchor and writing it as a real appointment would misrepresent the plan.
+   *  Defaults to false. A build predating this key ignores it and creates the
+   *  timed event, which is the pre-existing behaviour. */
+  allDay?: boolean;
   notes?: string;
   url?: string;
 }

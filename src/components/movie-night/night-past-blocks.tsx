@@ -7,7 +7,7 @@ import { getRatingStyle } from '@/lib/utils';
 import { verdictFlavor } from '@/lib/story-card';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import {
-  formatNightDate, formatNightDateShort, formatNightTime,
+  formatNightDate, formatNightDateShort, formatNightTimeLabel,
 } from '@/lib/movie-night-format';
 import type { MovieNightView } from '@/lib/movie-night-types';
 
@@ -175,7 +175,7 @@ export function RescheduledBlock({ night }: { night: MovieNightView }) {
         </span>
       </div>
       <p className="mt-2 font-mono text-[10.5px] text-muted-foreground">
-        {formatNightTime(night.scheduledFor, night.tzOffsetMinutes)} · same crew
+        {formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd)} · same crew
       </p>
     </div>
   );

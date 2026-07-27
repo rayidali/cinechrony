@@ -448,12 +448,27 @@ export type MovieNightNotificationCtx = {
   nightId: string;
   movieTitle: string;
   dateLabel: string; // 'fri 24.07'
-  timeLabel: string; // '8:00 pm'
+  timeLabel: string; // '8:00 pm', or 'time tbd' when timeTbd
+  /** The host locked the day but not the showtime. The caller has already
+   *  folded this into `timeLabel` (via `nightTimeLabel`), so the label is
+   *  always safe to print on its own — the flag is here purely so the prose
+   *  below can pick a preposition, since "at time tbd" reads like a bug.
+   *  Optional: absent means a normal night, matching every ctx built before
+   *  tbd nights existed. */
+  timeTbd?: boolean;
   fromUserId: string;
   fromUsername: string | null;
   fromDisplayName: string | null;
   fromPhotoUrl: string | null;
 };
+
+/** 'fri 24.07 at 8:00 pm' / 'fri 24.07, time tbd' — one when-phrase for every
+ *  movie-night template, so the tbd wording can't drift between the invite,
+ *  the reschedule and the reminder. Mirrors `formatNightWhen` on the client
+ *  (this module can't import it — see the movie-nights-server header). */
+function nightWhen(ctx: MovieNightNotificationCtx): string {
+  return ctx.timeTbd ? `${ctx.dateLabel}, ${ctx.timeLabel}` : `${ctx.dateLabel} at ${ctx.timeLabel}`;
+}
 
 function movieNightUrl(nightId: string): string {
   return `/home?night=${nightId}`;
@@ -507,7 +522,7 @@ export async function createMovieNightInviteNotification(
   const prefs = userDoc.data()?.notificationPreferences;
   if (prefs && prefs.listInvites === false) return;
 
-  const previewText = `${fromName(ctx)} planned a movie night: ${ctx.movieTitle}, ${ctx.dateLabel} at ${ctx.timeLabel}`;
+  const previewText = `${fromName(ctx)} planned a movie night: ${ctx.movieTitle}, ${nightWhen(ctx)}`;
   await writeMovieNightNotification(
     db, recipientId, 'movie_night_invite', ctx, previewText,
     `${fromName(ctx)} planned a movie night`,
@@ -555,7 +570,7 @@ export async function createMovieNightTimeChangedNotification(
   const prefs = userDoc.data()?.notificationPreferences;
   if (prefs && prefs.listInvites === false) return;
 
-  const previewText = `movie night moved to ${ctx.dateLabel} at ${ctx.timeLabel}`;
+  const previewText = `movie night moved to ${nightWhen(ctx)}`;
   await writeMovieNightNotification(
     db, recipientId, 'movie_night_time_changed', ctx, previewText, `${ctx.movieTitle}: time changed`,
   );
@@ -636,11 +651,20 @@ export async function createMovieNightReminderNotification(
   const prefs = userDoc.data()?.notificationPreferences;
   if (prefs && prefs.listInvites === false) return;
 
-  const previewText = ctx.isTonight
-    ? `tonight: ${ctx.movieTitle} at ${ctx.timeLabel}. grab your snacks.`
-    : `${ctx.dateLabel}: ${ctx.movieTitle} at ${ctx.timeLabel}`;
+  // A tbd night's reminder always fires morning-of (see `reminderFireTime`),
+  // so it can't promise a start — "starts soon" and "grab your snacks" would
+  // both be inventing a time. It nudges the day and names what's still open,
+  // which is also the nudge most likely to get the host to pick an hour.
+  const previewText = ctx.timeTbd
+    ? (ctx.isTonight
+        ? `tonight: ${ctx.movieTitle}. showtime still tbd.`
+        : `${ctx.dateLabel}: ${ctx.movieTitle}, ${ctx.timeLabel}`)
+    : (ctx.isTonight
+        ? `tonight: ${ctx.movieTitle} at ${ctx.timeLabel}. grab your snacks.`
+        : `${ctx.dateLabel}: ${ctx.movieTitle} at ${ctx.timeLabel}`);
+  const pushTitle = ctx.timeTbd ? 'movie night today' : 'movie night starts soon';
   await writeMovieNightNotification(
-    db, recipientId, 'movie_night_reminder', ctx, previewText, 'movie night starts soon',
+    db, recipientId, 'movie_night_reminder', ctx, previewText, pushTitle,
   );
 }
 

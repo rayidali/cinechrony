@@ -34,7 +34,8 @@
 import { randomBytes } from 'node:crypto';
 import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { getDb } from '@/firebase/admin';
-import { BadRequestError, ForbiddenError, NotFoundError } from '@/lib/api-handler';
+import { BadRequestError, ForbiddenError, NotFoundError, RateLimitedError } from '@/lib/api-handler';
+import { checkRateLimit } from '@/lib/rate-limit';
 import { createTtlCache, cached } from '@/lib/server-cache';
 import { getFollowingIds } from '@/lib/follows-server';
 import { isBlockedBetween, getBlockSet } from '@/lib/blocks-server';
@@ -91,6 +92,13 @@ type NightDoc = {
    *  NEW doc always writes one explicitly (`createMovieNight` never leaves
    *  it undefined). */
   visibility?: MovieNightVisibility;
+  /** "the day is set, the showtime isn't" — see `MovieNightTimeTbd`.
+   *  `scheduledFor` is still a real instant (anchored to `TBD_ANCHOR_HOUR`
+   *  local), so every query/index/ticker below is untouched by this flag; it
+   *  only changes what gets RENDERED and when the reminder fires. Optional
+   *  because every doc written before the field existed has none — read as
+   *  `false`, never backfilled. */
+  timeTbd?: boolean;
   inviteeUids: string[];
   invitees: Record<string, InviteeProfile>;
   rsvps: Record<string, RsvpEntry>;
@@ -132,11 +140,43 @@ export function formatNightTime(iso: string, tzOffsetMinutes: number): string {
   return `${hours}:${String(minutes).padStart(2, '0')} ${ampm}`;
 }
 
+/** Kept in lockstep with `TBD_TIME_LABEL` in `movie-night-format.ts` — this
+ *  module deliberately re-declares its formatters rather than importing the
+ *  client one (see the header), so the wording is duplicated the same way the
+ *  date/time formatters above already are. Suite 53 asserts they match. */
+export const TBD_TIME_LABEL = 'time tbd';
+
+/** The showtime label to put in a notification / calendar entry — the real
+ *  time, or the tbd placeholder. Every server-side `timeLabel` goes through
+ *  this so no push can announce the 8pm anchor as a decided showtime. */
+export function nightTimeLabel(iso: string, tzOffsetMinutes: number, timeTbd?: boolean): string {
+  return timeTbd ? TBD_TIME_LABEL : formatNightTime(iso, tzOffsetMinutes);
+}
+
 // ── Small validators ────────────────────────────────────────────────────
 
 function clampTzOffset(v: unknown): number {
   const n = typeof v === 'number' && Number.isFinite(v) ? v : 0;
   return Math.max(-840, Math.min(840, Math.round(n)));
+}
+
+/**
+ * Whether `instant` lands on a local calendar day EARLIER than today's, both
+ * read through the night's own `tzOffsetMinutes` (same convention as
+ * `isNightToday` further down — there is no separate "server timezone" here).
+ *
+ * This is the past-check for a tbd night. A tbd night carries an 8pm anchor it
+ * never chose, so the normal `instant <= now` rule would refuse "tonight, time
+ * tbd" from 8pm onwards — rejecting a plan that is not only legal but the most
+ * likely one someone makes at that hour. The day is the only thing the host
+ * actually decided, so the day is the only thing worth validating.
+ */
+function isLocalDayBeforeToday(instant: Date, tzOffsetMinutes: number, now: Date): boolean {
+  const startOfLocalDay = (d: Date): number => {
+    const local = new Date(d.getTime() + tzOffsetMinutes * 60_000);
+    return Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate());
+  };
+  return startOfLocalDay(instant) < startOfLocalDay(now);
 }
 
 function isReminderPreset(v: unknown): v is ReminderPreset {
@@ -272,6 +312,9 @@ function nightToView(id: string, d: NightDoc, callerUid: string, viewerBlockSet?
     previousScheduledFor: tsToIso(d.previousScheduledFor),
     tzOffsetMinutes: d.tzOffsetMinutes ?? 0,
     reminderPreset: d.reminderPreset ?? '2h',
+    // Same legacy contract as `visibility` below: absent means the night was
+    // written before the field existed, which means it has a real showtime.
+    timeTbd: d.timeTbd === true,
     status: d.status,
     // A legacy doc (written before this field existed) has no `visibility`
     // at all — read as 'public', never backfilled.
@@ -308,6 +351,7 @@ function nightToPinView(id: string, d: NightDoc): MovieNightPinView {
     film: d.film,
     scheduledFor: d.scheduledFor.toDate().toISOString(),
     tzOffsetMinutes: d.tzOffsetMinutes ?? 0,
+    timeTbd: d.timeTbd === true,
     status: d.status,
     counts,
   };
@@ -340,7 +384,7 @@ function invalidateListNight(listOwnerId: string | null, listId: string | null):
 async function fanOutToOtherInvitees(
   db: FirebaseFirestore.Firestore,
   nightId: string,
-  data: Pick<NightDoc, 'film' | 'tzOffsetMinutes' | 'inviteeUids'>,
+  data: Pick<NightDoc, 'film' | 'tzOffsetMinutes' | 'inviteeUids' | 'timeTbd'>,
   actorUid: string,
   scheduledForOverride: FirebaseFirestore.Timestamp,
   send: (db: FirebaseFirestore.Firestore, recipientId: string, ctx: MovieNightNotificationCtx) => Promise<void>,
@@ -353,7 +397,8 @@ async function fanOutToOtherInvitees(
       nightId,
       movieTitle: data.film.title,
       dateLabel: formatNightDate(iso, data.tzOffsetMinutes),
-      timeLabel: formatNightTime(iso, data.tzOffsetMinutes),
+      timeLabel: nightTimeLabel(iso, data.tzOffsetMinutes, data.timeTbd),
+      timeTbd: data.timeTbd === true,
       fromUserId: actorUid,
       fromUsername: actor.username ?? null,
       fromDisplayName: actor.displayName ?? null,
@@ -387,6 +432,11 @@ export type CreateMovieNightInput = {
    *  Missing/garbage always falls back to `'public'`, matching every night
    *  created before this field existed. */
   visibility?: unknown;
+  /** "the day is set, the showtime isn't". Strict: only the literal boolean
+   *  `true` counts, so a missing key, a `'true'` string, or anything else
+   *  yields a normal night with a real showtime — the safe default, since a
+   *  night wrongly marked tbd would hide a showtime the host DID pick. */
+  timeTbd?: unknown;
 };
 
 /**
@@ -418,6 +468,20 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
     }
   }
 
+  // The rate-limit budget is spent HERE rather than in the route wrapper (the
+  // pattern everywhere else), and the position is the point: it sits after
+  // the idempotency check above, so a retry that returns an existing night
+  // costs nothing. It also sits before validation, so a malformed body still
+  // costs — a script firing garbage is exactly what this is for, and it is
+  // the caller's job to send a valid request.
+  //
+  // Burst first, then daily: a human who hits the burst has a wait measured
+  // in seconds, and only a sustained run reaches the one measured in hours.
+  const burst = await checkRateLimit(hostUid, 'movieNightCreate');
+  if (!burst.ok) throw new RateLimitedError(burst.error);
+  const daily = await checkRateLimit(hostUid, 'movieNightCreateDaily');
+  if (!daily.ok) throw new RateLimitedError(daily.error);
+
   const film = validateFilm(input.film);
 
   if (typeof input.scheduledFor !== 'string' || !input.scheduledFor) {
@@ -425,11 +489,19 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
   }
   const scheduledForDate = new Date(input.scheduledFor);
   if (Number.isNaN(scheduledForDate.getTime())) throw new BadRequestError('scheduledFor must be a valid date.');
-  if (scheduledForDate.getTime() <= Date.now()) {
+
+  const tzOffsetMinutes = clampTzOffset(input.tzOffsetMinutes);
+  const timeTbd = input.timeTbd === true;
+  // A tbd night is validated at DAY resolution — the anchor hour it carries
+  // isn't a decision anyone made, so it isn't a decision worth refusing on.
+  // See `isLocalDayBeforeToday`.
+  const scheduledInPast = timeTbd
+    ? isLocalDayBeforeToday(scheduledForDate, tzOffsetMinutes, new Date())
+    : scheduledForDate.getTime() <= Date.now();
+  if (scheduledInPast) {
     throw new BadRequestError('movie night must be scheduled in the future.');
   }
 
-  const tzOffsetMinutes = clampTzOffset(input.tzOffsetMinutes);
   const reminderPreset: ReminderPreset = isReminderPreset(input.reminderPreset) ? input.reminderPreset : '2h';
   const visibility = validateVisibility(input.visibility);
 
@@ -493,6 +565,7 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
     previousScheduledFor: null,
     tzOffsetMinutes,
     reminderPreset,
+    timeTbd,
     status: 'proposed',
     visibility,
     inviteeUids,
@@ -514,7 +587,7 @@ export async function createMovieNight(hostUid: string, input: CreateMovieNightI
 
   // Best-effort notification fan-out to every non-host invitee.
   await fanOutToOtherInvitees(
-    db, nightRef.id, { film, tzOffsetMinutes, inviteeUids }, hostUid, scheduledForTs,
+    db, nightRef.id, { film, tzOffsetMinutes, inviteeUids, timeTbd }, hostUid, scheduledForTs,
     createMovieNightInviteNotification,
   );
 
@@ -683,7 +756,8 @@ export async function rsvpMovieNight(callerUid: string, id: string, rawAnswer: u
         nightId: id,
         movieTitle: result.data.film.title,
         dateLabel: formatNightDate(iso, result.data.tzOffsetMinutes),
-        timeLabel: formatNightTime(iso, result.data.tzOffsetMinutes),
+        timeLabel: nightTimeLabel(iso, result.data.tzOffsetMinutes, result.data.timeTbd),
+        timeTbd: result.data.timeTbd === true,
         fromUserId: callerUid,
         fromUsername: caller.username ?? null,
         fromDisplayName: caller.displayName ?? null,
@@ -712,7 +786,21 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     }
     const scheduledForDate = new Date(patch.scheduledFor);
     if (Number.isNaN(scheduledForDate.getTime())) throw new BadRequestError('scheduledFor must be a valid date.');
-    if (scheduledForDate.getTime() <= Date.now()) {
+
+    // Unlike `visibility` below, `timeTbd` is NOT an optional patch key: it
+    // describes the very thing this action replaces. A reschedule body always
+    // carries a concrete `scheduledFor`, so an absent flag means "this is a
+    // real showtime" — which is exactly how a tbd night gets its time pinned
+    // down later, through the flow the host already knows. Defaulting it to
+    // the stored value instead would make "set the time" impossible without a
+    // second, redundant edit surface.
+    const timeTbd = patch.timeTbd === true;
+    // A non-tbd night's past-check is timezone-independent (an instant is
+    // past or it isn't), so it runs here. The tbd one is a LOCAL-DAY
+    // comparison and a reschedule body never carries `tzOffsetMinutes` — the
+    // night's stored offset is authoritative — so that check runs inside the
+    // transaction below, where the doc is in hand.
+    if (!timeTbd && scheduledForDate.getTime() <= Date.now()) {
       throw new BadRequestError('movie night must be scheduled in the future.');
     }
     const scheduledForTs = Timestamp.fromDate(scheduledForDate);
@@ -739,9 +827,15 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
       if (data.status !== 'proposed') {
         return { kind: 'err' as const, error: new BadRequestError('This movie night cannot be rescheduled.') };
       }
+      // The tbd day-check, run here because it needs the night's STORED
+      // timezone offset (see the note above the non-tbd check).
+      if (timeTbd && isLocalDayBeforeToday(scheduledForDate, data.tzOffsetMinutes ?? 0, new Date())) {
+        return { kind: 'err' as const, error: new BadRequestError('movie night must be scheduled in the future.') };
+      }
       const nightUpdate: {
         previousScheduledFor: FirebaseFirestore.Timestamp;
         scheduledFor: FirebaseFirestore.Timestamp;
+        timeTbd: boolean;
         status: 'proposed';
         reminderSentAt: null;
         morningAfterSentAt: null;
@@ -750,6 +844,7 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
       } = {
         previousScheduledFor: data.scheduledFor,
         scheduledFor: scheduledForTs,
+        timeTbd,
         status: 'proposed',
         reminderSentAt: null,
         morningAfterSentAt: null,
@@ -768,7 +863,9 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     invalidateUpcoming(result.data.inviteeUids);
     invalidateListNight(result.data.listOwnerId, result.data.listId);
     await fanOutToOtherInvitees(
-      db, id, { film: result.data.film, tzOffsetMinutes: result.data.tzOffsetMinutes, inviteeUids: result.data.inviteeUids },
+      // `timeTbd` is the NEW value, not `result.data`'s pre-update one — the
+      // "moved to …" push has to describe the night people are about to have.
+      db, id, { film: result.data.film, tzOffsetMinutes: result.data.tzOffsetMinutes, inviteeUids: result.data.inviteeUids, timeTbd },
       callerUid, scheduledForTs, createMovieNightTimeChangedNotification,
     );
 
@@ -797,7 +894,7 @@ export async function updateMovieNight(callerUid: string, id: string, rawPatch: 
     invalidateUpcoming(result.data.inviteeUids);
     invalidateListNight(result.data.listOwnerId, result.data.listId);
     await fanOutToOtherInvitees(
-      db, id, { film: result.data.film, tzOffsetMinutes: result.data.tzOffsetMinutes, inviteeUids: result.data.inviteeUids },
+      db, id, { film: result.data.film, tzOffsetMinutes: result.data.tzOffsetMinutes, inviteeUids: result.data.inviteeUids, timeTbd: result.data.timeTbd },
       callerUid, result.data.scheduledFor, createMovieNightCancelledNotification,
     );
 
@@ -948,7 +1045,8 @@ export async function completeMovieNight(
         nightId: id,
         movieTitle: data.film.title,
         dateLabel: formatNightDate(watchedAtIso, data.tzOffsetMinutes),
-        timeLabel: formatNightTime(watchedAtIso, data.tzOffsetMinutes),
+        timeLabel: nightTimeLabel(watchedAtIso, data.tzOffsetMinutes, data.timeTbd),
+        timeTbd: data.timeTbd === true,
         fromUserId: callerUid,
         fromUsername: caller.username ?? null,
         fromDisplayName: caller.displayName ?? null,
@@ -1044,8 +1142,23 @@ function localClockTime(
   return new Date(localTargetMs - tzOffsetMinutes * 60_000);
 }
 
-/** The instant a reminder should fire, per its preset. */
-function reminderFireTime(scheduledFor: Date, tzOffsetMinutes: number, preset: ReminderPreset): Date {
+/**
+ * The instant a reminder should fire, per its preset.
+ *
+ * A tbd night overrides the preset to morning-of: "2 hours before" and "at
+ * showtime" are both defined relative to a showtime nobody has picked, so
+ * honouring them would fire the reminder off the 8pm anchor and quietly
+ * present a made-up time as real. Morning-of is the only preset that stays
+ * true when the hour is unknown ("tonight's the night, time still tbd").
+ *
+ * The stored `reminderPreset` is deliberately NOT rewritten when a night goes
+ * tbd — this is a read-time override, so the host's actual choice comes back
+ * intact the moment they pin a real showtime down.
+ */
+function reminderFireTime(
+  scheduledFor: Date, tzOffsetMinutes: number, preset: ReminderPreset, timeTbd?: boolean,
+): Date {
+  if (timeTbd) return localClockTime(scheduledFor, tzOffsetMinutes, 9, 0);
   if (preset === 'showtime') return scheduledFor;
   if (preset === 'morning') return localClockTime(scheduledFor, tzOffsetMinutes, 9, 0);
   return new Date(scheduledFor.getTime() - 2 * 3600_000); // '2h' (also the default)
@@ -1084,7 +1197,7 @@ async function tickOneReminder(db: FirebaseFirestore.Firestore, id: string, now:
 
     const scheduledFor = data.scheduledFor.toDate();
     const tzOffsetMinutes = data.tzOffsetMinutes ?? 0;
-    const fireTime = reminderFireTime(scheduledFor, tzOffsetMinutes, data.reminderPreset ?? '2h');
+    const fireTime = reminderFireTime(scheduledFor, tzOffsetMinutes, data.reminderPreset ?? '2h', data.timeTbd);
     const graceEnd = scheduledFor.getTime() + REMINDER_GRACE_MS;
     if (now.getTime() < fireTime.getTime() || now.getTime() > graceEnd) return { claimed: false };
 
@@ -1104,7 +1217,8 @@ async function tickOneReminder(db: FirebaseFirestore.Firestore, id: string, now:
     nightId: id,
     movieTitle: data.film.title,
     dateLabel: formatNightDate(iso, tzOffsetMinutes),
-    timeLabel: formatNightTime(iso, tzOffsetMinutes),
+    timeLabel: nightTimeLabel(iso, tzOffsetMinutes, data.timeTbd),
+    timeTbd: data.timeTbd === true,
     // System push, not an actor's action — the empty-string sentinel never
     // equals a real recipient uid, so the creator's self-notify guard never
     // excludes the host from their own reminder (unlike invite/cancel/etc,
@@ -1199,7 +1313,8 @@ async function tickOneMorningAfter(db: FirebaseFirestore.Firestore, id: string, 
     nightId: id,
     movieTitle: data.film.title,
     dateLabel: formatNightDate(iso, tzOffsetMinutes),
-    timeLabel: formatNightTime(iso, tzOffsetMinutes),
+    timeLabel: nightTimeLabel(iso, tzOffsetMinutes, data.timeTbd),
+    timeTbd: data.timeTbd === true,
     fromUserId: '', // system sentinel — see tickOneReminder
     fromUsername: null,
     fromDisplayName: null,
@@ -1324,6 +1439,7 @@ function nightToPublicView(data: NightDoc): MovieNightPublicView {
     film: data.film,
     scheduledFor: data.scheduledFor.toDate().toISOString(),
     tzOffsetMinutes: data.tzOffsetMinutes ?? 0,
+    timeTbd: data.timeTbd === true,
     status: data.status,
     hostName: hostProfile?.displayName || hostProfile?.username || 'the host',
     hostUsername: hostProfile?.username ?? null,
@@ -1432,7 +1548,8 @@ export async function guestRsvpMovieNight(code: unknown, input: GuestRsvpInput):
         nightId,
         movieTitle: result.data.film.title,
         dateLabel: formatNightDate(iso, result.data.tzOffsetMinutes),
-        timeLabel: formatNightTime(iso, result.data.tzOffsetMinutes),
+        timeLabel: nightTimeLabel(iso, result.data.tzOffsetMinutes, result.data.timeTbd),
+        timeTbd: result.data.timeTbd === true,
         fromUserId: '', // system sentinel — no real uid for a guest
         fromUsername: null,
         fromDisplayName: null,
@@ -1495,6 +1612,18 @@ function icsDateStampUtc(d: Date): string {
   return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}T${pad(d.getUTCHours())}${pad(d.getUTCMinutes())}${pad(d.getUTCSeconds())}Z`;
 }
 
+/** `YYYYMMDD` — a bare DATE value (RFC 5545 §3.3.4) for an all-day event, read
+ *  in the night's own local time so the entry lands on the day the host chose
+ *  rather than whatever day that instant is in UTC. `dayOffset` builds the
+ *  EXCLUSIVE `DTEND` an all-day VEVENT requires (a one-day event ends on the
+ *  following date). */
+function icsDateOnlyLocal(instant: Date, tzOffsetMinutes: number, dayOffset = 0): string {
+  const local = new Date(instant.getTime() + tzOffsetMinutes * 60_000);
+  const shifted = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + dayOffset));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}${pad(shifted.getUTCMonth() + 1)}${pad(shifted.getUTCDate())}`;
+}
+
 export type MovieNightIcsResult = { filename: string; ics: string };
 
 /**
@@ -1513,8 +1642,28 @@ export async function movieNightIcs(code: unknown): Promise<MovieNightIcsResult>
   const start = data.scheduledFor.toDate();
   const durationMinutes = data.film.runtime ? data.film.runtime + 30 : 180;
   const end = new Date(start.getTime() + durationMinutes * 60_000);
+  const tzOffsetMinutes = data.tzOffsetMinutes ?? 0;
+  const timeTbd = data.timeTbd === true;
   const hostHandle = data.invitees?.[data.hostUid]?.username || 'a cinechrony host';
   const shareUrl = `${deployOrigin()}/n/${shareCode}`;
+
+  // A tbd night becomes an ALL-DAY event rather than a 3-hour block starting
+  // at the 8pm anchor. Writing the anchor into someone's calendar would turn a
+  // placeholder into an appointment they'd plan the rest of their evening
+  // around — the calendar is exactly the surface where a made-up time does the
+  // most damage. All-day says what's actually known: this day, this film.
+  const timingLines = timeTbd
+    ? [
+        `DTSTART;VALUE=DATE:${icsDateOnlyLocal(start, tzOffsetMinutes)}`,
+        `DTEND;VALUE=DATE:${icsDateOnlyLocal(start, tzOffsetMinutes, 1)}`,
+      ]
+    : [
+        `DTSTART:${icsDateStampUtc(start)}`,
+        `DTEND:${icsDateStampUtc(end)}`,
+      ];
+  const description = timeTbd
+    ? `showtime still tbd. hosted by @${hostHandle} on cinechrony`
+    : `hosted by @${hostHandle} on cinechrony`;
 
   const lines = [
     'BEGIN:VCALENDAR',
@@ -1525,10 +1674,9 @@ export async function movieNightIcs(code: unknown): Promise<MovieNightIcsResult>
     'BEGIN:VEVENT',
     `UID:${doc.id}@cinechrony.com`,
     `DTSTAMP:${icsDateStampUtc(new Date())}`,
-    `DTSTART:${icsDateStampUtc(start)}`,
-    `DTEND:${icsDateStampUtc(end)}`,
+    ...timingLines,
     `SUMMARY:${icsEscapeText(`movie night: ${data.film.title}`)}`,
-    `DESCRIPTION:${icsEscapeText(`hosted by @${hostHandle} on cinechrony`)}`,
+    `DESCRIPTION:${icsEscapeText(description)}`,
     `URL:${shareUrl}`,
     'END:VEVENT',
     'END:VCALENDAR',

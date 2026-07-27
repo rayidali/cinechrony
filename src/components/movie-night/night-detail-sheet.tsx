@@ -26,7 +26,8 @@ import {
   CompletedBlock, AttendeeRatingsRail, ShareNightRow, DidntHappenBlock, RescheduledBlock, RescheduledInBar,
 } from './night-past-blocks';
 import {
-  formatNightDate, formatNightDateShort, formatNightShareLine, formatNightTime, formatNightWeekdayFull,
+  formatNightDate, formatNightDateShort, formatNightShareLine, formatNightTime, formatNightTimeLabel,
+  formatNightWeekdayFull,
 } from '@/lib/movie-night-format';
 import type { MovieNightFilm, MovieNightInviteeView, MovieNightView, RsvpAnswer } from '@/lib/movie-night-types';
 import type { WatchProvider } from '@/lib/types';
@@ -396,9 +397,19 @@ function toGCalUtc(d: Date): string {
   return d.toISOString().replace(/[-:]/g, '').split('.')[0] + 'Z';
 }
 
+/** `YYYYMMDD` in the night's own local time — Google Calendar reads a bare
+ *  date pair as an all-day event, which is what a tbd night is. `dayOffset`
+ *  builds the exclusive end date. Mirrors `icsDateOnlyLocal` server-side. */
+function toGCalDateOnly(d: Date, tzOffsetMinutes: number, dayOffset = 0): string {
+  const local = new Date(d.getTime() + tzOffsetMinutes * 60_000);
+  const shifted = new Date(Date.UTC(local.getUTCFullYear(), local.getUTCMonth(), local.getUTCDate() + dayOffset));
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${shifted.getUTCFullYear()}${pad(shifted.getUTCMonth() + 1)}${pad(shifted.getUTCDate())}`;
+}
+
 function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night: MovieNightView | null; onClose: () => void }) {
   const dateLabel = night ? formatNightDate(night.scheduledFor, night.tzOffsetMinutes) : '';
-  const timeLabel = night ? formatNightTime(night.scheduledFor, night.tzOffsetMinutes) : '';
+  const timeLabel = night ? formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd) : '';
   const runtimeLabel = night?.film.runtime
     ? (() => {
         const h = Math.floor(night.film.runtime! / 60);
@@ -420,7 +431,13 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
         title: `movie night: ${night.film.title}`,
         startMs: start.getTime(),
         endMs: start.getTime() + durationMinutes * 60_000,
-        notes: 'hosted on cinechrony',
+        // A tbd night goes in as ALL-DAY. The calendar is the surface where a
+        // made-up time does the most damage: a 8pm block is something people
+        // plan their evening around, and nobody chose 8pm. On a build older
+        // than this flag the plugin simply ignores the key and falls back to
+        // the timed event, which is the current behaviour.
+        allDay: night.timeTbd,
+        notes: night.timeTbd ? 'showtime still tbd. hosted on cinechrony' : 'hosted on cinechrony',
         url: shareUrl,
       });
       if (saved) {
@@ -442,11 +459,17 @@ function AddToCalendarSheet({ isOpen, night, onClose }: { isOpen: boolean; night
     const durationMinutes = night.film.runtime ? night.film.runtime + 30 : 180;
     const end = new Date(start.getTime() + durationMinutes * 60_000);
     const shareUrl = night.shareCode ? `${shareOrigin()}/n/${night.shareCode}` : shareOrigin();
+    // Bare dates = an all-day Google Calendar entry; see `toGCalDateOnly`.
+    const dates = night.timeTbd
+      ? `${toGCalDateOnly(start, night.tzOffsetMinutes)}/${toGCalDateOnly(start, night.tzOffsetMinutes, 1)}`
+      : `${toGCalUtc(start)}/${toGCalUtc(end)}`;
     const params = new URLSearchParams({
       action: 'TEMPLATE',
       text: `movie night: ${night.film.title}`,
-      dates: `${toGCalUtc(start)}/${toGCalUtc(end)}`,
-      details: `hosted on cinechrony. rsvp and details: ${shareUrl}`,
+      dates,
+      details: night.timeTbd
+        ? `showtime still tbd. rsvp and details: ${shareUrl}`
+        : `hosted on cinechrony. rsvp and details: ${shareUrl}`,
     });
     window.open(`https://calendar.google.com/calendar/render?${params.toString()}`, '_blank');
   }
@@ -700,7 +723,7 @@ export function NightDetailSheet({
     if (!night?.shareCode) return;
     haptic('light');
     const url = `${shareOrigin()}/n/${night.shareCode}`;
-    const text = formatNightShareLine(night.film.title, night.scheduledFor, night.tzOffsetMinutes);
+    const text = formatNightShareLine(night.film.title, night.scheduledFor, night.tzOffsetMinutes, night.timeTbd);
     try {
       const result = await shareLink({ title: 'movie night', text, url });
       if (result === 'copied') toast({ title: 'link copied.' });
@@ -735,7 +758,13 @@ export function NightDetailSheet({
   // ("same crew"), so an invitee who was already 'in' gets the friendly
   // re-confirm bar instead of the plain settled bar.
   const justRescheduled = isActive && !!night?.previousScheduledFor;
-  const [timeMain, timeAmpm] = night ? timeSplit(formatNightTime(night.scheduledFor, night.tzOffsetMinutes)) : ['', ''];
+  // A tbd night has no showtime to split into number + am/pm — the hero's
+  // 62px slot carries the word itself instead. Rendering the stored 8pm anchor
+  // here would be the single most convincing way to make a placeholder look
+  // like a plan, since this is the biggest type on the screen.
+  const [timeMain, timeAmpm] = night && !night.timeTbd
+    ? timeSplit(formatNightTime(night.scheduledFor, night.tzOffsetMinutes))
+    : ['tbd', ''];
 
   let footer: React.ReactNode = null;
   if (night && isActive) {
@@ -839,6 +868,12 @@ export function NightDetailSheet({
                       <div className="mt-1.5 font-mono text-[12.5px] font-bold tracking-[0.04em] tabular-nums text-muted-foreground">
                         {formatNightDateShort(night.scheduledFor, night.tzOffsetMinutes)}
                       </div>
+                      {night.timeTbd && (
+                        <p className="mt-1.5 flex items-center justify-center gap-1 font-mono text-[10px] text-muted-foreground">
+                          <Clock className="h-3 w-3" strokeWidth={2.2} />
+                          {night.viewer.isHost ? 'showtime not set. edit to pick one.' : 'showtime not set yet'}
+                        </p>
+                      )}
                     </div>
                   )}
 

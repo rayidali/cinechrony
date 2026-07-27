@@ -194,7 +194,12 @@ export function MovieNightProvider({ children }: { children: ReactNode }) {
         if (nightParamConsumedRef.current) return;
         if (openNightIdRef.current || morningAfterNightIdRef.current || createArgsRef.current) return;
         const due = nights.find(
-          (n) => n.status === 'proposed' && nightPhase(n.scheduledFor) === 'past' && !isMorningAfterSnoozed(n.id),
+          // A tbd night only reads 'past' once its whole DAY is over, so the
+          // "how was it?" prompt can't ambush someone at 11pm on the night
+          // itself off the back of an 8pm anchor nobody chose.
+          (n) => n.status === 'proposed'
+            && nightPhase(n.scheduledFor, new Date(), n.timeTbd) === 'past'
+            && !isMorningAfterSnoozed(n.id),
         );
         if (due) setMorningAfterNightId(due.id);
       } catch {

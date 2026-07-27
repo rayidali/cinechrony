@@ -24,6 +24,25 @@ export type MovieNightVisibility = 'public' | 'private';
 
 export type ReminderPreset = '2h' | 'morning' | 'showtime';
 
+/**
+ * A night whose DAY is locked but whose showtime isn't decided yet ("time
+ * tbd"). The host still gets a real plan out the door — invites fan out, RSVPs
+ * work, it shows up everywhere a night shows up — and pins the exact hour down
+ * later through the normal reschedule flow, which clears the flag.
+ *
+ * `scheduledFor` is ALWAYS a real instant, tbd or not: every Firestore index,
+ * ordering, ticker window and calendar export is built on it, and making it
+ * nullable would touch all of them. A tbd night is anchored to
+ * `TBD_ANCHOR_HOUR` local (see `movie-night-format.ts`) on the chosen day — a
+ * plausible movie-night hour that sorts correctly within its day. This flag is
+ * what tells every surface not to RENDER that anchor as if it were a decision
+ * someone made.
+ *
+ * Absent on every night written before the field existed; read as `false` and
+ * never backfilled (same contract as `MovieNightVisibility`).
+ */
+export type MovieNightTimeTbd = boolean;
+
 /** The one film a movie night is about. */
 export type MovieNightFilm = {
   tmdbId: number;
@@ -71,6 +90,10 @@ export type MovieNightView = {
   previousScheduledFor: string | null; // ISO, set after a reschedule
   tzOffsetMinutes: number;
   reminderPreset: ReminderPreset;
+  /** True when the host locked the DAY but not the showtime — render
+   *  'time tbd' rather than `scheduledFor`'s anchor hour. See
+   *  `MovieNightTimeTbd`. */
+  timeTbd: MovieNightTimeTbd;
   status: MovieNightStatus;
   /** Host-set; hosts/invitees need it to render the current state + edit it.
    *  Never present on `MovieNightPinView` — the redacted pin only ever
@@ -97,6 +120,9 @@ export type MovieNightPinView = {
   film: MovieNightFilm;
   scheduledFor: string; // ISO
   tzOffsetMinutes: number;
+  /** Not a privacy concern (the pin already shows the date) and the card
+   *  would otherwise print the 8pm anchor as a real showtime. */
+  timeTbd: MovieNightTimeTbd;
   status: MovieNightStatus;
   counts: MovieNightCounts;
 };
@@ -109,6 +135,10 @@ export type MovieNightCardData = {
   film: MovieNightFilm;
   scheduledFor: string; // ISO
   tzOffsetMinutes: number;
+  /** Optional here (unlike the two wire shapes that both always send it) so a
+   *  hand-built card payload in a test or a future surface doesn't have to
+   *  care — absent reads as "there is a real showtime", the old behaviour. */
+  timeTbd?: MovieNightTimeTbd;
   counts: MovieNightCounts;
   completion?: { attendeeUids: string[]; completedAt: string } | null;
   previousScheduledFor?: string | null; // ISO
@@ -121,6 +151,7 @@ export type MovieNightPublicView = {
   film: MovieNightFilm;
   scheduledFor: string; // ISO
   tzOffsetMinutes: number;
+  timeTbd: MovieNightTimeTbd;
   status: MovieNightStatus;
   hostName: string;
   hostUsername: string | null;

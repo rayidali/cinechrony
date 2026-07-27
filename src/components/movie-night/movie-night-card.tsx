@@ -4,7 +4,7 @@ import { ArrowRight, ChevronRight, Play } from 'lucide-react';
 import { haptic } from '@/lib/haptics';
 import { NightPoster } from './night-ui';
 import {
-  formatNightDate, formatNightDateShort, formatNightTime, formatNightWeekdayShort, nightPhase,
+  formatNightDate, formatNightDateShort, formatNightTimeLabel, formatNightWeekdayShort, nightPhase,
 } from '@/lib/movie-night-format';
 import type { MovieNightCardData } from '@/lib/movie-night-types';
 
@@ -45,7 +45,8 @@ const EYEBROW_TEXT: Record<EyebrowVariant, string> = {
 
 function deriveEyebrowVariant(night: MovieNightCardData): EyebrowVariant {
   if (night.completion) return 'done';
-  const phase = nightPhase(night.scheduledFor);
+  // tbd nights never resolve to 'now'/'soon' — see `nightPhase`.
+  const phase = nightPhase(night.scheduledFor, new Date(), night.timeTbd);
   if (phase === 'now') return 'now';
   if (phase === 'soon') return 'soon';
   if (phase === 'today') return 'today';
@@ -128,8 +129,8 @@ export function MovieNightCard({
           <div className="mt-1 flex items-center gap-2">
             <span className="font-mono text-[11px] font-bold tabular-nums tracking-[-0.01em] text-foreground">
               {eyebrowVariant === 'today' || eyebrowVariant === 'now'
-                ? formatNightTime(night.scheduledFor, night.tzOffsetMinutes)
-                : `${formatNightWeekdayShort(night.scheduledFor, night.tzOffsetMinutes)} ${formatNightTime(night.scheduledFor, night.tzOffsetMinutes)}`}
+                ? formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd)
+                : `${formatNightWeekdayShort(night.scheduledFor, night.tzOffsetMinutes)} ${formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd)}`}
             </span>
             <span className="h-[3px] w-[3px] flex-shrink-0 rounded-full bg-faint" aria-hidden />
             <span className="font-mono text-[11px] text-muted-foreground">{going} going</span>
