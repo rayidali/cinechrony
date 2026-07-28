@@ -52,6 +52,12 @@ hostUid, listId|null, listOwnerId|null, listName|null (denorm)
 film { tmdbId, mediaType, title, year, posterUrl|null, runtime|null }
 scheduledFor (Timestamp) · previousScheduledFor|null · tzOffsetMinutes
 reminderPreset '2h'|'morning'|'showtime'
+timeTbd?: boolean (v1.3, 2026-07-27 — optional; absent reads as false and is
+  NEVER backfilled, same contract as `visibility`. "the day is set, the
+  showtime isn't". scheduledFor stays a REAL Timestamp, anchored to 8pm local
+  (TBD_ANCHOR_HOUR) on the chosen day, so every index/ordering/ticker window
+  above is untouched — this flag only governs what is RENDERED, when the
+  reminder fires, and that past-checks drop to DAY resolution)
 status 'proposed'|'cancelled'|'completed'|'didnt_happen'
   (today/soon/now/awaiting-morning-after are DERIVED from scheduledFor)
 visibility?: 'public'|'private' (v1.2, 2026-07-26 — optional; a doc with the
@@ -199,6 +205,68 @@ the parent sheet closing by any path. `scripts/interaction-harness.mjs`
 grew a dedicated tap-through audit (3 real background clicks behind an
 open confirm, each asserting the confirm survives and the click landed
 inside the guard) — 17 → 30 steps total.
+
+## v1.3 — "time tbd" + a create budget sized to its risk (2026-07-27, `a3eede7`, build 7)
+
+Both threads started from ONE owner screenshot: the create sheet refusing with
+*"You're doing that too fast. Please slow down and try again shortly."*
+
+**"time tbd" — the day is locked, the showtime isn't.** A "decide later" chip
+sits in the showtime row as a peer of the presets (not an escape hatch behind
+"type it"), mutually exclusive with a real pick — create and reschedule both
+route through `pickTime`/`pickTbd` so neither can be left live behind the
+other. The host still gets a real plan out the door: invites fan out, RSVPs
+work, the night appears everywhere a night appears.
+
+*The invariant the whole feature rests on: the 8pm anchor is NEVER shown.*
+Nobody chose it, so no surface may present it as a decision.
+
+| surface | tbd behaviour |
+|---|---|
+| detail-sheet hero (62px) · guest-page hero (52px) | prints `tbd`, plus a mono "showtime not set yet" line |
+| cards · list pin · reschedule "moving from" | `formatNightTimeLabel` |
+| push + share text | `nightWhen()` → "mon 27.07, **time tbd**" (comma, not "at" — "at time tbd" reads like a template seam) |
+| `.ics` · Google Calendar · native CalendarBridge | **all-day entry**, never an 8pm block |
+| `nightPhase` | tbd branch with no `soon`/`now` — both are claims about a time nobody picked |
+
+*Past-checks drop to DAY resolution when tbd* (`isLocalDayBeforeToday`
+server-side, mirrored in `describeNightCta` and both sheets). Without it
+"tonight, tbd" dies at 8pm — precisely the hour someone plans one.
+
+*Reminders override to morning-of at FIRE time*, regardless of preset ("2h
+before" and "at showtime" are both defined against a showtime that doesn't
+exist). The stored `reminderPreset` is deliberately NOT rewritten, so the
+host's real choice returns intact the moment they pin an hour. The tbd
+`nightPhase` branch also stops the morning-after prompt firing at 11pm on the
+night itself.
+
+*Setting the time later goes through the EXISTING reschedule flow* — an
+omitted `timeTbd` on a reschedule means "this is a real showtime", which is
+what makes that work without a second edit surface.
+
+**The create budget was wrong on three axes.** `movieNightCreate` was a flat
+**10/day**, sized to how OFTEN people plan nights rather than to the abuse
+surface it bounds: a doc write plus one notification/push per invitee — the
+same surface as `invite` (**20/min**) and `post` (**15/min**), and unlike an
+extraction it costs no Apify/Gemini money. A cost-tier limit for a
+notification-tier risk. With no burst bucket it also permitted the abuse (all
+ten in ten seconds) and punished the use (locked out for a day). And it was
+never really ten: `checkRateLimit` ran in the route wrapper BEFORE the
+`clientKey` dedup and before validation, so a rejected date, a double-tap
+landing as an idempotent retry, and a 500 each burned a unit while creating
+nothing.
+
+Now **6/min + 40/day**, and the check MOVED into `createMovieNight`
+immediately after the idempotency dedup — the only endpoint in the repo whose
+rate limiting isn't in its route handler, documented at both ends. A retry
+that returns an existing night costs nothing; a malformed body still costs.
+
+Suites 53 (+14) and 54 (+6) → audit **603/603**. Gates: typecheck,
+`npm run build`, `build:static` + `cap sync ios`, full `xcodebuild`, harness
+**39/39**, and BOTH native calendar smokes (`-smokeCalendar` and the new
+`-smokeCalendarAllDay`, which proves the all-day path executes rather than
+merely compiles — a flag that failed to cross the Capacitor bridge would have
+silently written the timed 8pm block this feature exists to prevent).
 
 ## Owner actions when this ships
 

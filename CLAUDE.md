@@ -936,19 +936,31 @@
   **trader status** in ASC (gates App Store submission, not TestFlight);
   enable **Blaze** before any cohort past ~150; Firestore console TTL
   policies (`extraction_jobs` + `extraction_cache` on `expiresAt`) if not
-  yet clicked.
-- **NOW — build 6 on the owner's device, then friends, then the App Store.**
+  yet clicked; **confirm which Google account owns the Gemini API key**
+  (added 2026-07-28 — nobody ever wrote it down and it CANNOT be recovered
+  from the key: no endpoint maps a key back to an owner. Match the
+  fingerprint **`AQ.Ab8RN…IshQ`** at aistudio.google.com/apikey. Firebase is
+  `rayidali3@gmail.com` / `studio-2541484065-75c27`, but the Gemini key is a
+  separate `AQ.`-format credential and may be a different account. This also
+  identifies whose billing the scanner runs on — the console `LAUNCH.md`'s
+  open cost-alert item points at. The key itself is healthy: all 5 models the
+  code wants are available, 56 visible).
+- **NOW — build 7 on the owner's device, then friends, then the App Store.**
   The playbook's phases 1–6 are DONE (see the 2026-07-21 bullet; the
   checklist artifact survives at
   https://claude.ai/code/artifact/349e207e-3490-4dfa-bcf9-f41b918927ed).
-  **Build 1.0 (6) is VALID + BETA_APPROVED on TestFlight (2026-07-26)** —
-  internal (the owner) and external both have it, and the public link
-  https://testflight.apple.com/join/CRPFhKen finally serves something newer
-  than the 07-21 build 1 (see the top-of-file bullet for why it didn't).
-  Friends need Apple's TestFlight app first (two
-  minutes, standard indie practice; put the link behind the website's "iOS
-  beta" button with one line of setup copy). Do the domain add before
-  sharing wide. **App Store submission prep is DONE on the Claude side
+  **Build 1.0 (7) is VALID + APPROVED on TestFlight (2026-07-27)** — listed
+  in BOTH the internal and friends groups. **The shareable link, verified
+  live 2026-07-28: https://testflight.apple.com/join/CRPFhKen — enabled,
+  capped 150, 0/150 enrolled, serving build 7.** Friends need Apple's
+  TestFlight app first (two minutes, standard indie practice; say it IN the
+  message — it's the usual stumble — and put the link behind the website's
+  "iOS beta" button with one line of setup copy). iPhone-only. Do the domain
+  add before sharing wide. **A TestFlight build is NOT installed by its
+  approval** — the tester taps Update in the TestFlight app; and if the app
+  was running when iOS swapped the binary, the live process keeps serving the
+  OLD image until a force-quit, which is the leading (untested) explanation
+  for the 07-28 "the tbd chip isn't there" report. **App Store submission prep is DONE on the Claude side
   (2026-07-23, `APP-STORE-SUBMISSION.md`)** — listing copy, age rating
   (12+), pricing/availability, review details, screenshots all live in ASC;
   what remains is owner-only (privacy labels, trader status, domain) +
@@ -1435,7 +1447,30 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-26 — modal tap-through bug class closed
+*Last updated: 2026-07-28 — **build 1.0 (7) shipped + BETA_APPROVED**
+(`a3eede7` + `bd8b641` + `48b0a4a` on `main`), carrying Movie Night **"time
+tbd"** (a "decide later" showtime chip; `scheduledFor` stays real, anchored to
+8pm local, and the anchor is NEVER rendered — heroes print `tbd`, push reads
+"mon 27.07, time tbd", and the .ics/Google/native calendar all emit an
+ALL-DAY entry) plus a **create budget resized to its actual risk** (10/day →
+6/min + 40/day, with the check moved past the `clientKey` dedup so retries
+stop costing a night) and **honest rate-limit copy** (window-aware; a 24h
+bucket no longer says "try again shortly"). Audit **603/603**. Three process
+findings worth more than the features: **a git push never updates the native
+app** (the owner had to ask why TestFlight looked unchanged — the binary
+carries a frozen `out/` from archive time, so say the web/native split out
+loud in every "pushed!" report); a **fifth and sixth broken signal** in the
+same class as the 07-26 four (the harness reported "the modal guard is
+broken" when a sheet was merely still animating in; and three separate
+API polls — `head_sha` with a short SHA, `betaGroups` returning 403,
+`externalBuildState` returning null — each made "I asked wrong"
+indistinguishable from "the answer is no"); and **the Gemini key's owning
+Google account is unrecorded and unrecoverable from the key** (fingerprint
+`AQ.Ab8RN…IshQ`; see `HANDOFF.md` § "Unknowns worth closing"). One thing is
+UNRESOLVED: the owner reports the tbd chip absent on device despite it being
+verified inside the uploaded `.xcarchive` — force-quit is the leading
+untested explanation, and the absence of any in-app version string is why
+neither side can settle it. Before that (07-26): modal tap-through bug class closed
 (`src/lib/modal-guard.ts`, all 26 `Drawer.Content` sites + 6 body-portaled
 overlays guarded, `scripts/audit-tests/55-modal-guard.test.ts` enforces it
 repo-wide going forward), the silent-scan-result push bug fixed (Live

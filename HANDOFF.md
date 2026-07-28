@@ -1,15 +1,31 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-26 (end of the build-6 session). Project: a social
+> Last updated 2026-07-28 (end of the build-7 session). Project: a social
 > movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
 > Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `d5d9372`. Current TestFlight build: 1.0 (6) — VALID,
-> `internalBuildState: IN_BETA_TESTING`, `externalBuildState:
-> BETA_APPROVED`, so the public link serves build 6.** Working tree clean
-> at handoff.
+> **Tip of `main`: `48b0a4a`. Current TestFlight build: 1.0 (7) — VALID,
+> beta review APPROVED, listed in BOTH the internal and friends groups, so
+> the public link serves build 7.** Working tree clean at handoff.
+>
+> **The public TestFlight link** (verified live 2026-07-28):
+> https://testflight.apple.com/join/CRPFhKen — enabled, capped **150**,
+> **0/150 testers enrolled**, serving build 7. Friends must install Apple's
+> TestFlight app first; say so in the message, it's the usual stumble.
+> iPhone-only.
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -7. **Build 1.0 (7) SHIPPED + BETA_APPROVED (2026-07-27).** Carries "time
+>    tbd" + the CalendarBridge `allDay` change. Full five-step pipeline run.
+>    Triggered by the owner asking "I don't see the changes on my TestFlight
+>    app" after a push — **a git push NEVER updates the native app**; the
+>    binary carries a frozen `out/` bundle from ARCHIVE time. Say the split
+>    out loud in every future "pushed!" report.
+> -6. **"time tbd" + a create budget sized to its actual risk (2026-07-27,
+>    `a3eede7`).** A "decide later" showtime chip, and `movieNightCreate`
+>    10/day → 6/min + 40/day with the check moved past the idempotency dedup.
+>    Both came out of one owner screenshot of a rate-limit refusal. See the
+>    section below and `MOVIE-NIGHT-PLAN.md` § v1.3.
 > -5. **TestFlight external distribution was BROKEN since 07-21 — found +
 >    fixed (2026-07-26).** Attaching a build to an external beta group does
 >    NOT distribute it; it also needs a `betaAppReviewSubmissions` POST.
@@ -114,13 +130,26 @@
 > 5. **Paid Apple Developer account ACTIVE (2026-07-10, team `GBR6GTFYCL`).**
 >    Everything in `DEFERRED-PAID-APPLE-ACCOUNT.md` is unlocked and shipped.
 >
-> **Immediate next:** (0) **device-test build 6** — the owner's internal
-> TestFlight already has it. Highest-value check: open the "cancel movie
-> night?" confirm and deliberately press around behind it; nothing should
-> move. Then run a fresh reel scan and confirm the lock-screen card DINGS
-> when the films are identified, not just when the video arrives.
-> (1) confirm build 6's external beta review clears (`externalBuildState`
-> → `BETA_APPROVED`) so the friends link stops serving build 1;
+> **Immediate next:** (0) **UNRESOLVED — the "decide later" chip was
+> reported missing on device.** The owner screenshotted the create sheet on
+> what they state is the latest build, with no tbd chip in the showtime row.
+> Everything verifiable from this side says build 7 has it: the string is in
+> the chunk `index.html` loads, INSIDE the `.xcarchive` that was uploaded; it
+> renders unconditionally (no flag, no gate); `sw.js` has no `fetch`/`caches`
+> handler so nothing can serve stale JS; `capacitor.config.ts` has no
+> `server.url` so the WebView loads the bundle, not a remote origin; and
+> there is exactly ONE showtime row in the codebase. Leading hypothesis,
+> untested: the binary updated while the app was running, so iOS kept
+> serving build 6's process image — **force-quit and relaunch**. If the chip
+> is still absent after a clean relaunch, the evidence genuinely contradicts
+> itself and this needs real digging, not another guess. **Root cause of the
+> ambiguity: there is no version string anywhere in the app** (`grep` for
+> one comes back empty), so neither side can answer "which build is this?"
+> — a small `1.0 (N)` line in Settings is queued for the next build and
+> would have closed both of the last two rounds in one glance.
+> (1) device-test the rest of build 7: plan a night, tap "decide later",
+> confirm nothing anywhere shows 8pm, and that adding it to the calendar
+> creates an ALL-DAY entry;
 > (2) **add `app.cinechrony.com`** in Vercel + DNS BEFORE the
 > link goes wide (entitlements + Firebase already wired — additive, breaks
 > nothing on existing phones), then Claude flips the three pinned URLs
@@ -135,14 +164,116 @@
 > quota headroom — point `interaction-harness.mjs` at the Firebase emulator
 > or give it a dedicated test account, separate from the ASC review demo
 > account, so it stops burning the demo account's real weekly scan + movie-
-> night quotas; (b) which of the 14 Rodeo punch-list items to actually
-> build (the feature-scale ones: the "you both want to watch it" overlap
-> push, reactions-as-decision-engine on shared-list films, screenshot
-> scanning, a guided first scan in onboarding).
+> night quotas (less urgent since the create cap went 10/day → 6/min +
+> 40/day, but the weekly SCAN quota is untouched); (b) which of the 14 Rodeo
+> punch-list items to actually build (the feature-scale ones: the "you both
+> want to watch it" overlap push, reactions-as-decision-engine on
+> shared-list films, screenshot scanning, a guided first scan in
+> onboarding); (c) **which Google account owns the Gemini API key** — see
+> "Unknowns" below; nobody wrote it down and it can't be recovered from the
+> key.
 
 ---
 
-## "time tbd" + honest rate-limit copy (2026-07-26, after build 6)
+## Unknowns worth closing (2026-07-28)
+
+**Which Google account owns the Gemini API key.** Asked and could not be
+answered. An API key carries no account identity and no endpoint maps one
+back to an owner (the `tunedModels` probe that sometimes leaks a project
+number returned a bare `UNIMPLEMENTED`). What IS known:
+
+- Firebase/GCP: the CLI on this Mac is logged in as **`rayidali3@gmail.com`**,
+  project **`studio-2541484065-75c27`** (the `studio-` prefix = created via
+  Firebase Studio).
+- The Gemini key is a SEPARATE credential in `.env.local` + Vercel. It is the
+  newer **`AQ.`** format (AI Studio, post-2025), not the old `AIza` format —
+  so it was minted relatively recently, not inherited from an older project.
+- Fingerprint for matching, safe to write down: **`AQ.Ab8RN…IshQ`**, 53 chars.
+- `PHASE-C-PLAN.md:247` only ever said "aistudio.google.com → Get API key".
+  The account was never recorded.
+
+To close it: open **aistudio.google.com/apikey** signed in as each candidate
+account and match that fingerprint (AI Studio masks keys the same way). Worth
+doing — it also identifies whose billing and quota the scanner actually runs
+on, which is the console `LAUNCH.md:731`'s open cost-alert item points at.
+
+Checked while in there, so it's not an open question: the key can serve every
+model the code wants — `gemini-3.5-flash` (the `DEFAULT_MODEL`),
+`gemini-flash-latest` / `flash-lite-latest` (fallback aliases),
+`gemini-pro-latest` (escalation tier), and legacy `gemini-2.5-flash`; 56
+models visible. `GEMINI_MODEL` is set in `.env.local` and overrides the
+default locally — **the Vercel value is still worth eyeballing**, since the
+2026-07-13 outage was exactly that env var pinning a retired model in prod
+while local was fine.
+
+**No in-app version string.** `grep` for one in `src` comes back empty, which
+is why "which build am I on?" cost two rounds this session. A `1.0 (N)` line
+at the bottom of Settings, read from the native bundle, is queued for the
+next build.
+
+---
+
+## Build 7 shipped, and the lesson that prompted it (2026-07-27)
+
+The owner pushed a session's work, then asked: **"I don't see the changes on
+my TestFlight app, what happened."**
+
+Nothing had gone wrong. A git push had been reported as though it shipped
+everything, when **a push never updates the native app**. The TestFlight
+binary carries a FROZEN `out/` bundle baked in at ARCHIVE time; a push moves
+only the Vercel/server half. That is the same fact as
+`project_native_frozen_snapshot`, but the failure here was in the REPORTING:
+the split was mentioned and then buried under a wall of green checkmarks,
+which reads as "it's done."
+
+**Standing rule:** whenever a change spans both halves, state the split
+unmissably — *"X is live on web now; Y needs build N"* — and offer to ship the
+build in the same breath. A summary that leaves it to be inferred will be
+read as complete.
+
+Build 1.0 (7) then went out through the full five-step pipeline, build id
+`eda19d3a-e5c9-471e-98cf-7aad9f43abe1`:
+
+```
+archive (CURRENT_PROJECT_VERSION=7) + upload   ← the number is passed on the
+  → poll processingState to VALID                 command line; the committed
+  → PATCH whatsNew                                pbxproj still says 1
+  → POST the betaGroups relationship
+  → POST betaAppReviewSubmissions
+  → betaReviewState APPROVED
+```
+
+Both groups list build 7. Gates before upload: audit 603/603, typecheck,
+`npm run build`, a FRESH `build:static` + `cap sync ios` (the step that
+actually determines what ships), harness 39/39, and both native calendar
+smokes.
+
+**New ASC API gotchas, same shape as the `head_sha` and `parse-err` traps —
+a wrong query is indistinguishable from a negative answer:**
+
+- `GET /v1/builds/{id}/betaGroups` returns **403 FORBIDDEN**. Verify
+  distribution from the GROUP side: `GET /v1/betaGroups/{id}/builds`.
+- `externalBuildState` / `internalBuildState` come back **`null`** from the
+  plain builds list unless explicitly requested. An approval poll built on
+  them printed `external=None` twenty-two times while the build was already
+  approved. The authoritative read is
+  `GET /v1/builds/{id}/betaAppReviewSubmission` → `betaReviewState`.
+- (From the same session, non-ASC:) the GitHub Actions API's `head_sha`
+  filter needs the **full 40-char SHA** and returns an empty list for a short
+  one. Use `git rev-parse HEAD`.
+
+**`-smokeCalendarAllDay` added** (`bd8b641`). The `allDay` flag only executes
+when a tbd night reaches the calendar; had it failed to cross the Capacitor
+bridge, a tbd night would have quietly written a timed 8pm block — the exact
+outcome the feature exists to prevent, and one compiling proves nothing
+about. Verified on the simulator before upload: All-day toggle green, time
+rows collapsed to date-only, title "movie night: smoke test (tbd)". Build 4's
+field crash is the standing reminder that a gate which compiles Swift without
+EXECUTING it is not a gate.
+
+---
+
+## "time tbd" + honest rate-limit copy (2026-07-26 → 27, `a3eede7`, build 7)
 
 Started from one owner screenshot: the create sheet with a red line reading
 *"You're doing that too fast. Please slow down and try again shortly."* Two
@@ -1478,6 +1609,29 @@ finalized custom domain) before native ships. Not blocking the redesign.
 ---
 
 ## Owner action items (in priority order)
+
+> **CURRENT LIST (2026-07-28) — everything below this box is a historical
+> record from the pre-TestFlight era and is almost entirely done. Read this
+> box, not that.**
+>
+> 1. **Force-quit and relaunch the app**, then confirm the "decide later"
+>    chip is in the showtime row (see "Immediate next" at the top — this is
+>    the one open contradiction).
+> 2. **Privacy nutrition labels** in ASC (~5 min, not API-settable; the exact
+>    answers are in `APP-STORE-SUBMISSION.md`). Blocks App Store submission.
+> 3. **EU trader status** in ASC → Business. Blocks EU submission.
+> 4. **`app.cinechrony.com`** in Vercel + DNS. Additive, breaks nothing on
+>    existing phones; do it before the TestFlight link goes wide. Claude then
+>    flips the three pinned URLs and ships the next build.
+> 5. **Confirm which Google account owns the Gemini key** (fingerprint
+>    `AQ.Ab8RN…IshQ` at aistudio.google.com/apikey) — see "Unknowns worth
+>    closing". Also eyeball `GEMINI_MODEL` in Vercel while you're there.
+> 6. **Firestore TTL policies** (`extraction_jobs` + `extraction_cache` on
+>    `expiresAt`) if not yet clicked.
+> 7. **Blaze** before any cohort past ~150 testers.
+>
+> Claude-side, waiting on 2 and 3: attach build 7 to the version record and
+> submit for App Store review, both via the ASC API.
 
 These are gated on the human, not the code. All documented in detail in
 **`PHASE-B-HANDOFF.md`**.

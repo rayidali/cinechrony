@@ -103,8 +103,9 @@ MOVIE-NIGHT-PLAN.md) — plus the modal-guard tap-through fix and the
 silent-scan-result push fix (see `CLAUDE.md`). `whatsNew` set, friends
 group attached. POSTed to `betaAppReviewSubmissions` (see the
 distribution-gap finding above) and **`BETA_APPROVED`**, so the friends
-group and the public link serve build 6. Now the newest VALID build — the
-candidate to attach to the App Store version record (item 4 below).
+group and the public link serve build 6. ~~Now the newest VALID build — the
+candidate to attach to the App Store version record.~~ **Superseded by build
+7 (2026-07-27).**
 
 ## Build 7 — SHIPPED as 1.0 (7), BETA_APPROVED 2026-07-27
 
@@ -153,10 +154,19 @@ approved yet" — the same ask-wrong-vs-answer-no trap as the `head_sha` and
    07-25 WITHOUT the domain flip, because the DNS never landed. The flip
    has slipped past builds 3, 4, 5 and 6 for the same reason. It rides
    whichever build is next once DNS is live; nothing else is waiting on it.
-4. **Claude — attach build 6 + submit** (both via API) once 1–3 land.
-   Build 6 supersedes build 2 as the attach candidate (see "Build 6"
-   above — newest VALID build). `releaseType` is AFTER_APPROVAL (goes live
-   on approval); flip to MANUAL if the owner wants to control launch day.
+4. **Claude — attach build 7 + submit** (both via API) once 1–3 land.
+   Build 7 is the newest VALID build (see "Build 7" above), superseding
+   build 6 and build 2 as the attach candidate. `releaseType` is
+   AFTER_APPROVAL (goes live on approval); flip to MANUAL if the owner wants
+   to control launch day.
 
 Blaze before any cohort past ~150 and the Firestore console TTL policies
 remain from the TestFlight tracker.
+
+**The public TestFlight link, verified live 2026-07-28:**
+https://testflight.apple.com/join/CRPFhKen — enabled, capped **150**,
+**0/150 testers enrolled**, serving **build 7**. Friends must install Apple's
+TestFlight app first (say it in the message; it's the usual stumble).
+iPhone-only. Note that approval does not INSTALL a build — the tester taps
+Update, and if the app was running when iOS swapped the binary, a force-quit
+is needed before the new code actually runs.
