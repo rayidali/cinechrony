@@ -4,6 +4,64 @@
 
 ## Current state (2026-07-26)
 
+- **BUILD 1.0 (8) SHIPPED + BETA_APPROVED (2026-07-30).** Build id
+  `e5485719-7bd3-46c3-8d1d-1723c3f208ed`; VALID ~3 min after upload, approved
+  immediately, both groups serve it, public link unchanged
+  (https://testflight.apple.com/join/CRPFhKen, cap 150). Carries the cold-start
+  listener fix + the in-app build string; the notification and scan-quota work
+  in the same stretch was SERVER-side and went live on push.
+  **(1) THE SCAN-RESULT NOTIFICATION, ROUND 2 — root cause finally named.**
+  The 07-26 fix (an `alert` on the Live Activity `end` event) was the wrong
+  carrier: **per Apple's ActivityKit push docs an alert on an `end` event shows
+  its title/body on APPLE WATCH ONLY — on iPhone it is invisible.** Alerts are
+  honored on `start` and `update`. APNs returns 200 either way, which is why
+  `trace=end:ok` read as success through two rounds. The owner supplied the
+  decisive observation: "getting the video" buzzes, the identically-styled
+  completion does nothing — same alert dictionary, different `event`. Terminal
+  transition is now TWO pushes: `sendLiveActivityFinalAlert` (an ALERTING
+  `update` carrying the finished state — the buzz) then a silent
+  `sendLiveActivityEnd` (closes the activity, sets dismissal-date), separated by
+  `LA_ALERT_SETTLE_MS = 700` because two pushes to one token have no ordering
+  guarantee and an `end` that overtook the alert would land on a closed
+  activity. The FCM push ALWAYS fires — it is the only surface leaving a
+  persistent Notification Center entry, and the only one that exists without
+  Live Activities — carrying a new `PushPayload.silent` when the card already
+  buzzed. Exactly one ding, always a durable record. **VERIFIED IN PROD:** job
+  `I07CFlEZFyAD2RzqnrXk` → `pushResult=sent_silent`, `lastPolledAt=-` (app
+  closed, the real path). Interim state worth knowing: for four days before
+  this, `pushResult=skipped_live_activity` meant NO push was sent at all.
+  **(2) "Action blocked" + a FALSE "no lists yet" (`listener-recovery.ts`).**
+  `useCollection`/`useDoc` built a `FirestorePermissionError` for EVERY error
+  code and toasted on the FIRST failure of a streak — so a 5G blip opening from
+  Instagram produced "try refreshing or signing in again", on a screen that
+  simultaneously claimed the account had no lists. Two symptoms, one mistake:
+  a never-loaded listener is indistinguishable from an empty collection unless
+  something tracks it. New `src/firebase/firestore/listener-recovery.ts` holds
+  the policy for both hooks: only a genuine `permission-denied` reaches the
+  toast, a **~10.5s silent grace window** (4 attempts) before the user is told
+  anything, and a `loadedRef` separating "never got an answer" from "loaded and
+  empty" so `isLoading` holds a skeleton instead of an empty state it can't
+  vouch for. The write path (`non-blocking-updates.tsx`) had been correct since
+  AUDIT 2.4; only the READ path was wrong. Suite 56 (11) asserts the policy.
+  **(3) Uncapped plan tier.** `PLAN_LIMITS.unlimited`, granted to `@rayidali3`
+  via the new tracked `scripts/set-plan.ts`. Enforcement is skipped, **metering
+  is not** — `scanUsage` still accrues, because it is the only per-account view
+  of real Apify+Gemini spend. Per-account on `users_private` (client-denied),
+  never by env; a near-miss string ("unlimitted") falls back to free, asserted.
+  `unlimited` is a separate boolean, not `Infinity` (which JSON-serializes to
+  `null`); /extract hides the counter rather than printing a huge number.
+  **(4) THE HARNESS HAD BEEN RED ON MAIN — and it was the tbd feature's fault.**
+  22/27 on an untouched checkout. Its pre-clean finds a leftover pinned night by
+  matching `am|pm` in the pin text, and a **"time tbd" night renders no time at
+  all**, so cleanup silently skipped it, every later run started dirty, and the
+  create flow diverged into a reschedule. Fixed (`\bpm\b|\bam\b|tbd`) and the
+  precondition now REPORTS itself — a cleanup that quietly gives up is worse
+  than none, since it claims success while leaving the mess. **40/40, exit 0.**
+  Seventh instance of the standing class. **(5) `<AppVersion>`** in the settings
+  footer ("cinechrony 1.0 (8)"), read from the native bundle via
+  `@capacitor/app` — NOT a baked-in constant, which would live in the frozen
+  `out/` and could disagree with the binary wrapping it. Closes the 07-28
+  unresolvable "is the fix on your phone?" question.
 - **BUILD 1.0 (7) SHIPPED + BETA_APPROVED (2026-07-27).** Carries "time tbd"
   and the CalendarBridge `allDay` change; `a3eede7` + `bd8b641` on `main`.
   Owner asked "why don't I see the changes on TestFlight" after the push —

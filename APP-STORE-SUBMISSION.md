@@ -131,6 +131,25 @@ is the authoritative record. Querying the wrong way looks exactly like "not
 approved yet" — the same ask-wrong-vs-answer-no trap as the `head_sha` and
 `parse-err` polls.
 
+## Build 8 — SHIPPED as 1.0 (8), BETA_APPROVED 2026-07-30
+
+Build id `e5485719-7bd3-46c3-8d1d-1723c3f208ed`. VALID ~3 minutes after upload,
+approved immediately, both groups list it. Carries the Firestore cold-start
+listener fix (no more "Action blocked" + false "no lists yet" on a weak
+connection) and `<AppVersion>` in the settings footer. The scan-notification fix
+and the uncapped plan tier from the same stretch were server-side and shipped on
+push. **Now the newest VALID build and the attach candidate for item 4 below,
+superseding build 7.**
+
+Archive recipe that worked (no ExportOptions.plist is tracked — recreate it):
+`method: app-store-connect · destination: upload · signingStyle: automatic ·
+teamID: GBR6GTFYCL · manageAppVersionAndBuildNumber: **false**` — that last one
+matters, since `true` lets Xcode renumber and the explicit
+`CURRENT_PROJECT_VERSION=8` on the archive command silently stops applying.
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` is still required.
+Verify the number actually baked in before uploading:
+`PlistBuddy -c "Print :CFBundleVersion" <archive>/Products/Applications/App.app/Info.plist`.
+
 ## Remaining before submission
 
 1. **Owner — privacy nutrition labels** (ASC → App → App Privacy; ~5 min,
@@ -154,9 +173,9 @@ approved yet" — the same ask-wrong-vs-answer-no trap as the `head_sha` and
    07-25 WITHOUT the domain flip, because the DNS never landed. The flip
    has slipped past builds 3, 4, 5 and 6 for the same reason. It rides
    whichever build is next once DNS is live; nothing else is waiting on it.
-4. **Claude — attach build 7 + submit** (both via API) once 1–3 land.
-   Build 7 is the newest VALID build (see "Build 7" above), superseding
-   build 6 and build 2 as the attach candidate. `releaseType` is
+4. **Claude — attach build 8 + submit** (both via API) once 1–3 land.
+   Build 8 is the newest VALID build (see "Build 8" above), superseding
+   builds 7, 6 and 2 as the attach candidate. `releaseType` is
    AFTER_APPROVAL (goes live on approval); flip to MANUAL if the owner wants
    to control launch day.
 
