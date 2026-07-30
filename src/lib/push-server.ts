@@ -34,6 +34,16 @@ export type PushPayload = {
   data?: Record<string, string>;
   /** Optional icon URL — used by the browser; ignored by iOS native. */
   icon?: string;
+  /**
+   * Deliver WITHOUT sound (the notification still banners and still persists in
+   * Notification Center — it just doesn't buzz). For the one case where another
+   * surface already alerted for this same event and a second ding would be a
+   * double-buzz: see the scan-completion path in `extraction-server.ts`, where a
+   * Live Activity's alerting terminal update is the buzz and this push is the
+   * durable receipt. Defaults to a normal, sounding notification — silence must
+   * always be opted into deliberately, never the fallback.
+   */
+  silent?: boolean;
 };
 
 export type PushSendResult = {
@@ -145,7 +155,10 @@ async function sendFcm(
       apns: {
         payload: {
           aps: {
-            sound: 'default',
+            // Omitting `sound` entirely (rather than sending '') is what iOS
+            // treats as "deliver silently but visibly" — the banner and the
+            // Notification Center entry are unaffected.
+            ...(payload.silent ? {} : { sound: 'default' }),
             badge: 1,
             'content-available': 1,
           },

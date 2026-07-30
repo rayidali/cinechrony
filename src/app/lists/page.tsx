@@ -397,11 +397,23 @@ export default function ListsPage() {
                     );
                   })}
                 </div>
-              ) : (
+              ) : lists ? (
                 <EmptyState
                   title="no lists yet"
                   body="your first watchlist is one tap away."
                   onCreate={() => setIsCreateOpen(true)}
+                />
+              ) : (
+                // `lists === null` means the listener has never returned a
+                // snapshot — NOT that the shelf is empty. Claiming "no lists yet"
+                // to someone who has lists is the worst possible lie this screen
+                // can tell (it reads as data loss), and it's what the owner saw
+                // on 2026-07-30 opening the app from Instagram on 5G. The
+                // listener is still retrying underneath; this is honest until it
+                // lands. See src/firebase/firestore/listener-recovery.ts.
+                <EmptyState
+                  title="couldn't load your lists"
+                  body="still trying. check your connection, or pull to refresh."
                 />
               )
             ) : (

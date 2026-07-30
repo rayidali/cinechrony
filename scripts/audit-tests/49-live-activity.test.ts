@@ -7,14 +7,17 @@
  *   - stage updates ride the update token, strictly monotonic
  *   - the late-arriving update token FLUSHES current state (incl. resolving
  *     an already-finished job's card — read-repair)
+ *   - the terminal transition is TWO pushes in a fixed order: an ALERTING
+ *     `update` carrying the finished state (the buzz), then a silent `end`
+ *     (closes the activity, sets the dismissal-date). An `alert` on an `end`
+ *     event is Apple-Watch-only, so an alerting end reaches nobody on iPhone —
+ *     that mistake shipped twice; see `ExtractionPushResult` for the postmortem
  *   - the terminal claim ends the card exactly once, and NEVER at the cost of
- *     the completion push: the card is ambient status, the push is the
- *     notification of record (see `ExtractionPushResult` for the field
- *     evidence that killed the opposite design)
- *   - no end push ever carries an `alert`, watched or not, early or late —
- *     an alerting terminal update leaves nothing in Notification Center
- *   - the one surviving suppression is a live surface polling at the moment
- *     the scan finishes, and the card still resolves in that case
+ *     the completion push: the push is the durable Notification Center record
+ *     (a Live Activity alert leaves none), delivered silently when the card
+ *     already buzzed so there is exactly one ding per scan
+ *   - the one surviving suppression is a live surface polling at the moment the
+ *     scan finishes: then the card resolves but NOTHING announces it
  * APNs is swapped for a recording transport — these assert the STATE
  * MACHINE, not Apple.
  */
@@ -37,6 +40,7 @@ import {
   __setLiveActivityTransportForTests,
   getLiveActivityStartToken,
   sendLiveActivityEnd,
+  sendLiveActivityFinalAlert,
 } from '@/lib/live-activity-server';
 import { Timestamp } from 'firebase-admin/firestore';
 
@@ -194,18 +198,37 @@ test('attach route: 401 unauthenticated, 403 for a non-owner', async () => {
 // `trace=end:ok`, owner perceived nothing) — it leaves no Notification Center
 // entry, so a pocketed phone loses the event. See `ExtractionPushResult`.
 
-test('sendLiveActivityEnd is always silent — an alerting terminal update is not a notification', async () => {
+test('sendLiveActivityEnd is always silent — an alert on an `end` event is Apple-Watch-only', async () => {
   await sendLiveActivityEnd(UPDATE_TOKEN, 'production', { stage: 4, label: '1 film found', detail: null, state: 'done' });
   const end = sent.at(-1)!;
   assert.equal(end.aps.event, 'end');
   assert.equal(end.aps.alert, undefined,
-    'the card is ambient status; the FCM/web push is the notification of record');
+    'an alerting end reads as working (APNs 200) and reaches nobody on iPhone');
   assert.ok(end.aps['dismissal-date'], 'the resolved card still lingers on the lock screen');
+});
+
+test('sendLiveActivityFinalAlert alerts on an `update` event — the one iOS actually presents', async () => {
+  await sendLiveActivityFinalAlert(
+    UPDATE_TOKEN, 'production',
+    { stage: 4, label: '4 films found', detail: 'Heat (1995) · imdb 8.3', state: 'done' },
+    { title: 'cinechrony', body: '4 films hiding in one reel.' },
+  );
+  const final = sent.at(-1)!;
+  // THE FIX for the two-round "the completion never buzzes" bug: same alert
+  // dictionary the working push-to-start uses, carried on `update`, NOT `end`.
+  assert.equal(final.aps.event, 'update', 'must be an update — alerts are ignored on end');
+  assert.deepEqual(final.aps.alert, {
+    title: 'cinechrony', body: '4 films hiding in one reel.', sound: 'default',
+  });
+  const cs = final.aps['content-state'] as { state: string; label: string };
+  assert.equal(cs.state, 'done', 'it carries the FINISHED state, not a working one');
+  assert.equal(cs.label, '4 films found');
+  assert.equal(final.aps['dismissal-date'], undefined, 'dismissal rides the end push');
 });
 
 // ── Terminal: the card resolves once, and it never replaces the ding ─────
 
-test('a confirmed activity resolves the card QUIETLY and never suppresses the completion push', async () => {
+test('a confirmed activity: alerting UPDATE then quiet end, and the push still goes (silently)', async () => {
   const startToken = await registerStartToken();
   const { jobId, ref } = await seedJob('la-terminal');
   await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
@@ -214,23 +237,36 @@ test('a confirmed activity resolves the card QUIETLY and never suppresses the co
   const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, {
     kind: 'films', films: [{ title: 'Party', year: '1984', imdbRating: '7.4' }],
   });
-  // THE REGRESSION GUARD for the 07-28 field bug: a healthy Live Activity used
-  // to return 'skipped_live_activity' here and send nothing at all.
-  assert.equal(result, 'sent', 'a resolved card must not cost the user their notification');
+  // THE REGRESSION GUARD for both rounds of the bug: this used to return
+  // 'skipped_live_activity' and send nothing (round 1), and before that the card
+  // resolved with no alert anyone could perceive (round 0). Now: the card buzzes,
+  // and the push is still delivered as the durable Notification Center record.
+  assert.equal(result, 'sent_silent', 'card owns the buzz, push owns the receipt');
 
+  // The buzz is an alerting UPDATE carrying the terminal state.
+  const finals = sent.filter((s) => s.aps.event === 'update' && s.aps.alert);
+  assert.equal(finals.length, 1, 'exactly one alerting update per scan');
+  const fcs = finals[0].aps['content-state'] as { label: string; detail: string; state: string };
+  assert.equal(fcs.state, 'done');
+  assert.equal(fcs.label, '1 film found');
+  assert.match(fcs.detail, /Party \(1984\) · imdb 7\.4/);
+  assert.match((finals[0].aps.alert as { body: string }).body, /Party/);
+
+  // …followed by a silent end that closes the activity.
   const ends = sent.filter((s) => s.aps.event === 'end');
   assert.equal(ends.length, 1);
-  const cs = ends[0].aps['content-state'] as { label: string; detail: string; state: string };
-  assert.equal(cs.state, 'done');
-  assert.equal(cs.label, '1 film found');
-  assert.match(cs.detail, /Party \(1984\) · imdb 7\.4/);
-  assert.equal(ends[0].aps.alert, undefined,
-    'the card morphs in place silently — exactly one ding per scan, and it is the push');
+  assert.equal((ends[0].aps['content-state'] as { state: string }).state, 'done');
+  assert.equal(ends[0].aps.alert, undefined, 'the end never alerts — it cannot');
+  assert.ok(
+    sent.findIndex((s) => s.aps.event === 'update' && s.aps.alert)
+      < sent.findIndex((s) => s.aps.event === 'end'),
+    'the alert must be sent BEFORE the end, or the activity is closed when it lands',
+  );
 
   const data = (await ref.get()).data();
   assert.ok(data?.pushSentAt, 'the one terminal-notify claim is taken');
   assert.ok(data?.liveActivity?.endedAt, 'the end claim is taken');
-  assert.equal(data?.pushResult, 'sent', 'the branch is stamped for observability');
+  assert.equal(data?.pushResult, 'sent_silent', 'the branch is stamped for observability');
 
   const again = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, {
     kind: 'films', films: [{ title: 'Party', year: '1984', imdbRating: '7.4' }],
@@ -239,7 +275,7 @@ test('a confirmed activity resolves the card QUIETLY and never suppresses the co
   assert.equal(sent.filter((s) => s.aps.event === 'end').length, 1, 're-entry can never end twice');
 });
 
-test('a live watcher: the card still resolves, and it resolves quietly', async () => {
+test('a live watcher: the card resolves but nothing buzzes', async () => {
   const startToken = await registerStartToken();
   const { jobId, ref } = await seedJob('la-watched');
   await emitScanActivity(adminDb(), ref, jobId, startToken, 1, 'getting the video');
@@ -249,13 +285,18 @@ test('a live watcher: the card still resolves, and it resolves quietly', async (
   const result = await sendExtractionCompletionPush(adminDb(), ref, jobId, me_.uid, { kind: 'zero' });
   // The ONLY surviving suppression: a live surface is rendering the reveal on
   // screen this second, so a ding would land on top of what it announces. The
-  // extension disarms this on dismiss (`detachExtraction`) precisely so that
-  // walking away cannot buy silence.
+  // extension disarms this on dismiss (`detachExtraction`), and the web /extract
+  // screen now does the same on unmount, precisely so walking away can't buy
+  // silence.
   assert.equal(result, 'skipped_watched');
   const ends = sent.filter((s) => s.aps.event === 'end');
   assert.equal(ends.length, 1,
     'the lock-screen card must resolve even while the drawer is open');
   assert.equal(ends[0].aps.alert, undefined, 'never an alerting end, watched or not');
+  assert.equal(
+    sent.filter((s) => s.aps.alert && s.aps.event === 'update').length, 0,
+    'and no alerting update either — resolving the card is not announcing it',
+  );
 });
 
 // ── Read-repair: the token arrives after the job already finished ────────

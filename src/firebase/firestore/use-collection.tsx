@@ -11,6 +11,14 @@ import {
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import {
+  describeListenerFailure,
+  isListenerStillSettling,
+  isPermissionDenial,
+  listenerRetryDelayMs,
+  nextListenerAttempt,
+  shouldReportListenerFailure,
+} from '@/firebase/firestore/listener-recovery';
 
 /** Utility type to add an 'id' field to a given type T. */
 export type WithId<T> = T & { id: string };
@@ -66,6 +74,10 @@ export function useCollection<T = any>(
   const [retryTick, setRetryTick] = useState(0);
   const attemptRef = useRef(0);
   const lastRefRef = useRef<unknown>(null);
+  /** Has this query EVER produced a snapshot? Distinguishes "loaded, and the
+   *  collection is genuinely empty" from "never got an answer" — the two states
+   *  a bare `data === null` conflates. */
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     if (!memoizedTargetRefOrQuery) {
@@ -74,12 +86,14 @@ export function useCollection<T = any>(
       setError(null);
       attemptRef.current = 0;
       lastRefRef.current = null;
+      loadedRef.current = false;
       return;
     }
 
     if (lastRefRef.current !== memoizedTargetRefOrQuery) {
       lastRefRef.current = memoizedTargetRefOrQuery;
       attemptRef.current = 0;
+      loadedRef.current = false; // a DIFFERENT query has loaded nothing yet
       setIsLoading(true); // fresh query → loading; retries keep stale data
     }
     setError(null);
@@ -99,6 +113,7 @@ export function useCollection<T = any>(
         setData(results);
         setError(null);
         setIsLoading(false);
+        loadedRef.current = true;
         attemptRef.current = 0; // recovered → reset backoff
       },
       (err: FirestoreError) => {
@@ -109,18 +124,25 @@ export function useCollection<T = any>(
             ? (memoizedTargetRefOrQuery as CollectionReference).path
             : (memoizedTargetRefOrQuery as unknown as InternalQuery)._query.path.canonicalString()
 
-        const contextualError = new FirestorePermissionError({
-          operation: 'list',
-          path,
-        })
+        const contextualError = describeListenerFailure(err, 'list', path);
+        setError(contextualError);
 
-        setError(contextualError)
-        setIsLoading(false)
-        // Keep last-known data (no blank flash); surface the error once per streak.
-        if (attemptRef.current === 0) errorEmitter.emit('permission-error', contextualError);
-        const n = (attemptRef.current = Math.min(attemptRef.current + 1, 6));
-        const backoff = Math.min(30000, 1500 * 2 ** (n - 1)); // 1.5s,3,6,12,24,30…
-        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, backoff);
+        const n = (attemptRef.current = nextListenerAttempt(attemptRef.current));
+        // A listener that has NEVER loaded is not "empty", it's "still trying" —
+        // hold `isLoading` so the screen shows its skeleton instead of an empty
+        // state it can't vouch for. See listener-recovery.ts.
+        setIsLoading(isListenerStillSettling(loadedRef.current, n));
+        // Keep last-known data (no blank flash) and stay quiet until the failure
+        // stops being plausibly transient. Only a real rules denial ever reaches
+        // the global toast; everything else is a console diagnostic.
+        if (shouldReportListenerFailure(n)) {
+          if (isPermissionDenial(contextualError)) {
+            errorEmitter.emit('permission-error', contextualError as FirestorePermissionError);
+          } else {
+            console.error('[useCollection] listener failing persistently:', contextualError);
+          }
+        }
+        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, listenerRetryDelayMs(n));
       }
     );
 

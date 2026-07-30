@@ -180,7 +180,7 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
  * full-state push repairs a missed one. Never throws.
  */
 async function apnsSend(
-  kind: 'start' | 'update' | 'end',
+  kind: 'start' | 'update' | 'end' | 'final',
   deviceToken: string,
   aps: Record<string, unknown>,
   envHint: LaEnv | null,
@@ -267,15 +267,51 @@ export function sendLiveActivityUpdate(
   }, envHint);
 }
 
+/**
+ * The TERMINAL ALERTING update — the push that actually buzzes when a scan
+ * resolves. Carries the finished content state AND an `alert`, so iOS lights the
+ * screen and presents the expanded Dynamic Island / a banner, exactly the way
+ * the push-to-start alert already does.
+ *
+ * It is an `update` event, NOT `end`, and that distinction is the entire bug
+ * history of this feature. Per Apple's ActivityKit push documentation, an
+ * `alert` on an **end** event has its title/body shown on **Apple Watch only** —
+ * on iPhone an alerting end is silent and invisible. That is why the 2026-07-26
+ * fix looked correct (well-formed payload, APNs 200, `trace=end:ok`) and
+ * notified nobody, and why the owner could see the start alert buzz while the
+ * identically-styled completion did nothing. Alerts work on `start` and
+ * `update`; they do not work on `end`.
+ *
+ * So the terminal transition is TWO pushes: this alerting update (the moment),
+ * then `sendLiveActivityEnd` (the bookkeeping — marks the activity ended and
+ * sets the dismissal-date so the card lingers). Retried like start/end: unlike a
+ * mid-scan stage update this is not disposable, because it is the notification.
+ */
+export function sendLiveActivityFinalAlert(
+  updateToken: string,
+  envHint: LaEnv | null,
+  contentState: LaContentState,
+  alert: { title: string; body: string },
+): Promise<LaSendResult> {
+  return apnsSend('final', updateToken, {
+    timestamp: nowSec(),
+    event: 'update',
+    'content-state': contentState,
+    'stale-date': nowSec() + 300,
+    alert: { title: alert.title, body: alert.body, sound: 'default' },
+  }, envHint);
+}
+
 /** Terminal update. The card stays on the lock screen (dismissal-date; iOS
  *  caps the linger at ~4h) so the result survives the moment of delivery.
  *
- *  Deliberately SILENT — no `alert` dictionary. An alerting terminal update was
- *  tried (2026-07-26 → 07-30) as the way to announce a finished scan and it does
- *  not work: it leaves nothing in Notification Center, so a pocketed phone loses
- *  the event outright. The card is ambient status; the FCM/web push is the
- *  notification of record. Full postmortem on `ExtractionPushResult` in
- *  extraction-server.ts. Do not re-add an alert here without reading it. */
+ *  Deliberately SILENT — no `alert` dictionary, because an alert on an `end`
+ *  event is shown on Apple Watch ONLY and does nothing on iPhone (Apple's
+ *  ActivityKit push docs). An alerting end was shipped 2026-07-26 and notified
+ *  nobody for exactly that reason. The buzz belongs on the preceding
+ *  `sendLiveActivityFinalAlert` (an `update` event); this call is the
+ *  bookkeeping half. Do not add an `alert` here — it will read as working
+ *  (APNs 200) and reach no one. */
 export function sendLiveActivityEnd(
   updateToken: string,
   envHint: LaEnv | null,

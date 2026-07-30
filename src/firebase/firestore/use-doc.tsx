@@ -10,6 +10,14 @@ import {
 } from 'firebase/firestore';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import {
+  describeListenerFailure,
+  isListenerStillSettling,
+  isPermissionDenial,
+  listenerRetryDelayMs,
+  nextListenerAttempt,
+  shouldReportListenerFailure,
+} from '@/firebase/firestore/listener-recovery';
 
 /** Utility type to add an 'id' field to a given type T. */
 type WithId<T> = T & { id: string };
@@ -54,6 +62,9 @@ export function useDoc<T = any>(
   const [retryTick, setRetryTick] = useState(0);
   const attemptRef = useRef(0);
   const lastRefRef = useRef<DocumentReference<DocumentData> | null>(null);
+  /** Has this ref EVER produced a snapshot? Distinguishes "read it, the doc does
+   *  not exist" from "never got an answer" — both of which are `data === null`. */
+  const loadedRef = useRef(false);
 
   useEffect(() => {
     if (!memoizedDocRef) {
@@ -62,12 +73,14 @@ export function useDoc<T = any>(
       setError(null);
       attemptRef.current = 0;
       lastRefRef.current = null;
+      loadedRef.current = false;
       return;
     }
 
     if (lastRefRef.current !== memoizedDocRef) {
       lastRefRef.current = memoizedDocRef;
       attemptRef.current = 0;
+      loadedRef.current = false; // a DIFFERENT doc has loaded nothing yet
       setIsLoading(true); // fresh target → show loading; retries keep stale data
     }
     setError(null);
@@ -86,22 +99,27 @@ export function useDoc<T = any>(
         }
         setError(null);
         setIsLoading(false);
+        loadedRef.current = true;
         attemptRef.current = 0; // recovered → reset backoff
       },
       (err: FirestoreError) => {
         if (cancelled) return;
-        const contextualError = new FirestorePermissionError({
-          operation: 'get',
-          path: memoizedDocRef.path,
-        });
+        const contextualError = describeListenerFailure(err, 'get', memoizedDocRef.path);
         setError(contextualError);
-        setIsLoading(false);
-        // Keep the last-known data (no blank flash). Surface the error only on the
-        // FIRST failure of a streak so retries don't spam the global toast.
-        if (attemptRef.current === 0) errorEmitter.emit('permission-error', contextualError);
-        const n = (attemptRef.current = Math.min(attemptRef.current + 1, 6));
-        const backoff = Math.min(30000, 1500 * 2 ** (n - 1)); // 1.5s,3,6,12,24,30…
-        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, backoff);
+
+        const n = (attemptRef.current = nextListenerAttempt(attemptRef.current));
+        // Never-loaded means "still trying", not "absent" — hold the skeleton.
+        setIsLoading(isListenerStillSettling(loadedRef.current, n));
+        // Keep the last-known data (no blank flash) and stay quiet while the
+        // failure is still plausibly transient. See listener-recovery.ts.
+        if (shouldReportListenerFailure(n)) {
+          if (isPermissionDenial(contextualError)) {
+            errorEmitter.emit('permission-error', contextualError as FirestorePermissionError);
+          } else {
+            console.error('[useDoc] listener failing persistently:', contextualError);
+          }
+        }
+        retryTimer = setTimeout(() => { if (!cancelled) setRetryTick((t) => t + 1); }, listenerRetryDelayMs(n));
       },
     );
 
