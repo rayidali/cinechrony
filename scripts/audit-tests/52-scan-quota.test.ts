@@ -24,7 +24,7 @@ import {
 import { callRoute } from './lib/route-call.ts';
 import { POST as createExtraction } from '@/app/api/v1/extractions/route';
 import {
-  createExtraction as createExtractionFn, canonicalizeUrl, currentWeekKey,
+  createExtraction as createExtractionFn, canonicalizeUrl, currentWeekKey, getScanQuota,
 } from '@/lib/extraction-server';
 import { QuotaExceededError } from '@/lib/api-handler';
 
@@ -144,6 +144,52 @@ test('a stale week key resets the counter instead of accumulating', async () => 
 
   const priv = await privDoc(me_.uid);
   assert.deepEqual(priv?.scanUsage, { week: currentWeekKey(), used: 1 }, 'the counter reset instead of adding onto the old week');
+});
+
+test('the unlimited plan scans past the free cap — but is still COUNTED', async () => {
+  await adminDb().doc(`users_private/${me_.uid}`).set({
+    plan: 'unlimited',
+    scanUsage: { week: currentWeekKey(), used: 500 },
+  });
+
+  const res = await createExtractionFn(me_.uid, distinctUrls(1, 'unlimited-plan')[0]);
+  assert.equal(res.status, 'processing', 'an uncapped account is never blocked');
+
+  const priv = await privDoc(me_.uid);
+  // Counting is the point: scanUsage is the only per-account view of real
+  // Apify + Gemini spend, and an untracked account is exactly the one that
+  // would quietly run up the bill.
+  assert.deepEqual(priv?.scanUsage, { week: currentWeekKey(), used: 501 },
+    'enforcement is skipped, metering is not');
+});
+
+test('getScanQuota flags an unlimited account instead of reporting a nonsense number', async () => {
+  await adminDb().doc(`users_private/${me_.uid}`).set({
+    plan: 'unlimited',
+    scanUsage: { week: currentWeekKey(), used: 12 },
+  });
+  const q = await getScanQuota(me_.uid);
+  assert.equal(q.unlimited, true, 'the client needs an explicit flag to hide the counter');
+  assert.equal(q.used, 12, 'usage is still reported honestly');
+  assert.ok(Number.isFinite(q.limit), 'the limit stays JSON-safe (Infinity serializes to null)');
+  assert.ok(Number.isFinite(q.remaining));
+
+  const free = await getScanQuota(other.uid);
+  assert.equal(free.unlimited, false, 'a normal account is not flagged');
+  assert.equal(free.limit, 7);
+});
+
+test('unlimited must be granted per account, never inferable from a plan typo', async () => {
+  // "unlimitted" / "Unlimited" / anything unknown falls back to free. A tier
+  // this powerful must never be reachable by a near-miss string.
+  for (const typo of ['unlimitted', 'Unlimited', 'UNLIMITED', 'unlimited ']) {
+    await adminDb().doc(`users_private/${me_.uid}`).set({
+      plan: typo, scanUsage: { week: currentWeekKey(), used: 7 },
+    });
+    const q = await getScanQuota(me_.uid);
+    assert.equal(q.unlimited, false, `"${typo}" must not uncap`);
+    assert.equal(q.limit, 7);
+  }
 });
 
 test('an unrecognized plan string still gets the free weekly limit', async () => {

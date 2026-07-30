@@ -41,7 +41,7 @@ const STAGE_LABEL: Record<string, string> = {
 };
 const POSTER_FALLBACK = 'https://picsum.photos/seed/cc-extract/300/450';
 
-type ScanQuota = { limit: number; used: number; remaining: number };
+type ScanQuota = { limit: number; used: number; remaining: number; unlimited?: boolean };
 
 /** MN01 scan→save→plan continuity — an `ExtractionFilm` already carries
  *  everything `MovieNightFilm` needs (title/year/poster/mediaType), so the
@@ -471,7 +471,9 @@ function InputState({
       >
         <Sparkles className="h-[18px] w-[18px]" /> scan for films
       </button>
-      {quota && (
+      {/* An uncapped account has no meaningful count to show — printing
+          "9007199254740984 left" would be worse than saying nothing. */}
+      {quota && !quota.unlimited && (
         <p className="mt-2.5 text-center font-mono text-xs text-muted-foreground">
           {quota.remaining} of {quota.limit} scans left this week
         </p>

@@ -88,10 +88,22 @@ const LA_ALERT_SETTLE_MS = 700;
 // ── Weekly scan quota (only a CLAIM costs money — cache hits + followers are
 // free, see the claim transaction in `createExtraction`) ─────────────────────
 
-/** Per-plan weekly scan budget. Only `free` exists today; an unrecognized or
- *  missing plan string falls back to it. */
-export const PLAN_LIMITS: Record<string, { scansPerWeek: number }> = {
+/** Per-plan weekly scan budget. An unrecognized or missing plan string falls
+ *  back to `free`. Set a user's plan with `npx tsx scripts/set-plan.ts`. */
+export const PLAN_LIMITS: Record<string, { scansPerWeek: number; unlimited?: boolean }> = {
   free: { scansPerWeek: 7 },
+  /**
+   * Staff / maintainer accounts. Uncapped because the people building the app
+   * have to run the hero loop dozens of times a day to test it, and hitting a
+   * product limit while debugging the product is pure friction.
+   *
+   * Scans are STILL COUNTED for an unlimited plan — only the enforcement is
+   * skipped. `scanUsage` is the one place the real Apify+Gemini spend per
+   * account is visible, and an untracked account is exactly the one that would
+   * quietly run up the bill. Granted per-account, never by env, so a config
+   * mistake can't uncap the whole userbase.
+   */
+  unlimited: { scansPerWeek: Number.MAX_SAFE_INTEGER, unlimited: true },
 };
 
 /** Free-tier weekly limit, env-overridable — read at CALL time (like the other
@@ -102,12 +114,18 @@ function freeWeeklyLimit(): number {
   return Number.isFinite(v) && v > 0 ? Math.floor(v) : PLAN_LIMITS.free.scansPerWeek;
 }
 
-/** Resolves the weekly scan limit for a plan string. Unknown/missing plans are
- *  the free tier (and so pick up the env override); a recognized paid plan
- *  (none yet) uses its own fixed `scansPerWeek`. */
-function weeklyLimitFor(plan: string | undefined): number {
-  const limits = (plan && PLAN_LIMITS[plan]) || PLAN_LIMITS.free;
-  return limits === PLAN_LIMITS.free ? freeWeeklyLimit() : limits.scansPerWeek;
+export type PlanQuota = { limit: number; unlimited: boolean };
+
+/** Resolves the weekly scan budget for a plan string. Unknown/missing plans are
+ *  the free tier (and so pick up the env override); a recognized plan uses its
+ *  own fixed `scansPerWeek`. `unlimited` is carried separately rather than
+ *  encoded as `Infinity` — that would serialize to `null` through the JSON
+ *  envelope and leave the client guessing. */
+function planQuotaFor(plan: string | undefined): PlanQuota {
+  const entry = (plan && PLAN_LIMITS[plan]) || PLAN_LIMITS.free;
+  if (entry.unlimited) return { limit: entry.scansPerWeek, unlimited: true };
+  const limit = entry === PLAN_LIMITS.free ? freeWeeklyLimit() : entry.scansPerWeek;
+  return { limit, unlimited: false };
 }
 
 /** The Monday of `now`'s UTC week, as `'YYYY-MM-DD'` — the quota bucket key.
@@ -365,11 +383,13 @@ export async function createExtraction(
     if (claimLive(fresh)) return 'follow'; // someone else is already on it
 
     const priv = privSnap.data() as UsersPrivateDoc | undefined;
-    const limit = weeklyLimitFor(priv?.plan ?? 'free');
+    const { limit, unlimited } = planQuotaFor(priv?.plan ?? 'free');
     const week = currentWeekKey();
     const usage = priv?.scanUsage;
     const effectiveUsed = usage?.week === week ? (usage.used ?? 0) : 0;
-    if (effectiveUsed >= limit) return 'quota';
+    // Unlimited plans skip ENFORCEMENT but still fall through to the counter
+    // write below — spend stays visible even when it isn't capped.
+    if (!unlimited && effectiveUsed >= limit) return 'quota';
 
     tx.set(cacheRef, { status: 'processing', startedAt: FieldValue.serverTimestamp(), canonicalUrl, provider, expiresAt: expireStamp() });
     tx.set(privRef, { scanUsage: { week, used: effectiveUsed + 1 } }, { merge: true });
@@ -413,15 +433,22 @@ export async function getScanQuota(uid: string): Promise<{
   remaining: number;
   week: string;
   resetsAt: string;
+  /** True when this account is never capped. The client hides the counter
+   *  rather than printing a meaningless "9007199254740984 left". */
+  unlimited: boolean;
 }> {
   const db = getDb();
   const snap = await db.collection('users_private').doc(uid).get();
   const priv = snap.data() as UsersPrivateDoc | undefined;
-  const limit = weeklyLimitFor(priv?.plan ?? 'free');
+  const { limit, unlimited } = planQuotaFor(priv?.plan ?? 'free');
   const week = currentWeekKey();
   const usage = priv?.scanUsage;
   const used = usage?.week === week ? Math.max(0, usage.used ?? 0) : 0;
-  return { limit, used, remaining: Math.max(0, limit - used), week, resetsAt: weekResetsAt() };
+  return {
+    limit, used, unlimited,
+    remaining: Math.max(0, limit - used),
+    week, resetsAt: weekResetsAt(),
+  };
 }
 
 /** Read a job. 404 if missing, 403 if it isn't the caller's.
