@@ -311,7 +311,13 @@ try {
     const hadPin = await hasText(/PINNED · MOVIE NIGHT/);
     if (!hadPin) break;
     await page.evaluate(() => {
-      const el = [...document.querySelectorAll('div,button')].find((n) => /going|no answers? yet|nobody/i.test(n.textContent || '') && /pm|am/i.test(n.textContent || '') && n.getBoundingClientRect().height > 40 && n.getBoundingClientRect().height < 160);
+      // The time fragment is `8:00 pm` for a normal night and `time tbd` for a
+      // "decide later" one (shipped 07-27). Matching only am/pm meant a leftover
+      // TBD night was never cleaned up, so every subsequent run started dirty and
+      // the create flow diverged into a reschedule — which is how this gate ended
+      // up failing 22/27 on an untouched checkout. A cleanup that silently skips
+      // is worse than no cleanup: it reports success while leaving the mess.
+      const el = [...document.querySelectorAll('div,button')].find((n) => /going|no answers? yet|nobody/i.test(n.textContent || '') && /\bpm\b|\bam\b|tbd/i.test(n.textContent || '') && n.getBoundingClientRect().height > 40 && n.getBoundingClientRect().height < 160);
       if (el) { const r = el.getBoundingClientRect(); window.__pt = { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }
     });
     const pt = await page.evaluate(() => window.__pt || null);
@@ -324,6 +330,15 @@ try {
     await sleep(3000);
     await page.evaluate(() => { window.__pt = null; });
   }
+
+  // The pre-clean above used to fail SILENTLY: if it couldn't identify or cancel
+  // a leftover pin it just broke out of the loop and let the run continue, and
+  // every downstream step then failed for a reason that had nothing to do with
+  // the app. Report the precondition explicitly, so "the list was dirty" can
+  // never again be read as "the create flow is broken".
+  const startsClean = !(await hasText(/PINNED · MOVIE NIGHT/));
+  step('pre-clean: list starts with no leftover night', startsClean,
+    startsClean ? '' : 'a previous run left a night that this run could not cancel — every step below is unreliable');
 
   // plan a night (film-first from the list header row)
   const planned = await clickText(/plan one|plan a movie night/);

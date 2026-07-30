@@ -37,6 +37,7 @@ import { haptic } from '@/lib/haptics';
 import { cn } from '@/lib/utils';
 import { BlockedUsersSection } from '@/components/blocked-users-section';
 import { PushNotificationToggle } from '@/components/push-notification-prompt';
+import { AppVersion } from '@/components/app-version';
 import type { LetterboxdMovie, NotificationPreferences } from '@/lib/types';
 import { DEFAULT_NOTIFICATION_PREFERENCES } from '@/lib/types';
 
@@ -456,6 +457,9 @@ export default function SettingsPage() {
             <span aria-hidden>·</span>
             <a href="mailto:support@cinechrony.com" className="underline">contact</a>
           </p>
+          {/* Which build is actually running — the answer to "do you have the
+              fix yet?". Native only; see components/app-version.tsx. */}
+          <AppVersion className="pt-1 font-mono text-[11px] text-muted-foreground" />
         </div>
       </div>
 
