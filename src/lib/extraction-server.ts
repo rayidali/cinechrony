@@ -248,11 +248,10 @@ type JobDoc = {
    *  so re-entry can never fire it twice. Absent for stub/no-key jobs. */
   pushSentAt?: FirebaseFirestore.Timestamp;
   /** Best-effort breadcrumb: which branch `sendExtractionCompletionPush` took
-   *  last time it ran (see `ExtractionPushResult`). Lets a late-arriving
-   *  Live Activity token (`attachExtractionLiveActivityToken`'s read-repair)
-   *  know whether the user was already notified — 'sent' means the FCM ding
-   *  already landed, so that path resolves the card quietly instead of
-   *  alerting a second time. */
+   *  last time it ran (see `ExtractionPushResult`). Purely observability now —
+   *  it is what proved the 07-26 "the Live Activity card IS the notification"
+   *  design wrong, by showing three scans that resolved their card and
+   *  deliberately sent no push. Nothing branches on it. */
   pushResult?: string;
   /** Best-effort, throttled stamp written by `getExtraction` on every
    *  successful OWNER read (~once per `POLL_STAMP_THROTTLE_MS`). Lets
@@ -634,7 +633,7 @@ export async function attachExtractionLiveActivityToken(
 
   type Flush =
     | { kind: 'none' }
-    | { kind: 'end'; env: LaEnv | null; state: LaContentState; alert: { title: string; body: string } | null }
+    | { kind: 'end'; env: LaEnv | null; state: LaContentState }
     | { kind: 'update'; env: LaEnv | null; state: LaContentState };
 
   const flush = await db.runTransaction<Flush>(async (tx) => {
@@ -651,15 +650,13 @@ export async function attachExtractionLiveActivityToken(
     if (terminal && !la.endedAt) {
       updates['liveActivity.endedAt'] = FieldValue.serverTimestamp();
       tx.update(ref, updates);
-      const outcome = outcomeFromJob(d);
       // Late handshake: the token missed the whole pipeline and only shows up
-      // after the job already finished. If `sendExtractionCompletionPush` ran
-      // in the meantime it already dinged via FCM ('sent') — resolve the card
-      // quietly. Otherwise (still 'skipped_watched', or the completion push
-      // hasn't landed in this exact instant) nobody has been told yet, so
-      // THIS is the user's one alert.
-      const alert = d.pushResult === 'sent' ? null : { title: 'cinechrony', body: pushBodyFor(outcome, jobId) };
-      return { kind: 'end', env, state: laEndStateFor(outcome), alert };
+      // after the job already finished, so resolve the card rather than leave
+      // it dangling "scanning" forever. Always QUIET — telling the user is the
+      // completion push's job now (see `ExtractionPushResult`), and this route
+      // is only ever called BY the app, i.e. with the app in the foreground
+      // where the reveal is already on screen.
+      return { kind: 'end', env, state: laEndStateFor(outcomeFromJob(d)) };
     }
     const ordinal = stageOrdinal(d.stage);
     if (!terminal && ordinal > (la.lastStageSent ?? 0)) {
@@ -672,7 +669,7 @@ export async function attachExtractionLiveActivityToken(
   });
 
   if (isLiveActivityConfigured()) {
-    if (flush.kind === 'end') await sendLiveActivityEnd(token, flush.env, flush.state, flush.alert ?? undefined);
+    if (flush.kind === 'end') await sendLiveActivityEnd(token, flush.env, flush.state);
     else if (flush.kind === 'update') await sendLiveActivityUpdate(token, flush.env, flush.state);
   }
   return { attached: true };
@@ -1006,9 +1003,6 @@ async function markCacheFailed(db: FirebaseFirestore.Firestore, job: JobDoc): Pr
  *   - 'skipped_watched'      — claimed (blocks any later re-entry), but no
  *                              send: the owner is actively polling a live
  *                              surface.
- *   - 'skipped_live_activity'— a confirmed Live Activity resolved instead —
- *                              its alerting end push (see `sendLiveActivityEnd`)
- *                              IS the notification, so the FCM ding is skipped.
  *   - 'skipped_duplicate'    — `pushSentAt` was already set, so nothing was
  *                              (re-)claimed; also the defensive fallback if
  *                              the claim transaction itself errors.
@@ -1077,7 +1071,33 @@ function pushBodyFor(outcome: ExtractionPushOutcome, seed: string): string {
   ]);
 }
 
-export type ExtractionPushResult = 'sent' | 'skipped_watched' | 'skipped_duplicate' | 'skipped_live_activity';
+/**
+ * WHY THERE IS NO 'skipped_live_activity' (reverted 2026-07-30).
+ *
+ * From 07-26 to 07-30 a resolved Live Activity SUPPRESSED this push, on the
+ * theory that an ActivityKit "alerting terminal update" (an `alert` dictionary
+ * on the `end` event, Apple's order-delivered pattern) IS the notification.
+ * Three scans in the field say it is not: jobs `YEfrnkVT…`/`B0vmRaf…` both
+ * recorded `trace=end:ok` + `pushResult=skipped_live_activity` — APNs accepted
+ * the alerting end, no FCM ding was sent, and the owner perceived nothing and
+ * reported the completion notification still missing.
+ *
+ * Two things were wrong with the theory. An alerting Live Activity update is
+ * TRANSIENT — it emphasises the card and plays a sound, but leaves no entry in
+ * Notification Center, so a phone in a pocket loses the event permanently;
+ * "notification" to a user means the thing still sitting in the list. And it
+ * only fires at all when the update-token handshake completed, which is the
+ * least reliable link in the chain (job `El9OBOY6…`, same week:
+ * `lastStageSent=1`, `trace=end:no_update_token` — the token arrived three
+ * minutes late, after the pipeline had already finished).
+ *
+ * So the Live Activity card is now ambient status ONLY: it morphs in place,
+ * quietly, and never suppresses this push. The FCM/web push is the single
+ * notification of record for a finished scan — persistent, tappable, deep-linked,
+ * and the only surface that exists for anyone without Live Activities at all.
+ * `sendLiveActivityEnd` therefore takes no `alert`.
+ */
+export type ExtractionPushResult = 'sent' | 'skipped_watched' | 'skipped_duplicate';
 
 export async function sendExtractionCompletionPush(
   db: FirebaseFirestore.Firestore,
@@ -1133,18 +1153,12 @@ export async function sendExtractionCompletionPush(
   if (claim === 'duplicate') return finish('skipped_duplicate'); // already sent — re-entry, never fire twice
 
   // Resolve the lock-screen card regardless of watched state — a card left
-  // saying "scanning" forever would be a lie. The end push carries the SAME
-  // alert (Apple's ActivityKit "alerting terminal update") as the FCM ding
-  // would have, so a confirmed card IS the notification: banner + sound +
-  // the result, right there on the lock screen — no second ping stacked on top.
-  let cardResolved = false;
+  // saying "scanning" forever would be a lie. QUIETLY: the card is an ambient
+  // status display, never the notification of record. It does not suppress the
+  // push below. See `ExtractionPushResult` for why.
   if (laToken && isLiveActivityConfigured()) {
     try {
-      const endResult = await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome), {
-        title: 'cinechrony',
-        body: pushBodyFor(outcome, jobId),
-      });
-      cardResolved = endResult.ok;
+      const endResult = await sendLiveActivityEnd(laToken, laEnv, laEndStateFor(outcome));
       laTrace(ref, endResult.ok ? 'end:ok' : `end:fail:${endResult.reason ?? 'send'}`);
     } catch (err) {
       console.warn('[extraction] live-activity end failed for', jobId, err);
@@ -1155,8 +1169,7 @@ export async function sendExtractionCompletionPush(
     laTrace(ref, 'end:no_update_token');
   }
 
-  if (claim === 'watched') return finish('skipped_watched'); // live surface is polling — the FCM ding would be noise (the card, if any, already alerted above)
-  if (cardResolved) return finish('skipped_live_activity'); // the card carries the result
+  if (claim === 'watched') return finish('skipped_watched'); // a live surface is rendering the reveal right now — a ding on top would be noise
 
   try {
     await sendPushToUser(uid, {

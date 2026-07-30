@@ -89,6 +89,10 @@ export default function ExtractClient() {
   } | null>(null);
   const [quota, setQuota] = useState<ScanQuota | null>(null);
   const pollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The job this screen is actively polling, if any. Held so leaving the
+   *  screen mid-scan can DISARM the server's live-watcher suppression (see the
+   *  unmount effect below) — the native share drawer already does this. */
+  const pollingJobRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isUserLoading && !user) router.push('/login');
@@ -159,17 +163,21 @@ export default function ExtractClient() {
   const poll = useCallback((jobId: string) => {
     const startedAt = Date.now();
     let attempt = 0;
+    pollingJobRef.current = jobId;
     const tick = async () => {
       attempt += 1;
       try {
         const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${jobId}`);
         setStage(j.stage);
-        if (j.status === 'done') return finalize(j);
-        if (j.status === 'failed') return setPhase('failed');
+        if (j.status === 'done') { pollingJobRef.current = null; return finalize(j); }
+        if (j.status === 'failed') { pollingJobRef.current = null; return setPhase('failed'); }
       } catch {
         /* transient network, keep polling */
       }
-      if (Date.now() - startedAt > 3 * 60 * 1000) return setPhase('failed'); // hard cap ~3 min
+      if (Date.now() - startedAt > 3 * 60 * 1000) { // hard cap ~3 min
+        pollingJobRef.current = null;
+        return setPhase('failed');
+      }
       // Backoff cuts Firestore read cost at scale (fast at first, then ease off).
       const delay = attempt < 6 ? 1500 : attempt < 14 ? 2500 : 4000;
       pollRef.current = setTimeout(tick, delay);
@@ -258,7 +266,20 @@ export default function ExtractClient() {
     else if (jobId) resume(jobId);
   }, [search, user, isUserLoading, start, resume]);
 
-  useEffect(() => () => { if (pollRef.current) clearTimeout(pollRef.current); }, []);
+  // Leaving mid-scan: stop polling AND tell the server we stopped watching.
+  // Our own polls stamp `lastPolledAt`, which suppresses the completion push
+  // for ~20s as "they're looking at it right now" — without this, closing the
+  // tab seconds before the pipeline lands buys silence from the one
+  // notification that matters. The native share drawer has always detached
+  // here (`ShareFlowModel`); the web screen never did.
+  useEffect(() => () => {
+    if (pollRef.current) clearTimeout(pollRef.current);
+    const jobId = pollingJobRef.current;
+    if (jobId) {
+      pollingJobRef.current = null;
+      apiCall('POST', `/api/v1/extractions/${jobId}/detach`).catch(() => {});
+    }
+  }, []);
 
   const films = job?.films || [];
   const toSave = films.filter((f) => !removed.has(f.tmdbId));
