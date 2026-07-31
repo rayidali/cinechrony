@@ -4,6 +4,45 @@
 
 ## Current state (2026-07-26)
 
+- **HARNESS FIXED — 41/41, DETERMINISTIC (2026-07-31, `30fa201`).** It had been
+  red on main and the root cause was in the GATE, not the app. `hasText` tested
+  `document.body.innerText` **raw**, and the morning-after sheet's heading wraps
+  on a phone viewport, so innerText held `did movie night\nhappen?` and
+  `/did movie night happen/i` never matched. The sheet was visible in every
+  screenshot while the check called it absent — and its `z-90` scrim was
+  correctly swallowing every tap on the list tile underneath, which then read as
+  "the tile doesn't work". **Four rounds went into timing theories (poll windows,
+  scroll position, counting `/movie-nights/upcoming` responses) for a
+  string-matching bug.** What broke it was making the gate print EVIDENCE rather
+  than a conclusion: `elementFromPoint` at the target centre returned
+  `div.fixed.inset-0.z-[90]`, naming the occluder outright, and the failure
+  screenshot showed the sheet. Both are permanent diagnostics now, alongside a
+  per-click URL trace. Fixes: whitespace normalisation in `hasText` +
+  `findClickPoints` (closes the whole class); `settleMorningAfter` waits on the
+  provider's boot check and reports `none|cleared|stuck|timeout` distinctly;
+  `clickTextUntil` scrolls to top before sweeping (it used to leave the page
+  scrolled, so a second call could never see a target near the top) and takes a
+  `beforeEach` hook for late-mounting overlays; `mkdirSync('/tmp/harness')`
+  because `snap()` swallows errors and was printing a screenshot path it had
+  never written. Three consecutive runs 41/41 exit 0 with the sheet appearing
+  and being cleared each time — idempotent across back-to-back runs for the
+  first time.
+- **BUILD 1.0 (9) SHIPPED + BETA_APPROVED (2026-07-31).** Build id
+  `9d5a8906-8e90-44ea-9931-d86d6cff1b0b`. **Exists for one reason: builds 1-8
+  shipped with error reporting INERT.** `instrumentation-client.ts` is entirely
+  DSN-gated, the DSN lived only in Vercel, and the native bundle is built
+  locally from `.env.local` — which never had it. So `Sentry.init` never ran on
+  device and every `captureException` was a no-op, including the owner's
+  "Action blocked" toast. Verified by grepping the archive for the DSN pattern
+  before upload. Also this session: **Sentry + PostHog read access wired**
+  (`SENTRY_AUTH_TOKEN`/`SENTRY_ORG=cinechrony`/`SENTRY_PROJECT=capacitor`,
+  `POSTHOG_PERSONAL_API_KEY`/`POSTHOG_PROJECT_ID=498018` in `.env.local`, never
+  in Vercel — the app only needs the write-side keys). PostHog 14d shows
+  `extraction_succeeded` 7, `movie_night_created` 13, and **6 `$rageclick`**
+  worth investigating. **ARCHIVE GOTCHA:** ExportOptions must set
+  `manageAppVersionAndBuildNumber: false`, or Xcode renumbers and the explicit
+  `CURRENT_PROJECT_VERSION=N` silently stops applying — verify with
+  `PlistBuddy -c "Print :CFBundleVersion"` on the archive before uploading.
 - **BUILD 1.0 (8) SHIPPED + BETA_APPROVED (2026-07-30).** Build id
   `e5485719-7bd3-46c3-8d1d-1723c3f208ed`; VALID ~3 min after upload, approved
   immediately, both groups serve it, public link unchanged
