@@ -53,6 +53,11 @@ src/lib/
 │                              # phone, not just the inbox); post_comment rides
 │                              # the replies pref; every firePush carries a
 │                              # data.url deep link
+├── listener-recovery.ts      # (in src/firebase/firestore/) the shared failure
+│                              # policy for useCollection/useDoc — see
+│                              # src/firebase/CLAUDE.md. Only a real
+│                              # permission-denied toasts; ~10.5s silent grace
+│                              # first; "never loaded" != "loaded and empty".
 ├── push-server.ts            # ★ Unified FCM + web-push fan-out (Phase B.3).
 │                              # sendPushToUser defaults data.url →
 │                              # /notifications — BOTH tap routers (native-push
@@ -606,4 +611,28 @@ cache hits and followers are free) is metered, 7/week free tier (`PLAN_LIMITS`,
 same claim transaction on client-inaccessible `users_private/{uid}.scanUsage`
 (a rejected claim never writes the cache, so it can't poison the urlHash for
 another user). `QuotaExceededError` (429 `QUOTA_EXCEEDED`, `api-handler.ts`);
-`getScanQuota` backs `GET /api/v1/me/scan-quota`. Tests: `52-scan-quota` (7).
+`getScanQuota` backs `GET /api/v1/me/scan-quota`. Tests: `52-scan-quota` (10).
+
+**Uncapped tier (2026-07-31):** `PLAN_LIMITS.unlimited` for maintainer accounts
+— people building the app have to run the hero loop dozens of times a day.
+Enforcement is skipped; **metering is not** (`scanUsage` keeps accruing, because
+it is the only per-account view of real Apify+Gemini spend, and an uncapped
+*untracked* account is the one that quietly runs up a bill). Granted per account
+on `users_private/{uid}.plan` — which `firestore.rules` denies to all clients, so
+nobody can grant themselves a tier — via the tracked **`scripts/set-plan.ts`**
+(`npx tsx scripts/set-plan.ts <username> unlimited`; no arg = report only).
+NEVER via env: a config slip must not uncap the whole userbase. `unlimited` rides
+the quota payload as a separate boolean rather than `Infinity` as the limit
+(`Infinity` JSON-serializes to `null` and leaves the client guessing); `/extract`
+hides the counter entirely rather than printing a huge number. A near-miss plan
+string (`unlimitted`, `Unlimited`) falls back to free, and suite 52 asserts it.
+
+**The scan-completion notification (2026-07-30) — see `extraction-server.ts`'s
+`ExtractionPushResult` for the full postmortem.** Terminal transition is TWO
+pushes: `sendLiveActivityFinalAlert` (an ALERTING `update` carrying the finished
+state — the buzz) then a silent `sendLiveActivityEnd`, `LA_ALERT_SETTLE_MS = 700`
+apart. An `alert` on an ActivityKit **`end`** event is Apple-Watch-only and
+invisible on iPhone, while APNs returns 200 either way — which is why the 07-26
+version looked correct and notified nobody for four days. The FCM/web push always
+fires as the durable Notification Center record, carrying the new
+`PushPayload.silent` when the card already buzzed. Exactly one ding per scan.

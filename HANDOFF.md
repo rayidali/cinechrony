@@ -1,20 +1,51 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-28 (end of the build-7 session). Project: a social
+> Last updated 2026-07-31 (end of the observability session). Project: a social
 > movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
 > Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `48b0a4a`. Current TestFlight build: 1.0 (7) — VALID,
+> **Tip of `main`: `010d42b`. Current TestFlight build: 1.0 (9) — VALID,
 > beta review APPROVED, listed in BOTH the internal and friends groups, so
-> the public link serves build 7.** Working tree clean at handoff.
+> the public link serves build 9.** Working tree clean at handoff.
 >
-> **The public TestFlight link** (verified live 2026-07-28):
+> **The public TestFlight link** (verified live 2026-07-31):
 > https://testflight.apple.com/join/CRPFhKen — enabled, capped **150**,
-> **0/150 testers enrolled**, serving build 7. Friends must install Apple's
+> **0/150 testers enrolled**, serving build 9. Friends must install Apple's
 > TestFlight app first; say so in the message, it's the usual stumble.
-> iPhone-only.
+> iPhone-only. A TestFlight build is not installed by its approval — the tester
+> taps Update, and if the app was RUNNING when iOS swapped the binary the live
+> process keeps serving the old image until a force-quit. Settings now prints
+> `cinechrony 1.0 (N)` at the bottom, so "which build are you on?" is finally
+> answerable without guessing.
+>
+> **Observability is LIVE as of build 9 — and was inert before it.** See entry
+> -8. Read credentials for both services now live in `.env.local`
+> (`SENTRY_AUTH_TOKEN` + `SENTRY_ORG=cinechrony` + `SENTRY_PROJECT=capacitor`;
+> `POSTHOG_PERSONAL_API_KEY` + `POSTHOG_PROJECT_ID=498018`). They are READ
+> credentials and must never go into Vercel — the app only needs the write-side
+> DSN/ingest key, which it already has.
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -9. **Interaction harness FIXED — 41/41, deterministic (2026-07-31,
+>    `30fa201`).** It had been red on main and the fault was in the GATE. See
+>    "The harness was asking the question wrong" below. The transferable lesson:
+>    when a UI check disagrees with a screenshot, suspect the MATCHER before the
+>    timing, and make the gate print evidence (`elementFromPoint`, a screenshot)
+>    rather than a conclusion.
+> -8. **Build 1.0 (9) + observability that actually reports (2026-07-31,
+>    `7279fe1`…`010d42b`).** Builds 1-8 shipped with Sentry INERT — the DSN
+>    lived only in Vercel and the native bundle is built locally from
+>    `.env.local`, which never had it, so `Sentry.init` never ran on device and
+>    every `captureException` was a no-op. Build 9 exists solely to turn the
+>    lights on. Sentry + PostHog read access wired the same session. See
+>    "Observability was off" below.
+> -7.5. **The scan-completion notification, round 2 — root cause named
+>    (2026-07-30, `d1f170a`).** An `alert` on an ActivityKit **`end`** event is
+>    Apple-Watch-only; iPhone shows nothing, and APNs returns 200 either way. The
+>    07-26 "fix" therefore notified nobody for four days. Now an alerting
+>    `update` carries the buzz and a silent `end` closes the card. Same commit
+>    stopped `useCollection`/`useDoc` reporting every network blip as a
+>    permission error. See "Two rounds to name one notification bug" below.
 > -7. **Build 1.0 (7) SHIPPED + BETA_APPROVED (2026-07-27).** Carries "time
 >    tbd" + the CalendarBridge `allDay` change. Full five-step pipeline run.
 >    Triggered by the owner asking "I don't see the changes on my TestFlight
@@ -130,26 +161,18 @@
 > 5. **Paid Apple Developer account ACTIVE (2026-07-10, team `GBR6GTFYCL`).**
 >    Everything in `DEFERRED-PAID-APPLE-ACCOUNT.md` is unlocked and shipped.
 >
-> **Immediate next:** (0) **UNRESOLVED — the "decide later" chip was
-> reported missing on device.** The owner screenshotted the create sheet on
-> what they state is the latest build, with no tbd chip in the showtime row.
-> Everything verifiable from this side says build 7 has it: the string is in
-> the chunk `index.html` loads, INSIDE the `.xcarchive` that was uploaded; it
-> renders unconditionally (no flag, no gate); `sw.js` has no `fetch`/`caches`
-> handler so nothing can serve stale JS; `capacitor.config.ts` has no
-> `server.url` so the WebView loads the bundle, not a remote origin; and
-> there is exactly ONE showtime row in the codebase. Leading hypothesis,
-> untested: the binary updated while the app was running, so iOS kept
-> serving build 6's process image — **force-quit and relaunch**. If the chip
-> is still absent after a clean relaunch, the evidence genuinely contradicts
-> itself and this needs real digging, not another guess. **Root cause of the
-> ambiguity: there is no version string anywhere in the app** (`grep` for
-> one comes back empty), so neither side can answer "which build is this?"
-> — a small `1.0 (N)` line in Settings is queued for the next build and
-> would have closed both of the last two rounds in one glance.
-> (1) device-test the rest of build 7: plan a night, tap "decide later",
-> confirm nothing anywhere shows 8pm, and that adding it to the calendar
-> creates an ALL-DAY entry;
+> **Immediate next:** (0) ~~UNRESOLVED — the "decide later" chip reported
+> missing on device.~~ **CLOSED by tooling, not by an answer.** The chip was
+> verifiably inside the uploaded `.xcarchive` and neither side could settle
+> it, because nothing in the app said which build was running. `<AppVersion>`
+> now prints `cinechrony 1.0 (N)` at the bottom of Settings (build 8+), read
+> from the native bundle via `@capacitor/app` — deliberately NOT a baked-in
+> constant, which would live in the frozen `out/` and could disagree with the
+> binary wrapping it. That question is now answerable in one glance, which is
+> what it needed rather than another hypothesis.
+> (1) device-test build 9: confirm Settings reads `1.0 (9)`, then plan a
+> night, tap "decide later", confirm nothing anywhere shows 8pm, and that
+> adding it to the calendar creates an ALL-DAY entry;
 > (2) **add `app.cinechrony.com`** in Vercel + DNS BEFORE the
 > link goes wide (entitlements + Firebase already wired — additive, breaks
 > nothing on existing phones), then Claude flips the three pinned URLs
@@ -172,6 +195,198 @@
 > onboarding); (c) **which Google account owns the Gemini API key** — see
 > "Unknowns" below; nobody wrote it down and it can't be recovered from the
 > key.
+
+---
+
+## The harness was asking the question wrong (2026-07-31, `30fa201`)
+
+`scripts/interaction-harness.mjs` had been failing **22/27 on an untouched
+checkout** — the pre-build gate, red on `main`. Two separate causes, and both
+were in the gate.
+
+**Cause 1 (found 07-30): a cleanup that silently skipped.** The pre-clean
+identifies a leftover pinned night by matching `am|pm` in the pin text. A **"time
+tbd" night renders no time at all** (shipped 07-27), so the cleanup found
+nothing, broke out of its loop, and let the run continue against a dirty list —
+the create flow then diverged into a reschedule and produced a wall of failures
+unrelated to the app. Fixed to match `tbd`, and the precondition now reports
+itself as its own step. Note the shape: **a feature silently invalidated a gate
+nobody thought to update**, the same integration-seam failure as build 3's
+unwired CalendarBridge.
+
+**Cause 2 (found 07-31): `innerText` carries real line breaks.** `hasText`
+tested `document.body.innerText` **raw**. The morning-after sheet's heading wraps
+on a phone viewport:
+
+```
+did movie night
+happen?
+```
+
+so `innerText` held `did movie night\nhappen?` and `/did movie night happen/i`
+never matched. The sheet was on screen in every screenshot while the check
+reported it absent — and once up, its `z-90` scrim **correctly** swallowed every
+tap on the list tile underneath, which then read as "the tile doesn't work".
+
+**Four rounds went into timing theories** — poll windows, scroll position,
+counting `/movie-nights/upcoming` responses — for what was a string-matching bug.
+What broke the deadlock was making the gate print EVIDENCE instead of a
+conclusion: `document.elementFromPoint()` at the tile centre returned
+`div.fixed.inset-0.z-[90]`, naming the occluder outright, and a failure
+screenshot showed the sheet plainly. **Reach for those two first when a click
+"does nothing"** — "the element isn't there", "something covers it", and "it's
+there but the tap lands elsewhere" are three different bugs with one symptom.
+
+What the file now does:
+- `hasText` **and** `findClickPoints` normalise whitespace before matching. Every
+  multi-word matcher was exposed to this, so it is fixed centrally.
+- `settleMorningAfter(baseline)` waits for the provider's boot check
+  (`movie-night-provider.tsx` fetches `/movie-nights/upcoming` once per uid, then
+  decides whether to mount the sheet) and dismisses it, reporting
+  `none | cleared | stuck | timeout` as **distinct** outcomes. Counting the first
+  `/upcoming` response was wrong: several components fetch it, and the provider's
+  own call waits on Firebase auth restoring from IndexedDB.
+- `clickTextUntil(re, predicate)` clicks candidates until the OUTCOME is true
+  rather than trusting the first match (`/movie night/` matches both the list
+  tile and any night card), scrolls to top before sweeping (it previously left
+  the page scrolled, so a second call could never see a target near the top), and
+  takes a `beforeEach` hook to re-clear late-mounting overlays.
+- Failure dumps URL, matching elements with geometry, body text, the hit-test
+  result, a per-click URL trace, and a screenshot.
+- `mkdirSync('/tmp/harness')` — `snap()` swallows its own errors, so the
+  diagnostics had been printing a screenshot path that was never written. **A
+  gate lying about its own evidence** is the one thing this file must not do.
+
+**Verified: three consecutive runs, 41/41, exit 0**, with the morning-after sheet
+appearing and being cleared in each — idempotent across back-to-back runs for the
+first time. Two earlier bugs in that list (unreset scroll, response counting)
+were mine, introduced while chasing this.
+
+---
+
+## Observability was off (2026-07-31, build 9)
+
+**Builds 1 through 8 shipped with error reporting completely inert.**
+
+`instrumentation-client.ts` is entirely DSN-gated: with
+`NEXT_PUBLIC_SENTRY_DSN` unset, `Sentry.init` never runs and every
+`captureException` is a silent no-op. The DSN lived **only in Vercel**. The
+native bundle is built locally by `npm run build:static`, which reads
+`.env.local` — and `.env.local` never had it. So the web deploy reported errors
+and the app reported nothing, for eight builds.
+
+That is why the owner's "Action blocked" toast never appeared in Sentry: the
+handler does call `Sentry.captureException`, and it went nowhere.
+
+Verified rather than assumed, both directions:
+```
+grep -rlE '@o[0-9]+\.ingest' ios/App/App/public/_next/static/chunks   # before: no match
+grep -rhoE 'phc_[A-Za-z0-9]{10}'  ios/App/App/public/_next/static/chunks   # PostHog WAS inlined
+```
+Same mechanism, one configured and one not — which is what made it obvious the
+DSN was simply missing rather than the SDK being broken.
+
+Fix: `NEXT_PUBLIC_SENTRY_DSN` added to `.env.local` (pulled from the Sentry API,
+not retyped), then `build:static` + `cap sync ios`, then the DSN pattern
+confirmed **inside the `.xcarchive`** before uploading. Build 9 exists for this
+one reason and changes no application code.
+
+**Read access, wired the same session.** In `.env.local`, never in Vercel:
+
+| var | value | notes |
+|---|---|---|
+| `SENTRY_AUTH_TOKEN` | `sntryu_…` (71 ch) | user auth token; an internal-integration token works identically. The **client secret is NOT it** — that is only for the OAuth flow |
+| `SENTRY_ORG` | `cinechrony` | |
+| `SENTRY_PROJECT` | `capacitor` | not `javascript-nextjs`; discovered via the API |
+| `POSTHOG_PERSONAL_API_KEY` | `phx_…` (52 ch) | distinct from `NEXT_PUBLIC_POSTHOG_KEY`, which is **write-only ingest** and cannot query |
+| `POSTHOG_PROJECT_ID` | `498018` | |
+
+Gotchas worth keeping: Sentry's `statsPeriod` on the issues endpoint accepts only
+`''`, `24h`, `14d` (a `90d` request 400s). python.org Python fails TLS to
+sentry.io with `CERTIFICATE_VERIFY_FAILED` — it doesn't use the system trust
+store, so use `curl`. PostHog HogQL queries go to
+`https://us.posthog.com/api/projects/<id>/query/`.
+
+**First real read (14 days).** Sentry: 2 issues, both noise — an Outlook
+SafeLink scanner false positive and Sentry's own seeded onboarding sample. That
+looked like good news until the paragraph above explained it. PostHog:
+
+```
+1211 $autocapture · 549 $pageview · 64 app_opened · 35 $set
+  13 movie_night_created · 13 $web_vitals · 11 $identify
+   7 extraction_succeeded · 6 $rageclick · 3 $pageleave
+   3 extraction_saved · 2 movie_added · 1 movie_night_completed
+```
+**6 `$rageclick`** is the line worth pulling on — repeated frustrated tapping,
+against an app that has had two separate tap-swallowing bug classes this month.
+
+---
+
+## Two rounds to name one notification bug (2026-07-30, `d1f170a`)
+
+The owner: "I'm still only getting the notification at the beginning, not once
+the content has been identified." This had already been "fixed" once, on 07-26.
+
+**Round 1 (07-26) was the wrong carrier.** It put an `alert` on the Live
+Activity `end` event and let a resolved card SUPPRESS the FCM ding. Prod said
+otherwise: jobs `YEfrnkVT…` and `B0vmRaf…` both recorded `trace=end:ok` +
+`pushResult=skipped_live_activity` — APNs accepted the payload, **no push was
+sent at all**, and the owner perceived nothing. For four days the completion
+notification was strictly worse than before the fix.
+
+**Round 2 named the mechanism, and the owner's observation was the diagnosis:**
+"getting the video" buzzes prominently, the identically-styled completion does
+nothing. Same alert dictionary, same push type, **different `event`**. Per
+Apple's ActivityKit push documentation, an `alert` on an **`end`** event shows
+its title/body on **Apple Watch only** — on iPhone it is invisible. Alerts are
+honored on `start` and `update`. **APNs returns 200 for all three**, which is why
+every server-side signal said "fixed".
+
+The design now, in `extraction-server.ts` + `live-activity-server.ts`:
+1. `sendLiveActivityFinalAlert` — an **alerting `update`** carrying the finished
+   content-state. This is the buzz, and it is the same mechanism as the
+   push-to-start alert that demonstrably works.
+2. `sendLiveActivityEnd` — silent, closes the activity, sets `dismissal-date` so
+   the resolved card lingers on the lock screen.
+3. Separated by `LA_ALERT_SETTLE_MS = 700`: two pushes to one token have no
+   ordering guarantee, and an `end` that overtook the alert would land on a
+   closed activity and swallow it.
+4. The FCM/web push **always** fires — it is the only surface that leaves a
+   persistent, tappable Notification Center entry (a Live Activity alert leaves
+   none, so a pocketed phone loses the event outright) and the only surface that
+   exists without Live Activities at all. New `PushPayload.silent` omits
+   `aps.sound` when the card already buzzed. **Exactly one ding, always a durable
+   record.** Announcing respects the watched suppression; resolving the card does
+   not.
+
+`ExtractionPushResult` gained `sent_silent` and lost `skipped_live_activity`; the
+full postmortem lives on that type so it cannot be re-litigated from memory.
+**Verified in prod:** job `I07CFlEZFyAD2RzqnrXk` → `pushResult=sent_silent`,
+`lastPolledAt=-` (app closed — the real-world path), and the owner confirmed the
+buzz.
+
+**Same commit: "Action blocked" on a cold start, beside a false "no lists yet".**
+`useCollection`/`useDoc` built a `FirestorePermissionError` for **any** error code
+and emitted the global toast on the **first** failure of a streak. Opening the app
+from Instagram on 5G produced *"That didn't go through. If it keeps happening,
+try refreshing or signing in again"* for a one-second blip — on a screen that
+simultaneously claimed the account had no lists, because a never-loaded listener
+is indistinguishable from an empty collection unless something tracks it. The
+WRITE path (`non-blocking-updates.tsx`) had been correct since AUDIT 2.4; only
+the READ path was wrong. New `src/firebase/firestore/listener-recovery.ts` holds
+the policy for both hooks: only a genuine `permission-denied` reaches the toast,
+a **~10.5s silent grace window** (4 attempts) before the user is told anything,
+and a `loadedRef` separating "never got an answer" from "loaded, and empty" so
+`isLoading` holds a skeleton instead of an empty state it cannot vouch for. Suite
+56 asserts the policy as pure functions.
+
+**Also this stretch: an uncapped plan tier** (`94fb77e`). `PLAN_LIMITS.unlimited`,
+granted to `@rayidali3` via the new tracked `scripts/set-plan.ts`. Enforcement is
+skipped, **metering is not** — `scanUsage` still accrues, because it is the only
+per-account view of real Apify+Gemini spend, and an uncapped *untracked* account
+is exactly the one that would quietly run up a bill. Per-account on
+`users_private` (client-denied by rules), never by env; a near-miss string
+("unlimitted", "Unlimited") falls back to free, asserted in suite 52.
 
 ---
 
@@ -1610,19 +1825,20 @@ finalized custom domain) before native ships. Not blocking the redesign.
 
 ## Owner action items (in priority order)
 
-> **CURRENT LIST (2026-07-28) — everything below this box is a historical
+> **CURRENT LIST (2026-07-31) — everything below this box is a historical
 > record from the pre-TestFlight era and is almost entirely done. Read this
 > box, not that.**
 >
-> 1. **Force-quit and relaunch the app**, then confirm the "decide later"
->    chip is in the showtime row (see "Immediate next" at the top — this is
->    the one open contradiction).
-> 2. **Privacy nutrition labels** in ASC (~5 min, not API-settable; the exact
+> 1. **Privacy nutrition labels** in ASC (~5 min, not API-settable; the exact
 >    answers are in `APP-STORE-SUBMISSION.md`). Blocks App Store submission.
-> 3. **EU trader status** in ASC → Business. Blocks EU submission.
+> 2. **EU trader status** in ASC → Business. Blocks EU submission.
+> 3. **Share the TestFlight link.** It is live, approved, serving build 9, and
+>    **0/150 enrolled**. Every bug fixed this month came from one person's
+>    phone; ten friends for a weekend would surface more than another week of
+>    auditing, and build 9 is the first build whose crashes actually reach us.
 > 4. **`app.cinechrony.com`** in Vercel + DNS. Additive, breaks nothing on
->    existing phones; do it before the TestFlight link goes wide. Claude then
->    flips the three pinned URLs and ships the next build.
+>    existing phones; do it before the link goes wide. Claude then flips the
+>    three pinned URLs and ships the next build.
 > 5. **Confirm which Google account owns the Gemini key** (fingerprint
 >    `AQ.Ab8RN…IshQ` at aistudio.google.com/apikey) — see "Unknowns worth
 >    closing". Also eyeball `GEMINI_MODEL` in Vercel while you're there.
@@ -1630,8 +1846,14 @@ finalized custom domain) before native ships. Not blocking the redesign.
 >    `expiresAt`) if not yet clicked.
 > 7. **Blaze** before any cohort past ~150 testers.
 >
-> Claude-side, waiting on 2 and 3: attach build 7 to the version record and
+> Claude-side, waiting on 1 and 2: attach build 9 to the version record and
 > submit for App Store review, both via the ASC API.
+>
+> Claude-side, unblocked and worth doing next: **investigate the 6
+> `$rageclick` events in PostHog** (repeated frustrated tapping, in an app
+> that has had two tap-swallowing bug classes this month), and now that Sentry
+> reports from devices, **check it after the first testers land** rather than
+> waiting to be told something broke.
 
 These are gated on the human, not the code. All documented in detail in
 **`PHASE-B-HANDOFF.md`**.

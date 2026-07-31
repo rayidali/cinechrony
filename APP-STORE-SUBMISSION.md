@@ -150,6 +150,32 @@ matters, since `true` lets Xcode renumber and the explicit
 Verify the number actually baked in before uploading:
 `PlistBuddy -c "Print :CFBundleVersion" <archive>/Products/Applications/App.app/Info.plist`.
 
+## Build 9 — SHIPPED as 1.0 (9), BETA_APPROVED 2026-07-31
+
+Build id `9d5a8906-8e90-44ea-9931-d86d6cff1b0b`. VALID ~4 minutes after upload,
+approved immediately, both groups list it. **Now the newest VALID build and the
+attach candidate for item 4 below, superseding build 8.**
+
+It changes **no application code** — `git diff` against build 8 over `src/` is
+empty. It exists to turn crash reporting on: builds 1-8 shipped with
+`Sentry.init` never running on device, because the DSN lived only in Vercel and
+the native bundle is built locally from `.env.local`, which didn't have it. Every
+`captureException` was a silent no-op for eight builds. Verified the DSN pattern
+is inside the `.xcarchive` before uploading.
+
+**Pipeline notes that cost time and are worth reusing:**
+- ExportOptions.plist is NOT tracked (gitignored). Recreate with `method:
+  app-store-connect · destination: upload · signingStyle: automatic · teamID:
+  GBR6GTFYCL` and **`manageAppVersionAndBuildNumber: false`** — with `true`,
+  Xcode renumbers and the explicit `CURRENT_PROJECT_VERSION=N` on the archive
+  command silently stops applying.
+- Always verify before uploading:
+  `/usr/libexec/PlistBuddy -c "Print :CFBundleVersion" <archive>/Products/Applications/App.app/Info.plist`
+- `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer` remains required.
+- Never pipe `xcodebuild` through `tail` — it eats `BUILD FAILED` and exits 0.
+- Poll processing with a loop that distinguishes **ABSENT (still ingesting)**
+  from a state string from a parse error. A build takes ~3-5 min to even appear.
+
 ## Remaining before submission
 
 1. **Owner — privacy nutrition labels** (ASC → App → App Privacy; ~5 min,
@@ -173,9 +199,9 @@ Verify the number actually baked in before uploading:
    07-25 WITHOUT the domain flip, because the DNS never landed. The flip
    has slipped past builds 3, 4, 5 and 6 for the same reason. It rides
    whichever build is next once DNS is live; nothing else is waiting on it.
-4. **Claude — attach build 8 + submit** (both via API) once 1–3 land.
-   Build 8 is the newest VALID build (see "Build 8" above), superseding
-   builds 7, 6 and 2 as the attach candidate. `releaseType` is
+4. **Claude — attach build 9 + submit** (both via API) once 1–3 land.
+   Build 9 is the newest VALID build (see "Build 9" above), superseding
+   builds 8, 7, 6 and 2 as the attach candidate. `releaseType` is
    AFTER_APPROVAL (goes live on approval); flip to MANUAL if the owner wants
    to control launch day.
 
@@ -184,7 +210,7 @@ remain from the TestFlight tracker.
 
 **The public TestFlight link, verified live 2026-07-28:**
 https://testflight.apple.com/join/CRPFhKen — enabled, capped **150**,
-**0/150 testers enrolled**, serving **build 7**. Friends must install Apple's
+**0/150 testers enrolled**, serving **build 9**. Friends must install Apple's
 TestFlight app first (say it in the message; it's the usual stumble).
 iPhone-only. Note that approval does not INSTALL a build — the tester taps
 Update, and if the app was running when iOS swapped the binary, a force-quit

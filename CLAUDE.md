@@ -1544,7 +1544,38 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-28 — **build 1.0 (7) shipped + BETA_APPROVED**
+*Last updated: 2026-07-31 — **build 1.0 (9) shipped + BETA_APPROVED**
+(`010d42b` on `main`; tip of the arc `d1f170a` → `94fb77e` → `f870a3c` →
+`30fa201`). The headline is not a feature: **builds 1-8 shipped with error
+reporting INERT** (`instrumentation-client.ts` is DSN-gated, the DSN lived only
+in Vercel, and the native bundle is built locally from `.env.local`, which never
+had it), so `Sentry.init` never ran on device and every `captureException` was a
+no-op — including the owner's "Action blocked" toast. Build 9 exists purely to
+turn that on, and Sentry + PostHog READ access is now wired in `.env.local`
+(never Vercel: the app only needs the write-side DSN/ingest key). Before it,
+`d1f170a` finally named the scan-notification bug that had been "fixed" once
+already: **an `alert` on an ActivityKit `end` event is Apple-Watch-only and
+invisible on iPhone, while APNs returns 200 either way** — so the 07-26 fix
+notified nobody for four days while every signal read `trace=end:ok`. The buzz
+now rides an alerting `update` followed by a silent `end`, and the FCM push
+always fires as the durable Notification Center record (`PushPayload.silent`
+when the card already buzzed). Same commit stopped `useCollection`/`useDoc`
+calling every network blip a permission error, which had been putting a red
+"try signing in again" banner on screen next to a false "no lists yet". Plus an
+uncapped `PLAN_LIMITS.unlimited` tier (enforcement skipped, **metering kept**)
+and `<AppVersion>` in Settings, which closes the unanswerable "is the fix on
+your phone?" question for good. And the pre-build harness, red on `main` for two
+days, is **41/41 and deterministic** — the fault was in the GATE both times: a
+cleanup that silently skipped a "time tbd" night, then `hasText` matching raw
+`innerText` so a wrapped heading ("did movie night / happen?") never matched
+while its `z-90` scrim ate every tap underneath. Four rounds went into timing
+theories for a string-matching bug; what broke it was making the gate print
+`elementFromPoint` and a screenshot instead of a conclusion. Audit **616/616**.
+The running theme of this whole stretch, now seven instances deep: **a transport
+ack is not delivery, and a check that says "absent" may only mean "I looked for
+it wrong."*
+
+*Previously: 2026-07-28 — **build 1.0 (7) shipped + BETA_APPROVED**
 (`a3eede7` + `bd8b641` + `48b0a4a` on `main`), carrying Movie Night **"time
 tbd"** (a "decide later" showtime chip; `scheduledFor` stays real, anchored to
 8pm local, and the anchor is NEVER rendered — heroes print `tbd`, push reads

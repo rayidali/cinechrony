@@ -1059,3 +1059,34 @@ security/integrity item + progress log) · `LAUNCH.md` (the full phase plan,
 C–E specs) · `PHASE-C-PLAN.md` (the decided Phase C tracker) ·
 `PHASE-B-HANDOFF.md` (owner's manual-setup checklist) ·
 `HANDOFF.md` (session snapshot).*
+
+---
+
+## 2026-07-30 → 31 — notifications, observability, and two gates that lied
+
+Builds **1.0 (8)** and **1.0 (9)**, both BETA_APPROVED. Almost none of this was
+feature work; nearly all of it was making the project's own signals honest.
+
+- **The scan-completion notification, round 2** (`d1f170a`). An `alert` on an
+  ActivityKit `end` event is **Apple-Watch-only** and invisible on iPhone, while
+  APNs returns 200 either way — so the 07-26 fix notified nobody for four days
+  while `trace=end:ok` said otherwise. The buzz now rides an alerting `update`
+  followed by a silent `end`; the FCM push always fires as the durable
+  Notification Center record, silent when the card already buzzed. Verified in
+  prod (`pushResult=sent_silent`) and confirmed by the owner.
+- **Firestore read hooks stopped crying wolf** (same commit). Every error code
+  had been reported as a permission problem on the first failure, so a 5G blip
+  produced "try refreshing or signing in again" beside a false "no lists yet".
+  New `listener-recovery.ts`: real denials only, ~10.5s silent grace, and
+  "never loaded" is no longer conflated with "loaded, and empty".
+- **Uncapped maintainer plan** (`94fb77e`) — enforcement skipped, metering kept.
+- **Observability was off** (build 9). Sentry had never initialized in ANY
+  native build; the DSN lived only in Vercel. Read access for Sentry + PostHog
+  wired the same session.
+- **The pre-build harness, red on main, fixed twice** (`f870a3c`, `30fa201`).
+  A cleanup that silently skipped "time tbd" nights, then `hasText` matching raw
+  `innerText` so a wrapped heading never matched. **41/41, deterministic.**
+- **`<AppVersion>`** in Settings — "which build am I on?" is answerable now.
+
+Running theme, seven instances deep: a transport ack is not delivery, and a
+check that reports "absent" may only mean "I looked for it wrong."

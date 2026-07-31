@@ -11,8 +11,47 @@ Vercel and the full chain is prod-proven: card starts in ~½s, stages tick,
 `liveActivity.trace=end:ok`, FCM ding suppressed; the late-token
 attach-flush self-heal also observed working.
 
-⚠ **CORRECTION (2026-07-26, `d5d9372`, live on web).** "FCM ding
-suppressed" above was correct but incomplete, and it produced a real bug:
+⚠⚠ **SECOND CORRECTION (2026-07-30/31, `d1f170a`) — READ THIS BEFORE THE ONE
+BELOW, WHICH IT SUPERSEDES.** The 07-26 fix picked the wrong carrier and
+notified nobody for four days.
+
+**An `alert` on an ActivityKit `event: "end"` push shows its title/body on
+APPLE WATCH ONLY. On iPhone it presents nothing.** Alerts are honored on
+`start` and `update`. **APNs returns 200 for all three**, so an alerting end is
+indistinguishable from a working notification in every server-side signal we
+had — `trace=end:ok` on every job, and silence on the device.
+
+Prod evidence: jobs `YEfrnkVT…` and `B0vmRaf…` both recorded `trace=end:ok` +
+`pushResult=skipped_live_activity` — payload accepted, **no push sent at all**,
+user perceived nothing. The decisive observation came from the owner, not the
+logs: the push-to-START alert ("getting the video") buzzes prominently while the
+identically-styled completion does nothing. Same dictionary, same push type,
+different `event`.
+
+**The terminal transition is now TWO pushes:**
+1. `sendLiveActivityFinalAlert(token, env, state, alert)` — an ALERTING
+   **`update`** carrying the finished content-state. This is the buzz.
+2. `sendLiveActivityEnd(token, env, state)` — **silent, no alert param at all**.
+   Closes the activity, sets `dismissal-date` so the card lingers.
+3. Separated by `LA_ALERT_SETTLE_MS = 700`. Two pushes to one token have no
+   ordering guarantee, and an `end` that overtook the alert would land on a
+   closed activity and swallow it.
+
+**And the card no longer suppresses the push.** A Live Activity alert is
+TRANSIENT — it leaves no Notification Center entry, so a pocketed phone loses the
+event permanently; "notification" to a user means the thing still sitting in the
+list. The FCM/web push always fires as the durable record, carrying
+`PushPayload.silent` when the card already buzzed. Exactly one ding, always a
+receipt. `ExtractionPushResult` gained `sent_silent`, lost
+`skipped_live_activity`, and carries the full postmortem in its doc comment.
+
+The 07-26 lesson below — *a suppression rule is only safe if something else is
+guaranteed to fire* — was right. It was applied to a "something else" that could
+not fire.
+
+⚠ **CORRECTION (2026-07-26, `d5d9372`, live on web) — SUPERSEDED, see above.**
+"FCM ding suppressed" above was correct but incomplete, and it produced a real
+bug:
 `sendLiveActivityEnd` carried NO `alert`, so when a card resolved, the FCM
 ding was suppressed AND the terminal update was silent. Net effect for the
 user: the START push ("getting the video") dinged, and the RESULT ("N films

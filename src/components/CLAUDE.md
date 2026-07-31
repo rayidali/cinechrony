@@ -71,8 +71,32 @@ src/components/
 │   ├── theme-toggle.tsx        # Dark/light mode
 │   └── theme-provider.tsx      # next-themes wrapper
 │
+├── Diagnostics
+│   └── app-version.tsx     # <AppVersion/> — "cinechrony 1.0 (9)" in the
+│                           #   settings footer. NATIVE ONLY (renders nothing on
+│                           #   web, where the browser always has the newest
+│                           #   deploy). Reads the real bundle via
+│                           #   @capacitor/app `App.getInfo()`, deliberately NOT
+│                           #   a baked-in constant — a constant lives in the
+│                           #   frozen out/ snapshot and could disagree with the
+│                           #   binary wrapping it, which is the exact confusion
+│                           #   it exists to prevent. Added 2026-07-30 after a
+│                           #   feature verifiably inside the uploaded
+│                           #   .xcarchive was reported absent on device and
+│                           #   neither side could settle it: a TestFlight
+│                           #   tester updates whenever they feel like it, and
+│                           #   if the app was RUNNING when iOS swapped the
+│                           #   binary the live process serves the OLD image
+│                           #   until a force-quit.
+│
 └── Error Handling
-    └── FirebaseErrorListener.tsx  # Global error toasts
+    └── FirebaseErrorListener.tsx  # Global error toasts. Fires ONLY for a real
+                                   #   permission-denied that has persisted past
+                                   #   the listener grace window — see
+                                   #   src/firebase/CLAUDE.md. Its scary
+                                   #   "Action blocked … try signing in again"
+                                   #   copy used to fire on any first Firestore
+                                   #   error, including a 1s network blip.
 ```
 
 ---

@@ -135,11 +135,48 @@ until a full app quit/relaunch. Now, on error each hook:
 - **re-subscribes with capped exponential backoff** (1.5s→30s) so a refreshed
   token recovers within seconds — no restart,
 - resets the backoff on the next good snapshot,
-- emits the global `permission-error` only **once per failure streak** (no toast
-  spam), and distinguishes a real ref/query change (shows loading) from a retry
+- and distinguishes a real ref/query change (shows loading) from a retry
   (keeps stale data). No tight re-subscribe loop — retries are delayed + guarded.
 
 If you write a new real-time read, just use these hooks — the resilience is free.
+
+### The failure POLICY lives in one place (2026-07-31)
+
+`src/firebase/firestore/listener-recovery.ts` holds the rules both hooks obey,
+so they cannot drift — they already had, from the write path, which is how the
+bug below survived.
+
+**What was wrong.** Both hooks built a `FirestorePermissionError` for **any**
+error code and emitted the global `permission-error` on the **FIRST** failure of
+a streak. So a one-second network blip put a red *"Action blocked / That didn't
+go through. If it keeps happening, try refreshing or signing in again"* toast on
+screen. The owner hit it opening the app from Instagram over 5G — on a screen
+that simultaneously rendered **"no lists yet"** while the account held lists,
+because a never-loaded listener is indistinguishable from an empty collection
+unless something tracks the difference. Two symptoms, one mistake: reporting
+"not ready yet" as "you are broken". `non-blocking-updates.tsx` (the WRITE path)
+had reported only genuine `permission-denied` since AUDIT 2.4; only the READ
+path was wrong.
+
+**The policy now:**
+
+| export | rule |
+|---|---|
+| `describeListenerFailure` | only `permission-denied` becomes a `FirestorePermissionError`; every other code becomes an honest `Error` naming its real Firestore code, for console + Sentry |
+| `LISTENER_REPORT_AFTER_ATTEMPTS = 4` | ~10.5s of silent retrying (1.5 + 3 + 6) before the user is told anything. Applies to `permission-denied` too — on a cold start that is usually just "the credential hasn't landed yet" |
+| `shouldReportListenerFailure` | true on exactly ONE attempt per streak, so a long outage toasts once |
+| `isListenerStillSettling` | keeps `isLoading` true while a listener has NEVER loaded and is still in grace, so screens show a skeleton instead of an empty state they can't vouch for |
+| `listenerRetryDelayMs` / `nextListenerAttempt` | the capped backoff, shared |
+
+Both hooks also track a `loadedRef` — **"never got an answer" is not "loaded,
+and empty"**, and a bare `data === null` conflates them. Consumers should render
+an empty state only for a non-null empty array; `src/app/lists/page.tsx` shows
+the pattern ("couldn't load your lists" for `null`, "no lists yet" for `[]`).
+
+Do not lower the grace window to feel responsive: the cost of being early is a
+"try signing in again" banner during a hiccup, which is strictly worse than a
+few more seconds of skeleton. Tests: `scripts/audit-tests/56-listener-recovery.test.ts`
+(pure functions, no emulator).
 
 ### useMemoFirebase (CRITICAL!)
 **Always** use this instead of `useMemo` for Firestore references:

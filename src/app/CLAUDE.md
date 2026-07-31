@@ -458,11 +458,19 @@ Branch `feat/phase-c-extraction`. The AI "share a video → extract films" featu
   cards, morning-after, provider with `?night=<id>` deep link) + the
   guest web page **`/n/[code]`** (SSR, `_` shell on static export).
   Plan/tracker: `MOVIE-NIGHT-PLAN.md`.
-- **`GET /api/v1/me/scan-quota`** → `{ limit, used, remaining, week, resetsAt }`
+- **`GET /api/v1/me/scan-quota`** → `{ limit, used, remaining, week, resetsAt, unlimited }`
   — the free tier's weekly scan quota (7/week, Monday 00:00 UTC reset; only a
   CLAIM counts, cache hits/followers are free). A quota-exhausted claim 429s
-  `QUOTA_EXCEEDED` from `POST /api/v1/extractions` instead. See
-  `getScanQuota` in `src/lib/CLAUDE.md`.
+  `QUOTA_EXCEEDED` from `POST /api/v1/extractions` instead. `unlimited: true`
+  means the caller is on an uncapped maintainer plan — the client must HIDE the
+  counter rather than render the sentinel limit. See `getScanQuota` +
+  `scripts/set-plan.ts` in `src/lib/CLAUDE.md`.
+- **`POST /api/v1/extractions/[jobId]/detach`** — the owner's live surface
+  closed mid-scan. Clears `lastPolledAt`, which otherwise suppresses the
+  completion push for ~20s as "they're watching it right now". The native share
+  drawer has always called this; web `/extract` now does too, on unmount
+  (2026-07-30) — without it, closing the tab seconds before the pipeline landed
+  bought silence from the one notification that matters.
 - **`/extract`** (`page.tsx` Suspense + `client.tsx`) — paste/share a link →
   narrated progress → film cards (poster · year · AI receipt quote · per-film
   destination chip via Vaul `SheetMenu` · remove) + editable AI new-list name →
