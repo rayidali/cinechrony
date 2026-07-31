@@ -20,7 +20,7 @@
 // are no longer the standing hazard they were; a BLOCKED exit now much more
 // likely means back-to-back runs than a spent day.
 import puppeteer from 'puppeteer-core';
-import { readFileSync } from 'node:fs';
+import { readFileSync, mkdirSync } from 'node:fs';
 
 const ORIGIN = 'http://localhost:9002';
 const EMAIL = 'demo@cinechrony.com';
@@ -67,6 +67,8 @@ class BlockedError extends Error {
   constructor(info) { super(`blocked: ${info.kind} (${info.method} ${info.path} -> ${info.status})`); this.info = info; }
 }
 let blocked = null; // set by the page.on('response') interceptor below; first cause wins
+let lastClickTrace = [];
+let upcomingResponses = 0; // count of /movie-nights/upcoming responses seen (see below)
 
 const BLOCKED_MESSAGES = {
   movie_night_quota: () => [
@@ -162,17 +164,72 @@ page.on('response', (r) => {
       kind = 'server_error';
     }
     if (kind) blocked = { kind, method, path: u.pathname, status, url: r.url() };
+
+    // The morning-after prompt ("did movie night happen?") is mounted by
+    // movie-night-provider.tsx's boot check: ONE fetch of
+    // /api/v1/movie-nights/upcoming per uid per page load, whose result decides
+    // whether a past un-answered night pops a sheet over whatever screen you
+    // are on. Its arrival therefore has a precise cause, not a guessable delay
+    // — polling for the text is a race you lose whenever auth restore is slow.
+    // Record the response so a step can wait for the DECISION to have been made.
+    if (u.pathname === '/api/v1/movie-nights/upcoming') upcomingResponses += 1;
   } catch { /* never let the interceptor itself take down the run */ }
 });
 
 const rawSleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const sleep = async (ms) => { await rawSleep(ms); if (blocked) throw new BlockedError(blocked); };
 
+/**
+ * Wait until the morning-after boot check has RESOLVED, then clear its sheet if
+ * it opened one. Returns 'none' | 'cleared' | 'stuck' | 'timeout'.
+ *
+ * The provider fetches /api/v1/movie-nights/upcoming exactly once per uid per
+ * page load and only then decides whether to mount the sheet. So the correct
+ * wait is "that response has landed and React has painted", not "N milliseconds
+ * ought to be enough" — which is what three earlier attempts got wrong: the
+ * sheet mounted mid-attempt, after every poll had already concluded it wasn't
+ * coming, and then silently ate every tap on the page underneath.
+ *
+ * Call AFTER a navigation, passing the response count captured BEFORE it.
+ */
+const morningAfterUp = () => hasText(/did movie night happen/i);
+
+/** Dismiss the sheet if it is up right now. Cheap; safe to call repeatedly. */
+const dismissMorningAfter = async () => {
+  if (!(await morningAfterUp())) return false;
+  await clickText(/not now/i);
+  await sleep(1500);
+  return true;
+};
+
+const settleMorningAfter = async (baseline, timeoutMs = 25000) => {
+  // `/movie-nights/upcoming` is fetched by SEVERAL components, so "one more
+  // response than before the navigation" does not mean the PROVIDER's boot
+  // check specifically has run — that one waits on Firebase auth restoring from
+  // IndexedDB and can land many seconds later. Counting the first response was
+  // exactly wrong, and it is why this reported "no past night" while the sheet
+  // was about to mount. So: watch for the sheet across the whole window, and
+  // treat quiet only at the end as genuine absence.
+  const deadline = Date.now() + timeoutMs;
+  let sawResponse = upcomingResponses > baseline;
+  while (Date.now() < deadline) {
+    if (await dismissMorningAfter()) return 'cleared';
+    if (upcomingResponses > baseline) sawResponse = true;
+    await rawSleep(400);
+  }
+  if (await morningAfterUp()) return 'stuck';
+  return sawResponse ? 'none' : 'timeout';
+};
+
 // REAL single tap: find the element, then page.mouse.click at its center.
 // Coordinate clicks go through hit-testing (pointer-events, overlay stacking)
 // exactly like a finger — synthetic dispatchEvent would bypass the very bug
 // class this harness exists to catch.
 let shotN = 0;
+// mkdir first: `snap` swallows its own errors, so without this the failure
+// diagnostics print a screenshot path that was never written — a gate lying
+// about its own evidence, which is the one thing this file must not do.
+mkdirSync('/tmp/harness', { recursive: true });
 const snap = async (tag) => page.screenshot({ path: `/tmp/harness/${String(++shotN).padStart(2, '0')}-${tag}.png` }).catch(() => {});
 // Returns EVERY tappable candidate (last-to-first, hit-tested), not just the
 // first. Most callers want `[0]`; `clickTextUntil` needs the rest as fallbacks.
@@ -180,8 +237,11 @@ const findClickPoints = async (re, { inDrawer = false } = {}) => {
   return page.evaluate(({ src, inDrawer }) => {
     const rx = new RegExp(src, 'i');
     const scope = inDrawer ? '[data-vaul-drawer] ' : '';
+    // Same normalisation as hasText: source newlines and wrapped headings
+    // otherwise break multi-word matchers for no visible reason.
+    const norm = (n) => (n.textContent || '').replace(/\s+/g, ' ').trim();
     const nodes = [...document.querySelectorAll(`${scope}button, ${scope}[role="button"], ${scope}a, ${scope}div, ${scope}span, ${scope}p`)]
-      .filter((n) => rx.test((n.textContent || '').trim()) && (n.textContent || '').trim().length < 60)
+      .filter((n) => rx.test(norm(n)) && norm(n).length < 60)
       .filter((n) => { const r = n.getBoundingClientRect(); return r.width > 4 && r.height > 4 && r.bottom > 0 && r.top < innerHeight; });
     // walk candidates from last to first, but ONLY accept one whose center
     // would truly receive the tap (elementFromPoint hit-test) — occluded or
@@ -215,6 +275,13 @@ const findClickPoint = async (re, opts = {}) => (await findClickPoints(re, opts)
  * two it hit. Verifying the OUTCOME rather than the tap removes the ambiguity.
  */
 const clickTextUntil = async (re, predicate, opts = {}, settleMs = 2500) => {
+  lastClickTrace = [];
+  // Always start from the top. The sweep below scrolls, and without this a
+  // second call resumes wherever the first left off — so a target near the top
+  // of the page is permanently out of view and reads as "not on this page".
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await rawSleep(300);
+  if (opts.beforeEach) await opts.beforeEach();
   // Candidates are viewport-filtered (an offscreen match can't be tapped), so a
   // target pushed below the fold — by a leftover night's pin, a taller header,
   // any content above it — looks identical to "not on this page". Sweep the
@@ -224,6 +291,9 @@ const clickTextUntil = async (re, predicate, opts = {}, settleMs = 2500) => {
     for (const pt of points) {
       await page.mouse.click(pt.x, pt.y);
       await sleep(settleMs);
+      // Trace what the tap actually did. "clicked and nothing happened" and
+      // "clicked the wrong thing" are different bugs with the same symptom.
+      lastClickTrace.push(`(${Math.round(pt.x)},${Math.round(pt.y)}) -> ${await page.evaluate(() => location.pathname + location.search)}`);
       if (await predicate()) return true;
     }
     const moved = await page.evaluate(() => {
@@ -270,8 +340,15 @@ const clickTextWhenReady = async (re, opts = {}, timeoutMs = 6000) => {
   }
 };
 
+// Whitespace-NORMALISED. `innerText` reflects rendering, so a heading that
+// wraps ("did movie night / happen?") arrives with a newline in the middle and
+// /did movie night happen/ silently fails to match — the phrase is on screen,
+// the check says absent. That cost four rounds of debugging a morning-after
+// sheet that was visible in every screenshot: the gate wasn't wrong about the
+// page, it was asking the question wrong. Any multi-word matcher here is a
+// candidate for the same trap, so normalise once, centrally.
 const hasText = (re) =>
-  page.evaluate((src) => new RegExp(src, 'i').test(document.body.innerText), re.source);
+  page.evaluate((src) => new RegExp(src, 'i').test((document.body.innerText || '').replace(/\s+/g, ' ')), re.source);
 
 /**
  * Waits until at most ONE Vaul drawer is mounted.
@@ -340,6 +417,7 @@ try {
   await sleep(800);
 
   // lists → movie night list
+  const upcomingBefore = upcomingResponses;
   await page.goto(`${ORIGIN}/lists`, { waitUntil: 'networkidle2', timeout: 60000 });
   await sleep(2500);
 
@@ -353,30 +431,21 @@ try {
   // POLLED, not sampled once: the prompt is driven by a fetch that resolves a
   // beat after the page paints, so a single check right after navigation reads
   // "no prompt" and then the sheet appears underneath the very next click.
-  const morningAfterUp = () => hasText(/did movie night happen/i);
-  let morningAfterCleared = null;
+  const ma = await settleMorningAfter(upcomingBefore);
+  step('morning-after prompt settled', ma !== 'stuck' && ma !== 'timeout',
+    ma === 'none' ? 'no past night awaiting an answer'
+    : ma === 'cleared' ? 'a past night popped the "how was it?" sheet; dismissed it to reach the page underneath'
+    : ma === 'stuck' ? 'the sheet would not dismiss — every step below would be tapping through an overlay'
+    : 'the boot check never fetched /movie-nights/upcoming; cannot know whether a sheet is coming');
 
   // "movie night" is both the LIST's name and the words on any leftover night's
   // card, so clicking the first match is a coin flip — verify we actually
   // landed on a list detail route, and fall through to the next candidate if not.
   const onListDetail = () => page.evaluate(() => /\/lists\/.+/.test(location.pathname));
-
-  // Clear-then-try, repeatedly. The prompt is driven by a fetch that can resolve
-  // well after the page paints, so clearing once up front is a race we lose: the
-  // sheet appears mid-attempt and silently eats every subsequent tap.
-  let opened = false;
-  for (let attempt = 0; attempt < 4 && !opened; attempt++) {
-    if (await morningAfterUp()) {
-      await clickText(/not now/i);
-      await sleep(1500);
-      morningAfterCleared = !(await morningAfterUp());
-    }
-    opened = await clickTextUntil(/movie night/, onListDetail);
-  }
-  if (morningAfterCleared !== null) {
-    step('morning-after prompt cleared', morningAfterCleared,
-      'a past night was waiting on an answer; the gate dismissed it to reach the page underneath');
-  }
+  // beforeEach re-dismisses: the sheet can still mount late, and once it is up
+  // it swallows every tap underneath — which is indistinguishable from a tile
+  // that doesn't work unless we clear it first.
+  const opened = await clickTextUntil(/movie night/, onListDetail, { beforeEach: dismissMorningAfter });
   step('open list', opened, opened ? '' : 'no candidate matching /movie night/ navigated to a list detail route');
   // Halt rather than let ~38 downstream steps fail against a page we never
   // reached — that cascade is what makes a gate unreadable. Dump what the page
@@ -397,6 +466,25 @@ try {
     console.log('  page:', diag.url);
     console.log('  /movie night/ matches:', diag.matches.length ? diag.matches : '(none)');
     console.log('  body:', diag.bodyText);
+    // WHAT is actually at the tile's centre? "the tile is there but something
+    // else receives the tap" and "the tile isn't there" look identical from a
+    // failed click; elementFromPoint distinguishes them outright.
+    const occl = await page.evaluate(() => {
+      const tile = [...document.querySelectorAll('div,button,a')]
+        .find((n) => /^movie night\s*\d* films?$/i.test((n.textContent || '').trim()));
+      if (!tile) return 'no tile element matched';
+      const r = tile.getBoundingClientRect();
+      const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const path = [];
+      for (let el = hit; el && path.length < 5; el = el.parentElement) {
+        path.push(`${el.tagName.toLowerCase()}${el.className && typeof el.className === 'string' ? '.' + el.className.split(/\s+/).slice(0, 3).join('.') : ''}`);
+      }
+      return `tile @${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)} | elementFromPoint -> ${path.join(' < ')}`;
+    });
+    console.log('  hit-test:', occl);
+    console.log('  click trace:', lastClickTrace.length ? lastClickTrace : '(no candidate was ever clicked)');
+    await snap('open-list-failed');
+    console.log('  screenshot: /tmp/harness/*-open-list-failed.png');
     throw new Error('could not open the movie-night list; every step below it would be meaningless');
   }
   await sleep(1500);
