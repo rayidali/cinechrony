@@ -174,7 +174,9 @@ const sleep = async (ms) => { await rawSleep(ms); if (blocked) throw new Blocked
 // class this harness exists to catch.
 let shotN = 0;
 const snap = async (tag) => page.screenshot({ path: `/tmp/harness/${String(++shotN).padStart(2, '0')}-${tag}.png` }).catch(() => {});
-const findClickPoint = async (re, { inDrawer = false } = {}) => {
+// Returns EVERY tappable candidate (last-to-first, hit-tested), not just the
+// first. Most callers want `[0]`; `clickTextUntil` needs the rest as fallbacks.
+const findClickPoints = async (re, { inDrawer = false } = {}) => {
   return page.evaluate(({ src, inDrawer }) => {
     const rx = new RegExp(src, 'i');
     const scope = inDrawer ? '[data-vaul-drawer] ' : '';
@@ -184,15 +186,55 @@ const findClickPoint = async (re, { inDrawer = false } = {}) => {
     // walk candidates from last to first, but ONLY accept one whose center
     // would truly receive the tap (elementFromPoint hit-test) — occluded or
     // offscreen-peeking matches (e.g. a closed drawer's header) are skipped.
+    const out = [];
+    const seen = new Set();
     for (let i = nodes.length - 1; i >= 0; i--) {
       const el = nodes[i].closest('button, [role="button"], a') || nodes[i];
+      if (seen.has(el)) continue;
+      seen.add(el);
       const r = el.getBoundingClientRect();
       const x = r.x + r.width / 2; const y = r.y + r.height / 2;
       const hit = document.elementFromPoint(x, y);
-      if (hit && (el.contains(hit) || hit.contains(el))) return { x, y };
+      if (hit && (el.contains(hit) || hit.contains(el))) out.push({ x, y });
     }
-    return null;
+    return out;
   }, { src: re.source, inDrawer });
+};
+
+const findClickPoint = async (re, opts = {}) => (await findClickPoints(re, opts))[0] || null;
+
+/**
+ * Click candidates matching `re` until `predicate()` becomes true.
+ *
+ * WHY: `clickText` takes the first hit-testable match and assumes it did
+ * something. On a screen where two different things carry the same words that
+ * is a coin flip — e.g. `/movie night/` matches BOTH the list tile and a
+ * leftover night's card, so a stale night made "open list" click the wrong
+ * element and hang for 20s on a navigation that was never going to happen. The
+ * old failure text was "harness crashed", which says nothing about which of the
+ * two it hit. Verifying the OUTCOME rather than the tap removes the ambiguity.
+ */
+const clickTextUntil = async (re, predicate, opts = {}, settleMs = 2500) => {
+  // Candidates are viewport-filtered (an offscreen match can't be tapped), so a
+  // target pushed below the fold — by a leftover night's pin, a taller header,
+  // any content above it — looks identical to "not on this page". Sweep the
+  // page instead of concluding absence from one screenful.
+  for (let screen = 0; screen < 5; screen++) {
+    const points = await findClickPoints(re, opts);
+    for (const pt of points) {
+      await page.mouse.click(pt.x, pt.y);
+      await sleep(settleMs);
+      if (await predicate()) return true;
+    }
+    const moved = await page.evaluate(() => {
+      const before = window.scrollY;
+      window.scrollBy(0, Math.round(window.innerHeight * 0.8));
+      return window.scrollY !== before;
+    });
+    if (!moved) break; // bottom of the page — genuinely not here
+    await sleep(600);
+  }
+  return false;
 };
 
 const clickText = async (re, opts = {}) => {
@@ -300,10 +342,64 @@ try {
   // lists → movie night list
   await page.goto(`${ORIGIN}/lists`, { waitUntil: 'networkidle2', timeout: 60000 });
   await sleep(2500);
-  await clickText(/movie night/);
-  await page.waitForFunction(() => /\/lists\/.+/.test(location.pathname), { timeout: 20000 });
-  await sleep(2500);
-  step('open list', true);
+
+  // A night that has since passed pops the MORNING-AFTER prompt ("did movie
+  // night happen?") over whatever screen you land on, and it correctly swallows
+  // every tap underneath. That is the product working; it is also a modal the
+  // gate has to clear before it can touch anything. Left unhandled it looks
+  // exactly like "the list tile isn't clickable" — the tiles render, they just
+  // never receive the tap — which is a full class of misdiagnosis away from the
+  // truth. Dismiss it, and SAY that we did.
+  // POLLED, not sampled once: the prompt is driven by a fetch that resolves a
+  // beat after the page paints, so a single check right after navigation reads
+  // "no prompt" and then the sheet appears underneath the very next click.
+  const morningAfterUp = () => hasText(/did movie night happen/i);
+  let morningAfterCleared = null;
+
+  // "movie night" is both the LIST's name and the words on any leftover night's
+  // card, so clicking the first match is a coin flip — verify we actually
+  // landed on a list detail route, and fall through to the next candidate if not.
+  const onListDetail = () => page.evaluate(() => /\/lists\/.+/.test(location.pathname));
+
+  // Clear-then-try, repeatedly. The prompt is driven by a fetch that can resolve
+  // well after the page paints, so clearing once up front is a race we lose: the
+  // sheet appears mid-attempt and silently eats every subsequent tap.
+  let opened = false;
+  for (let attempt = 0; attempt < 4 && !opened; attempt++) {
+    if (await morningAfterUp()) {
+      await clickText(/not now/i);
+      await sleep(1500);
+      morningAfterCleared = !(await morningAfterUp());
+    }
+    opened = await clickTextUntil(/movie night/, onListDetail);
+  }
+  if (morningAfterCleared !== null) {
+    step('morning-after prompt cleared', morningAfterCleared,
+      'a past night was waiting on an answer; the gate dismissed it to reach the page underneath');
+  }
+  step('open list', opened, opened ? '' : 'no candidate matching /movie night/ navigated to a list detail route');
+  // Halt rather than let ~38 downstream steps fail against a page we never
+  // reached — that cascade is what makes a gate unreadable. Dump what the page
+  // ACTUALLY shows first: "couldn't click it" and "it isn't rendered" and
+  // "you're signed out" all look the same from a failed click.
+  if (!opened) {
+    const diag = await page.evaluate(() => ({
+      url: location.pathname + location.search,
+      matches: [...document.querySelectorAll('button,[role="button"],a,div,span,p')]
+        .filter((n) => /movie night/i.test((n.textContent || '').trim()) && (n.textContent || '').trim().length < 60)
+        .slice(0, 6)
+        .map((n) => {
+          const r = n.getBoundingClientRect();
+          return `<${n.tagName.toLowerCase()}> "${(n.textContent || '').trim().slice(0, 40)}" @${Math.round(r.x)},${Math.round(r.y)} ${Math.round(r.width)}x${Math.round(r.height)}`;
+        }),
+      bodyText: (document.body.innerText || '').replace(/\s+/g, ' ').slice(0, 300),
+    }));
+    console.log('  page:', diag.url);
+    console.log('  /movie night/ matches:', diag.matches.length ? diag.matches : '(none)');
+    console.log('  body:', diag.bodyText);
+    throw new Error('could not open the movie-night list; every step below it would be meaningless');
+  }
+  await sleep(1500);
 
   // PRE-CLEAN: if a leftover pinned night exists, open + cancel it so the
   // create flow starts from a clean list every run.
