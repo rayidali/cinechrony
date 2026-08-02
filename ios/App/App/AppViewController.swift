@@ -18,7 +18,30 @@ import Capacitor
 
 class AppViewController: CAPBridgeViewController {
     override open func capacitorDidLoad() {
+        // WebKit's OWN back-forward swipe gesture. Off by default in a
+        // WKWebView, and Capacitor exposes no setting for it — so the app
+        // silently LOST this when it moved from a PWA into a native shell, and
+        // nobody noticed which piece had gone. In Safari / an installed PWA it
+        // is on for free, which is why navigation felt right back then: that
+        // was Apple's implementation, with real page snapshots and
+        // compositor-level parallax.
+        //
+        // Every JS attempt since (`native-transitions.tsx`, and the snapshot
+        // layer that ghosted in build 10) has been an imitation of a browser-
+        // engine feature we already owned. Turning it back on beats
+        // reimplementing it.
+        //
+        // CAVEAT, and the reason build 12 exists: this drives off WebKit's
+        // back-forward list, and this app navigates by pushState. WebKit does
+        // track those entries, but same-document navigation is where its
+        // snapshotting is least reliable. Device-verified or reverted — not
+        // assumed.
+        webView?.allowsBackForwardNavigationGestures = true
+
         bridge?.registerPluginInstance(SharedAuthPlugin())
+        // Lets the web layer suspend the gesture above while a drawer is open —
+        // see WebViewGesturePlugin for why that guard is required.
+        bridge?.registerPluginInstance(WebViewGesturePlugin())
         bridge?.registerPluginInstance(LiveActivityPlugin())
         let calendarBridge = CalendarBridgePlugin()
         bridge?.registerPluginInstance(calendarBridge)

@@ -12,6 +12,7 @@ import { UserMutesCacheProvider } from '@/contexts/user-mutes-cache';
 import { UserBlocksCacheProvider } from '@/contexts/user-blocks-cache';
 import { UserVerifiedCacheProvider } from '@/contexts/user-verified-cache';
 import { BodyStyleWatchdog } from '@/components/body-style-watchdog';
+import { BackSwipeGuard } from '@/components/back-swipe-guard';
 import { NativePushRegistration } from '@/components/native-push-registration';
 import { DeepLinkHandler } from '@/components/deep-link-handler';
 import { NativeShellInit } from '@/components/native-shell-init';
@@ -122,6 +123,10 @@ export default function RootLayout({
       <body className={`${bricolage.variable} ${newsreader.variable} ${spaceMono.variable} font-sans antialiased`}>
         <ThemeProvider>
           <BodyStyleWatchdog />
+          {/* Suspends WebKit's back gesture while a drawer is open — the guard
+              build 12 dropped when it replaced the JS gesture. Pairs with the
+              watchdog above: prevention and cure for the same blank-page bug. */}
+          <BackSwipeGuard />
           <FirebaseClientProvider>
             <ListMembersCacheProvider>
               <UserRatingsCacheProvider>

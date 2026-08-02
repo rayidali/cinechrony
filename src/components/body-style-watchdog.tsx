@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
+import { isOverlayMounted } from '@/lib/overlay-markers';
 
 /**
  * Body-style watchdog.
@@ -54,9 +55,11 @@ function scrubBodyIfStuck(): void {
   // WatchedMomentSheet all carry `role="dialog"`) plus any Radix
   // Dialog/AlertDialog elsewhere in the app (e.g. the settings delete-account
   // modal).
-  const somethingOpen =
-    document.querySelector('[data-vaul-drawer], [data-vaul-overlay], [role="dialog"], [role="alertdialog"]') !== null;
-  if (somethingOpen) return;
+  // Shared with `back-swipe-guard.tsx` (see `overlay-markers.ts`): that guard
+  // is the PREVENTION for the same failure this function is the CURE for, and
+  // if the two ever disagreed about what counts as "open", the gesture would
+  // fire on a sheet this then declines to clean up after.
+  if (isOverlayMounted()) return;
 
   const body = document.body;
 

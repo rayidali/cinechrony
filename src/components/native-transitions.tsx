@@ -39,6 +39,18 @@ const LOCK_THRESHOLD = 12; // px to commit to horizontal vs vertical
 const DISMISS_RATIO = 0.4; // fraction of viewport width to commit
 const VELOCITY_THRESHOLD = 0.5; // px/ms — a fast flick commits
 
+/**
+ * WebKit's own back-forward swipe is enabled natively as of build 12
+ * (`AppViewController.capacitorDidLoad`). Two gestures cannot own the same
+ * left-edge drag, so the JS one below stands down — Apple's version has real
+ * page snapshots and runs on the compositor, which no JS imitation reaches.
+ *
+ * Flip back to false to restore the JS gesture if the native one turns out not
+ * to fire for pushState navigation. The push/pop ENTER animations below are
+ * unaffected either way; only the finger-driven gesture is gated.
+ */
+const NATIVE_EDGE_SWIPE = true;
+
 const TAB_ROOTS = ['/home', '/lists', '/profile'];
 // Routes that manage their own back gesture / full-screen chrome.
 const OWN_GESTURE_PREFIXES = ['/movie/'];
@@ -134,6 +146,7 @@ export function NativeTransitions({ children }: { children: ReactNode }) {
 
   // Interactive edge-swipe-back. Direct-DOM only; never sets React state.
   useEffect(() => {
+    if (NATIVE_EDGE_SWIPE) return; // WebKit owns the gesture — see the flag
     const el = ref.current;
     if (!el) return;
 
