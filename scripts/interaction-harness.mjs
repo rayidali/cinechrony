@@ -569,6 +569,23 @@ try {
   await clickText(/pick a time|^time$|^8:00\s*pm$/, { inDrawer: true });
   await sleep(800);
 
+  // PIN THE DATE TO TOMORROW. The create sheet defaults `selectedDate` to
+  // TODAY (create-night-sheet.tsx:1037) and the showtime chips are fixed clock
+  // times — so every run after 8pm local was proposing a night that had
+  // already happened. The app refuses that correctly (`isPast` → the CTA goes
+  // disabled and puts "that night's already come and gone" on screen), so the
+  // propose click landed on a dead button, no request was ever made, and five
+  // steps failed in a row describing everything except the reason.
+  //
+  // This gate had no business depending on what time it was run. `weekDays` is
+  // `Array.from({length: 7}, (_, i) => addDays(today, i))`, so index 1 is
+  // always today+1, and day-of-month is unique across any 7-day window.
+  const tomorrow = new Date(Date.now() + 86_400_000);
+  const dow = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][tomorrow.getDay()];
+  const datePinned = await clickText(new RegExp(`^${dow}\\s*${tomorrow.getDate()}$`), { inDrawer: true });
+  step(`date: pinned to tomorrow (${dow} ${tomorrow.getDate()}), so the run can't depend on the clock`, datePinned);
+  await sleep(400);
+
   // "decide later" (timeTbd) — the day is set, the showtime isn't. The
   // invariant worth guarding is MUTUAL EXCLUSION: tbd and a real showtime are
   // two ways of settling the same thing, and a stale one left live behind the
@@ -594,6 +611,32 @@ try {
   // propose: ONE click, and this run's one movieNightCreate spend
   // (MOVIE_NIGHT_CREATES_THIS_RUN, logged at startup above).
   await snap('before-propose');
+
+  // Read the CTA before trusting a click on it. A disabled button accepts the
+  // tap silently and sends nothing, so "the confirm overlay never appeared" is
+  // the LAST thing that went wrong, not the first — and on its own it points
+  // at the confirm overlay, which was fine all along. The app states its
+  // refusal in plain language on screen; surface that instead of a conclusion.
+  const ctaState = await page.evaluate(() => {
+    const norm = (n) => (n.textContent || '').replace(/\s+/g, ' ').trim();
+    const btn = [...document.querySelectorAll('[data-vaul-drawer] button')].find((b) => /propose it/i.test(norm(b)));
+    const body = document.body.innerText.replace(/\s+/g, ' ');
+    return {
+      found: !!btn,
+      disabled: btn ? btn.disabled : null,
+      refusal: /already come and gone/i.test(body)
+        ? "app is refusing the date: \"that night's already come and gone\""
+        : /pick a film/i.test(body)
+          ? 'app is refusing: no film selected'
+          : null,
+    };
+  });
+  step(
+    'propose CTA is live before we click it',
+    ctaState.found && ctaState.disabled === false,
+    ctaState.refusal || JSON.stringify(ctaState),
+  );
+
   const netLog = [];
   page.on('response', (r) => { if (r.url().includes('/api/v1/movie-nights')) netLog.push(`${r.request().method()} ${r.url().split('/api')[1]} -> ${r.status()}`); });
   const proposed = await clickText(/propose it/, { inDrawer: true });
