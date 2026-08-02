@@ -921,20 +921,55 @@ async function finishJob(
  * Always resolves (never throws) — a missing thumbnail just shows a branded
  * placeholder on the card.
  */
-async function captureThumbnail(job: JobDoc, video: AcquiredVideo): Promise<string | null> {
+/**
+ * The thumbnail we can show RIGHT NOW, with no network call: YouTube's derived
+ * URL (already permanent) or the source CDN url the acquire step handed us.
+ *
+ * Both downloadable videos AND image posts (carousel/slideshow — first slide)
+ * carry one; only the youtube kind doesn't need it rehosted.
+ */
+function provisionalThumbnail(job: JobDoc, video: AcquiredVideo): string | null {
+  if (job.provider === 'youtube') {
+    const vid = parseVideoUrl(job.canonicalUrl)?.videoId;
+    return vid ? youTubeThumbnail(vid) : null;
+  }
+  if (video.kind === 'youtube') return null;
+  return video.thumbnailUrl ?? null;
+}
+
+/**
+ * Copy the source thumbnail to R2 and patch it into the job + cache docs.
+ *
+ * WHY IT'S SEPARATE. Instagram/TikTok CDN thumbnail urls expire, so a durable
+ * copy is genuinely needed — but nobody is waiting for it. Running it inline
+ * put a download-then-upload on the critical path of the user's scan, worth up
+ * to 8.6s of a 22.6s wait (measured). Now the result ships with the source url
+ * and quietly upgrades to the R2 one moments later.
+ *
+ * Best-effort by design: on failure the doc keeps the source url, which is
+ * exactly what the old inline version fell back to anyway.
+ */
+async function persistThumbnail(
+  db: FirebaseFirestore.Firestore,
+  ref: FirebaseFirestore.DocumentReference,
+  job: JobDoc,
+  video: AcquiredVideo,
+  provisional: string | null,
+): Promise<void> {
+  if (job.provider === 'youtube' || video.kind === 'youtube') return; // already durable
+  if (!video.thumbnailUrl) return;
   try {
-    if (job.provider === 'youtube') {
-      const vid = parseVideoUrl(job.canonicalUrl)?.videoId;
-      return vid ? youTubeThumbnail(vid) : null;
-    }
-    // Both downloadable videos AND image posts (carousel/slideshow — first
-    // slide) carry a thumbnail; only the youtube kind doesn't need one.
-    if (video.kind === 'youtube' || !video.thumbnailUrl) return null;
     const key = `extraction-thumbs/${job.urlHash}.jpg`;
     const rehosted = await rehostImageToR2(video.thumbnailUrl, key);
-    return rehosted || video.thumbnailUrl;
-  } catch {
-    return null;
+    if (!rehosted || rehosted === provisional) return;
+    // Both surfaces: the job doc the owner polls, and the shared cache every
+    // later follower resolves from.
+    await Promise.all([
+      ref.update({ videoThumbnail: rehosted }),
+      db.collection(CACHE).doc(job.urlHash).update({ videoThumbnail: rehosted }),
+    ]);
+  } catch (err) {
+    console.warn('[extraction] thumbnail rehost failed, keeping source url —', job.urlHash, err);
   }
 }
 
@@ -1349,11 +1384,16 @@ async function runRealPipeline(jobId: string): Promise<void> {
 
     await setStage(ref, 'matching');
     await emitScanActivity(db, ref, jobId, laStart, 3, 'matching films');
-    // Ground the films + capture the clip's poster frame concurrently.
-    const [films, videoThumbnail] = await Promise.all([
-      groundFilms(analysis.films),
-      captureThumbnail(job, video),
-    ]);
+    // Ground the films. The thumbnail used to be raced alongside this, which
+    // meant the stage cost max(grounding, thumbnail) — and the thumbnail is a
+    // full download-then-upload to R2. Measured 2026-08-02: a 1-film scan spent
+    // 8.6s here while a 14-film scan spent 2.5s, because grounding was never
+    // the cost. The user was waiting on an image upload that has nothing to do
+    // with identifying films.
+    const films = await groundFilms(analysis.films);
+    // Shown immediately: the source CDN url (or YouTube's, already durable).
+    // The permanent R2 copy is made below, after the result is in their hands.
+    const videoThumbnail = provisionalThumbnail(job, video);
 
     mark('match');
     const analyzedBy = `${analysis.model ?? 'unknown'}|${analysis.mode ?? 'unknown'}`;
@@ -1371,6 +1411,11 @@ async function runRealPipeline(jobId: string): Promise<void> {
         ? { kind: 'films', films: films.map((f) => ({ title: f.title, year: f.year, imdbRating: f.imdbRating })) }
         : { kind: 'zero' },
     );
+
+    // OFF THE CRITICAL PATH, deliberately last: the user already has their
+    // films and their notification. Swapping the expiring source url for a
+    // durable R2 one is bookkeeping, and it is allowed to take its time.
+    await persistThumbnail(db, ref, job, video, videoThumbnail);
   } catch (err) {
     console.error('[extraction] real pipeline failed for', jobId, err);
     await failJob(ref, classifyError(err));
