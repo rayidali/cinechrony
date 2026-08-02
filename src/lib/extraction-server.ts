@@ -253,6 +253,18 @@ function hashUrl(canonicalUrl: string): string {
 
 // ── DTO mapping ──────────────────────────────────────────────────────────────
 
+/** Per-stage wall-clock of a real pipeline run, stamped on the finished job.
+ *  `fetch` = acquiring the media (Apify run + download), `watch` = Gemini
+ *  analysis incl. any hedge/escalation, `match` = TMDB grounding + thumbnail.
+ *  Absent on cache hits, followers and stub runs — none of them ran a pipeline,
+ *  and recording zeroes for them would poison any average taken over the set. */
+export type StageTimings = {
+  fetchMs: number;
+  watchMs: number;
+  matchMs: number;
+  totalMs: number;
+};
+
 type JobDoc = {
   uid: string;
   sourceUrl: string;
@@ -268,6 +280,8 @@ type JobDoc = {
   videoThumbnail?: string | null;
   follower?: boolean; // resolves from the shared cache (didn't run its own pipeline)
   fromCache?: boolean;
+  /** Where the seconds went — see StageTimings. Real pipeline runs only. */
+  timings?: StageTimings;
   /** Set once the completion push has been sent (real pipeline only) — the
    *  check-and-set guard `sendExtractionCompletionPush` claims transactionally
    *  so re-entry can never fire it twice. Absent for stub/no-key jobs. */
@@ -868,6 +882,7 @@ async function finishJob(
   suggestedListName: string | null,
   analyzedBy: string,
   videoThumbnail: string | null = null,
+  timings: StageTimings | null = null,
 ): Promise<void> {
   const isFilmContent = films.length > 0;
   await db.collection(CACHE).doc(job.urlHash).set({
@@ -885,6 +900,7 @@ async function finishJob(
   await ref.update({
     status: 'done',
     stage: 'done',
+    ...(timings ? { timings } : {}),
     films,
     suggestedListName: films.length ? suggestedListName : null,
     isFilmContent,
@@ -1279,6 +1295,18 @@ async function runRealPipeline(jobId: string): Promise<void> {
   const ref = db.collection(JOBS).doc(jobId);
   let job: JobDoc | null = null;
   const pipelineStartedAt = Date.now();
+  // Per-stage wall-clock, stamped on the finished job doc. Added 2026-08-02:
+  // total duration was the only number we had, so "the scan feels slow" could
+  // not be answered beyond a guess about which stage owned the seconds. Three
+  // marks are enough to tell acquire-bound from analysis-bound from
+  // grounding-bound, which is what any further optimisation has to know first.
+  const marks: { fetch?: number; watch?: number; match?: number } = {};
+  let stageStartedAt = pipelineStartedAt;
+  const mark = (key: 'fetch' | 'watch' | 'match') => {
+    const now = Date.now();
+    marks[key] = now - stageStartedAt;
+    stageStartedAt = now;
+  };
   try {
     const snap = await ref.get();
     if (!snap.exists) return;
@@ -1293,6 +1321,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     await setStage(ref, 'fetching');
     await emitScanActivity(db, ref, jobId, laStart, 1, 'getting the video');
     const video = await acquireVideo(job.canonicalUrl, job.provider);
+    mark('fetch');
     if (!video) {
       await failJob(ref, 'FETCH_FAILED');
       await markCacheFailed(db, job);
@@ -1316,6 +1345,7 @@ async function runRealPipeline(jobId: string): Promise<void> {
     // Weak read (nothing found on filmy media, or footage-guess confidence
     // only)? One pro-tier second opinion — pro prices paid ONLY on hard cases.
     analysis = await escalateWeakAnalysis(video, analysis, Date.now() - pipelineStartedAt);
+    mark('watch');
 
     await setStage(ref, 'matching');
     await emitScanActivity(db, ref, jobId, laStart, 3, 'matching films');
@@ -1325,8 +1355,16 @@ async function runRealPipeline(jobId: string): Promise<void> {
       captureThumbnail(job, video),
     ]);
 
+    mark('match');
     const analyzedBy = `${analysis.model ?? 'unknown'}|${analysis.mode ?? 'unknown'}`;
-    await finishJob(db, ref, job, films, analysis.suggestedListName, analyzedBy, videoThumbnail);
+    const timings: StageTimings = {
+      fetchMs: marks.fetch ?? 0,
+      watchMs: marks.watch ?? 0,
+      matchMs: marks.match ?? 0,
+      totalMs: Date.now() - pipelineStartedAt,
+    };
+    console.info('[extraction] timings', jobId, timings, analyzedBy);
+    await finishJob(db, ref, job, films, analysis.suggestedListName, analyzedBy, videoThumbnail, timings);
     await sendExtractionCompletionPush(
       db, ref, jobId, job.uid,
       films.length
