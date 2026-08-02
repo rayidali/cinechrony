@@ -26,6 +26,22 @@
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -11. **The native back gesture was always ours (2026-08-02, `1ea3d80`, builds
+>    12 + 13, owner-confirmed).** WebKit's back-forward swipe is on for free in
+>    Safari/PWAs and OFF by default in a Capacitor WKWebView, with no Capacitor
+>    setting for it — so the app lost Apple's real gesture in the Phase B wrap
+>    and a year of JS went into imitating it. One line of Swift turns it back on.
+>    Build 13 adds the guard that came with it: WebKit doesn't know Vaul drawers
+>    exist, so a swipe over an open sheet stranded Vaul's scroll lock and blanked
+>    the page — and it doesn't throw, so Sentry saw nothing. **Build 10 was a
+>    failed hand-rolled attempt (ghosted two screens), reverted by build 11.**
+>    Standing lesson restated: "no gate failed" is not "it works."
+> -10. **Scan tail fixed + timings added (2026-08-02, `b464478`, server-side).**
+>    17% of fresh scans fell through to a fallback Gemini model and took ~5.6x
+>    longer, because the chain was walked serially at 2 attempts × a 110s abort
+>    — up to ~223s waiting on a model that would never answer. Now hedged.
+>    Per-stage `timings` land on finished jobs so the ~26-30s median can be
+>    attacked with evidence. Audit 624/624.
 > -9. **Interaction harness FIXED — 41/41, deterministic (2026-07-31,
 >    `30fa201`).** It had been red on main and the fault was in the GATE. See
 >    "The harness was asking the question wrong" below. The transferable lesson:

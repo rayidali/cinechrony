@@ -2,8 +2,69 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-07-26)
+## Current state (2026-08-02)
 
+- **THE NATIVE BACK GESTURE WAS ALWAYS OURS — WE JUST TURNED IT OFF (2026-08-02,
+  `1ea3d80`, builds 12 + 13, owner-confirmed on device).** Owner: "the swiping
+  navigation isn't as good as what you added in the PWA version." Nothing was
+  ever added in the PWA version. **WebKit ships a back-forward swipe and enables
+  it for free in Safari and installed PWAs; a Capacitor WKWebView has it OFF by
+  default (`allowsBackForwardNavigationGestures`) and Capacitor exposes no
+  setting for it** — so the app silently lost Apple's real gesture (page
+  snapshots, compositor-level parallax) during the Phase B wrap, and nobody
+  noticed which piece had gone. `native-transitions.tsx` (2026-06-23) was a JS
+  re-implementation of a feature we already owned, which is why no amount of
+  tuning matched the original. The evidence had been sitting in the tree since
+  2026-05-25: `swipe-back-container.tsx` preventDefaults specifically to stop
+  "iOS's own edge-swipe-back from also firing". **The fix was one line of
+  Swift.** `NATIVE_EDGE_SWIPE` stands the JS gesture down (two gestures can't
+  own one drag); push/pop enter animations untouched. **THE GUARD THAT CAME
+  WITH IT (build 13):** enabling it dropped `coveredByFixedOverlay()` — the JS
+  gesture refused to start under an overlay, WebKit doesn't know Vaul exists, so
+  a swipe could pop the route out from under an OPEN sheet and strand Vaul's
+  `body{position:fixed;top:-Ypx}` scroll lock → content scrolled out of view
+  with only the fixed chrome (nav + FAB) visible. **It doesn't throw, so Sentry
+  saw nothing** — a layout bug wearing a crash's clothes. New
+  `WebViewGesturePlugin.swift` (main-thread hop, per the build-4 crash rule) +
+  `back-swipe-guard.tsx` suspend the gesture while any sheet is mounted;
+  `overlay-markers.ts` holds the ONE selector shared with `BodyStyleWatchdog`
+  (prevention + cure for the same failure — if they disagree, the bug returns).
+  **FAILED FIRST (build 10, reverted by 11):** a hand-rolled snapshot-reveal
+  layer that ghosted two screens on top of each other. Every gate passed and the
+  simulator looked fine; it took the owner's screenshots to find it. Lesson
+  restated: **"no gate failed" is not "it works."**
+- **SCAN LATENCY — the tail was a serial fallback chain (2026-08-02, `b464478`,
+  server-side, live on deploy).** Owner compared the share-a-reel flow to
+  Rodeo's. Measured 52 fresh prod scans before touching anything:
+  `gemini-3.5-flash` p50 **25.9s**, but `gemini-3-flash-preview` p50 **145.3s**
+  and `gemini-3.1-flash-lite` **216.9s** — **17% of scans fell through to a
+  fallback and took ~5.6x longer.** Cause was structural, not model quality:
+  `GEMINI_ATTEMPTS_PER_MODEL=2` × a 110s hard abort, walked STRICTLY SERIALLY,
+  so a model that HUNG (rather than errored) could burn **~223s before the
+  second model was even tried**. Now `hedgedRace`: primary starts alone, and if
+  it hasn't answered in `HEDGE_DELAY_MS` (25s) the next model is raced
+  ALONGSIDE it, laddering to 3 in flight; first valid answer wins and aborts
+  the losers, a failure promotes the next immediately. The delay sits
+  deliberately ABOVE normal analysis time so **the happy path spawns no second
+  call and costs nothing extra**. Suite 57 (8 tests) asserts it directly — it's
+  in the path of every scan. Also: **per-stage `timings` on finished jobs**
+  (`fetchMs`/`watchMs`/`matchMs`/`totalMs`), because total duration was the only
+  number we had and the ~26-30s median can't be attacked without knowing which
+  stage owns it. Read-only analysis scripts: `scripts/scan-timing.tmp.ts`,
+  `scripts/scan-by-model.tmp.ts`. Audit **624/624**.
+- **HARNESS WAS RED ON MAIN AGAIN — and depended on the CLOCK (2026-08-02,
+  `b9ebf8a`).** 24/29 on an untouched checkout, verified by stashing and
+  re-running. The create sheet defaults the date to TODAY and the harness never
+  picked one, so after 8pm local it proposed a night two hours in the past. The
+  app refuses that correctly (`isPast` → CTA disabled → "that night's already
+  come and gone" on screen); **a disabled button accepts the tap and sends
+  nothing**, so `clickText` reported success, no request was made, and five
+  steps failed describing everything except the reason. Fixed by pinning the
+  date to tomorrow (`weekDays[1]` is always today+1) and by reading the CTA
+  before trusting a click on it, printing the app's own refusal text. 41 → **43
+  steps, exit 0, three consecutive runs.** Ninth instance of the standing class,
+  with a twist: the gate wasn't wrong about the app — every fact it reported was
+  true and every conclusion it drew was misleading.
 - **HARNESS FIXED — 41/41, DETERMINISTIC (2026-07-31, `30fa201`).** It had been
   red on main and the root cause was in the GATE, not the app. `hasText` tested
   `document.body.innerText` **raw**, and the morning-after sheet's heading wraps
@@ -1544,7 +1605,30 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-07-31 — **build 1.0 (9) shipped + BETA_APPROVED**
+*Last updated: 2026-08-02 — **builds 1.0 (12) + 1.0 (13) shipped + BETA_APPROVED**
+(`1ea3d80` → `b464478` → `b9ebf8a` on `main`). The headline is a subtraction, not
+a feature: **the app always had Apple's real back-swipe and we turned it off
+ourselves.** WebKit enables `allowsBackForwardNavigationGestures` for free in
+Safari and installed PWAs and disables it in a Capacitor WKWebView, and
+Capacitor exposes no setting for it — so the gesture vanished in the Phase B
+wrap, nobody identified which piece had gone, and `native-transitions.tsx`
+spent a year imitating a compositor-level feature we already owned. The proof
+was in the repo since May: `swipe-back-container.tsx` preventDefaults to stop
+"iOS's own edge-swipe-back from also firing". One line of Swift restored it.
+Build 13 restored the guard that came with it — WebKit doesn't know Vaul exists,
+so a swipe over an open sheet stranded the scroll lock and blanked the page,
+**without throwing, so Sentry never saw it**. Build 10 was a hand-rolled
+snapshot layer that ghosted two screens on top of each other; every gate passed
+and the simulator looked clean, and only the owner's screenshots found it —
+**"no gate failed" is not "it works."** Same stretch: the scan pipeline's tail
+was measured rather than guessed (17% of fresh scans fall through to a fallback
+Gemini model and take ~5.6x longer, because a serial chain can burn ~223s on a
+model that never answers) and is now hedged, with per-stage `timings` added so
+the median can be attacked next. And the pre-build harness was red on main for
+the ninth time, from a gate that silently depended on the time of day. Audit
+**624/624**, harness **43/43**.*
+
+*Previously: 2026-07-31 — **build 1.0 (9) shipped + BETA_APPROVED**
 (`010d42b` on `main`; tip of the arc `d1f170a` → `94fb77e` → `f870a3c` →
 `30fa201`). The headline is not a feature: **builds 1-8 shipped with error
 reporting INERT** (`instrumentation-client.ts` is DSN-gated, the DSN lived only
