@@ -1647,7 +1647,26 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-08-02 — **builds 1.0 (12) + 1.0 (13) shipped + BETA_APPROVED**
+*Last updated: 2026-08-03 — **build 1.0 (14) shipped + BETA_APPROVED** (`3643d36`
+on `main`; both groups list it). A latency session with one constraint from the
+owner: **analysis is off limits, accuracy is the product** — so every fix is
+outside it, and the per-stage `timings` added on 08-02 are what made them
+findable. **The acquire stage was a flat 7.0s on every scan, and a constant is
+never a network fetch**: ~5.0s of real Apify work plus a blind 3s sleep before
+the first status check, now replaced by `waitForFinish`. **Both client poll
+loops were shaped backwards**, polling hardest while the answer could not yet
+exist and easing to 4s exactly when it became likely, so a finished scan could
+sit undiscovered. **And the share drawer's save button was disabled until a
+reveal animation finished** — ~3.3s on a 14-film reel with the answer already
+computed and on screen. The 08-02 thumbnail split is confirmed by the same
+numbers (ground 8.6s → 0.5s). Audit **628/628**, harness **43/43**. Two process
+facts cost real time and are recorded above: running `npm run dev` beside
+`npm run build:static` makes the export abort silently so `cap sync` ships a
+stale `out/` (**stat it before every sync**), and Xcode's keychain upload
+session has expired — builds now go up via the ASC API key, and a
+failure-looking `exportArchive` log can still end in `Upload succeeded`.*
+
+*Previously: 2026-08-02 — **builds 1.0 (12) + 1.0 (13) shipped + BETA_APPROVED**
 (`1ea3d80` → `b464478` → `b9ebf8a` on `main`). The headline is a subtraction, not
 a feature: **the app always had Apple's real back-swipe and we turned it off
 ourselves.** WebKit enables `allowsBackForwardNavigationGestures` for free in
