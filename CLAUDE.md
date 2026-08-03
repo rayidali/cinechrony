@@ -2,8 +2,50 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-08-02)
+## Current state (2026-08-03)
 
+- **SCAN LATENCY, ROUND 2 — the per-stage timings paid for themselves on the
+  first four scans (2026-08-03, `3643d36`, server half LIVE on deploy, client
+  half rides build 14).** Owner scanned a few clips and asked to look, with the
+  one constraint that **analysis is off limits — accuracy is the product**.
+  Three findings, none of which total duration could ever have surfaced.
+  **(1) The 08-02 thumbnail fix is CONFIRMED:** the ground stage went 8.6s →
+  **0.5s**. Grounding 14 films had been *faster* than grounding 1, which is what
+  exposed it — the stage was really `max(grounding, R2 rehost)`.
+  **(2) Acquire was a FLAT 7.0s on every single scan — and a constant is never a
+  network fetch.** Measured against the real actor
+  (`scripts/apify-waitforfinish.tmp.ts`, two runs, one per transport): **~5.0s
+  of genuine Apify work + ~1.8s of us not looking.** `runActorItems` slept a
+  blind **3s BEFORE its first status check**, so a run finishing at 5.0s wasn't
+  noticed until 6.0s. Now `waitForFinish` (Apify holds the connection, max 60s):
+  the start POST returns *already* `SUCCEEDED` and the status loop usually runs
+  **zero** iterations. **The loop also gained an explicit error backoff** — it
+  was previously protected from spinning only by that same 3s sleep, so removing
+  it without one would have hot-looped against Apify.
+  **(3) BOTH client poll loops were shaped backwards.** Web backed off
+  1.5s → 2.5s → **4s**; the native share drawer 2.5s → **4s**. A fresh scan
+  cannot finish before ~10s, so they polled hardest while nothing could have
+  happened and eased off exactly when completion became likely — **a finished
+  scan could sit undiscovered for 4s**. Now sparse until 8s, tight (1.2s)
+  through the window where the answer actually lands, easing off for the
+  pathological tail. Costs a read, not a write: `lastPolledAt` is already
+  throttled to ~once/15s server-side.
+  **(4) And the share drawer's save button was disabled until the reveal
+  animation finished** — on a 14-film reel, **~3.3s with the answer fully
+  computed and on screen**. The title already read the true `includedCount`, so
+  tapping early always saved exactly what it said; the gate bought nothing. The
+  animation stays, it just stops being a gate. Suite 58 (4) asserts the
+  transport contract (start long-polls · an already-terminal run costs zero
+  extra round-trips · an erroring status endpoint backs off instead of
+  spinning). Audit **628/628**, harness **43/43**.
+  **PROCESS SLIP WORTH THE SAME WEIGHT AS THE FIX:** `npm run dev` and
+  `npm run build:static` were started concurrently — they fight over `.next` and
+  over `src/app/api` (the static build moves it aside), the export **aborted
+  silently**, and `npx cap sync ios` then copied a **two-day-old `out/`** into
+  the app. Nothing errored loudly; it was caught only by checking `out/`'s
+  mtime. That is `project_native_frozen_snapshot` wearing a new hat: **stat
+  `out/` before every `cap sync`, and never run a dev server beside a static
+  build.**
 - **THE NATIVE BACK GESTURE WAS ALWAYS OURS — WE JUST TURNED IT OFF (2026-08-02,
   `1ea3d80`, builds 12 + 13, owner-confirmed on device).** Owner: "the swiping
   navigation isn't as good as what you added in the PWA version." Nothing was

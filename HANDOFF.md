@@ -1,11 +1,19 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-07-31 (end of the observability session). Project: a social
+> Last updated 2026-08-03 (end of the scan-latency session). Project: a social
 > movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
 > Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `010d42b`. Current TestFlight build: 1.0 (9) — VALID,
-> beta review APPROVED, listed in BOTH the internal and friends groups, so
-> the public link serves build 9.** Working tree clean at handoff.
+> **Tip of `main`: `3643d36`. TestFlight: 1.0 (13) is VALID + BETA_APPROVED
+> and serving; 1.0 (14) uploaded 2026-08-03 carrying the share-drawer latency
+> fixes.** Working tree clean at handoff.
+>
+> **Uploading a build no longer works through Xcode's keychain session** — it
+> has expired (`missing Xcode-Token` / `No provider associated with App Store
+> Connect user`). Export the `.ipa` locally (`destination: export`) and upload
+> with the ASC API key instead: `xcrun altool --upload-app -f App.ipa -t ios
+> --apiKey S3DLZRLGPZ --apiIssuer ce940602-…`. Note that a failed-looking
+> `xcodebuild -exportArchive` log can still end in `Upload succeeded` — read to
+> the END before concluding, and confirm against `/v1/builds` either way.
 >
 > **The public TestFlight link** (verified live 2026-07-31):
 > https://testflight.apple.com/join/CRPFhKen — enabled, capped **150**,
@@ -26,6 +34,25 @@
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -12. **Scan latency round 2 — the timings paid off immediately (2026-08-03,
+>    `3643d36`, server half live on deploy, client half in build 14).** Owner
+>    scanned a few clips; **analysis was declared off limits (accuracy is the
+>    product)**, so every fix here is outside it. The 08-02 thumbnail split is
+>    confirmed (ground 8.6s → **0.5s**). **Acquire was a flat 7.0s on every
+>    scan — a constant is never a network fetch**: measured at ~5.0s of real
+>    Apify work plus ~1.8s of a blind 3s sleep *before* the first status check.
+>    `waitForFinish` now has Apify hold the connection, so the start POST usually
+>    returns already-`SUCCEEDED` and the status loop runs zero times (it also
+>    gained an error backoff — that 3s sleep was the only thing stopping a hot
+>    loop). **Both client poll loops backed OFF over time**, polling hardest
+>    while the answer couldn't exist and slowest once it became likely, so a
+>    finished scan could sit undiscovered for 4s; now sparse → tight → ease off.
+>    **And the share drawer's save button was disabled until the reveal
+>    animation finished** — ~3.3s on a 14-film reel with the answer already on
+>    screen. Suite 58 (4), audit 628/628, harness 43/43. **Process slip worth as
+>    much as the fix: `npm run dev` beside `npm run build:static` makes the
+>    static export abort silently (they fight over `.next` and `src/app/api`),
+>    and `cap sync` then ships a stale `out/`. Stat `out/` before every sync.**
 > -11. **The native back gesture was always ours (2026-08-02, `1ea3d80`, builds
 >    12 + 13, owner-confirmed).** WebKit's back-forward swipe is on for free in
 >    Safari/PWAs and OFF by default in a Capacitor WKWebView, with no Capacitor
