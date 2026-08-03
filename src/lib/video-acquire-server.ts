@@ -251,6 +251,14 @@ export const __parseForTests = {
 
 const APIFY_BASE = 'https://api.apify.com/v2';
 const APIFY_TERMINAL = new Set(['SUCCEEDED', 'FAILED', 'ABORTED', 'TIMED-OUT']);
+/** Apify holds the connection until the run is terminal, up to this many
+ *  seconds (60 is their ceiling) — so a run that finishes at 5s is KNOWN at 5s
+ *  instead of at the next poll tick. */
+const APIFY_WAIT_SECS = 60;
+/** Only reached when the status endpoint is erroring. The long-poll loop has no
+ *  sleep of its own, so without this a 5xx would spin as fast as the network
+ *  allows. */
+const APIFY_POLL_ERROR_BACKOFF_MS = 1000;
 
 /**
  * Start an actor run, poll to terminal, return its dataset items. More reliable
@@ -263,7 +271,14 @@ async function runActorItems(
   token: string,
   params: URLSearchParams,
 ): Promise<Record<string, unknown>[]> {
-  const start = await fetch(`${APIFY_BASE}/acts/${actorId}/runs?${params.toString()}`, {
+  // MEASURED (2026-08-03): the acquire stage was a flat 7.0s across every scan
+  // — a constant, which a network fetch never is. It decomposed into ~5.0s of
+  // real actor work and ~1.8s of us not looking: the loop below used to sleep a
+  // blind 3s BEFORE its first status check. `waitForFinish` replaces the guess
+  // with the server telling us the instant it's done.
+  const startParams = new URLSearchParams(params);
+  startParams.set('waitForFinish', String(APIFY_WAIT_SECS));
+  const start = await fetch(`${APIFY_BASE}/acts/${actorId}/runs?${startParams.toString()}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -280,10 +295,14 @@ async function runActorItems(
   let status = run.status;
   let datasetId = run.defaultDatasetId;
   const deadline = Date.now() + (ACQUIRE_TIMEOUT_SECS + 15) * 1000;
+  // Usually zero iterations: the start call above already waited out the run.
+  // This only re-arms the long poll for runs longer than APIFY_WAIT_SECS.
   while (!APIFY_TERMINAL.has(status) && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 3000));
-    const r = await fetch(`${APIFY_BASE}/actor-runs/${run.id}?token=${token}`);
-    if (!r.ok) continue;
+    const r = await fetch(`${APIFY_BASE}/actor-runs/${run.id}?token=${token}&waitForFinish=${APIFY_WAIT_SECS}`);
+    if (!r.ok) {
+      await new Promise((res) => setTimeout(res, APIFY_POLL_ERROR_BACKOFF_MS));
+      continue;
+    }
     const d = ((await r.json()) as { data?: { status: string; defaultDatasetId?: string } }).data;
     if (d) { status = d.status; datasetId = d.defaultDatasetId || datasetId; }
   }

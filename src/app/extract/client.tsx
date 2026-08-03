@@ -162,10 +162,8 @@ export default function ExtractClient() {
 
   const poll = useCallback((jobId: string) => {
     const startedAt = Date.now();
-    let attempt = 0;
     pollingJobRef.current = jobId;
     const tick = async () => {
-      attempt += 1;
       try {
         const j = await apiCall<ExtractionJobView>('GET', `/api/v1/extractions/${jobId}`);
         setStage(j.stage);
@@ -178,8 +176,14 @@ export default function ExtractClient() {
         pollingJobRef.current = null;
         return setPhase('failed');
       }
-      // Backoff cuts Firestore read cost at scale (fast at first, then ease off).
-      const delay = attempt < 6 ? 1500 : attempt < 14 ? 2500 : 4000;
+      // Shaped to when the answer can actually EXIST, not to attempt count. A
+      // fresh scan can't finish before ~10s (acquire ~5s, then analysis), so
+      // the old fast-then-slow backoff polled hardest while nothing could have
+      // happened and eased to 4s exactly when completion became likely —
+      // leaving a finished job undiscovered for up to 4s. Sparse, then tight,
+      // then ease off again for the pathological tail.
+      const elapsed = Date.now() - startedAt;
+      const delay = elapsed < 8_000 ? 2_000 : elapsed < 60_000 ? 1_200 : 2_500;
       pollRef.current = setTimeout(tick, delay);
     };
     tick();

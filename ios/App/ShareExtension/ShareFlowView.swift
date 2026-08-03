@@ -437,7 +437,13 @@ private struct ResultStateView: View {
             PrimaryButton(
                 title: model.isSaving ? "saving" : "add \(model.includedCount) \(model.includedCount == 1 ? "film" : "films")",
                 isLoading: model.isSaving,
-                disabled: model.includedCount == 0 || model.isSaving || model.revealedCount < model.films.count,
+                // NOT gated on the reveal animation. It used to be, which meant
+                // a 14-film reel sat with the answer fully computed and the
+                // button dead for ~3.3s while rows tumbled in. The title
+                // already reads the true `includedCount`, so tapping early
+                // saves exactly what it says — the animation is decoration
+                // over an answer the user can already act on.
+                disabled: model.includedCount == 0 || model.isSaving,
                 action: { model.save() }
             )
             .padding(.horizontal, 20)

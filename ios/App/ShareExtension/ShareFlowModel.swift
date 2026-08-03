@@ -184,7 +184,17 @@ final class ShareFlowModel: ObservableObject {
                 return
             }
             pollAttempt += 1
-            let delayNanoseconds: UInt64 = pollAttempt < 5 ? 2_500_000_000 : 4_000_000_000
+            // Shaped to when the answer can actually EXIST, not to attempt
+            // count. A fresh scan can't finish before ~10s (acquire ~5s, then
+            // analysis), so the old 2.5s-then-4s backoff polled hardest while
+            // nothing could have happened and eased off exactly when completion
+            // became likely — a finished scan could sit undiscovered for 4s.
+            // The server throttles its `lastPolledAt` write to ~once/15s, so
+            // polling tighter costs a read, not a write.
+            let elapsed = Date().timeIntervalSince(submittedAt)
+            let delayNanoseconds: UInt64 = elapsed < 8 ? 2_000_000_000
+                : elapsed < 60 ? 1_200_000_000
+                : 2_500_000_000
             try? await Task.sleep(nanoseconds: delayNanoseconds)
             if Task.isCancelled { return }
 
