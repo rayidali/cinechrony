@@ -79,6 +79,17 @@ export type GeminiAnalysis = {
    *  from its doc. */
   model?: string;
   mode?: 'video' | 'images' | 'caption-only';
+  /** Sub-timings for the "watching" stage, which is NOT all model thinking:
+   *  `prepMs` is fetching the media off the CDN and getting it to Google
+   *  (base64 inline, or a Files API upload + wait-for-ACTIVE), `inferMs` is
+   *  the actual model race. Split because total `watchMs` can't distinguish
+   *  "Gemini is slow" from "we are still uploading" — and those have opposite
+   *  fixes: hedging EARLIER helps the first and actively hurts the second. */
+  prepMs?: number;
+  inferMs?: number;
+  /** Bytes of media shipped, and how they travelled. */
+  mediaBytes?: number;
+  transport?: 'youtube' | 'inline' | 'files' | 'images' | 'none';
 };
 
 export function isGeminiConfigured(): boolean {
@@ -173,37 +184,52 @@ type GeminiPart =
   | { fileData: { fileUri: string; mimeType?: string } }
   | { inlineData: { mimeType: string; data: string } };
 
+type MediaParts = {
+  parts: GeminiPart[];
+  /** Media bytes shipped to Google. 0 for YouTube (a URL) and for the image
+   *  path (whose per-slide budget is enforced separately). */
+  bytes: number;
+  transport: NonNullable<GeminiAnalysis['transport']>;
+};
+
 /** Build the media parts — YouTube URL, inline video bytes, inline image
  *  slides, or none (caption-only). */
-async function buildMediaParts(video: AcquiredVideo): Promise<GeminiPart[]> {
+async function buildMediaParts(video: AcquiredVideo): Promise<MediaParts> {
   if (video.kind === 'youtube') {
-    return [{ fileData: { fileUri: video.youtubeUrl } }];
+    return { parts: [{ fileData: { fileUri: video.youtubeUrl } }], bytes: 0, transport: 'youtube' };
   }
   if (video.kind === 'images') {
-    return buildImageParts(video.imageUrls);
+    return { parts: await buildImageParts(video.imageUrls), bytes: 0, transport: 'images' };
   }
   // media: inline small clips; route bigger ones through the Files API so a
   // long reel never silently degrades to caption-only.
+  const none: MediaParts = { parts: [], bytes: 0, transport: 'none' };
   try {
-    if (!isSafeRemoteUrl(video.videoUrl)) return [];
+    if (!isSafeRemoteUrl(video.videoUrl)) return none;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), VIDEO_FETCH_TIMEOUT_MS);
     const res = await fetch(video.videoUrl, { signal: ctrl.signal });
     clearTimeout(timer);
-    if (!res.ok) return [];
+    if (!res.ok) return none;
     const len = Number(res.headers.get('content-length') || 0);
-    if (len > FILES_VIDEO_MAX_BYTES) return []; // beyond even the upload budget
+    if (len > FILES_VIDEO_MAX_BYTES) return none; // beyond even the upload budget
     const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > FILES_VIDEO_MAX_BYTES) return [];
+    if (buf.byteLength > FILES_VIDEO_MAX_BYTES) return none;
     const mime0 = res.headers.get('content-type')?.split(';')[0] || 'video/mp4';
     const mime = mime0.startsWith('video/') ? mime0 : 'video/mp4';
     if (buf.byteLength <= inlineVideoMaxBytes()) {
-      return [{ inlineData: { mimeType: mime, data: buf.toString('base64') } }];
+      return {
+        parts: [{ inlineData: { mimeType: mime, data: buf.toString('base64') } }],
+        bytes: buf.byteLength,
+        transport: 'inline',
+      };
     }
     const fileUri = await uploadVideoToFilesApi(buf, mime);
-    return fileUri ? [{ fileData: { fileUri, mimeType: mime } }] : [];
+    return fileUri
+      ? { parts: [{ fileData: { fileUri, mimeType: mime } }], bytes: buf.byteLength, transport: 'files' }
+      : none;
   } catch {
-    return []; // network/timeout → caption-only
+    return none; // network/timeout → caption-only
   }
 }
 
@@ -255,8 +281,13 @@ async function uploadVideoToFilesApi(buf: Buffer, mimeType: string): Promise<str
     // The file needs server-side processing before it's usable in a prompt.
     let state = uploaded.file?.state ?? 'PROCESSING';
     const deadline = Date.now() + FILE_ACTIVE_POLL_TIMEOUT_MS;
+    // Ramped, not a flat 1500ms — a short clip is usually ACTIVE almost at
+    // once, and a blind first sleep charged every upload the full interval.
+    // Same mistake the Apify acquire loop was making (see video-acquire-server).
+    let wait = 300;
     while (state === 'PROCESSING' && Date.now() < deadline) {
-      await sleep(1500);
+      await sleep(wait);
+      wait = Math.min(Math.round(wait * 1.6), 1500);
       const poll = await fetch(`${GEMINI_BASE}/files/${name.replace(/^files\//, '')}?key=${encodeURIComponent(key)}`);
       if (!poll.ok) continue;
       state = ((await poll.json()) as { state?: string }).state ?? state;
@@ -315,7 +346,10 @@ export async function analyzeForFilms(
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not configured');
 
-  const mediaParts = await buildMediaParts(video);
+  const prepStart = Date.now();
+  const media = await buildMediaParts(video);
+  const prepMs = Date.now() - prepStart;
+  const mediaParts = media.parts;
   const caption = video.caption ? `\n\nThe post's caption is: """${video.caption}"""` : '';
   // Degraded mode: no footage/slides could be attached (download failed / too
   // big), so the model reads only the caption. Guessing "films that fit the
@@ -332,7 +366,10 @@ export async function analyzeForFilms(
 
   // No media AND no caption → nothing to analyse.
   if (!mediaParts.length && !video.caption) {
-    return { isFilmContent: false, suggestedListName: null, films: [], mode };
+    return {
+      isFilmContent: false, suggestedListName: null, films: [], mode,
+      prepMs, inferMs: 0, mediaBytes: media.bytes, transport: media.transport,
+    };
   }
 
   const reqBody = JSON.stringify({
@@ -380,7 +417,15 @@ export async function analyzeForFilms(
     throw new TransientGeminiError(detail);
   };
 
-  return hedgedRace(models, askModel);
+  const inferStart = Date.now();
+  const answer = await hedgedRace(models, askModel);
+  return {
+    ...answer,
+    prepMs,
+    inferMs: Date.now() - inferStart,
+    mediaBytes: media.bytes,
+    transport: media.transport,
+  };
 }
 
 /**

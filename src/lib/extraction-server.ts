@@ -263,6 +263,19 @@ export type StageTimings = {
   watchMs: number;
   matchMs: number;
   totalMs: number;
+  /** `watchMs` split: getting the media to Google vs the model race itself.
+   *  Without this, a slow "watching" stage is unattributable — and the two
+   *  halves want OPPOSITE fixes (hedge sooner vs. ship fewer bytes), so
+   *  guessing risks making it worse.
+   *
+   *  These describe the LAST analysis call. A weak read can trigger ONE
+   *  escalated retry, which re-runs both halves (including re-downloading and
+   *  re-encoding the video), so `prepMs + inferMs` summing to noticeably LESS
+   *  than `watchMs` is itself the signal that escalation ran. */
+  prepMs?: number;
+  inferMs?: number;
+  mediaBytes?: number;
+  transport?: string;
 };
 
 type JobDoc = {
@@ -1402,6 +1415,11 @@ async function runRealPipeline(jobId: string): Promise<void> {
       watchMs: marks.watch ?? 0,
       matchMs: marks.match ?? 0,
       totalMs: Date.now() - pipelineStartedAt,
+      // Firestore rejects an explicit `undefined`, so only spread what exists.
+      ...(analysis.prepMs !== undefined ? { prepMs: analysis.prepMs } : {}),
+      ...(analysis.inferMs !== undefined ? { inferMs: analysis.inferMs } : {}),
+      ...(analysis.mediaBytes !== undefined ? { mediaBytes: analysis.mediaBytes } : {}),
+      ...(analysis.transport !== undefined ? { transport: analysis.transport } : {}),
     };
     console.info('[extraction] timings', jobId, timings, analyzedBy);
     await finishJob(db, ref, job, films, analysis.suggestedListName, analyzedBy, videoThumbnail, timings);
