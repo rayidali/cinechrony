@@ -18,6 +18,28 @@
 > of the most-popular hit — no match → drop. `ConfidenceChip` per film in the UI.
 > No new API cost. See `HANDOFF.md` § "Extraction precision + confidence".
 >
+> **UPDATE (2026-08-02 → 03): latency pass — measured, not guessed** (`b464478`
+> → `b7e4830` → `3643d36` → `59e2877`). Prompted by the owner comparing the
+> share-a-reel flow to Rodeo's. 52 fresh prod scans measured FIRST: 17% fell
+> through to a fallback model and took ~5.6x longer, because the model chain was
+> walked strictly serially (2 attempts × a 110s abort → a HUNG model could burn
+> ~223s before the second was tried). Now a **hedged race** (`hedgedRace`,
+> suite 57): primary starts alone, the next model is raced alongside it only if
+> nothing has answered in `HEDGE_DELAY_MS`, laddering to 3 in flight; first valid
+> answer wins and aborts the losers. Per-stage **`StageTimings`** added on every
+> real job, which then found three more: the **matching stage was really
+> `max(grounding, R2 thumbnail rehost)`** (8.6s → **0.5s** once the upload moved
+> off the critical path); **acquire was a flat 7.0s on every scan** — ~5.0s of
+> real Apify work plus a blind 3s sleep before the first status check, fixed with
+> `waitForFinish` (→ **5.6/6.5s**, suite 58); and **both client poll loops backed
+> off exactly when completion became likely**, leaving a finished scan
+> undiscovered for up to 4s (plus a save button gated on a reveal animation for
+> ~3.3s). **OPEN:** analysis is now 77% of wall-clock. `watchMs` was split into
+> `prepMs`/`inferMs`/`mediaBytes`/`transport` because lowering the hedge delay
+> is as likely to hurt as help — if the time is UPLOAD, racing sooner multiplies
+> concurrent uploads. Needs 2-3 more scans to decide. Accuracy surface untouched
+> throughout (owner's constraint: analysis is off limits).
+>
 > **Status: DECIDED 2026-06-12.** Stack locked by owner: **Apify** (owner has
 > a subscription) for video acquisition · **Gemini** video-native analysis ·
 > per-film list assignment in the confirmation UI · source URL saved as the

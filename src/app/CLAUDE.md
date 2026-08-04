@@ -477,3 +477,12 @@ Branch `feat/phase-c-extraction`. The AI "share a video → extract films" featu
   save → summary. Empty/failed/auto-`?url=` (native share doorway) states. Static
   route; the home **"scan" button** routes here. Server logic in
   `src/lib/extraction-server.ts` (see `src/lib/CLAUDE.md`).
+  **Its poll cadence is shaped to when the answer can EXIST, not to attempt
+  count (2026-08-03)** — sparse (2s) until 8s because a fresh scan cannot finish
+  before ~10s, tight (1.2s) through the window where completion actually lands,
+  easing to 2.5s past 60s for the pathological tail. It used to do the opposite
+  (1.5s → 2.5s → **4s**), polling hardest while nothing could have happened and
+  slowest exactly when it became likely, so a finished scan could sit
+  undiscovered for 4s. Tighter polling costs a READ, not a write: the server
+  throttles its `lastPolledAt` stamp to ~once/15s. **The native share drawer
+  (`ShareFlowModel.swift`) mirrors this shape — keep the two in step.**

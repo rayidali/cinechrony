@@ -1090,3 +1090,93 @@ feature work; nearly all of it was making the project's own signals honest.
 
 Running theme, seven instances deep: a transport ack is not delivery, and a
 check that reports "absent" may only mean "I looked for it wrong."
+
+---
+
+## 2026-08-02 → 03 — a feature we already owned, and three timers that lied
+
+Builds **1.0 (12) through 1.0 (14)**. Two threads: navigation, then speed.
+
+### The back gesture was ours the whole time
+
+The owner said the swiping "isn't as good as what you added in the PWA
+version." Nothing had ever been added in the PWA version. **WebKit ships a
+back-forward swipe and turns it on for free in Safari and installed PWAs; a
+Capacitor WKWebView has it OFF by default, and Capacitor exposes no setting for
+it.** So the app silently lost Apple's real gesture — page snapshots,
+compositor-level parallax — when it moved into a native shell during Phase B,
+and nobody worked out which piece had gone. `native-transitions.tsx` had spent a
+year imitating a feature we already owned, which is exactly why no amount of
+tuning ever matched the original.
+
+The proof had been sitting in the repo since May: a comment in
+`swipe-back-container.tsx` explaining that it preventDefaults to stop "iOS's own
+edge-swipe-back from also firing." **The fix was one line of Swift.**
+
+Two things went wrong on the way there, both worth keeping:
+
+- **Build 10 was my own bad idea.** Before finding the real cause I hand-rolled
+  a snapshot-reveal layer. It ghosted two screens on top of each other. Every
+  gate passed, the simulator looked fine, and it took the owner's screenshots to
+  catch it. Reverted by build 11. **"No gate failed" is not "it works."**
+- **Build 12 shipped a regression with the fix.** Turning WebKit's gesture on
+  dropped a guard the JS version always had: it refused to start under an
+  overlay. WebKit doesn't know Vaul exists, so a swipe could pop the route out
+  from under an open sheet and strand its scroll lock — the page appeared to
+  scroll away leaving only the nav and FAB. **It doesn't throw, so Sentry saw
+  nothing**: a layout bug wearing a crash's clothes. Build 13 added a native
+  plugin plus `back-swipe-guard.tsx` to suspend the gesture while any sheet is
+  mounted, with the selector shared with `BodyStyleWatchdog` so prevention and
+  cure can't drift apart.
+
+### Then: why is scanning a reel slow?
+
+The owner compared us to Rodeo. Instead of guessing, we measured — 52 fresh
+production scans. **17% fell through to a fallback Gemini model and took ~5.6x
+longer**, because the chain was walked strictly serially: 2 attempts per model
+against a 110s abort, so a model that *hung* rather than errored could burn
+~223s before the second was even tried. Replaced with a hedged race. And since
+total duration was the only number we had, per-stage `timings` went on every
+job.
+
+Those timings then paid for themselves three times over:
+
+- **A stage that scaled backwards.** Grounding 14 films took 2.5s; grounding
+  *one* took 8.6s. That makes no sense until you notice the stage was really
+  `max(grounding, thumbnail upload)` — we were rehosting an image to R2 while
+  the user waited to learn which films were in their reel. Moved off the
+  critical path. It's now **0.5s**.
+- **A stage that was a constant.** Acquire cost 7.0s, 7.1s, 7.1s, 7.0s. **A
+  constant is never a network fetch.** Measuring against the real actor showed
+  ~5.0s of genuine work plus ~1.8s of us not looking: the poll loop slept a
+  blind 3s *before* its first check. Apify can hold the connection instead.
+  Next scans: **5.6s and 6.5s.**
+- **Two clients that backed off exactly when they should have leaned in.** Both
+  poll loops slowed from 1.5s to 4s over time — polling hardest in the first
+  seconds when a scan cannot possibly be done, and slowest after ~14s when it
+  becomes likely. A finished scan could sit undiscovered for four seconds. And
+  the share drawer's save button stayed disabled until the reveal animation
+  finished: on a 14-film reel, 3.3s with the answer computed and on screen.
+
+### The most useful decision was not to act
+
+By round three, analysis was 77% of the clock and the obvious move was to lower
+the 25s hedge delay — four of six scans now exceed it, so the "costs nothing
+extra" guarantee had quietly stopped holding. **We didn't.** The analyse timer
+covers downloading the video, encoding it, uploading it to Google, *and* the
+model thinking. If the time is upload, hedging sooner races more concurrent
+uploads against the same egress and makes it worse. The fix and the anti-fix
+look identical from the outside.
+
+So the timer got split — transfer vs thinking — and the decision waits for the
+next few scans.
+
+One process mistake, logged because it nearly shipped: `npm run dev` was started
+beside `npm run build:static`. They fight over the same directories, the export
+died **silently**, and `cap sync` copied a two-day-old bundle into the app.
+Nothing errored. It was caught by checking a file's timestamp.
+
+Running theme, now nine instances deep and sharpened: **a number you cannot
+attribute is a number you cannot act on.** Every fix in this stretch came from
+splitting one timer into two, and the only thing left unfixed is the one still
+waiting on a split.

@@ -3,9 +3,15 @@
 > Last updated 2026-08-03 (end of the scan-latency session). Project: a social
 > movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
 > Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `3643d36`. TestFlight: 1.0 (13) is VALID + BETA_APPROVED
-> and serving; 1.0 (14) uploaded 2026-08-03 carrying the share-drawer latency
-> fixes.** Working tree clean at handoff.
+> **Tip of `main`: `59e2877`. TestFlight: 1.0 (14) is VALID + BETA_APPROVED,
+> listed in BOTH the internal and friends groups, carrying the share-drawer
+> latency fixes.** Working tree clean at handoff.
+>
+> **Open thread, first thing to pick up:** the scan's analyse stage is now 77%
+> of wall-clock and the fix depends on a measurement that needs **two or three
+> more scans** to exist. Run `npx tsx scripts/scan-stages.tmp.ts` and read the
+> new `prep + infer` split — see entry -13. Do NOT lower `HEDGE_DELAY_MS` before
+> reading it; it is as likely to hurt as help.
 >
 > **Uploading a build no longer works through Xcode's keychain session** — it
 > has expired (`missing Xcode-Token` / `No provider associated with App Store
@@ -34,6 +40,26 @@
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -13. **Scan latency round 3 — the analyse stage was split, and the obvious
+>    fix was deliberately NOT made (2026-08-03, `59e2877`, server-side).** Round
+>    2 landed and is visible (acquire **7.0/7.1s → 5.6/6.5s**, ground ~1s), but
+>    analyse is now **77% of wall-clock** — the two newest scans 35.0s and 58.9s,
+>    and **two of the last four fell through to the THIRD model**. The tempting
+>    move was lowering `HEDGE_DELAY_MS` (25s), which four of six scans now
+>    exceed, so the "happy path costs nothing extra" guarantee has quietly
+>    stopped holding. **It would have been a coin flip:** `watchMs` covers the
+>    CDN download + base64 encode + the Gemini race, and if the time is UPLOAD
+>    then hedging sooner races more concurrent uploads against the same egress
+>    and makes it worse. So the timer was split instead — `prepMs`, `inferMs`,
+>    `mediaBytes`, `transport` on `StageTimings`. Also found: **the escalation
+>    retry re-runs both halves** (re-downloading and re-encoding the video), so
+>    `prep + infer` under `watchMs` means escalation ran (flagged `ESC`); and
+>    **the Files API wait-for-ACTIVE poll had the same blind 1500ms first sleep**
+>    the Apify loop had, now ramped from 300ms. **NEXT STEP: scan 2-3 reels, run
+>    `scripts/scan-stages.tmp.ts`, and let the split pick between "race sooner"
+>    and "ship fewer bytes".** Caveat on record: six scans is a small sample and
+>    the newest reels are different content, so some of the slowdown may be
+>    heavier video rather than a regression — `mediaBytes` settles that.
 > -12. **Scan latency round 2 — the timings paid off immediately (2026-08-03,
 >    `3643d36`, server half live on deploy, client half in build 14).** Owner
 >    scanned a few clips; **analysis was declared off limits (accuracy is the

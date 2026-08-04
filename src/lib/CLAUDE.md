@@ -587,6 +587,17 @@ extract the films → save to lists. Server modules:
   `canEditList` via `addMovieToList`, idempotent, ≤25 items/≤5 lists, partial
   success). Collections `extraction_jobs` (uid-scoped) + `extraction_cache`
   (shared, ~30d TTL) — both server-only deny rules.
+  **`StageTimings` on every finished REAL job** (absent on cache hits, followers
+  and stub runs — recording zeroes for them would poison any average):
+  `fetchMs`/`watchMs`/`matchMs`/`totalMs`, plus the `watchMs` split
+  `prepMs`/`inferMs`/`mediaBytes`/`transport` from `analyzeForFilms`. Every scan
+  fix so far came from splitting one of these, and each split found something
+  the total had hidden — a `matchMs` that was really `max(grounding, R2 rehost)`,
+  a `fetchMs` that was 26% poll granularity. Read them with
+  `scripts/scan-stages.tmp.ts` (read-only, gitignored).
+  **The thumbnail is deliberately OFF the critical path:** `provisionalThumbnail`
+  (sync, source CDN url, zero network) finishes the job, then `persistThumbnail`
+  rehosts to R2 afterwards and patches both the job doc and the shared cache doc.
 - **`video-acquire-server.ts`** — `acquireVideo(url, provider)` with per-provider
   Apify adapters: Instagram → `easyapi~instagram-reels-downloader`
   (`result.medias[].url` + `result.title` caption — handles IG login-walls that
@@ -595,9 +606,27 @@ extract the films → save to lists. Server modules:
   fetch-dataset (run-sync-get-dataset-items proved unreliable for some actors),
   HARD-capped 120s/1024MB, retry once (downloaders are proxy-flaky). actorId +
   tokens resolved at CALL time (robust to late env).
+  **The poll LONG-POLLS (`waitForFinish`, 2026-08-03).** The stage used to cost a
+  flat 7.0s on every scan — a constant, which a network fetch never is: ~5.0s of
+  real actor work plus a blind 3s sleep BEFORE the first status check. Apify now
+  holds the connection (max 60s), so the start POST usually returns already
+  `SUCCEEDED` and the status loop runs zero times. The loop's explicit error
+  backoff is load-bearing: that removed 3s sleep was the only thing stopping a
+  5xx status endpoint from spinning. Suite 58 asserts all of it.
 - **`gemini-server.ts`** — `analyzeForFilms(video)` → structured films via Gemini
-  REST (`responseSchema`): YouTube `fileData.fileUri`, IG/TikTok inline base64
-  (<18MB; caption-only fallback). Retries transient 503/429.
+  REST (`responseSchema`): YouTube `fileData.fileUri`, IG/TikTok inline base64,
+  bigger clips via the **Files API** (resumable upload + wait-for-ACTIVE, ramped
+  300ms→1500ms poll), caption-only fallback. Model chain is raced by
+  `hedgedRace`, not walked serially.
+  **`analyzeForFilms` reports its own sub-timings (2026-08-03):** `prepMs`
+  (fetching the media off the CDN and getting it to Google) vs `inferMs` (the
+  model race), plus `mediaBytes` + `transport`. They exist because a slow
+  "watching" stage is otherwise unattributable, and **the two halves want
+  opposite fixes** — hedge sooner helps a slow MODEL and actively hurts a slow
+  UPLOAD (more concurrent uploads, same egress). `reqBody` is built ONCE, so
+  raced models share the encode; they do each re-POST it, which is exactly why
+  the split matters before touching `HEDGE_DELAY_MS`. Note the escalation retry
+  calls `analyzeForFilms` AGAIN and so re-runs both halves.
 - **`extraction-types.ts`** — client+server-safe types (`ExtractionJobView`,
   `ExtractionFilm`, stages, etc.).
 

@@ -4,6 +4,36 @@
 
 ## Current state (2026-08-03)
 
+- **SCAN LATENCY, ROUND 3 — "analyse" is not all thinking, so it was split
+  (2026-08-03, `59e2877`, server-side, live on deploy).** The round-2 fixes
+  landed and are visible: acquire **7.0/7.1s → 5.6/6.5s**, ground holding at
+  ~1s. But over six measured scans the analyse stage is now **77% of
+  wall-clock** and the two newest were **35.0s and 58.9s**, with **two of the
+  last four falling through to the THIRD model** (`gemini-3.1-flash-lite`). The
+  hedge is working — those scans were rescued, and the ladder timings check out
+  (a 58.9s win by model 3 = primary at t0, hedge at 25s, third at ~50s,
+  answering in ~9s). **The obvious move was to lower `HEDGE_DELAY_MS` (25s) —
+  four of six scans now exceed it, so the "happy path spawns no second call and
+  costs nothing extra" guarantee has quietly stopped holding. It was NOT made,
+  deliberately.** `watchMs` covers the CDN download, the base64 encode AND the
+  Gemini race, and **the two halves want OPPOSITE fixes**: if the model is
+  slow, hedging sooner helps; if we are still uploading, hedging sooner races
+  more concurrent uploads against the same egress and makes it **worse**.
+  Acting on the total would have been a coin flip. So `StageTimings` gained
+  **`prepMs`** (bytes to Google — inline base64, or a Files API upload +
+  wait-for-ACTIVE), **`inferMs`** (the model race), **`mediaBytes`** and
+  **`transport`** (`youtube|inline|files|images|none`). Two things fell out of
+  reading that path: **the escalation retry re-runs BOTH halves**, re-fetching
+  and re-encoding the video (so `prepMs + inferMs` landing well under `watchMs`
+  is itself the signal that escalation ran — `scan-stages.tmp.ts` flags it
+  `ESC`), and **the Files API wait-for-ACTIVE poll had the same blind first
+  sleep as the Apify loop** (flat 1500ms before the first check; now ramped
+  300ms → 1500ms). No accuracy surface touched — same models, same prompt, same
+  chain. Audit **628/628**. **OPEN:** needs a few more scans to read the split;
+  the answer decides between "race sooner" and "ship fewer bytes", which are
+  not compatible. Caveat on record: six scans is a small sample and the newest
+  reels are different content, so part of the slowdown may be heavier video
+  rather than a regression — `mediaBytes` settles that too.
 - **SCAN LATENCY, ROUND 2 — the per-stage timings paid for themselves on the
   first four scans (2026-08-03, `3643d36`, server half LIVE on deploy, client
   half rides build 14).** Owner scanned a few clips and asked to look, with the
@@ -1647,24 +1677,33 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-08-03 — **build 1.0 (14) shipped + BETA_APPROVED** (`3643d36`
-on `main`; both groups list it). A latency session with one constraint from the
-owner: **analysis is off limits, accuracy is the product** — so every fix is
-outside it, and the per-stage `timings` added on 08-02 are what made them
-findable. **The acquire stage was a flat 7.0s on every scan, and a constant is
-never a network fetch**: ~5.0s of real Apify work plus a blind 3s sleep before
-the first status check, now replaced by `waitForFinish`. **Both client poll
-loops were shaped backwards**, polling hardest while the answer could not yet
-exist and easing to 4s exactly when it became likely, so a finished scan could
-sit undiscovered. **And the share drawer's save button was disabled until a
-reveal animation finished** — ~3.3s on a 14-film reel with the answer already
-computed and on screen. The 08-02 thumbnail split is confirmed by the same
-numbers (ground 8.6s → 0.5s). Audit **628/628**, harness **43/43**. Two process
-facts cost real time and are recorded above: running `npm run dev` beside
-`npm run build:static` makes the export abort silently so `cap sync` ships a
-stale `out/` (**stat it before every sync**), and Xcode's keychain upload
-session has expired — builds now go up via the ASC API key, and a
-failure-looking `exportArchive` log can still end in `Upload succeeded`.*
+*Last updated: 2026-08-03 — **build 1.0 (14) shipped + BETA_APPROVED**; tip of
+`main` `59e2877`, both groups list build 14. A latency session with one
+constraint from the owner: **analysis is off limits, accuracy is the product**
+— so every fix is outside it, and the per-stage `timings` added on 08-02 are
+what made them findable. **The acquire stage was a flat 7.0s on every scan, and
+a constant is never a network fetch**: ~5.0s of real Apify work plus a blind 3s
+sleep before the first status check, now replaced by `waitForFinish` (measured
+7.0/7.1s → **5.6/6.5s** on the next scans). **Both client poll loops were shaped
+backwards**, polling hardest while the answer could not yet exist and easing to
+4s exactly when it became likely, so a finished scan could sit undiscovered.
+**And the share drawer's save button was disabled until a reveal animation
+finished** — ~3.3s on a 14-film reel with the answer already computed and on
+screen. The 08-02 thumbnail split is confirmed by the same numbers (ground 8.6s
+→ 0.5s). Then round 3, which is mostly a decision NOT to act: analyse is now
+77% of the clock and the obvious fix (lower the 25s hedge delay, which four of
+six scans already exceed) **could have made it worse**, because `watchMs` mixes
+uploading the video with the model thinking and those two want opposite fixes.
+Split into `prepMs`/`inferMs`/`mediaBytes`/`transport` instead; the next few
+scans decide it. Audit **628/628**, harness **43/43**. Two process facts cost
+real time and are recorded above: running `npm run dev` beside `npm run
+build:static` makes the export abort silently so `cap sync` ships a stale `out/`
+(**stat it before every sync**), and Xcode's keychain upload session has expired
+— builds now go up via the ASC API key, and a failure-looking `exportArchive`
+log can still end in `Upload succeeded`. The through-line of all three rounds:
+**a number you cannot attribute is a number you cannot act on** — every fix
+here came from splitting a timer, and the one thing left unfixed is the one
+still waiting on a split.*
 
 *Previously: 2026-08-02 — **builds 1.0 (12) + 1.0 (13) shipped + BETA_APPROVED**
 (`1ea3d80` → `b464478` → `b9ebf8a` on `main`). The headline is a subtraction, not
