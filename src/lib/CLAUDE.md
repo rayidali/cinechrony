@@ -105,12 +105,21 @@ src/lib/
 │                              # rsvp(3-state)/reschedule/cancel/didnt-happen/
 │                              # complete (watches for all attendees), the
 │                              # reminder+morning-after ticker (transactional
-│                              # claims, tz-aware, driven by a 10-min GH Actions
-│                              # cron → adminRoute tick endpoint), guest RSVP via
+│                              # claims, tz-aware, driven by a GH Actions cron
+│                              # → adminRoute tick endpoint), guest RSVP via
 │                              # capability shareCode (public routes, per-IP
 │                              # buckets, hostile-name sanitization, no uid in
 │                              # public payloads), RFC 5545 .ics. TTL caches w/
-│                              # write invalidation. Tests: 53 + 54.
+│                              # write invalidation. Tests: 53 + 54 + 59.
+│                              # ⚠ THE CRON SAYS 10 MIN AND DELIVERS ~92 (median;
+│                              # 49/217 min/max, measured 08-06 — GitHub drops
+│                              # ~90% of scheduled runs). The reminder claim is
+│                              # ONE-SHOT, so the delivery window is sized
+│                              # against that GAP, not the cron string, and
+│                              # widened mostly EARLY — early still tells the
+│                              # truth, late does not. `reminderTiming` keeps
+│                              # the copy honest at both ends. Do not shrink
+│                              # these constants without re-measuring the gap.
 ├── movie-night-types.ts      # Wire types (view/public view/enums) — client-safe
 ├── movie-night-format.ts     # CLIENT date/time formatters + nightPhase()
 │                              # (upcoming/today/soon/now/past) — must stay in

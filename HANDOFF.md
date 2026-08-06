@@ -1,11 +1,22 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-08-03 (end of the scan-latency session). Project: a social
+> Last updated 2026-08-06 (movie-night ticker session). Project: a social
 > movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
 > Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `59e2877`. TestFlight: 1.0 (14) is VALID + BETA_APPROVED,
+> **Tip of `main`: `c4a9b4f`. TestFlight: 1.0 (14) is VALID + BETA_APPROVED,
 > listed in BOTH the internal and friends groups, carrying the share-drawer
 > latency fixes.** Working tree clean at handoff.
+>
+> **THE CRON IS NOT A CRON — read this before trusting any schedule in this
+> repo.** `.github/workflows/movie-nights-tick.yml` asks for a tick every 10
+> minutes. Measured 2026-08-06 over the preceding 12 days, GitHub ran **177 of
+> the ~1790 requested**, with consecutive gaps of **49 / 92 / 217 minutes**
+> (min / median / max). Anything sized against 10 minutes is sized wrong;
+> **size against ~3.5 hours.** Two prod reminders were silently lost to this
+> before anyone noticed — see entry -14. The 2026-07-26 note that the ticker
+> was "verified firing on schedule" checked that runs existed and were green
+> and inferred cadence from that; it was wrong, and it is the tenth instance of
+> the standing signal-honesty class.
 >
 > **Open thread, first thing to pick up:** the scan's analyse stage is now 77%
 > of wall-clock and the fix depends on a measurement that needs **two or three
@@ -40,6 +51,34 @@
 >
 > **Resuming?** Latest stretch (all on `main`; `CLAUDE.md` "Current state"
 > carries the per-arc detail — this list is the map):
+> -14. **The movie-night ticker was losing reminders, and the failure email was
+>    the least of it (2026-08-06, `a070896` + `c4a9b4f`, server-side, live on
+>    deploy).** Owner forwarded a GitHub "all jobs were cancelled" mail. Two
+>    scheduled runs had hung **~905s against a 7-9s healthy baseline** — with
+>    **nothing due**, so it was a transient upstream stall, not work. The log
+>    said nothing because `curl -sf` prints neither status nor body on failure.
+>    Fixed with `--max-time 60 --retry 2` (bounded ~190s), `timeout-minutes: 5`
+>    as backstop, and `-f` dropped so a refusal explains itself.
+>    **The real find was underneath it:** the cron doesn't run every 10 minutes
+>    (see the callout above), and the reminder claim is **one-shot**, so a night
+>    whose whole delivery window falls between two ticks is lost with no retry
+>    and no error. Proven in prod: `zNyWnTuk` (05.08, preset '2h', 135min
+>    window) and `nFZpy6d2` (27.07, preset 'showtime', **15min** window) each
+>    had **zero** ticks land inside them; the control `LpHVgfAz` had exactly one
+>    and sent fine — it was luck. Windows are now sized against the gap
+>    (`'2h'` 330min, `'showtime'` 210min), widened **mostly early** because an
+>    early reminder still tells the truth and a late one doesn't, and
+>    `reminderTiming` makes the copy say "started at 8:00 pm" when it is late
+>    rather than "starts soon, grab your snacks".
+>    **Two things worth carrying forward.** The early lead is deliberately NOT
+>    applied to morning-anchored presets — the first cut applied it everywhere
+>    and that means a **7am push**; suite 54 caught it, which is the argument
+>    for the whole gate. And `REMINDER_WINDOW_BEFORE_MS` is now derived from the
+>    grace instead of duplicating it: the sweep selects on `scheduledFor`, so a
+>    grace widened past the query lookback would have been silently unreachable
+>    while the constant read as if it worked. **Suite 59 (9) is the ticker's
+>    first test of any kind** — 5 of the 9 fail on the pre-fix constants. Audit
+>    **637/637**.
 > -13. **Scan latency round 3 — the analyse stage was split, and the obvious
 >    fix was deliberately NOT made (2026-08-03, `59e2877`, server-side).** Round
 >    2 landed and is visible (acquire **7.0/7.1s → 5.6/6.5s**, ground ~1s), but

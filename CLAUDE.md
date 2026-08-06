@@ -2,8 +2,54 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-08-03)
+## Current state (2026-08-06)
 
+- **THE MOVIE-NIGHT CRON IS NOT A CRON — and it had been dropping reminders
+  (2026-08-06, `a070896` + `c4a9b4f`, server-side, live on deploy).** Owner
+  forwarded a GitHub Actions "all jobs were cancelled" email. That part was
+  small: two scheduled runs hung **~905s against a 7-9s healthy baseline**,
+  with **nothing due** — a transient upstream stall, not work. The job had no
+  timeout and `curl -sf` prints neither status code nor body on failure, so it
+  parked a runner for 15 minutes and reported nothing. Now `--max-time 60
+  --retry 2` (bounded ~190s), `timeout-minutes: 5` as backstop, `-f` dropped so
+  a refusal explains itself.
+  **UNDERNEATH IT WAS THE REAL BUG.** `.github/workflows/movie-nights-tick.yml`
+  asks for `*/10`. Over the 12 days to 08-06, GitHub ran **177 of the ~1790
+  requested**, gaps **49 / 92 / 217 minutes** (min/median/max). The reminder
+  claim is **ONE-SHOT** — miss the window and nothing retries, nothing errors —
+  so a night whose ENTIRE window falls inside one gap is lost silently. Proven
+  against prod: `zNyWnTuk` (05.08, preset `'2h'`, 135min window) and `nFZpy6d2`
+  (27.07, preset `'showtime'`, **15min** window) each had **zero** ticks land
+  inside them. The control `LpHVgfAz` had exactly one, and sent fine — it was
+  luck, not design. **A 15-minute window against a 92-minute median cannot
+  work, and `'showtime'` effectively never fired at all.**
+  Windows are now sized against the GAP, not the cron string:
+  `REMINDER_EARLY_LEAD_MS` (2h) + `REMINDER_GRACE_MS` (15min → **90min**) give
+  `'2h'` 330min and `'showtime'` 210min against a 217min worst case. Widened
+  **mostly on the EARLY side deliberately** — a reminder an hour early still
+  tells the truth, one an hour late does not — and `reminderTiming`
+  (`ahead|soon|started`) makes the copy honest at whichever end it lands on
+  ("solaris started at 8:00 pm", not "starts soon, grab your snacks"). tbd
+  nights carry `timing: null`, encoding *in the data* that the 8pm anchor is
+  never reasoned about rather than trusting a branch to ignore it.
+  **THE MISTAKE WORTH KEEPING:** the first cut applied the early lead to EVERY
+  preset, which for `'morning'` and tbd means a **7am push** — and those two
+  never had the problem, their window already runs 9am → showtime. **Suite 54
+  caught it.** That is the argument for the pre-commit gate in one line. Also
+  fixed: `REMINDER_WINDOW_BEFORE_MS` is now DERIVED from the grace instead of
+  duplicating it — the sweep selects on `scheduledFor`, so a grace widened past
+  the query's lookback would have been silently unreachable while the constant
+  read as though it worked.
+  **`scripts/audit-tests/59-movie-night-tick.test.ts` (9) is the ticker's FIRST
+  TEST OF ANY KIND** — which is precisely why this ran unnoticed for weeks. 5 of
+  the 9 fail on the pre-fix constants; the other 4 are guardrails (still
+  bounded, still one-shot, no 7am push, no anchor leak). Audit **637/637**.
+  **Tenth instance of the standing signal class, and the sharpest yet:** the
+  2026-07-26 note that the ticker was "confirmed firing on schedule and
+  succeeding repeatedly" was true about every run it looked at and false about
+  the only thing that mattered. It checked that runs existed and were green,
+  and inferred cadence from that. **A green run proves the tick ran, never that
+  it ran often enough.**
 - **SCAN LATENCY, ROUND 3 — "analyse" is not all thinking, so it was split
   (2026-08-03, `59e2877`, server-side, live on deploy).** The round-2 fixes
   landed and are visible: acquire **7.0/7.1s → 5.6/6.5s**, ground holding at
@@ -1677,7 +1723,29 @@ See `firestore.rules` for complete rules. Key principles:
 
 ---
 
-*Last updated: 2026-08-03 — **build 1.0 (14) shipped + BETA_APPROVED**; tip of
+*Last updated: 2026-08-06 — tip of `main` `c4a9b4f`. A one-screenshot session:
+the owner forwarded a GitHub Actions failure email and it turned out to be the
+visible edge of a silent one. The email itself was two runs hanging ~905s with
+**nothing due** (a transient stall, on a job with no timeout and a `curl -sf`
+that prints nothing on failure — both fixed). **The thing underneath it had
+been losing movie-night reminders.** `*/10` in the workflow is a request, not a
+guarantee: GitHub ran **177 of ~1790 ticks** over 12 days, gaps of
+**49/92/217 minutes**, and the reminder claim is one-shot — so a night whose
+whole delivery window falls between two ticks is dropped with no retry and no
+error. Two prod nights already were, one of them on a `'showtime'` preset whose
+window is **15 minutes wide against a 92-minute median gap**. Windows are now
+sized against the measured gap and widened mostly EARLY (early still tells the
+truth; late doesn't), with `reminderTiming` making a late reminder say "started
+at 8:00 pm" instead of "starts soon". Two things worth more than the fix: the
+first cut applied the early lead to every preset, which for `'morning'` means a
+**7am push**, and **suite 54 caught it** — the gate paying for itself in one
+line; and the ticker had **no test of any kind** until suite 59, which is
+exactly why weeks of dropped reminders looked like nothing at all. The
+07-26 "ticker verified firing on schedule" note was true about every run it
+inspected and wrong about the only question that mattered: **a green run proves
+the tick ran, never that it ran often enough.** Audit **637/637**.*
+
+*Previously: 2026-08-03 — **build 1.0 (14) shipped + BETA_APPROVED**; tip of
 `main` `59e2877`, both groups list build 14. A latency session with one
 constraint from the owner: **analysis is off limits, accuracy is the product**
 — so every fix is outside it, and the per-stage `timings` added on 08-02 are
