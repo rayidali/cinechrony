@@ -16,6 +16,7 @@ import { getDb } from '@/firebase/admin';
 import { createTtlCache, cached } from '@/lib/server-cache';
 import { getBlockSet, isBlockedBetween } from '@/lib/blocks-server';
 import { sendPushToUser, type PushPayload } from '@/lib/push-server';
+import type { ReminderTiming } from '@/lib/movie-night-types';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type Notification,
@@ -634,6 +635,12 @@ export type MovieNightReminderNotificationCtx = MovieNightNotificationCtx & {
    *  'morning' preset can land on a future date at the edges. Set by the S2
    *  ticker; drives the "tonight" vs. dated framing. */
   isTonight: boolean;
+  /** Where the send actually landed relative to showtime (`reminderTiming`).
+   *  The ticker's delivery window is hours wide because the cron it rides is
+   *  hours coarse, so this notification CANNOT assume it is early: it may be
+   *  going out up to 90 minutes after the film started. `null` for a tbd
+   *  night, which has no showtime to be early or late for. */
+  timing: ReminderTiming | null;
 };
 
 /** Fired by the S2 ticker at the night's chosen reminder preset fire time, on
@@ -655,14 +662,33 @@ export async function createMovieNightReminderNotification(
   // so it can't promise a start — "starts soon" and "grab your snacks" would
   // both be inventing a time. It nudges the day and names what's still open,
   // which is also the nudge most likely to get the host to pick an hour.
-  const previewText = ctx.timeTbd
-    ? (ctx.isTonight
-        ? `tonight: ${ctx.movieTitle}. showtime still tbd.`
-        : `${ctx.dateLabel}: ${ctx.movieTitle}, ${ctx.timeLabel}`)
-    : (ctx.isTonight
-        ? `tonight: ${ctx.movieTitle} at ${ctx.timeLabel}. grab your snacks.`
-        : `${ctx.dateLabel}: ${ctx.movieTitle} at ${ctx.timeLabel}`);
-  const pushTitle = ctx.timeTbd ? 'movie night today' : 'movie night starts soon';
+  // "tonight" when it is tonight, the date otherwise — one framing shared by
+  // every branch below so a late send can't accidentally keep saying "tonight"
+  // after midnight has rolled the local date over.
+  const when = ctx.isTonight ? 'tonight' : ctx.dateLabel;
+
+  let previewText: string;
+  let pushTitle: string;
+  if (ctx.timeTbd) {
+    previewText = ctx.isTonight
+      ? `tonight: ${ctx.movieTitle}. showtime still tbd.`
+      : `${ctx.dateLabel}: ${ctx.movieTitle}, ${ctx.timeLabel}`;
+    pushTitle = 'movie night today';
+  } else if (ctx.timing === 'started') {
+    // The honest version of a late reminder. It is worth sending anyway: the
+    // alternative under a coarse cron is silence, and a nudge 20 minutes in
+    // still gets someone onto the couch.
+    previewText = `${when}: ${ctx.movieTitle} started at ${ctx.timeLabel}.`;
+    pushTitle = 'movie night started';
+  } else if (ctx.timing === 'ahead') {
+    // More than 3h out — real, but "starts soon" and "grab your snacks" would
+    // be rushing someone who has an afternoon to spare.
+    previewText = `${when}: ${ctx.movieTitle} at ${ctx.timeLabel}`;
+    pushTitle = 'movie night coming up';
+  } else {
+    previewText = `${when}: ${ctx.movieTitle} at ${ctx.timeLabel}. grab your snacks.`;
+    pushTitle = 'movie night starts soon';
+  }
   await writeMovieNightNotification(
     db, recipientId, 'movie_night_reminder', ctx, previewText, pushTitle,
   );

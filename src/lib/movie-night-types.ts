@@ -12,6 +12,17 @@ export type MovieNightStatus = 'proposed' | 'cancelled' | 'completed' | 'didnt_h
 
 export type RsvpAnswer = 'in' | 'maybe' | 'out';
 
+/** Where a reminder's ACTUAL send landed relative to the showtime it is about
+ *  — set by the S2 ticker (`reminderTiming`), consumed by the notification
+ *  copy (`createMovieNightReminderNotification`).
+ *
+ *  It lives here rather than in either of those modules purely to keep them
+ *  acyclic: `movie-nights-server` already imports the notification builders,
+ *  so the type they share cannot live in `notifications-server` without the
+ *  edge pointing both ways. `null` wherever it appears means a tbd night,
+ *  which has no showtime to be early or late for. */
+export type ReminderTiming = 'ahead' | 'soon' | 'started';
+
 /** Host-controlled visibility of a movie night pinned to a list. `'public'`
  *  is the same behavior every night had before this field existed — visible
  *  (redacted, via `MovieNightPinView`) to anyone who can see the list,

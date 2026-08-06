@@ -58,6 +58,7 @@ import type {
   MovieNightView,
   MovieNightVisibility,
   ReminderPreset,
+  ReminderTiming,
   RsvpAnswer,
 } from '@/lib/movie-night-types';
 
@@ -1115,9 +1116,44 @@ export async function completeMovieNight(
 
 const TICK_BATCH_CAP = 50;
 
-const REMINDER_WINDOW_BEFORE_MS = 15 * 60_000;
+/**
+ * ⚠ THE DELIVERY WINDOW IS SIZED AGAINST THE TICK GAP, NOT THE CRON STRING.
+ *
+ * `.github/workflows/movie-nights-tick.yml` asks for a tick every 10 minutes
+ * and does not get one: measured 2026-08-06 over the preceding 12 days, GitHub
+ * ran 177 of the ~1790 requested, with consecutive gaps of 49 / 92 / 217
+ * minutes (min / median / max). A reminder whose ENTIRE window falls inside one
+ * of those gaps is never sent and never retried — the claim is one-shot. Two
+ * prod nights were lost exactly that way before anyone noticed:
+ *
+ *   zNyWnTuk  05.08  preset '2h'        135min window, 0 ticks inside it
+ *   nFZpy6d2  27.07  preset 'showtime'   15min window, 0 ticks inside it
+ *
+ * So the window is widened, and deliberately widened MOSTLY ON THE EARLY SIDE:
+ * a reminder that arrives an hour early still tells the truth ("at 8pm
+ * tonight"), while one that arrives an hour late does not. `reminderTiming`
+ * below keeps the copy honest at whichever end it actually lands on.
+ *
+ * Resulting widths, against that 217-minute worst-case gap:
+ *   '2h'                [-4h,  +90m]  330min  ✔ covered
+ *   'showtime'          [-2h,  +90m]  210min  ~ covered to the median, not the tail
+ *   'morning' / tbd     [9am,  +90m]   hours  ✔ covered, and takes NO early lead
+ *                                             (it would only mean a 7am push)
+ *
+ * Do not shrink these back toward the cron's nominal cadence without first
+ * re-measuring the real gap — that number is a property of GitHub's scheduler,
+ * not of this repo.
+ */
+const REMINDER_EARLY_LEAD_MS = 2 * 3600_000;
+const REMINDER_GRACE_MS = 90 * 60_000;
+
+// Coupled on purpose: the query selects on `scheduledFor`, so a night whose
+// showtime has already passed is only reachable while it stays inside this
+// lookback. Widening the grace without widening the lookback would leave the
+// extra grace unreachable — the reminder would still be dropped, and the
+// constant would read as if it weren't.
+const REMINDER_WINDOW_BEFORE_MS = REMINDER_GRACE_MS;
 const REMINDER_WINDOW_AFTER_MS = 26 * 3600_000;
-const REMINDER_GRACE_MS = 15 * 60_000;
 
 const MORNING_AFTER_WINDOW_BEFORE_MS = 3 * 24 * 3600_000;
 const MORNING_AFTER_WINDOW_AFTER_MS = 2 * 3600_000;
@@ -1164,6 +1200,27 @@ function reminderFireTime(
   return new Date(scheduledFor.getTime() - 2 * 3600_000); // '2h' (also the default)
 }
 
+/**
+ * How the reminder's ACTUAL send moment relates to the showtime it describes.
+ *
+ * The window above is wide enough that a reminder can legitimately land hours
+ * early or up to 90 minutes late, so the copy can no longer assume "soon" —
+ * "movie night starts soon / grab your snacks" is simply false when the film
+ * began an hour ago, and that lie is what a wider window would otherwise buy.
+ *
+ * Pure duration arithmetic, no timezone: unlike the client-only `nightPhase`
+ * (movie-night-format.ts), which reads the *browser's* local calendar, this
+ * only ever compares two instants, so it is safe on a server that has no
+ * meaningful local timezone of its own.
+ */
+const REMINDER_SOON_MS = 3 * 3600_000;
+
+export function reminderTiming(scheduledFor: Date, now: Date): ReminderTiming {
+  const until = scheduledFor.getTime() - now.getTime();
+  if (until <= 0) return 'started';
+  return until <= REMINDER_SOON_MS ? 'soon' : 'ahead';
+}
+
 /** 10:00 am local on the calendar day AFTER `scheduledFor`. */
 function morningAfterFireTime(scheduledFor: Date, tzOffsetMinutes: number): Date {
   return localClockTime(scheduledFor, tzOffsetMinutes, 10, 0, 1);
@@ -1198,8 +1255,24 @@ async function tickOneReminder(db: FirebaseFirestore.Firestore, id: string, now:
     const scheduledFor = data.scheduledFor.toDate();
     const tzOffsetMinutes = data.tzOffsetMinutes ?? 0;
     const fireTime = reminderFireTime(scheduledFor, tzOffsetMinutes, data.reminderPreset ?? '2h', data.timeTbd);
-    const graceEnd = scheduledFor.getTime() + REMINDER_GRACE_MS;
-    if (now.getTime() < fireTime.getTime() || now.getTime() > graceEnd) return { claimed: false };
+    // Send from a lead BEFORE the preset's fire time rather than exactly at it:
+    // the tick may not run again for hours, so "a bit early" is the only
+    // alternative to "never" (see REMINDER_EARLY_LEAD_MS).
+    //
+    // But only where the lead actually pays. A SHOWTIME-anchored preset ('2h',
+    // 'showtime') is the one with a window too narrow to survive the tick gap.
+    // A MORNING-anchored one ('morning', and every tbd night, which overrides
+    // to morning-of) already runs from 9am to showtime — hours wide, never the
+    // thing that got dropped. Leading those earlier buys no reliability and
+    // costs a 7am push, which is strictly worse than the problem being solved.
+    const morningAnchored = data.timeTbd === true || (data.reminderPreset ?? '2h') === 'morning';
+    const sendFrom = fireTime.getTime() - (morningAnchored ? 0 : REMINDER_EARLY_LEAD_MS);
+    const sendUntil = scheduledFor.getTime() + REMINDER_GRACE_MS;
+    // Pre-existing edge, unchanged and called out rather than silently papered
+    // over: 'morning' on an after-midnight showtime puts 9am AFTER the film, so
+    // the window is empty and no reminder is possible. Rare enough to leave to
+    // a deliberate decision rather than fold into a latency fix.
+    if (now.getTime() < sendFrom || now.getTime() > sendUntil) return { claimed: false };
 
     tx.update(ref, { reminderSentAt: FieldValue.serverTimestamp() });
     return { claimed: true, data };
@@ -1228,6 +1301,12 @@ async function tickOneReminder(db: FirebaseFirestore.Firestore, id: string, now:
     fromDisplayName: null,
     fromPhotoUrl: hostProfile?.photoURL ?? null,
     isTonight: isNightToday(scheduledFor, tzOffsetMinutes, now),
+    // A tbd night has no showtime to be early or late FOR, so it carries no
+    // timing at all. Encoding that as `null` — rather than computing it off the
+    // 8pm anchor and trusting the copy to ignore it — keeps "the anchor is
+    // never reasoned about" true in the DATA, not merely in whichever branch
+    // happens to read it today.
+    timing: data.timeTbd ? null : reminderTiming(scheduledFor, now),
   };
 
   const recipients = (data.inviteeUids || []).filter((uid) => data.rsvps?.[uid]?.answer !== 'out');
