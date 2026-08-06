@@ -1,9 +1,17 @@
 name: movie-nights-tick
 
 # MOVIE-NIGHT-PLAN.md § locked decision 3: no paid Vercel cron, so a GitHub
-# Actions schedule ticks the reminder + morning-after sweep every 10 minutes
-# via the ADMIN_SECRET-gated route. Requires the ADMIN_SECRET repo secret
-# (same value as the Vercel env var) — inert (401s) without it.
+# Actions schedule ticks the reminder + morning-after sweep via the
+# ADMIN_SECRET-gated route. Requires the ADMIN_SECRET repo secret (same value
+# as the Vercel env var) — inert (401s) without it.
+#
+# ⚠ THE CADENCE BELOW IS A REQUEST, NOT A GUARANTEE. Measured 2026-08-06 over
+# the preceding 12 days: 177 runs where '*/10' asks for ~1790 — GitHub drops
+# roughly 90% of scheduled ticks on a free public repo, and the gap between
+# consecutive runs ran 49min / 92min / 217min (min/median/max). Do NOT size a
+# delivery window against 10 minutes; size it against ~3.5 hours. Two prod
+# reminders have already been lost this way (see movie-nights-server.ts
+# § REMINDER_GRACE_MS).
 
 on:
   schedule:
@@ -15,9 +23,26 @@ jobs:
     name: tick
     if: github.repository == 'rayidali/cinechrony'
     runs-on: ubuntu-latest
+    # A tick with nothing due answers in ~8s; the slowest healthy run on
+    # record is 34s. Anything beyond this is an upstream stall, not work.
+    # On 2026-08-06 two runs hung with NOTHING due and parked a runner for
+    # 15 minutes before something else cancelled them — long enough that the
+    # next scheduled tick was already due, and mailed as a bare "all jobs
+    # were cancelled" with no reason in the log (`-sf` prints nothing on
+    # failure, so neither the status code nor the body ever survived).
+    timeout-minutes: 5
     steps:
       - name: POST /api/v1/admin/movie-nights-tick
         run: |
-          curl -sf -X POST \
+          # -f is deliberately NOT used: it suppresses the response body, which
+          # is the only place the reason for a refusal (401 bad secret, 500
+          # misconfigured, an error envelope) is ever written down.
+          code=$(curl -sS -X POST \
+            --max-time 60 --retry 2 --retry-delay 5 \
             -H "x-admin-token: ${{ secrets.ADMIN_SECRET }}" \
-            https://movienight-kappa.vercel.app/api/v1/admin/movie-nights-tick
+            -w '%{http_code}' -o /tmp/tick.out \
+            https://movienight-kappa.vercel.app/api/v1/admin/movie-nights-tick) || true
+          echo "HTTP ${code:-<no response>}"
+          cat /tmp/tick.out 2>/dev/null || true
+          echo
+          [ "$code" = "200" ] || exit 1
