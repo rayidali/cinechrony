@@ -20,6 +20,33 @@ import { sendPushToUser } from '@/lib/push-server';
 
 const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
+// ─── the unfiled pen (Phase D2) ───────────────────────────────────────────
+//
+// The identity of the unfiled list lives HERE, with the module that owns the
+// list-doc shape, rather than in `unfiled-server.ts` — that module imports
+// `createList` from this one, so putting it there would make the edge point
+// both ways. `unfiled-server.ts` re-exports these for its own callers.
+
+/** Reserved, deterministic list id. Real lists get 20-char Firestore auto-ids,
+ *  so this cannot collide with one anybody already has. Being fixed is what
+ *  makes provisioning idempotent under concurrent saves and lets the client
+ *  address `users/{uid}/lists/unfiled/movies` with no lookup. */
+export const UNFILED_LIST_ID = 'unfiled';
+export const UNFILED_LIST_NAME = 'unfiled';
+
+/**
+ * Whether a list doc is the unfiled pen.
+ *
+ * NEVER express this as a Firestore `where('isUnfiled', '!=', true)`: an
+ * inequality does not match docs where the field is ABSENT, so that query would
+ * silently drop every ordinary list — the field is never backfilled, so every
+ * list ever created lacks it. In-memory filtering is also free at each call
+ * site, since all of them already read the full collection to map it.
+ */
+export function isUnfiledList(data: { isUnfiled?: unknown } | undefined): boolean {
+  return data?.isUnfiled === true;
+}
+
 /** Owner + 9 collaborators. Used by invites + collaborators routes. */
 export const MAX_LIST_MEMBERS = 10;
 
@@ -276,6 +303,11 @@ export async function deleteList(
   const listDoc = await listRef.get();
   if (!listDoc.exists) throw new ListNotFoundError();
   if (listDoc.data()?.isDefault) throw new CannotDeleteDefaultListError();
+  // The pen is infrastructure, not a list the user made. It is unreachable
+  // from the lists grid so this is defence in depth against a hand-rolled
+  // request, but deleting it would silently break the save path's fallback —
+  // and `clearUnfiled` already provides the thing a user would actually want.
+  if (isUnfiledList(listDoc.data())) throw new CannotDeleteDefaultListError();
 
   // Delete all movies in the list (batched).
   const moviesSnapshot = await listRef.collection('movies').get();
@@ -894,21 +926,28 @@ export async function getUserLists(userId: string): Promise<{ lists: ListSummary
     .orderBy('createdAt', 'desc')
     .get();
 
-  const lists = listsSnapshot.docs.map((doc) => {
-    const data = doc.data();
-    return {
-      id: doc.id,
-      name: data.name,
-      isDefault: data.isDefault || false,
-      isPublic: data.isPublic || false,
-      ownerId: userId,
-      collaboratorIds: data.collaboratorIds || [],
-      coverImageUrl: data.coverImageUrl || null,
-      movieCount: data.movieCount || 0,
-      createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-      updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
-    };
-  });
+  const lists = listsSnapshot.docs
+    // The unfiled pen is a staging area, not a list. It has its own screen and
+    // must never appear in the lists grid, the list picker, or anywhere else
+    // this feeds. Filtered in memory rather than in the query: a Firestore
+    // `where('isUnfiled', '!=', true)` would drop every list MISSING the field,
+    // which is all of them (see `isUnfiledList`).
+    .filter((doc) => !isUnfiledList(doc.data()))
+    .map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        name: data.name,
+        isDefault: data.isDefault || false,
+        isPublic: data.isPublic || false,
+        ownerId: userId,
+        collaboratorIds: data.collaboratorIds || [],
+        coverImageUrl: data.coverImageUrl || null,
+        movieCount: data.movieCount || 0,
+        createdAt: data.createdAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+        updatedAt: data.updatedAt?.toDate?.()?.toISOString?.() || new Date().toISOString(),
+      };
+    });
   return { lists };
 }
 
@@ -950,6 +989,9 @@ export async function getListsForMovie(
   );
 
   const lists = listsSnap.docs
+    // Never offer the pen as a destination in the add-to-list sheet. Films
+    // arrive there on their own; choosing it would be choosing not to choose.
+    .filter((doc) => !isUnfiledList(doc.data()))
     .map((doc) => {
       const data = doc.data();
       return {

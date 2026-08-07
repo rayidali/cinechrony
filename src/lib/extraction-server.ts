@@ -36,6 +36,7 @@ import { acquireVideo, type AcquiredVideo } from '@/lib/video-acquire-server';
 import { analyzeForFilms, captionCandidates, isGeminiConfigured, type GeminiAnalysis, type RawFilmCandidate } from '@/lib/gemini-server';
 import { addMovieToList, ListAccessDeniedError } from '@/lib/movies-server';
 import { createList } from '@/lib/lists-server';
+import { ensureUnfiledList } from '@/lib/unfiled-server';
 import { rehostImageToR2 } from '@/lib/r2-server';
 import { sendPushToUser } from '@/lib/push-server';
 import {
@@ -818,6 +819,11 @@ export async function saveExtraction(
     }
   }
 
+  // Resolved at most once per call, and only if some item actually arrives
+  // without a target — a save that names every destination never touches the
+  // pen and never provisions it.
+  let unfiledListId: string | undefined;
+
   const results: SaveItemResult[] = [];
   for (const item of items) {
     const tmdbId = Number(item?.tmdbId);
@@ -840,8 +846,18 @@ export async function saveExtraction(
       ownerId = t.ownerId;
       listId = t.listId;
     } else {
-      results.push({ tmdbId, ok: false, error: 'no_target' });
-      continue;
+      // NO DESTINATION IS NOW A VALID SAVE (Phase D2). This used to be
+      // `error: 'no_target'` — the grab could not complete without the user
+      // naming a list first, which stopped a first-time user at the exact
+      // moment of first value. The film lands in the unfiled pen instead and
+      // gets a home whenever they feel like giving it one.
+      try {
+        listId = unfiledListId ?? (unfiledListId = await ensureUnfiledList(uid));
+        ownerId = uid;
+      } catch {
+        results.push({ tmdbId, ok: false, error: 'no_target' });
+        continue;
+      }
     }
 
     try {

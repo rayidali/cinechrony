@@ -20,6 +20,7 @@ import { callRoute } from './lib/route-call.ts';
 import { POST as saveRoute } from '@/app/api/v1/extractions/[jobId]/save/route';
 import { createExtraction, runExtractionPipeline } from '@/lib/extraction-server';
 import { createList } from '@/lib/lists-server';
+import { UNFILED_LIST_ID } from '@/lib/unfiled-server';
 
 let me_: TestUser, other: TestUser, meTok: string, otherTok: string;
 
@@ -139,4 +140,56 @@ test('re-saving the same film is idempotent (deduped)', async () => {
   if (!second.body.ok) return;
   assert.equal(second.body.data.results[0].ok, true);
   assert.equal(second.body.data.results[0].deduped, true, 'second save dedupes');
+});
+
+// ─── Phase D2 — a save with NO destination ────────────────────────────────
+//
+// This used to be `{ ok: false, error: 'no_target' }`: the grab could not
+// complete without the user naming a list, which stopped a first-time user at
+// the exact moment of first value. It now lands in the unfiled pen.
+
+test('a film saved with no target lands in unfiled instead of failing', async () => {
+  const jobId = await doneJob(me_.uid);
+  const res = await callRoute<{ results: any[] }>(saveRoute, 'POST', {
+    token: meTok, params: { jobId }, url: `http://test/api/v1/extractions/${jobId}/save`,
+    body: { items: [{ ...HEAT }] }, // no `target` at all
+  });
+  assert.equal(res.status, 200);
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+
+  const r = res.body.data.results[0];
+  assert.equal(r.ok, true, 'no longer a no_target failure');
+  assert.equal(r.listId, UNFILED_LIST_ID);
+
+  const movie = await adminDb().doc(`users/${me_.uid}/lists/${UNFILED_LIST_ID}/movies/movie_949`).get();
+  assert.ok(movie.exists, 'the film is kept, unfiled');
+  assert.ok((movie.data()?.socialLink || '').includes('tiktok.com'), 'the clip still travels with it');
+});
+
+test('a whole reel can be kept without choosing anything', async () => {
+  const jobId = await doneJob(me_.uid);
+  const res = await callRoute<{ results: any[] }>(saveRoute, 'POST', {
+    token: meTok, params: { jobId }, url: `http://test/api/v1/extractions/${jobId}/save`,
+    body: { items: [{ ...HEAT }, { ...GOODFELLAS }] },
+  });
+  assert.ok(res.body.ok);
+  if (!res.body.ok) return;
+  assert.ok(res.body.data.results.every((r) => r.ok), 'every film kept');
+
+  const pen = await adminDb().doc(`users/${me_.uid}/lists/${UNFILED_LIST_ID}`).get();
+  assert.equal(pen.data()?.movieCount, 2, 'both in the pen, counted once each');
+});
+
+test('a save that names every destination never provisions a pen', async () => {
+  // The pen is created lazily. A user who always files as they save should
+  // never accumulate an empty staging list.
+  const jobId = await doneJob(me_.uid);
+  const { listId } = await createList(me_.uid, 'crime');
+  await callRoute(saveRoute, 'POST', {
+    token: meTok, params: { jobId }, url: `http://test/api/v1/extractions/${jobId}/save`,
+    body: { items: [{ ...HEAT, target: { ownerId: me_.uid, listId } }] },
+  });
+  const pen = await adminDb().doc(`users/${me_.uid}/lists/${UNFILED_LIST_ID}`).get();
+  assert.equal(pen.exists, false, 'no pen doc was created');
 });
