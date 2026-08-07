@@ -2,7 +2,40 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-08-06)
+## Current state (2026-08-07)
+
+- **PHASE D OPENED — reposition, redesign, launch (2026-08-07, tracker
+  `PHASE-D-REPOSITION.md`, design refs `../design-refs-2026-08/`).** Owner's
+  call, and it reframes the product: **cinechrony should not lead with the
+  social feed, because that is a cold-start product.** Lead instead with the
+  Rodeo-shaped thing — bridging social media and keeping track of what you
+  want to watch — plus shared/collaborative lists. The feed stays, moved out of
+  the main focus. **The value ladder is now the ordering of what works with
+  zero friends on day one:** grab → unfiled → shared list → movie night → feed.
+  Today's home is the exact inverse (`for you · friends` tabs, then discovery
+  rails, then the activity feed), which is the cold start problem as a specific
+  screen rather than a worry.
+  **The structural finding that decides the sequencing:** `POST /extractions/
+  [jobId]/save` REQUIRES `target: {ownerId, listId}` per film, so **the grab
+  cannot complete without a filing decision** — a first-time user sharing a reel
+  is stopped and asked to name a list at the exact moment of first value.
+  `unfiled` (SS20) is not an inbox feature, it is the removal of that stop, and
+  that is why it sequences before the home redesign.
+  **Two data gaps found by reading, both prerequisites:** the clip card wants a
+  creator handle and caption — `socialThumbnail` is stored, `caption` is
+  extracted by `video-acquire-server.ts` then **discarded**, and the handle is
+  parsed for no provider; and **user timezone is stored nowhere**, so the
+  notification policy's 10pm-9am quiet hours has nothing to reason about (movie
+  nights carry their own per-night `tzOffsetMinutes`, which is why reminders
+  work and this doesn't). Bottom nav needs no change — already `home · lists ·
+  you`. **Ten reference screens are saved outside the repo** (public repo,
+  unreleased designs — same convention as the v3 package) with an index naming
+  each one.
+- **Also 2026-08-07:** `design-refs-2026-08/README.md` is the picture index;
+  `PHASE-D-REPOSITION.md` is what gets built and in what order. Read the index
+  first.
+
+## Previously (2026-08-06)
 
 - **THE MOVIE-NIGHT CRON IS NOT A CRON — and it had been dropping reminders
   (2026-08-06, `a070896` + `c4a9b4f`, server-side, live on deploy).** Owner

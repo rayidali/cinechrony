@@ -7,6 +7,17 @@
 > listed in BOTH the internal and friends groups, carrying the share-drawer
 > latency fixes.** Working tree clean at handoff.
 >
+> **PHASE D IS THE CURRENT WORK (opened 2026-08-07).** Tracker:
+> **`PHASE-D-REPOSITION.md`**. Design references: **`../design-refs-2026-08/`**
+> (10 screens + an index; outside the repo on purpose — public repo, unreleased
+> designs). The owner's reframe: **stop leading with the social feed, it is a
+> cold-start product.** Lead with the grab + shared lists; the feed moves down,
+> it does not die. Sequencing hinges on one fact — **the save endpoint requires
+> a destination list, so the grab cannot finish without a filing decision** —
+> which makes `unfiled` a prerequisite, not a feature. Three open decisions are
+> listed in that tracker's §6; **decision (1) — whether home is one screen with
+> conditional blocks or three screens — must be settled before D3 is built.**
+>
 > **THE CRON IS NOT A CRON — read this before trusting any schedule in this
 > repo.** `.github/workflows/movie-nights-tick.yml` asks for a tick every 10
 > minutes. Measured 2026-08-06 over the preceding 12 days, GitHub ran **177 of
