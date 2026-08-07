@@ -330,3 +330,53 @@ export async function ensureUserProfile(
   }
   return { defaultListId: listsSnapshot.docs[0].id };
 }
+
+// ─── Timezone (Phase D0) ──────────────────────────────────────────────────
+//
+// Why this exists at all: the notification policy (PHASE-D-REPOSITION.md § D6)
+// promises "nothing between 10pm and 9am", and until now the app has had no
+// idea what 10pm means for a given user. Movie nights sidestep it by carrying
+// their own `tzOffsetMinutes` per night — which is why reminders work and a
+// quiet-hours rule could not have been written.
+//
+// It lives on `users_private/{uid}`, NOT the public `users/{uid}`, for two
+// reasons: nothing client-side needs to read it (quiet hours is evaluated
+// server-side at send time), and a timezone offset is effectively a coarse
+// longitude — there is no reason to publish where someone lives on a doc whose
+// rule is `allow read: if true`.
+
+/** Minutes to ADD to a UTC instant to get the user's local time — the same
+ *  convention `movie-nights-server.ts` uses (`-new Date().getTimezoneOffset()`),
+ *  deliberately, so quiet hours can reuse `localClockTime`'s arithmetic instead
+ *  of introducing a second timezone model that could drift from the first. */
+export const TZ_OFFSET_MIN = -12 * 60; // UTC-12 (Baker Island)
+export const TZ_OFFSET_MAX = 14 * 60;  // UTC+14 (Line Islands)
+
+export function isValidTzOffset(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= TZ_OFFSET_MIN &&
+    value <= TZ_OFFSET_MAX
+  );
+}
+
+/** Idempotent. The client only calls this when its offset actually CHANGES
+ *  (see `timezone-sync.tsx`), so this is not a per-launch write — it fires
+ *  roughly once per device, plus once per DST shift or flight. */
+export async function setUserTimezone(uid: string, tzOffsetMinutes: number): Promise<void> {
+  await getDb().collection('users_private').doc(uid).set(
+    { tzOffsetMinutes, tzUpdatedAt: FieldValue.serverTimestamp() },
+    { merge: true },
+  );
+}
+
+/** `null` when never recorded — every caller must handle that, because it is
+ *  the normal state for every user who has not opened the app since D0 shipped
+ *  and for anyone whose write failed. Quiet hours must degrade to "send it"
+ *  rather than silently swallowing notifications for an unknown timezone. */
+export async function getUserTimezone(uid: string): Promise<number | null> {
+  const snap = await getDb().collection('users_private').doc(uid).get();
+  const raw = snap.data()?.tzOffsetMinutes;
+  return isValidTzOffset(raw) ? raw : null;
+}

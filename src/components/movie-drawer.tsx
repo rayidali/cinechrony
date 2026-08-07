@@ -6,14 +6,13 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from '@/lib/native-nav';
 import {
   Loader2, ExternalLink, Instagram, Youtube, ChevronDown, ChevronRight,
-  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award, CalendarPlus,
+  Bookmark, MoreHorizontal, MessageCircle, Eye, Trash2, Link2, Award, CalendarPlus, Play,
 } from 'lucide-react';
 import { Drawer } from 'vaul';
 
 import type { Movie, TMDBCast, TMDBCrew, Review, SearchResult, WatchProvider, Watch } from '@/lib/types';
 import { format } from 'date-fns';
-import { parseVideoUrl, getProviderDisplayName } from '@/lib/video-utils';
-import { Button } from '@/components/ui/button';
+import { parseVideoUrl, getProviderDisplayName, getVideoThumbnail } from '@/lib/video-utils';
 import { SheetMenu, SheetMenuItem } from '@/components/ui/sheet-menu';
 import { TiktokIcon } from './icons';
 import { VideoEmbed } from './video-embed';
@@ -780,6 +779,24 @@ export function MovieDrawer({
                   </div>
                 ) : null}
 
+                {/* ── the clip that did it (D1) ──
+                    Sits HERE, directly under the synopsis, because it is the
+                    reason this film is in the app at all — provenance, not a
+                    footnote. It used to render dead last, below "more like
+                    this", as a full-bleed embed plus a full-width button. */}
+                {(hasEmbeddableVideo || movie.socialLink) && (
+                  <ClipCard
+                    url={movie.socialLink!}
+                    thumbnailUrl={movie.socialThumbnail}
+                    caption={movie.socialCaption}
+                    author={movie.socialAuthor}
+                    savedAt={movie.createdAt}
+                    embeddable={!!hasEmbeddableVideo}
+                    providerName={getProviderDisplayName(parsedVideo?.provider || null)}
+                    ProviderIcon={SocialIcon}
+                  />
+                )}
+
                 {/* ── the scores ── */}
                 {(mediaDetails?.imdbRating || mediaDetails?.rottenTomatoes || mediaDetails?.metascore) && (
                   <Block title="the scores">
@@ -886,21 +903,6 @@ export function MovieDrawer({
                   </div>
                 )}
 
-                {/* ── the clip ── */}
-                {(hasEmbeddableVideo || movie.socialLink) && (
-                  <Block title="the clip">
-                    {hasEmbeddableVideo && <VideoEmbed url={movie.socialLink} thumbnailUrl={movie.socialThumbnail} />}
-                    {movie.socialLink && (
-                      <Button asChild variant="outline" className="w-full mt-3">
-                        <Link href={movie.socialLink} target="_blank" rel="noopener noreferrer">
-                          {SocialIcon && <SocialIcon className="h-4 w-4 mr-2" />}
-                          {hasEmbeddableVideo ? <>open in {getProviderDisplayName(parsedVideo?.provider || null)}</> : <><ExternalLink className="h-4 w-4 mr-2" />open link</>}
-                        </Link>
-                      </Button>
-                    )}
-                  </Block>
-                )}
-
                 {/* ── footer meta ── */}
                 <div className="mt-8 mb-3 pt-4 border-t border-hair font-mono text-[10px] text-muted-foreground lowercase leading-relaxed">
                   {[directors[0] ? `dir. ${directors[0].name}` : null, studio, countries || null, runtimeLabel]
@@ -994,6 +996,117 @@ function WatchRow({ watch, onEdit }: { watch: Watch; onEdit?: () => void }) {
     );
   }
   return <div className="p-3.5">{body}</div>;
+}
+
+/**
+ * "the clip that did it" — the source clip, as provenance rather than an
+ * appendix (Phase D1, `../design-refs-2026-08/screens/02-*.png`).
+ *
+ * WHAT CHANGED AND WHY: this used to be the last block in the drawer, below
+ * "more like this", rendering a full-width `VideoEmbed` and a full-width
+ * button — the owner's note was "all the way at the bottom and too big and
+ * huge, doesn't look aesthetic". It is now a square tap-target with the
+ * actions as small pills beside it, and it sits directly under the synopsis.
+ * Playback is unchanged: tapping the thumbnail or "play here" mounts the same
+ * `VideoEmbed` inline, so nothing about the embed contract moved.
+ *
+ * TWO DELIBERATE DEVIATIONS from the mockup, both because our drawer is not
+ * the mockup's screen:
+ *   · the mockup puts a "saved from a clip · 23.07" chip on the hero. Our hero
+ *     has the poster straddling its bottom edge, so a chip there collides.
+ *     The provenance rides the block's trailing slot instead.
+ *   · the mockup's heading is a small red eyebrow. Every other block in this
+ *     drawer ("the scores", "where to watch", "cast & crew") is a lowercase
+ *     headline, and internal consistency wins over matching one screen.
+ *
+ * `caption` and `author` render only when present, and today they never are —
+ * see the `socialCaption`/`socialAuthor` note in types.ts. Absence is the
+ * normal case forever, not a temporary gap, so the layout must not reserve
+ * space for them.
+ */
+function ClipCard({
+  url, thumbnailUrl, caption, author, savedAt, embeddable, providerName, ProviderIcon,
+}: {
+  url: string;
+  thumbnailUrl?: string;
+  caption?: string;
+  author?: string;
+  savedAt?: Date;
+  embeddable: boolean;
+  providerName: string;
+  ProviderIcon: React.ComponentType<{ className?: string }> | null;
+}) {
+  const [playing, setPlaying] = useState(false);
+  const poster = getVideoThumbnail(url, thumbnailUrl);
+
+  const saved = savedAt instanceof Date && !Number.isNaN(savedAt.getTime())
+    ? `saved ${String(savedAt.getDate()).padStart(2, '0')}.${String(savedAt.getMonth() + 1).padStart(2, '0')}`
+    : undefined;
+
+  const PILL =
+    'inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 ' +
+    'font-ui font-semibold text-[12px] lowercase active:opacity-60 transition-opacity';
+
+  return (
+    <Block title="the clip that did it" trailing={saved}>
+      {playing && embeddable ? (
+        <VideoEmbed url={url} thumbnailUrl={thumbnailUrl} autoLoad />
+      ) : (
+        // `items-center` when there is no handle or caption — which is EVERY
+        // film today (see types.ts). The column then holds only the two pills,
+        // and top-aligning those against an 84px thumbnail leaves a hole.
+        <div className={`flex gap-3.5 ${author || caption ? '' : 'items-center'}`}>
+          <button
+            onClick={() => { haptic('light'); if (embeddable) setPlaying(true); }}
+            disabled={!embeddable}
+            aria-label={embeddable ? 'play the clip' : 'the source clip'}
+            className="relative h-[84px] w-[84px] flex-shrink-0 overflow-hidden rounded-xl bg-sunken ring-1 ring-black/10 active:opacity-80 transition-opacity disabled:active:opacity-100"
+          >
+            {poster ? (
+              <Image src={poster} alt="" fill className="object-cover" sizes="84px" unoptimized />
+            ) : (
+              <div className="absolute inset-0" style={{ background: 'oklch(0.30 0.05 155)' }} />
+            )}
+            {embeddable && (
+              <span className="absolute inset-0 flex items-center justify-center">
+                <span className="flex h-8 w-8 items-center justify-center rounded-full bg-black/55 backdrop-blur-sm">
+                  <Play className="h-4 w-4 text-white translate-x-[1px]" fill="currentColor" strokeWidth={0} />
+                </span>
+              </span>
+            )}
+            {ProviderIcon && (
+              <span className="absolute bottom-1 left-1 flex h-5 w-5 items-center justify-center rounded-md bg-black/60 backdrop-blur-sm">
+                <ProviderIcon className="h-3 w-3 text-white" />
+              </span>
+            )}
+          </button>
+
+          <div className="min-w-0 flex-1">
+            {author && (
+              <div className="font-mono text-[11px] text-muted-foreground truncate">@{author}</div>
+            )}
+            {caption && (
+              <p className={`font-serif italic text-[13px] leading-snug text-foreground/85 line-clamp-2 ${author ? 'mt-1' : ''}`}>
+                “{caption}”
+              </p>
+            )}
+            <div className={`flex flex-wrap items-center gap-2 ${author || caption ? 'mt-2.5' : 'mt-0.5'}`}>
+              {embeddable && (
+                <button onClick={() => { haptic('light'); setPlaying(true); }} className={PILL}>
+                  <Play className="h-3 w-3" fill="currentColor" strokeWidth={0} />
+                  play here
+                </button>
+              )}
+              <Link href={url} target="_blank" rel="noopener noreferrer" className={PILL}>
+                <ExternalLink className="h-3 w-3" strokeWidth={2} />
+                {embeddable ? `open in ${providerName}` : 'open link'}
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+    </Block>
+  );
 }
 
 function Block({

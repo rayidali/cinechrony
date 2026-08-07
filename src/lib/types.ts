@@ -147,6 +147,17 @@ export type Movie = {
   addedBy: UserId;
   socialLink?: string;
   socialThumbnail?: string; // poster frame of the source clip (for the card preview)
+  // Provenance of the clip the film was grabbed from, rendered by the drawer's
+  // "the clip that did it" card (Phase D1). BOTH ARE CURRENTLY UNPOPULATED and
+  // every reader must treat them as optional:
+  //   · `socialCaption` — video-acquire-server.ts already extracts this during
+  //     a scan (sliced to 2000 chars) and then DISCARDS it after analysis; the
+  //     save path needs to carry it through.
+  //   · `socialAuthor` — not extracted for any provider yet. It sits in the
+  //     Apify `raw` payload for some and is parsed for none, and plenty of
+  //     clips will never have one, so absence is permanent, not transitional.
+  socialCaption?: string;
+  socialAuthor?: string;
   status: 'To Watch' | 'Watched';
   createdAt?: Date;
   // Media type (movie or tv)

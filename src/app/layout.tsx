@@ -17,6 +17,7 @@ import { NativePushRegistration } from '@/components/native-push-registration';
 import { DeepLinkHandler } from '@/components/deep-link-handler';
 import { NativeShellInit } from '@/components/native-shell-init';
 import { PendingImportSync } from '@/components/pending-import-sync';
+import { TimezoneSync } from '@/components/timezone-sync';
 import { ImportProgressPill } from '@/components/import-progress-pill';
 import { NativeTransitions } from '@/components/native-transitions';
 import { StoryShareProvider } from '@/components/story-share-provider';
@@ -140,6 +141,7 @@ export default function RootLayout({
                         <PostHogProvider />
                         <DeepLinkHandler />
                         <PendingImportSync />
+                        <TimezoneSync />
                         <ImportProgressPill />
                         <StoryShareProvider>
                           <MovieNightProvider>
