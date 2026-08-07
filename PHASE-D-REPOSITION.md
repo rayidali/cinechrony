@@ -106,8 +106,21 @@ prerequisite, not a detail.
 
 ## 5. Sequencing
 
-Each item lists what it unblocks. **D1 and D5 are independent of everything and
-can go first or in parallel.**
+Each item lists what it unblocks. **D0, D1 and D5 are independent of everything
+and can go first or in parallel.**
+
+**Scope is the whole phase** (owner, 2026-08-07): D1–D7 all ship before App
+Store submission. That makes §4b (user timezone) a **hard prerequisite rather
+than a maybe**, which is why it is now D0 — a late discovery there would block
+D6 with the launch already queued behind it.
+
+### D0 — store the user's timezone *(tiny, do it first)*
+`users/{uid}.tzOffsetMinutes`, written on first launch after auth and refreshed
+when it changes (travel, DST). **Unblocks D6 entirely.** Same convention movie
+nights already use (minutes to ADD to UTC, `-new Date().getTimezoneOffset()`),
+so quiet hours can reuse the arithmetic in `movie-nights-server.ts` rather than
+inventing a second timezone model. Half a session; it exists purely so it is
+not the thing standing between a finished redesign and a submission.
 
 ### D1 — the clip that did it *(small, isolated)*
 The owner's most concrete complaint: "the social media link thing is all the
@@ -135,14 +148,34 @@ unfiled row, and notification 03.**
   permanent empty bucket nagging from the tab bar.
 
 ### D3 — home recomposition *(the big one; needs D2)*
-Needs-you strip, your-week, unfiled row, your lists, **feed demoted below all
-of it**. See §6 — the mockups are three states of one screen, and that reading
-needs confirming before build.
+**ONE screen, conditional blocks** (owner, 2026-08-07). Each block renders only
+when it has something to say — the deck's own rule for unfiled, applied to the
+whole screen:
+
+```
+tonight-hero        only if a night is tonight  →  else YOUR WEEK strip
+NEEDS YOU · n       only if something is pending
+UNFILED · n         only if non-empty
+YOUR LISTS          always
+THE FEED            always, and always last
+```
+
+The three mockups are three states of this, not three destinations. Building
+them as separate screens is the expensive mistake this decision avoids.
+
+**Also in D3: the discovery rails move behind search/explore** (owner). `dig
+in`, `top watchers`, `featured`, `community lists` come off home but keep
+working. They are NOT deleted, and the reason matters: unlike the feed they are
+global, not follow-graph, so they are the only thing with real content for a
+user who has grabbed nothing yet. They just stop competing with the grab for
+the front door. Files: `src/app/home/page.tsx` sheds them; the search overlay
+or a new explore surface gains them.
 
 ### D4 — tonight hero + `that's the one` / `another` *(needs D3)*
 A shuffle across films on your lists. **Cold-start trap: a new user has zero
 films**, so the empty state has to become the grab prompt rather than an
-embarrassed blank. Candidate to cut for launch.
+embarrassed blank. Same rule as every other block — if there is nothing to
+shuffle, the block does not render and the week strip stands in.
 
 ### D5 — onboarding *(independent; can run parallel with D1–D4)*
 Four screens, one promise and one picture each, ending in the permission
@@ -152,12 +185,15 @@ subtitle repeats the promise word for word.
   import. **Decide what survives** — the letterboxd import is real value and
   should not be deleted, only moved out of the first four screens.
 
-### D6 — notification policy + settings *(needs D5's promise, and §4b)*
+### D6 — notification policy + settings *(needs D0 and D5's promise)*
 Five ping types, quiet hours 10pm–9am except the night-of reminder, max one a
-day. **Blocked on storing user timezone.** Note the reminder work of 2026-08-06
-already respects a 9am floor for the `morning` preset.
+day. **Blocked on D0** — that is the whole reason D0 exists. Note the reminder
+work of 2026-08-06 already respects a 9am floor for the `morning` preset, so
+that path is consistent with the policy before the policy is written.
+The primer in D5 promises exactly two things; **the policy has to keep that
+promise or the primer becomes a lie the App Store reviewer can see.**
 
-### D7 — sunday wrapped *(nice-to-have)*
+### D7 — sunday wrapped
 **Keep it read-computed, a card in the feed, never a push** — the deck says so
 and the deck is right for a reason it may not know: the GH Actions cron drops
 ~90% of scheduled runs (see CLAUDE.md 2026-08-06), so anything that *must* fire
@@ -174,25 +210,30 @@ DNS, Blaze before ~150 users. Unchanged by this phase.
 
 ---
 
-## 6. Open decisions
+## 6. Decisions taken
 
-**(1) Is home one screen with conditional blocks, or several?**
-Mockups 03 / 04 / 05 show three different home compositions. The coherent
-reading is **one scroll whose blocks appear when they have something to say**:
-tonight-hero when a night is tonight → else the week strip; needs-you when
-anything is pending; unfiled when non-empty; your lists; then the feed. That
-matches the deck's own rule for unfiled ("only exists when it has something in
-it"). **Needs confirming before D3 is built** — building three screens when one
-was meant is the expensive mistake here.
+All three settled by the owner on **2026-08-07**, before any build:
 
-**(2) What happens to the discovery rails?**
-`dig in`, `top watchers`, `featured`, `community lists` have no place in the
-new home. They are real, working, and were a chunk of Phase 0.7. Options:
-delete, move behind search/explore, or keep a single rail low on home. Unlike
-the feed, these *do* have content on day one — they are just not the pitch.
+| # | question | decision |
+|---|---|---|
+| 1 | home: one screen or three? | **One screen, conditional blocks.** Each block renders only when it has something to say. See D3 for the order. |
+| 2 | the discovery rails? | **Move behind search/explore.** Not deleted — they are global rather than follow-graph, so they are the only day-one content for a user who has grabbed nothing. |
+| 3 | launch scope | **Everything D1–D7 before submitting.** Which promotes user-timezone storage from a footnote to **D0**. |
 
-**(3) Launch scope.** Everything D1–D7 before submitting, or ship D1–D3 + D5
-and let D4/D6/D7 follow? Affects whether the website work starts in parallel.
+Consequences worth restating, since they are easy to lose:
+- Scope being the whole phase means **D6 is on the critical path**, and D6
+  cannot start without D0. D0 is half a session and exists only so it is never
+  the thing blocking a finished redesign from being submitted.
+- Website (E) can start once **D3** is done — that is the point at which the
+  product the site describes actually exists.
+
+## 6b. Still open
+
+- **What survives from the current onboarding (D5).** 18 components today,
+  account-last, heavy on letterboxd import. The import is real value and should
+  move, not die — but where it lands is undecided.
+- **Whether `unfiled` gets a push at all** beyond notification 03's "once,
+  after 7 days, max 1 a week". Decide with D6, not before.
 
 ---
 
