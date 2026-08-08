@@ -2,8 +2,37 @@
 
 > A social movie watchlist app for friends to curate and share movies together.
 
-## Current state (2026-08-07)
+## Current state (2026-08-08)
 
+- **PHASE D IS MID-BUILD — D0-D4 SHIPPED (builds 15, 16, 17), AND D4 WAS
+  REJECTED (2026-08-08).** Read `HANDOFF.md` § START HERE first; it is written
+  for exactly this handoff. **The current job is HOME v2**, specified in
+  `PHASE-D-REPOSITION.md` § D3.2 / D4.3 against
+  `../design-refs-2026-08/screens/11-*.png` + `12-*.png`.
+  **Shipped and live on device (build 17):** D0 user timezone on `users_private`
+  (client-denied; a UTC offset is a coarse longitude and `users/{uid}` is
+  world-readable) · D1 "the clip that did it" moved under the synopsis as a
+  compact card · **D2 unfiled — `POST /extractions/[jobId]/save` no longer
+  requires a target, so the grab stops interrogating a first-time user at the
+  moment of first value** · D3 home recomposed with the discovery rails moved
+  into the search overlay's discover pane.
+  **D4 (the tonight hero) shipped and was rejected the same day**, and the
+  reasons are worth more than the feature: `another` was a button where it
+  should have been a gesture, `that's the one` opened a movie-night sheet its
+  label gave no hint of, and it spent a screenful of space doing one thing.
+  **Functional faults, not visual ones.** It is still live and comes out in v2.
+  **TWO PROCESS LESSONS, both the owner's corrections, both expensive:**
+  (1) design references are to be **SYNTHESISED, not assembled** — the first
+  home was transcribed block by block, which produced correct information
+  architecture with no art direction and read as an admin dashboard;
+  (2) fixing how something LOOKS does not fix whether it makes SENSE — the
+  second version was cinematic and still had a mislabelled button at the centre
+  of it. Both were caught by the owner on device, not by any gate here.
+  **Open in Sentry:** `UnknownError: Connection to Indexed Database server lost`
+  at `capacitor://localhost/home/` (production, 08-08). `c05f83a` dropped the
+  multi-tab Firestore cache manager on native — a WKWebView has one tab, so it
+  was pure overhead and extra IndexedDB coordination. **Surface reduction, not
+  a proven fix; reporting deliberately left on.**
 - **PHASE D OPENED — reposition, redesign, launch (2026-08-07, tracker
   `PHASE-D-REPOSITION.md`, design refs `../design-refs-2026-08/`).** Owner's
   call, and it reframes the product: **cinechrony should not lead with the

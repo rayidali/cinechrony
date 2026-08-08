@@ -1,22 +1,67 @@
 # Cinechrony — Session Handoff
 
-> Last updated 2026-08-06 (movie-night ticker session). Project: a social
-> movie-watchlist app (Next.js 15 + React 19 + Firebase + Tailwind +
-> Capacitor 8), repo at `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
-> **Tip of `main`: `c4a9b4f`. TestFlight: 1.0 (14) is VALID + BETA_APPROVED,
-> listed in BOTH the internal and friends groups, carrying the share-drawer
-> latency fixes.** Working tree clean at handoff.
+> Last updated 2026-08-08 (Phase D build-out). Project: a social movie-watchlist
+> app (Next.js 15 + React 19 + Firebase + Tailwind + Capacitor 8), repo at
+> `/Users/rayidali/Desktop/Cinechrony/cinechrony2`.
+> **Tip of `main`: `c05f83a`. TestFlight: 1.0 (17) is VALID + BETA_APPROVED,
+> serving to internal, friends and the public link.** Working tree clean.
 >
-> **PHASE D IS THE CURRENT WORK (opened 2026-08-07).** Tracker:
-> **`PHASE-D-REPOSITION.md`**. Design references: **`../design-refs-2026-08/`**
-> (10 screens + an index; outside the repo on purpose — public repo, unreleased
-> designs). The owner's reframe: **stop leading with the social feed, it is a
-> cold-start product.** Lead with the grab + shared lists; the feed moves down,
-> it does not die. Sequencing hinges on one fact — **the save endpoint requires
-> a destination list, so the grab cannot finish without a filing decision** —
-> which makes `unfiled` a prerequisite, not a feature. Three open decisions are
-> listed in that tracker's §6; **decision (1) — whether home is one screen with
-> conditional blocks or three screens — must be settled before D3 is built.**
+> ## START HERE
+>
+> **The job is HOME v2 — a rebuild, not a tweak.** Read, in this order:
+> 1. `PHASE-D-REPOSITION.md` § **D3.2 / D4.3** — the layout, and the three
+>    reasons the hero it replaces was rejected.
+> 2. `../design-refs-2026-08/screens/11-home-v2-calendar.png` and `12-*.png`,
+>    with the index in that folder's README.
+>
+> **Do not rebuild the tonight hero.** It shipped in build 17 and the owner
+> rejected it on 2026-08-08 for reasons that are functional, not visual:
+> `another` is a button where it should be a gesture; `that's the one` opens a
+> movie-night sheet its label gives no hint of; and it spends a screenful of
+> space doing one thing. It is currently still live on home and comes OUT as
+> part of v2.
+>
+> **The lesson that produced that rejection, and the one before it:** the owner
+> supplies design references to be SYNTHESISED, not assembled. The first home
+> was built by transcribing the mockups block by block — correct information
+> architecture, no art direction, and it read as an admin dashboard. The second
+> looked right and still did not make sense. Build the thing the references are
+> *for*, then check it against them.
+>
+> **Two open questions in v2, both the owner's to answer:**
+> - where the social feed goes (a fourth nav tab, or folded into `you`) — it is
+>   on neither reference and must not return to home;
+> - how the calendar reads a day's films without blowing the free-tier budget.
+>   `users/{uid}/watches` is the natural source (already per-user, already
+>   carries `watchedAt`), but the month query needs designing before it is
+>   written.
+>
+> ## Phase D so far — all shipped, all on device as build 17
+>
+> | | what | state |
+> |---|---|---|
+> | D0 | user timezone on `users_private` | ✅ unblocks D6 |
+> | D1 | "the clip that did it" on the film drawer | ✅ |
+> | D2 | **unfiled** — the grab no longer stops to ask for a list | ✅ server + screen |
+> | D3 | home recomposed; discovery rails moved into search | ✅ |
+> | D4 | the tonight hero | ⚠️ **shipped and rejected — remove in v2** |
+>
+> Still ahead: **D5 onboarding** and **D6 notification policy**, which should be
+> built TOGETHER — the permission primer promises exactly two notification
+> types, and if D6 ships anything outside them the primer becomes something an
+> App Store reviewer can see is false. Then D7 (sunday wrapped, read-computed,
+> never a push), E (website, separate repo), F (launch).
+>
+> **Gates, all green at handoff:** audit **673/673**, harness **43/43**,
+> typecheck + lint clean. Run the harness before every native build; it needs
+> `npm run dev` running, and dev must be STOPPED before `npm run build:static`.
+>
+> **Watching in Sentry:** `UnknownError: Connection to Indexed Database server
+> lost` at `capacitor://localhost/home/`, production, 2026-08-08. `c05f83a`
+> stopped using the multi-tab Firestore cache manager on native (a WKWebView has
+> one tab, so it was pure overhead). **That is surface reduction, not a proven
+> fix** — reporting was deliberately left on. If it recurs after build 18, the
+> next step is handling the loss rather than shrinking it.
 >
 > **THE CRON IS NOT A CRON — read this before trusting any schedule in this
 > repo.** `.github/workflows/movie-nights-tick.yml` asks for a tick every 10
