@@ -22,30 +22,13 @@ const BATCH_LIMIT = 450; // Firestore allows 500/batch; leave headroom.
 
 // ─── the unfiled pen (Phase D2) ───────────────────────────────────────────
 //
-// The identity of the unfiled list lives HERE, with the module that owns the
-// list-doc shape, rather than in `unfiled-server.ts` — that module imports
-// `createList` from this one, so putting it there would make the edge point
-// both ways. `unfiled-server.ts` re-exports these for its own callers.
-
-/** Reserved, deterministic list id. Real lists get 20-char Firestore auto-ids,
- *  so this cannot collide with one anybody already has. Being fixed is what
- *  makes provisioning idempotent under concurrent saves and lets the client
- *  address `users/{uid}/lists/unfiled/movies` with no lookup. */
-export const UNFILED_LIST_ID = 'unfiled';
-export const UNFILED_LIST_NAME = 'unfiled';
-
-/**
- * Whether a list doc is the unfiled pen.
- *
- * NEVER express this as a Firestore `where('isUnfiled', '!=', true)`: an
- * inequality does not match docs where the field is ABSENT, so that query would
- * silently drop every ordinary list — the field is never backfilled, so every
- * list ever created lacks it. In-memory filtering is also free at each call
- * site, since all of them already read the full collection to map it.
- */
-export function isUnfiledList(data: { isUnfiled?: unknown } | undefined): boolean {
-  return data?.isUnfiled === true;
-}
+// The identity lives in `unfiled-constants.ts`, which imports nothing — this
+// module and `unfiled-server.ts` both pull firebase-admin, and the `/unfiled`
+// screen is a client component that needs the id. Imported (not merely
+// re-exported) because the queries below call the predicate; re-exported so
+// list-domain callers still have a single import site.
+import { UNFILED_LIST_ID, UNFILED_LIST_NAME, isUnfiledList } from '@/lib/unfiled-constants';
+export { UNFILED_LIST_ID, UNFILED_LIST_NAME, isUnfiledList };
 
 /** Owner + 9 collaborators. Used by invites + collaborators routes. */
 export const MAX_LIST_MEMBERS = 10;
