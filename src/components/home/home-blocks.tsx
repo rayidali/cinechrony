@@ -24,7 +24,7 @@
 import { useMemo } from 'react';
 import Image from 'next/image';
 import { collection, query, limit } from 'firebase/firestore';
-import { ChevronRight, CalendarDays } from 'lucide-react';
+import { ChevronRight, CalendarDays, Check, Shuffle } from 'lucide-react';
 import { Link, useRouter } from '@/lib/native-nav';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { seededGradient } from '@/lib/seeded-gradient';
@@ -270,6 +270,96 @@ export function YourLists({ lists, total }: { lists: HomeList[]; total: number }
             </div>
           </Link>
         ))}
+      </div>
+    </section>
+  );
+}
+
+// ── tonight ──────────────────────────────────────────────────────────────
+
+/**
+ * The hero (Phase D4, `screens/03-home-tonight-hero.png`).
+ *
+ * TWO VARIANTS, because "tonight" means two different things:
+ *   · a night IS scheduled tonight → show THAT. There is nothing to suggest;
+ *     the decision is made and the hero's job is to make it tappable.
+ *   · no night tonight → suggest a film from your lists, with `another` to
+ *     reshuffle. This is the app's stated point ("finally answer what should
+ *     we watch?", onboarding 03) so it earns the top of the screen.
+ *
+ * WHAT IT WILL NOT SAY. The mockup's line is "on three of your lists. sam,
+ * mara and theo are all free." Only the first half is real — there is no
+ * availability model here, and a confident fabrication on the front page is
+ * worse than a shorter sentence. Runtime comes from the client-direct TMDB
+ * cache for the one film on screen, so it costs no Firestore read.
+ *
+ * Renders nothing when there is nothing to say, like every block on this
+ * screen — a new account with no films sees the week strip, not an
+ * embarrassed empty hero.
+ */
+export function TonightHero({
+  night, suggestion, runtimeLabel, onPrimary, onShuffle, canShuffle,
+}: {
+  night?: MovieNightView | null;
+  suggestion?: { title: string; year: string; listCount: number } | null;
+  runtimeLabel?: string | null;
+  onPrimary: () => void;
+  onShuffle?: () => void;
+  canShuffle?: boolean;
+}) {
+  const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' }).toLowerCase();
+  const title = night ? night.film.title : suggestion?.title;
+  if (!title) return null;
+
+  const because = night
+    ? [
+        formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd),
+        night.invitees.filter((i) => i.answer === 'in').length
+          ? `${night.invitees.filter((i) => i.answer === 'in').length} in`
+          : null,
+      ].filter(Boolean).join(' · ')
+    : [
+        // "lists" stays plural at any count: the noun is the collection being
+        // counted from, not the count itself. "on 1 of your list" is wrong.
+        suggestion && suggestion.listCount > 0
+          ? `on ${suggestion.listCount} of your lists`
+          : 'waiting in unfiled',
+        suggestion?.year || null,
+        runtimeLabel || null,
+      ].filter(Boolean).join(' · ');
+
+  return (
+    <section className="mt-6">
+      <div className="cc-eyebrow flex items-center gap-1.5 text-primary">
+        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
+        tonight · {weekday}
+      </div>
+      <h2 className="mt-1.5 font-headline text-[32px] font-bold lowercase leading-[0.98] tracking-[-0.02em]">
+        {title}
+      </h2>
+      {because && (
+        <p className="mt-1.5 font-serif italic text-[14px] leading-snug text-muted-foreground">
+          {because}
+        </p>
+      )}
+      <div className="mt-3.5 flex items-center gap-2.5">
+        <button
+          onClick={() => { haptic('medium'); onPrimary(); }}
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-ui text-[15px] font-semibold lowercase text-primary-foreground shadow-fab active:opacity-80"
+        >
+          {night ? <CalendarDays className="h-4 w-4" strokeWidth={2.2} />
+                 : <Check className="h-4 w-4" strokeWidth={2.6} />}
+          {night ? 'see the night' : "that's the one"}
+        </button>
+        {!night && canShuffle && (
+          <button
+            onClick={() => { haptic('light'); onShuffle?.(); }}
+            className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-3 font-ui text-[15px] font-semibold lowercase active:opacity-60"
+          >
+            <Shuffle className="h-4 w-4" strokeWidth={2} />
+            another
+          </button>
+        )}
       </div>
     </section>
   );

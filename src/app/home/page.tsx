@@ -10,7 +10,8 @@ import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import { ActivityFeed } from '@/components/activity-feed';
 import {
-  YourWeek, NeedsYou, UnfiledStrip, YourLists, useUnfiledFilms, type NeedsYouItem,
+  YourWeek, NeedsYou, UnfiledStrip, YourLists, TonightHero, useUnfiledFilms,
+  type NeedsYouItem,
 } from '@/components/home/home-blocks';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
@@ -25,6 +26,8 @@ import { formatNightTimeLabel } from '@/lib/movie-night-format';
 import type { MovieNightView } from '@/lib/movie-night-types';
 import type { ListSummary } from '@/lib/lists-server';
 import type { ListInvite } from '@/lib/types';
+import type { TonightFilm } from '@/lib/tonight-server';
+import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
 
 
 /**
@@ -102,7 +105,7 @@ export default function HomePage() {
   // sheet reaches the week strip on the next revalidation rather than instantly
   // — acceptable, because the sheet the user just acted in already shows the
   // truth, and the strip is a calendar, not a confirmation.
-  const { openNight } = useMovieNight();
+  const { openNight, openCreate } = useMovieNight();
   const nightsResult = useCachedAction<MovieNightView[]>(
     user ? `home-mn-upcoming:${user.uid}` : null,
     () => apiCall<MovieNightView[]>('GET', '/api/v1/movie-nights/upcoming'),
@@ -133,6 +136,44 @@ export default function HomePage() {
   );
 
   const unfiledFilms = useUnfiledFilms();
+
+  // ── D4 — the tonight hero ──────────────────────────────────────────────
+  // A night scheduled for today outranks any suggestion: the decision is made,
+  // and the hero's job becomes making it tappable rather than second-guessing
+  // it. Only then does the "what should we watch?" variant get a turn.
+  const tonightNight = useMemo(
+    () => upcomingNights.find(
+      (n) => new Date(n.scheduledFor).toDateString() === new Date().toDateString(),
+    ) ?? null,
+    [upcomingNights],
+  );
+
+  // A POOL, shuffled on the client — `another` must be free, so it never
+  // re-fetches (see tonight-server.ts).
+  const tonightResult = useCachedAction<{ films: TonightFilm[] }>(
+    user && !tonightNight ? `tonight:${user.uid}` : null,
+    () => apiCall<{ films: TonightFilm[] }>('GET', '/api/v1/tonight'),
+    { staleTime: 300_000 },
+  );
+  const pool = tonightResult.data?.films ?? [];
+  const [shuffleIdx, setShuffleIdx] = useState(0);
+  const suggestion = pool.length ? pool[shuffleIdx % pool.length] : null;
+
+  // Runtime for the ONE film on screen, client-direct from the module-cached
+  // TMDB helper — no Firestore read, and nothing fetched for the other 29.
+  const [runtimeLabel, setRuntimeLabel] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setRuntimeLabel(null);
+    if (!suggestion) return;
+    (async () => {
+      const d = await getMovieOrTVDetails(suggestion.mediaType, suggestion.tmdbId);
+      if (cancelled || !d) return;
+      const mins = 'runtime' in d && typeof d.runtime === 'number' ? d.runtime : null;
+      if (mins) setRuntimeLabel(`${Math.floor(mins / 60)}h ${mins % 60}m`);
+    })();
+    return () => { cancelled = true; };
+  }, [suggestion?.tmdbId, suggestion?.mediaType]);
 
   // "needs you" is composed from what is already loaded above rather than from
   // its own endpoint — three things this screen holds anyway.
@@ -231,7 +272,28 @@ export default function HomePage() {
                 The feed keeps its place at the bottom, always last. */}
             {isForYou && (
               <>
-                <YourWeek nights={upcomingNights} />
+                {tonightNight ? (
+                  <TonightHero night={tonightNight} onPrimary={() => openNight(tonightNight.id)} />
+                ) : (
+                  <>
+                    <YourWeek nights={upcomingNights} />
+                    {suggestion && (
+                      <TonightHero
+                        suggestion={suggestion}
+                        runtimeLabel={runtimeLabel}
+                        canShuffle={pool.length > 1}
+                        onShuffle={() => setShuffleIdx((i) => i + 1)}
+                        onPrimary={() => openCreate({
+                          film: {
+                            tmdbId: suggestion.tmdbId, mediaType: suggestion.mediaType,
+                            title: suggestion.title, year: suggestion.year,
+                            posterUrl: suggestion.posterUrl, runtime: null,
+                          },
+                        })}
+                      />
+                    )}
+                  </>
+                )}
                 <NeedsYou items={needsYou} />
                 <UnfiledStrip films={unfiledFilms} />
                 <YourLists lists={homeLists} total={allLists.length} />
