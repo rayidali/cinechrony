@@ -304,9 +304,20 @@ export default function HomePage() {
       <PullToRefresh onRefresh={handleRefresh} disabled={searchOpen}>
         <main className="min-h-screen font-ui text-foreground pb-28 md:pb-8">
           <div className="container mx-auto px-[18px] md:px-8 max-w-2xl">
-            <HomeTopBar filter={feedFilter} onSelect={setFeedFilter} scrolled={scrolled} />
+            <HomeTopBar scrolled={scrolled} />
 
-            {/* Search + scan — one rounded unit, scan is the Phase C hook */}
+            {/* The hero slides UP behind the sticky bar so the still runs to
+                the status bar and the bar's glyphs sit on the image — the
+                mockup has no cream band above the hero. The exact offset is the
+                bar's own height (safe-area + its padding + a 40px avatar); the
+                hero's internal pt-24 keeps the type clear of it either way. */}
+            <div style={{ marginTop: 'calc(-1 * (env(safe-area-inset-top, 0px) + 60px))' }}>
+              <TonightHero {...heroProps} />
+            </div>
+
+            {/* Search + scan sits BELOW the hero now. Above it, its cream
+                background put a band between the status bar and the still —
+                the one thing the mockup's home does not have. */}
             <div className="mt-1.5 flex items-center h-12 rounded-[14px] border border-hair bg-sunken overflow-hidden">
               <button
                 onClick={() => setSearchOpen(true)}
@@ -339,7 +350,6 @@ export default function HomePage() {
                 The feed keeps its place at the bottom, always last. */}
             {isForYou && (
               <>
-                <TonightHero {...heroProps} />
                 <NeedsYou items={needsYou} />
                 <UnfiledStrip films={unfiledFilms} />
                 {/* The week strip only when it has something to say: a night
@@ -356,14 +366,28 @@ export default function HomePage() {
 
             {/* The reel */}
             <div className="mt-8 mb-4">
+              {/* The `for you · friends` filter lives HERE now, not in the top
+                  bar. It only ever governed this block, and while it sat as the
+                  app's top-level chrome it was the most prominent control on a
+                  screen where the feed had become the least important thing. */}
               <Section
                 eyebrow="the reel"
                 title="watching lately"
                 trailing={
-                  <span className="inline-flex items-center gap-1.5 font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-success">
-                    <span className="h-1.5 w-1.5 rounded-full bg-success" />
-                    live
-                  </span>
+                  <div className="flex items-center gap-3">
+                    {(['all', 'friends'] as const).map((id) => (
+                      <button
+                        key={id}
+                        onClick={() => { if (feedFilter !== id) haptic('selection'); setFeedFilter(id); }}
+                        className={`font-ui text-[13px] font-semibold lowercase transition-colors ${
+                          feedFilter === id ? 'text-foreground' : 'text-muted-foreground/60'
+                        }`}
+                        aria-current={feedFilter === id ? 'page' : undefined}
+                      >
+                        {id === 'all' ? 'for you' : 'friends'}
+                      </button>
+                    ))}
+                  </div>
                 }
               />
               <div className="mt-3">

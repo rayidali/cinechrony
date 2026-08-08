@@ -400,3 +400,17 @@
     line-height: 1.6;
   }
 }
+
+/* D4.2 — the home top bar floats over the hero image while unscrolled. The
+   bell/theme/avatar are shared components with their own token colours, so
+   rather than teach each one an "over an image" variant, the bar tints its
+   whole cluster white and softens it with a shadow. Reverts the moment the
+   bar frosts on scroll. */
+.cc-over-hero,
+.cc-over-hero * {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.35);
+}
+.cc-over-hero svg {
+  filter: drop-shadow(0 1px 5px rgba(0, 0, 0, 0.55));
+}

@@ -1,7 +1,7 @@
 'use client';
 
+import Image from 'next/image';
 import { cn } from '@/lib/utils';
-import { haptic } from '@/lib/haptics';
 import { Frost } from '@/components/v3/frost';
 import { NotificationBell } from '@/components/notification-bell';
 import { ThemeToggle } from '@/components/theme-toggle';
@@ -9,28 +9,23 @@ import { UserAvatar } from '@/components/user-avatar';
 
 export type HomeFilter = 'all' | 'friends';
 
-const TABS: { id: HomeFilter; label: string }[] = [
-  { id: 'all', label: 'for you' },
-  { id: 'friends', label: 'friends' },
-];
+
 
 /**
- * Home top bar — Phase 0.7 / v3 (`ios-home.jsx::HomeTopBar`).
+ * Home top bar — Phase D4.2.
  *
- * Frosted, scroll-collapsing chrome: `for you · friends` underline tabs
- * (Bricolage 22px, `wdth 95`, film-red underline) + the bell-with-dot and
- * avatar cluster. Transparent until the feed scrolls, then the chrome tint +
- * blur + a 0.5px hairline rule fade in — exactly the design's `scrolled` state.
+ * WHAT CHANGED AND WHY. It used to carry the `for you · friends` underline
+ * tabs, which are the FEED's filter. Once D3 demoted the feed to the bottom of
+ * home, the app's most prominent chrome was controlling its least important
+ * block — and the bar's opaque background put a cream band between the status
+ * bar and the hero image, which is the one thing the owner's mockup does not
+ * have. The tabs moved down to the feed's own header, where they belong.
+ *
+ * It now floats OVER the hero: transparent with white glyphs until the page
+ * scrolls, then the frosted tint and hairline fade in as before. That is what
+ * makes the still run to the top of the screen.
  */
-export function HomeTopBar({
-  filter,
-  onSelect,
-  scrolled,
-}: {
-  filter: HomeFilter;
-  onSelect: (f: HomeFilter) => void;
-  scrolled: boolean;
-}) {
+export function HomeTopBar({ scrolled }: { scrolled: boolean }) {
   return (
     <Frost
       tint={scrolled ? undefined : 'transparent'}
@@ -44,43 +39,27 @@ export function HomeTopBar({
           paddingBottom: '12px',
         }}
       >
-        {/* Underline tabs */}
-        <div className="flex items-center gap-[18px]">
-          {TABS.map((t) => {
-            const active = filter === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                onClick={() => {
-                  if (filter !== t.id) haptic('selection');
-                  onSelect(t.id);
-                }}
-                className="relative py-0.5"
-                aria-current={active ? 'page' : undefined}
-              >
-                <span
-                  className={cn(
-                    'font-headline font-bold text-[22px] lowercase tracking-[-0.035em] transition-colors',
-                    active ? 'text-foreground' : 'text-muted-foreground/60',
-                  )}
-                  style={{ fontVariationSettings: '"wdth" 95' }}
-                >
-                  {t.label}
-                </span>
-                <span
-                  className={cn(
-                    'absolute left-0 right-0 -bottom-[7px] h-[2.5px] rounded-full bg-primary transition-opacity duration-200',
-                    active ? 'opacity-100' : 'opacity-0',
-                  )}
-                />
-              </button>
-            );
-          })}
+        {/* Wordmark — the mockup's left anchor. */}
+        <div className="flex items-center gap-2">
+          <Image
+            src="/brand/cinechrony-logo.png" alt="" width={28} height={28}
+            className="h-7 w-7 rounded-[8px]" unoptimized
+          />
+          <span
+            className={cn(
+              'font-headline font-bold text-[20px] lowercase tracking-[-0.035em] transition-colors',
+              scrolled ? 'text-foreground' : 'text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.5)]',
+            )}
+            style={{ fontVariationSettings: '"wdth" 95' }}
+          >
+            cinechrony
+          </span>
         </div>
 
-        {/* Right cluster — bell (with unread dot) · theme · avatar */}
-        <div className="flex items-center gap-1.5">
+        {/* Right cluster — bell (with unread dot) · theme · avatar.
+            `cc-over-hero` flips the icon colour to white while the bar is
+            transparent; see globals.css. */}
+        <div className={cn('flex items-center gap-1.5', !scrolled && 'cc-over-hero')}>
           <NotificationBell />
           <ThemeToggle />
           <UserAvatar />
