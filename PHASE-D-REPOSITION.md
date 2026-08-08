@@ -177,6 +177,72 @@ films**, so the empty state has to become the grab prompt rather than an
 embarrassed blank. Same rule as every other block — if there is nothing to
 shuffle, the block does not render and the week strip stands in.
 
+### D3.2 / D4.3 — HOME, REDESIGNED AGAIN *(supersedes the hero; not yet built)*
+
+Owner review 2026-08-08, with two new references:
+`../design-refs-2026-08/screens/11-home-v2-calendar.png` and `12-*.png`.
+
+**WHY THE HERO IS BEING REPLACED, not adjusted.** The owner's words: *"i don't
+understand the point of the hero, the fact that i have to manually press
+another one instead of it being a slideshow type, and i have to press that's
+the one to know that it is a movie night thing. sure it looks good but doesn't
+really make sense."* Three distinct faults, and they are not styling:
+
+1. **`another` is a button where it should be a gesture.** A shuffle you have
+   to keep pressing is a slot machine. It should advance on its own or on a
+   swipe — the user should never work to see the next thing.
+2. **`that's the one` does not say what it does.** It opens the movie-night
+   create sheet, which the label gives no hint of. A CTA whose outcome is a
+   surprise is a mislabelled button, and no amount of art direction fixes it.
+3. **The hero is decorative, not functional.** It looks expensive and does
+   almost nothing — one film, one action, a screenful of space. That is the
+   real charge, and it applies to the whole block regardless of the image.
+
+**THE NEW SHAPE.** Home stops being a headline and becomes a *diary*:
+
+```
+[avatar + @handle chip]                    (search)  (bell·)
+
+┌─ august '26                        ‹  › ─┐
+│  m  t  w  t  f  s  s                     │   a REAL month grid.
+│           …                              │   days with activity render a
+│  days with films = poster-tinted tiles   │   poster-tinted tile instead of
+│  today = filled red circle               │   a number. today is red.
+│  "eight films. eleven hours.             │
+│   your best august yet."            08   │
+└──────────────────────────────────────────┘
+
+IDENTIFIED · 6 THIS WEEK              ⇄ shuffle
+fresh from the feed
+[ clip card ][ clip card ][ … ]  ● ○ ○ ○ ○   ← horizontal, paged
+   tiktok badge · title · 2024 · 1h 40m
+   @creator · 2h ago
+
+[ TONIGHT      ] [ view all        23 › ]
+[ past lives   ] [ your saves           ]
+
+                                    (+)  ← yellow FAB
+```
+
+**Why this is better, stated so it is not lost.** The calendar is the reason to
+come back: it accrues. Every film watched makes it denser, and *"your best
+august yet"* is a reward the current home has no equivalent of. "fresh from the
+feed" makes the grab loop VISIBLE — the app's whole pitch, rendered as
+something you swipe. And nothing on the screen requires a friend.
+
+**THE SOCIAL FEED MOVES OFF HOME ENTIRELY.** Owner: *"have a way to integrate
+the existing feed like in a different tab or something."* It is not on either
+reference. Options to decide at build time: a fourth nav tab, or folded into
+the profile/you tab. It must not return to home — D3 demoted it for the
+cold-start reason and this goes further.
+
+**Owner granted creative liberty to add or remove features here.** The calendar
+needs a day→films read that does not exist yet (the watch log is per-user and
+already indexed by `watchedAt`, so it is the natural source); "identified this
+week" comes from extraction jobs; "your saves" is the existing bookmarks
+surface. None of it needs new infrastructure, but the calendar read needs
+designing against the free-tier budget before it is written.
+
 ### D5 — onboarding *(independent; can run parallel with D1–D4)*
 Four screens, one promise and one picture each, ending in the permission
 primer that shows two real notifications *before* the system dialog and whose

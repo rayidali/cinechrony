@@ -61,7 +61,22 @@ function resolveFirestore(firebaseApp: FirebaseApp): Firestore {
   try {
     return initializeFirestore(firebaseApp, {
       localCache: persistentLocalCache({
-        tabManager: persistentMultipleTabManager(),
+        // MULTI-TAB ONLY ON WEB. A Capacitor WKWebView has exactly one "tab",
+        // so the multi-tab manager buys nothing there and costs real work: it
+        // adds cross-tab leader election and extra IndexedDB coordination for a
+        // scenario that cannot occur, which is more surface for WebKit's
+        // "Connection to Indexed Database server lost" — an error the owner hit
+        // in production on 2026-08-08 at `capacitor://localhost/home/`. WebKit
+        // kills IndexedDB connections under memory pressure or on suspend and
+        // does not reconnect, so less machinery holding those connections open
+        // is strictly better on native.
+        //
+        // HONEST ABOUT WHAT THIS IS: shrinking the surface, not a proven fix.
+        // The multi-tab manager was wrong on native regardless of that error,
+        // which is why the change stands on its own; whether it stops the error
+        // is something only the next few days of Sentry can say. Reporting is
+        // deliberately NOT silenced for it.
+        ...(Capacitor.isNativePlatform() ? {} : { tabManager: persistentMultipleTabManager() }),
       }),
       // On a native Capacitor WKWebView, Firestore's default streaming
       // "WebChannel" transport can't establish a connection — every
