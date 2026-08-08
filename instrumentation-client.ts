@@ -8,7 +8,24 @@ import * as Sentry from '@sentry/nextjs';
 
 const dsn = process.env.NEXT_PUBLIC_SENTRY_DSN;
 
-if (dsn) {
+// Development is EXCLUDED (2026-08-08). Build 9 put the DSN into `.env.local`
+// — correctly, to fix error reporting being inert on device — and the
+// unnoticed side effect was that every local `npm run dev` has been posting to
+// the owner's Sentry as `environment: development` ever since. The issue that
+// exposed it was a hydration warning from a throwaway fixture route that never
+// left one machine.
+//
+// A monitoring channel that fills with local noise is a channel you learn to
+// scroll past, which is the same mechanism as every other signal-honesty
+// finding in this repo: the alert still fires, it just stops meaning anything.
+// Set NEXT_PUBLIC_SENTRY_DEV=1 to opt a dev session back in deliberately.
+//
+// The native build is unaffected either way: `build:static` runs with
+// NODE_ENV=production, so a device build still reports.
+const devOptIn = process.env.NEXT_PUBLIC_SENTRY_DEV === '1';
+const enabled = !!dsn && (process.env.NODE_ENV !== 'development' || devOptIn);
+
+if (enabled) {
   Sentry.init({
     dsn,
     // Low trace sample — enough to spot slow transactions without cost. Bump if
