@@ -10,7 +10,7 @@ import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
 import { ActivityFeed } from '@/components/activity-feed';
 import {
-  YourWeek, NeedsYou, UnfiledStrip, YourLists, TonightHero, useUnfiledFilms,
+  YourWeek, NeedsYou, UnfiledStrip, TonightHero, useUnfiledFilms,
   type NeedsYouItem,
 } from '@/components/home/home-blocks';
 import { PullToRefresh } from '@/components/pull-to-refresh';
@@ -24,7 +24,6 @@ import { MovieModalProvider } from '@/contexts/movie-modal-context';
 import { useMovieNight } from '@/components/movie-night/movie-night-provider';
 import { formatNightTimeLabel } from '@/lib/movie-night-format';
 import type { MovieNightView } from '@/lib/movie-night-types';
-import type { ListSummary } from '@/lib/lists-server';
 import type { ListInvite } from '@/lib/types';
 import type { TonightFilm } from '@/lib/tonight-server';
 import { getMovieOrTVDetails } from '@/lib/tmdb-details-cache';
@@ -122,19 +121,6 @@ export default function HomePage() {
     { staleTime: 120_000 },
   );
 
-  const listsResult = useCachedAction<{ lists: ListSummary[] }>(
-    user ? `own-lists:${user.uid}` : null,
-    () => apiCall<{ lists: ListSummary[] }>('GET', '/api/v1/lists'),
-    { staleTime: 120_000 },
-  );
-  const allLists = useMemo(() => listsResult.data?.lists ?? [], [listsResult.data]);
-  const homeLists = useMemo(
-    () => allLists.slice(0, 6).map((l) => ({
-      id: l.id, name: l.name, movieCount: l.movieCount, coverImageUrl: l.coverImageUrl,
-    })),
-    [allLists],
-  );
-
   const unfiledFilms = useUnfiledFilms();
 
   // ── D4 — the tonight hero ──────────────────────────────────────────────
@@ -214,6 +200,87 @@ export default function HomePage() {
     return out;
   }, [upcomingNights, invitesResult.data, unfiledFilms, user?.uid, openNight, router]);
 
+  // ── which hero ─────────────────────────────────────────────────────────
+  // One decision, made once, rather than three branches in the JSX. Order is a
+  // product claim: a plan beats a suggestion, and a suggestion beats a pitch.
+  const heroFilm = tonightNight
+    ? { tmdbId: tonightNight.film.tmdbId, mediaType: tonightNight.film.mediaType }
+    : suggestion
+      ? { tmdbId: suggestion.tmdbId, mediaType: suggestion.mediaType }
+      : null;
+  const [heroBackdrop, setHeroBackdrop] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    setHeroBackdrop(null);
+    if (!heroFilm) return;
+    (async () => {
+      // Client-direct + module-cached: the hero's image costs no Firestore read.
+      const d = await getMovieOrTVDetails(heroFilm.mediaType, heroFilm.tmdbId);
+      if (cancelled || !d) return;
+      const path = 'backdrop_path' in d ? (d as { backdrop_path?: string | null }).backdrop_path : null;
+      if (path) setHeroBackdrop(`https://image.tmdb.org/t/p/w780${path}`);
+      const mins = 'runtime' in d && typeof d.runtime === 'number' ? d.runtime : null;
+      if (mins) setRuntimeLabel(`${Math.floor(mins / 60)}h ${mins % 60}m`);
+    })();
+    return () => { cancelled = true; };
+  }, [heroFilm?.tmdbId, heroFilm?.mediaType]);
+
+  const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' }).toLowerCase();
+  const heroProps = tonightNight
+    ? {
+        kind: 'night' as const,
+        eyebrow: `tonight · ${weekday}`,
+        title: tonightNight.film.title,
+        line: [
+          formatNightTimeLabel(tonightNight.scheduledFor, tonightNight.tzOffsetMinutes, tonightNight.timeTbd),
+          tonightNight.invitees.filter((i) => i.answer === 'in').length
+            ? `${tonightNight.invitees.filter((i) => i.answer === 'in').length} in`
+            : null,
+        ].filter(Boolean).join(' · '),
+        backdropUrl: heroBackdrop,
+        seed: tonightNight.id,
+        primaryLabel: 'see the night',
+        primaryIcon: 'calendar' as const,
+        onPrimary: () => openNight(tonightNight.id),
+      }
+    : suggestion
+      ? {
+          kind: 'suggestion' as const,
+          eyebrow: `tonight · ${weekday}`,
+          title: suggestion.title,
+          line: [
+            suggestion.listCount > 0 ? `on ${suggestion.listCount} of your lists` : 'waiting in unfiled',
+            suggestion.year || null,
+            runtimeLabel,
+          ].filter(Boolean).join(' · '),
+          backdropUrl: heroBackdrop,
+          seed: String(suggestion.tmdbId),
+          primaryLabel: "that's the one",
+          primaryIcon: 'check' as const,
+          onPrimary: () => openCreate({
+            film: {
+              tmdbId: suggestion.tmdbId, mediaType: suggestion.mediaType,
+              title: suggestion.title, year: suggestion.year,
+              posterUrl: suggestion.posterUrl, runtime: null,
+            },
+          }),
+          onShuffle: pool.length > 1 ? () => setShuffleIdx((i) => i + 1) : undefined,
+        }
+      : {
+          // Nothing planned, nothing saved: a brand-new account. Showing it an
+          // empty calendar was the cold-start failure this phase exists to fix,
+          // so the hero becomes the pitch and the one button that starts the loop.
+          kind: 'first-run' as const,
+          eyebrow: 'start here',
+          title: 'share the reel.\nkeep the film.',
+          line: 'hit share on any tiktok, reel or short and cinechrony pulls the films out of it.',
+          backdropUrl: null,
+          seed: user?.uid ?? 'cinechrony',
+          primaryLabel: 'scan a reel',
+          primaryIcon: 'scan' as const,
+          onPrimary: () => { haptic('selection'); router.push('/extract'); },
+        };
+
   const handleRefresh = useCallback(async () => {
     setRefreshKey((prev) => prev + 1);
     await new Promise((resolve) => setTimeout(resolve, 500));
@@ -272,31 +339,18 @@ export default function HomePage() {
                 The feed keeps its place at the bottom, always last. */}
             {isForYou && (
               <>
-                {tonightNight ? (
-                  <TonightHero night={tonightNight} onPrimary={() => openNight(tonightNight.id)} />
-                ) : (
-                  <>
-                    <YourWeek nights={upcomingNights} />
-                    {suggestion && (
-                      <TonightHero
-                        suggestion={suggestion}
-                        runtimeLabel={runtimeLabel}
-                        canShuffle={pool.length > 1}
-                        onShuffle={() => setShuffleIdx((i) => i + 1)}
-                        onPrimary={() => openCreate({
-                          film: {
-                            tmdbId: suggestion.tmdbId, mediaType: suggestion.mediaType,
-                            title: suggestion.title, year: suggestion.year,
-                            posterUrl: suggestion.posterUrl, runtime: null,
-                          },
-                        })}
-                      />
-                    )}
-                  </>
-                )}
+                <TonightHero {...heroProps} />
                 <NeedsYou items={needsYou} />
                 <UnfiledStrip films={unfiledFilms} />
-                <YourLists lists={homeLists} total={allLists.length} />
+                {/* The week strip only when it has something to say: a night
+                    later this week. With a night TONIGHT the hero already is
+                    the week's headline, and with no nights at all it is seven
+                    empty circles pretending to be information.
+                    `your lists` is gone from home entirely — there is a lists
+                    tab one thumb away, and duplicating it here bought nothing. */}
+                {!tonightNight && upcomingNights.length > 0 && (
+                  <YourWeek nights={upcomingNights} />
+                )}
               </>
             )}
 

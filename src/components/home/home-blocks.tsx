@@ -24,8 +24,8 @@
 import { useMemo } from 'react';
 import Image from 'next/image';
 import { collection, query, limit } from 'firebase/firestore';
-import { ChevronRight, CalendarDays, Check, Shuffle } from 'lucide-react';
-import { Link, useRouter } from '@/lib/native-nav';
+import { ChevronRight, CalendarDays, Check, Shuffle, ScanLine } from 'lucide-react';
+import { useRouter } from '@/lib/native-nav';
 import { useUser, useFirestore, useCollection, useMemoFirebase } from '@/firebase';
 import { seededGradient } from '@/lib/seeded-gradient';
 import { haptic } from '@/lib/haptics';
@@ -235,131 +235,100 @@ export function UnfiledStrip({ films }: { films: Movie[] }) {
   );
 }
 
-// ── your lists ───────────────────────────────────────────────────────────
-
-export type HomeList = {
-  id: string;
-  name: string;
-  movieCount: number;
-  coverImageUrl: string | null;
-};
-
-export function YourLists({ lists, total }: { lists: HomeList[]; total: number }) {
-  if (!lists.length) return null;
-  return (
-    <section className="mt-7">
-      <BlockHead label="your lists" count={total} />
-      <div className="-mx-[18px] mt-2.5 flex gap-3 overflow-x-auto px-[18px] pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-        {lists.map((l) => (
-          <Link
-            key={l.id}
-            href={`/lists/${l.id}`}
-            onClick={() => haptic('light')}
-            className="w-[148px] flex-shrink-0 active:opacity-70"
-          >
-            <div className="relative h-[100px] w-full overflow-hidden rounded-[14px] bg-sunken">
-              {l.coverImageUrl ? (
-                <Image src={l.coverImageUrl} alt="" fill className="object-cover" sizes="148px" unoptimized />
-              ) : (
-                <div className="absolute inset-0" style={{ background: seededGradient(l.id) }} />
-              )}
-            </div>
-            <div className="mt-1.5 truncate font-headline text-[15px] font-bold lowercase">{l.name}</div>
-            <div className="font-mono text-[11px] text-muted-foreground">
-              {l.movieCount} film{l.movieCount === 1 ? '' : 's'}
-            </div>
-          </Link>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 // ── tonight ──────────────────────────────────────────────────────────────
 
 /**
- * The hero (Phase D4, `screens/03-home-tonight-hero.png`).
+ * The hero (Phase D4, revised D4.1 after owner review).
  *
- * TWO VARIANTS, because "tonight" means two different things:
- *   · a night IS scheduled tonight → show THAT. There is nothing to suggest;
- *     the decision is made and the hero's job is to make it tappable.
- *   · no night tonight → suggest a film from your lists, with `another` to
- *     reshuffle. This is the app's stated point ("finally answer what should
- *     we watch?", onboarding 03) so it earns the top of the screen.
+ * WHAT THE FIRST VERSION GOT WRONG. It was correct and lifeless: an eyebrow, a
+ * black headline on cream paper, two buttons. The owner's mockup is a
+ * FULL-BLEED CINEMATIC PANEL — the film's own backdrop under a dark scrim with
+ * the type sitting on the image. That difference is the whole feeling of the
+ * screen, and building the information architecture while skipping the art
+ * direction produced an admin dashboard for a film app.
  *
- * WHAT IT WILL NOT SAY. The mockup's line is "on three of your lists. sam,
- * mara and theo are all free." Only the first half is real — there is no
- * availability model here, and a confident fabrication on the front page is
- * worse than a shorter sentence. Runtime comes from the client-direct TMDB
- * cache for the one film on screen, so it costs no Firestore read.
+ * So: edge-to-edge image, ~50vh, scrim, huge lowercase type over it. The
+ * backdrop is fetched CLIENT-DIRECT from the module-cached TMDB helper (no
+ * Firestore read), and the panel degrades to a seeded gradient rather than
+ * collapsing when a film has no backdrop — every film gets a hero, none of them
+ * get a grey box.
  *
- * Renders nothing when there is nothing to say, like every block on this
- * screen — a new account with no films sees the week strip, not an
- * embarrassed empty hero.
+ * THREE STATES, one component:
+ *   · a night tonight  → the plan, made tappable
+ *   · a suggestion     → the question the app exists to answer, with a reshuffle
+ *   · nothing at all   → the pitch. A brand-new account has no films, no nights
+ *                        and no friends; showing it an empty calendar is the
+ *                        cold-start failure this phase exists to fix, so the
+ *                        hero becomes "share a reel, keep the film" with the
+ *                        one button that starts the loop.
  */
 export function TonightHero({
-  night, suggestion, runtimeLabel, onPrimary, onShuffle, canShuffle,
+  kind, eyebrow, title, line, backdropUrl, seed,
+  primaryLabel, primaryIcon, onPrimary, onShuffle,
 }: {
-  night?: MovieNightView | null;
-  suggestion?: { title: string; year: string; listCount: number } | null;
-  runtimeLabel?: string | null;
+  kind: 'night' | 'suggestion' | 'first-run';
+  eyebrow: string;
+  title: string;
+  line?: string | null;
+  backdropUrl?: string | null;
+  seed: string;
+  primaryLabel: string;
+  primaryIcon: 'calendar' | 'check' | 'scan';
   onPrimary: () => void;
   onShuffle?: () => void;
-  canShuffle?: boolean;
 }) {
-  const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' }).toLowerCase();
-  const title = night ? night.film.title : suggestion?.title;
-  if (!title) return null;
-
-  const because = night
-    ? [
-        formatNightTimeLabel(night.scheduledFor, night.tzOffsetMinutes, night.timeTbd),
-        night.invitees.filter((i) => i.answer === 'in').length
-          ? `${night.invitees.filter((i) => i.answer === 'in').length} in`
-          : null,
-      ].filter(Boolean).join(' · ')
-    : [
-        // "lists" stays plural at any count: the noun is the collection being
-        // counted from, not the count itself. "on 1 of your list" is wrong.
-        suggestion && suggestion.listCount > 0
-          ? `on ${suggestion.listCount} of your lists`
-          : 'waiting in unfiled',
-        suggestion?.year || null,
-        runtimeLabel || null,
-      ].filter(Boolean).join(' · ');
-
+  const Icon = primaryIcon === 'calendar' ? CalendarDays : primaryIcon === 'scan' ? ScanLine : Check;
   return (
-    <section className="mt-6">
-      <div className="cc-eyebrow flex items-center gap-1.5 text-primary">
-        <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-        tonight · {weekday}
-      </div>
-      <h2 className="mt-1.5 font-headline text-[32px] font-bold lowercase leading-[0.98] tracking-[-0.02em]">
-        {title}
-      </h2>
-      {because && (
-        <p className="mt-1.5 font-serif italic text-[14px] leading-snug text-muted-foreground">
-          {because}
-        </p>
-      )}
-      <div className="mt-3.5 flex items-center gap-2.5">
-        <button
-          onClick={() => { haptic('medium'); onPrimary(); }}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 font-ui text-[15px] font-semibold lowercase text-primary-foreground shadow-fab active:opacity-80"
-        >
-          {night ? <CalendarDays className="h-4 w-4" strokeWidth={2.2} />
-                 : <Check className="h-4 w-4" strokeWidth={2.6} />}
-          {night ? 'see the night' : "that's the one"}
-        </button>
-        {!night && canShuffle && (
-          <button
-            onClick={() => { haptic('light'); onShuffle?.(); }}
-            className="inline-flex items-center gap-2 rounded-full border border-border px-5 py-3 font-ui text-[15px] font-semibold lowercase active:opacity-60"
-          >
-            <Shuffle className="h-4 w-4" strokeWidth={2} />
-            another
-          </button>
+    // Breaks the page container's horizontal padding on purpose — a hero that
+    // stops 18px short of the edge is a card, not a hero.
+    <section className="relative -mx-[18px] mb-1 md:-mx-8">
+      <div className="relative min-h-[46vh] w-full overflow-hidden">
+        {backdropUrl ? (
+          <Image src={backdropUrl} alt="" fill priority className="object-cover" sizes="100vw" unoptimized />
+        ) : (
+          <div className="absolute inset-0" style={{ background: seededGradient(seed, 165) }} />
         )}
+        {/* Two scrims, not one: a flat wash for overall legibility and a bottom
+            ramp so the type never fights a bright patch of the still. */}
+        <div className="absolute inset-0 bg-black/35" />
+        <div
+          className="absolute inset-0"
+          style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.88) 0%, rgba(0,0,0,0.45) 38%, rgba(0,0,0,0) 72%)' }}
+        />
+
+        <div className="relative flex min-h-[46vh] flex-col justify-end px-[18px] pb-6 pt-24 md:px-8">
+          <div className="cc-eyebrow flex items-center gap-1.5 text-white/80">
+            {kind !== 'first-run' && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
+            {eyebrow}
+          </div>
+          <h2 className="mt-2 font-headline text-[38px] font-bold lowercase leading-[0.94] tracking-[-0.03em] text-white [text-wrap:balance]">
+            {title}
+          </h2>
+          {line && (
+            <p className="mt-2.5 max-w-[92%] font-serif italic text-[15px] leading-snug text-white/75">
+              {line}
+            </p>
+          )}
+          <div className="mt-5 flex items-center gap-2.5">
+            <button
+              onClick={() => { haptic('medium'); onPrimary(); }}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3.5 font-ui text-[15px] font-semibold lowercase text-primary-foreground shadow-fab active:opacity-80"
+            >
+              <Icon className="h-[17px] w-[17px]" strokeWidth={2.2} />
+              {primaryLabel}
+            </button>
+            {onShuffle && (
+              <button
+                onClick={() => { haptic('light'); onShuffle(); }}
+                aria-label="another film"
+                className="inline-flex items-center gap-2 rounded-full border border-white/30 bg-white/10 px-5 py-3.5 font-ui text-[15px] font-semibold lowercase text-white backdrop-blur-md active:opacity-60"
+              >
+                <Shuffle className="h-[17px] w-[17px]" strokeWidth={2} />
+                another
+              </button>
+            )}
+          </div>
+        </div>
       </div>
     </section>
   );
