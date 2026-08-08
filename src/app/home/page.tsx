@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, ScanLine } from 'lucide-react';
 import { useUser } from '@/firebase';
@@ -8,15 +8,10 @@ import { apiCall } from '@/lib/api-client';
 import { useCachedAction } from '@/lib/use-cached-action';
 import { useToast } from '@/hooks/use-toast';
 import { haptic } from '@/lib/haptics';
-import type { DigInCategory } from '@/lib/tmdb-client';
-import { DigIn } from '@/components/dig-in';
-import { TopWatchers } from '@/components/top-watchers';
-import { FeaturedCarousel } from '@/components/featured-carousel';
-import { CommunityLists } from '@/components/community-lists';
-import { DigInAll } from '@/components/dig-in-all';
-import { TopWatchersAll } from '@/components/top-watchers-all';
-import { CommunityListsAll } from '@/components/community-lists-all';
 import { ActivityFeed } from '@/components/activity-feed';
+import {
+  YourWeek, NeedsYou, UnfiledStrip, YourLists, useUnfiledFilms, type NeedsYouItem,
+} from '@/components/home/home-blocks';
 import { PullToRefresh } from '@/components/pull-to-refresh';
 import { SearchOverlay } from '@/components/search-overlay';
 import { PostFab } from '@/components/post-fab';
@@ -25,16 +20,34 @@ import { PresencePill } from '@/components/presence-pill';
 import { Section } from '@/components/v3/section';
 import { HomeSkeleton } from '@/components/page-skeletons';
 import { MovieModalProvider } from '@/contexts/movie-modal-context';
+import { useMovieNight } from '@/components/movie-night/movie-night-provider';
+import { formatNightTimeLabel } from '@/lib/movie-night-format';
+import type { MovieNightView } from '@/lib/movie-night-types';
+import type { ListSummary } from '@/lib/lists-server';
+import type { ListInvite } from '@/lib/types';
 
 
 /**
- * Home — the unified editorial feed, v3 iOS-native (Phase 0.7.3.1, `ios-home.jsx`).
+ * Home — ONE screen whose blocks appear only when they have something to say
+ * (Phase D3; `../design-refs-2026-08/screens/03-05*.png`).
  *
- * Frosted scroll-collapsing top bar (`for you · friends` underline tabs + bell +
- * avatar) → search + `scan` row → discovery rail (`TrendingStrip`, for-you only)
- * → "the reel" (presence pill + the `DiaryEntry` feed). The full discovery rails
- * (dig in / leaderboard / featured / lists-for-you) land in slice c — they need
- * the 0.7.5 backend; the feed below is the existing real-data `ActivityFeed`.
+ *   top bar · search + scan
+ *   your week          the seven-day strip, and the soonest night
+ *   needs you · n      only when something is actually waiting on you
+ *   unfiled · n        only when the pen is non-empty
+ *   your lists
+ *   the feed           always, and ALWAYS last
+ *
+ * WHY THAT ORDER. Everything above the feed works with zero friends on day one;
+ * the feed does not. Home previously led with `for you · friends` tabs and four
+ * discovery rails, which is a cold-start product wearing a movie app's clothes:
+ * a new account opened to a follow-graph surface with nothing in it. The rails
+ * were not deleted — they moved to the search overlay's discover pane, since
+ * unlike the feed they are global rather than follow-graph and remain the only
+ * thing with real content for someone who has grabbed nothing yet.
+ *
+ * The three mockups are three STATES of this screen, not three screens (owner
+ * decision, 2026-08-07). Blocks live in `components/home/home-blocks.tsx`.
  */
 export default function HomePage() {
   const { user, isUserLoading } = useUser();
@@ -45,10 +58,6 @@ export default function HomePage() {
   const [searchOpen, setSearchOpen] = useState(false);
   const [feedFilter, setFeedFilter] = useState<HomeFilter>('all');
   const [scrolled, setScrolled] = useState(false);
-  // Which rail "view all" detail screen is open (F15/F16/F17).
-  const [detail, setDetail] = useState<null | 'dig-in' | 'top-watchers' | 'community'>(null);
-  // The dig-in category to open the F15 grid on (a tile tap or "view all").
-  const [digInTab, setDigInTab] = useState<DigInCategory>('trending');
 
   useEffect(() => {
     if (!isUserLoading && !user) {
@@ -79,6 +88,90 @@ export default function HomePage() {
     { staleTime: 300_000 }, // follow set changes rarely — 5 min
   );
   const followingIds = followingResult.data ?? [];
+
+  // ── D3 block data ──────────────────────────────────────────────────────
+  // Every source here is either already on this screen or a live listener on
+  // the caller's own docs. Nothing new is fetched per render: the nights key is
+  // the SAME one `activity-feed.tsx` writes (`home-mn-upcoming:{uid}`), so the
+  // week strip and the feed's night card share one request rather than racing
+  // two — this is a free-tier project and the read budget is the constraint
+  // (see [[project_quota_read_reduction]]).
+  // The key is deliberately STABLE (no refresh token folded in): folding one in
+  // would mint a different key per mutation and stop sharing with the feed,
+  // which is the entire point. The cost is that a night mutated in the detail
+  // sheet reaches the week strip on the next revalidation rather than instantly
+  // — acceptable, because the sheet the user just acted in already shows the
+  // truth, and the strip is a calendar, not a confirmation.
+  const { openNight } = useMovieNight();
+  const nightsResult = useCachedAction<MovieNightView[]>(
+    user ? `home-mn-upcoming:${user.uid}` : null,
+    () => apiCall<MovieNightView[]>('GET', '/api/v1/movie-nights/upcoming'),
+    { staleTime: 60_000 },
+  );
+  const upcomingNights = useMemo(
+    () => (nightsResult.data ?? []).filter((n) => n.status === 'proposed'),
+    [nightsResult.data],
+  );
+
+  const invitesResult = useCachedAction<{ invites: ListInvite[] }>(
+    user ? `home-invites:${user.uid}` : null,
+    () => apiCall<{ invites: ListInvite[] }>('GET', '/api/v1/me/invites'),
+    { staleTime: 120_000 },
+  );
+
+  const listsResult = useCachedAction<{ lists: ListSummary[] }>(
+    user ? `own-lists:${user.uid}` : null,
+    () => apiCall<{ lists: ListSummary[] }>('GET', '/api/v1/lists'),
+    { staleTime: 120_000 },
+  );
+  const allLists = useMemo(() => listsResult.data?.lists ?? [], [listsResult.data]);
+  const homeLists = useMemo(
+    () => allLists.slice(0, 6).map((l) => ({
+      id: l.id, name: l.name, movieCount: l.movieCount, coverImageUrl: l.coverImageUrl,
+    })),
+    [allLists],
+  );
+
+  const unfiledFilms = useUnfiledFilms();
+
+  // "needs you" is composed from what is already loaded above rather than from
+  // its own endpoint — three things this screen holds anyway.
+  const needsYou: NeedsYouItem[] = useMemo(() => {
+    const out: NeedsYouItem[] = [];
+    for (const n of upcomingNights) {
+      // Only nights actually awaiting THIS user's answer. A night you have
+      // already RSVP'd to is not an action, it is a plan.
+      const mine = n.invitees.find((i) => i.uid === user?.uid);
+      if (mine && !mine.answer) {
+        out.push({
+          id: `mn_${n.id}`, kind: 'movie-night', eyebrow: 'movie night',
+          title: n.film.title,
+          meta: formatNightTimeLabel(n.scheduledFor, n.tzOffsetMinutes, n.timeTbd),
+          cta: 'are you in?',
+          onPress: () => openNight(n.id),
+        });
+      }
+    }
+    for (const inv of invitesResult.data?.invites ?? []) {
+      out.push({
+        id: `inv_${inv.id}`, kind: 'list-invite', eyebrow: 'list invite',
+        title: inv.listName ?? 'a list',
+        meta: inv.inviterUsername ? `@${inv.inviterUsername} added you` : undefined,
+        cta: 'have a look',
+        onPress: () => router.push('/notifications'),
+      });
+    }
+    if (unfiledFilms.length) {
+      out.push({
+        id: 'unfiled', kind: 'unfiled', eyebrow: 'unfiled',
+        title: 'give them a home',
+        meta: `${unfiledFilms.length} film${unfiledFilms.length === 1 ? '' : 's'} waiting`,
+        cta: 'file them',
+        onPress: () => router.push('/unfiled'),
+      });
+    }
+    return out;
+  }, [upcomingNights, invitesResult.data, unfiledFilms, user?.uid, openNight, router]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshKey((prev) => prev + 1);
@@ -129,28 +222,19 @@ export default function HomePage() {
               </button>
             </div>
 
-            {/* Discovery rails — for-you only (real data; each rail hides when
-                empty). Order matches the design: dig in → top watchers →
-                featured hero → from the community. */}
+            {/* ── Phase D3 — the blocks that work with zero friends ──
+                Each renders only when it has something to say (see
+                home-blocks.tsx). The discovery rails that used to sit here
+                moved into the search overlay's discover state: they are global
+                rather than follow-graph, so they still have content on day one
+                — they just stopped competing with the grab for the front door.
+                The feed keeps its place at the bottom, always last. */}
             {isForYou && (
               <>
-                <div className="mt-5">
-                  <DigIn
-                    onViewAll={(cat) => {
-                      setDigInTab(cat ?? 'trending');
-                      setDetail('dig-in');
-                    }}
-                  />
-                </div>
-                <div className="mt-7">
-                  <TopWatchers onViewAll={() => setDetail('top-watchers')} />
-                </div>
-                <div className="mt-7">
-                  <FeaturedCarousel />
-                </div>
-                <div className="mt-7">
-                  <CommunityLists onViewAll={() => setDetail('community')} />
-                </div>
+                <YourWeek nights={upcomingNights} />
+                <NeedsYou items={needsYou} />
+                <UnfiledStrip films={unfiledFilms} />
+                <YourLists lists={homeLists} total={allLists.length} />
               </>
             )}
 
@@ -188,11 +272,8 @@ export default function HomePage() {
       {/* Fullscreen search */}
       <SearchOverlay isOpen={searchOpen} onClose={() => setSearchOpen(false)} />
 
-      {/* Rail "view all" detail screens (F15/F16/F17). Rendered OUTSIDE
-          PullToRefresh — a transform on an ancestor breaks their position:fixed. */}
-      <DigInAll isOpen={detail === 'dig-in'} initialTab={digInTab} onClose={() => setDetail(null)} />
-      <TopWatchersAll isOpen={detail === 'top-watchers'} onClose={() => setDetail(null)} />
-      <CommunityListsAll isOpen={detail === 'community'} onClose={() => setDetail(null)} />
+      {/* The discovery rails and their "view all" screens moved to the search
+          overlay's discover pane in D3 — see the comment at their new home. */}
     </MovieModalProvider>
   );
 }

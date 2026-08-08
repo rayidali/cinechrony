@@ -26,6 +26,14 @@ import { VIBES, type Vibe } from '@/lib/vibes';
 import { ProfileAvatar } from '@/components/profile-avatar';
 import { PublicMovieDetailsModal } from '@/components/public-movie-details-modal';
 import { Segmented } from '@/components/v3/segmented';
+import { DigIn } from '@/components/dig-in';
+import { TopWatchers } from '@/components/top-watchers';
+import { FeaturedCarousel } from '@/components/featured-carousel';
+import { CommunityLists } from '@/components/community-lists';
+import { DigInAll } from '@/components/dig-in-all';
+import { TopWatchersAll } from '@/components/top-watchers-all';
+import { CommunityListsAll } from '@/components/community-lists-all';
+import type { DigInCategory } from '@/lib/tmdb-client';
 import { FilmGridTile } from '@/components/v3/film-grid-tile';
 import type { SearchResult, UserProfile, Movie } from '@/lib/types';
 
@@ -440,6 +448,11 @@ function DiscoverView({
   onOpenFilm: (f: SearchResult) => void;
   onVibe: (v: Vibe) => void;
 }) {
+  // Which rail "view all" screen is open. Owned here rather than by
+  // SearchOverlay because the rails are this pane's content.
+  const [railDetail, setRailDetail] = useState<null | 'dig-in' | 'top-watchers' | 'community'>(null);
+  const [digInTab, setDigInTab] = useState<DigInCategory>('trending');
+
   if (loading) {
     return (
       <div className="flex justify-center pt-28">
@@ -450,6 +463,38 @@ function DiscoverView({
 
   return (
     <div className="space-y-9 pt-4">
+      {/* ── Phase D3 — the discovery rails moved here from home ──
+          They came OFF home because home now leads with the things that work
+          with zero friends on day one (grab → unfiled → lists → plan) and the
+          rails were competing with that for the front door. They were NOT
+          deleted, because unlike the feed they are global rather than
+          follow-graph: for a user who has grabbed nothing yet these are the
+          only surfaces with real content in them. This pane is the app's
+          explore surface, so this is where they belong.
+          The rails' own "view all" screens (F15/F16/F17) still live on home,
+          which owns that overlay state — tapping through from here is a
+          fast-follow, so each rail is given no `onViewAll` and simply renders
+          its shelf rather than a dead affordance. */}
+      <div className="px-4">
+        <DigIn onViewAll={(cat) => { setDigInTab(cat ?? 'trending'); setRailDetail('dig-in'); }} />
+      </div>
+      <div className="px-4">
+        <TopWatchers onViewAll={() => setRailDetail('top-watchers')} />
+      </div>
+      <div className="px-4">
+        <FeaturedCarousel />
+      </div>
+      <div className="px-4">
+        <CommunityLists onViewAll={() => setRailDetail('community')} />
+      </div>
+
+      {/* The rails' "view all" screens travelled with them off home. They are
+          `position: fixed` full-screen layers, so they must not sit under any
+          transformed ancestor — this pane has none. */}
+      <DigInAll isOpen={railDetail === 'dig-in'} initialTab={digInTab} onClose={() => setRailDetail(null)} />
+      <TopWatchersAll isOpen={railDetail === 'top-watchers'} onClose={() => setRailDetail(null)} />
+      <CommunityListsAll isOpen={railDetail === 'community'} onClose={() => setRailDetail(null)} />
+
       {/* RECOMMENDED FOR YOU */}
       {recs.length > 0 && (
         <section>
